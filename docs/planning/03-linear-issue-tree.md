@@ -509,6 +509,21 @@ Acceptance criteria:
 - richer dashboards/analytics remain in roadmap
 - baseline OTEL support stays separate from product-grade observability
 
+## Linear Import Order
+
+When creating or resyncing this issue tree in Linear, import issues in this order:
+
+1. `FND-01` through `FND-04`
+2. `KRN-01` through `KRN-09`
+3. `CFG-01` through `CFG-04`
+4. `INF-01` through `INF-06`
+5. `CAP-01` through `CAP-07`
+6. `TRN-01` through `TRN-03`
+7. `CTL-01` through `CTL-07`
+8. `DEF-01` through `DEF-06`
+
+Within each epic, preserve the written order so dependency links can be created cleanly as the issues are entered.
+
 ## Suggested Initial Implementation Order
 
 1. `FND-01` to `FND-04`

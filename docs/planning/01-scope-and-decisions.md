@@ -12,12 +12,15 @@ Planning should optimize for long-term maintainability and eventual public usabi
 
 These inputs are treated as normative during planning:
 
-- Current repo positioning: [README.md](/C:/Users/neill/.codex/worktrees/9a86/generic-ai/README.md)
+- Repo entrypoint: [README.md](../../README.md)
+- Active planning baseline: this document plus `02-architecture.md`, `03-linear-issue-tree.md`, and `04-agent-ready-mapping.md`
 - `pi`/`pi-mono`: [pi-mono repository](https://github.com/badlogic/pi-mono)
 - Agent Skills: [specification](https://agentskills.io/specification) and [client implementation guide](https://agentskills.io/client-implementation/adding-skills-support)
 - Hono: [documentation](https://hono.dev/)
 - MCP: [Model Context Protocol docs](https://modelcontextprotocol.io/)
 - Agent readiness baseline: [agent-ready repository](https://github.com/robotlearning123/agent-ready/tree/main)
+
+Anything outside that baseline should be treated as non-authoritative for reimplementation planning unless it is explicitly promoted into the planning pack.
 
 
 ## Core Product Decision
