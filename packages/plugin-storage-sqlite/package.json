@@ -1,0 +1,18 @@
+{
+  "name": "@generic-ai/plugin-storage-sqlite",
+  "version": "0.0.0",
+  "description": "Durable SQLite-backed storage implementation for Generic AI. Default local persistence for the starter preset.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

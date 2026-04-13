@@ -1,0 +1,18 @@
+{
+  "name": "@generic-ai/plugin-queue-memory",
+  "version": "0.0.0",
+  "description": "In-process queue plugin for Generic AI. Provides the async execution path for local development and tests.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

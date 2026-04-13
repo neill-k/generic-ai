@@ -1,0 +1,18 @@
+{
+  "name": "@generic-ai/plugin-storage-memory",
+  "version": "0.0.0",
+  "description": "In-memory storage implementation for Generic AI. Intended for tests and fast local iteration.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

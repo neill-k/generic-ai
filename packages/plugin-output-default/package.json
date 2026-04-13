@@ -1,0 +1,18 @@
+{
+  "name": "@generic-ai/plugin-output-default",
+  "version": "0.0.0",
+  "description": "Default output/finalization plugin for Generic AI. Keeps final response shaping out of the kernel.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

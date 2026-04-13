@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/sdk" },
+    { "path": "packages/preset-starter-hono" },
+    { "path": "packages/plugin-config-yaml" },
+    { "path": "packages/plugin-workspace-fs" },
+    { "path": "packages/plugin-storage-memory" },
+    { "path": "packages/plugin-storage-sqlite" },
+    { "path": "packages/plugin-queue-memory" },
+    { "path": "packages/plugin-logging-otel" },
+    { "path": "packages/plugin-tools-terminal" },
+    { "path": "packages/plugin-tools-files" },
+    { "path": "packages/plugin-mcp" },
+    { "path": "packages/plugin-agent-skills" },
+    { "path": "packages/plugin-delegation" },
+    { "path": "packages/plugin-messaging" },
+    { "path": "packages/plugin-memory-files" },
+    { "path": "packages/plugin-output-default" },
+    { "path": "packages/plugin-hono" }
+  ]
+}

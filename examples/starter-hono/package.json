@@ -1,0 +1,8 @@
+{
+  "name": "@generic-ai/example-starter-hono",
+  "version": "0.0.0",
+  "description": "Runnable reference example for the Generic AI starter preset. Intentionally private: this example is never published to npm. TRN-03 will build it out.",
+  "type": "module",
+  "license": "MIT",
+  "private": true
+}
