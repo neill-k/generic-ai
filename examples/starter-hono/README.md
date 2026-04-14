@@ -1,15 +1,14 @@
 # examples/starter-hono
 
-Reference example for the Generic AI starter preset. This example will be built out under `TRN-03` in `docs/planning/03-linear-issue-tree.md`.
+Reference example for the Generic AI starter preset.
 
-Planned contents:
+What this example shows:
 
-- Uses `@generic-ai/preset-starter-hono` to bootstrap a working multi-agent stack
-- Demonstrates prompt or structured task input
-- Demonstrates streaming, delegation, messaging, memory, MCP, and Agent Skills
-- Runs end-to-end as part of framework verification
+- `createGenericAI()` with no arguments resolves the starter preset by default
+- callers can still pass `createStarterHonoPreset()` explicitly when they want the composition to be visible in code
+- the example keeps the bootstrap layer and the preset package separate, which matches the repo boundary model
 
-Until `TRN-03` lands, this directory is intentionally a stub and contains no runnable source. The example will share the repository root's workspace layout once the build toolchain in `FND-03` exists.
+The main source entrypoint is `examples/starter-hono/src/index.ts`. It is intentionally small for now so later runtime work can swap in the real kernel wiring without changing the example shape.
 
 Planning baseline:
 
