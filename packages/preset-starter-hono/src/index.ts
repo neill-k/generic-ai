@@ -1,6 +1,12 @@
+import {
+  createStarterPreset,
+  type BootstrapCapabilityId,
+  type BootstrapPresetDefinition,
+  type BootstrapPresetInput,
+} from "@generic-ai/core";
 import type { PresetContract } from "@generic-ai/sdk";
 
-export const name = "@generic-ai/preset-starter-hono";
+export const name = "@generic-ai/preset-starter-hono" as const;
 
 export const STARTER_PRESET_ID = "preset.starter-hono";
 export const STARTER_PRESET_VERSION = 1;
@@ -76,6 +82,16 @@ export interface StarterPresetContract
   resolve(options?: StarterPresetResolutionOptions): StarterPresetResolvedContract;
 }
 
+export interface StarterHonoPresetOptions
+  extends BootstrapPresetInput,
+    StarterPresetResolutionOptions {}
+
+export interface StarterHonoPresetDefinition extends BootstrapPresetDefinition {
+  readonly packageName: string;
+  readonly version: number;
+  readonly resolution: StarterPresetResolvedContract;
+}
+
 export const STARTER_PRESET_DEFAULT_SLOTS = [
   {
     slot: "config",
@@ -117,7 +133,7 @@ export const STARTER_PRESET_DEFAULT_SLOTS = [
     slot: "fileTools",
     pluginId: "@generic-ai/plugin-tools-files",
     required: true,
-    description: "Filesystem read/write/list/edit tools.",
+    description: "Filesystem read/write/list/edit/search tools.",
   },
   {
     slot: "mcp",
@@ -166,6 +182,21 @@ export const STARTER_PRESET_DEFAULT_SLOTS = [
 interface InternalResolvedSlotBinding extends StarterPresetSlotBinding {
   readonly source: "default" | "override";
 }
+
+const slotToCapability = {
+  workspace: "workspace",
+  storage: "storage",
+  queue: "queue",
+  logging: "logging",
+  terminalTools: "terminal-tools",
+  fileTools: "file-tools",
+  mcp: "mcp",
+  skills: "skills",
+  delegation: "delegation",
+  messaging: "messaging",
+  memory: "memory",
+  output: "output",
+} as const satisfies Partial<Record<StarterPresetSlot, BootstrapCapabilityId>>;
 
 function assertNonEmpty(value: string, label: string): void {
   if (value.trim().length > 0) {
@@ -313,6 +344,37 @@ function createResolvedStarterPreset(
   };
 }
 
+function resolveCapabilitiesFromContract(
+  resolution: StarterPresetResolvedContract,
+): ReadonlyArray<BootstrapCapabilityId> {
+  const capabilities = new Set<BootstrapCapabilityId>();
+
+  for (const plugin of resolution.plugins) {
+    if (plugin.slot === undefined) {
+      continue;
+    }
+
+    const capability =
+      plugin.slot in slotToCapability
+        ? slotToCapability[plugin.slot as keyof typeof slotToCapability]
+        : undefined;
+    if (capability !== undefined) {
+      capabilities.add(capability);
+    }
+  }
+
+  // Only advertise the Hono transport capability when the resolved plugin set
+  // actually contains `@generic-ai/plugin-hono`; a slot override can keep the
+  // transport slot enabled while swapping the underlying plugin, in which case
+  // this preset must not pretend Hono is available to downstream bootstrap
+  // consumers.
+  if (resolution.includesHono) {
+    capabilities.add("transport-hono");
+  }
+
+  return [...capabilities];
+}
+
 export const starterPresetContract: StarterPresetContract = {
   id: STARTER_PRESET_ID,
   packageName: name,
@@ -330,3 +392,30 @@ export function resolveStarterPreset(
 ): StarterPresetResolvedContract {
   return starterPresetContract.resolve(options);
 }
+
+export function createStarterHonoPreset(
+  options: StarterHonoPresetOptions = {},
+): StarterHonoPresetDefinition {
+  const resolution = resolveStarterPreset(options);
+  // Default the bootstrap preset id to the package name so it stays aligned
+  // with core's `createStarterPreset` (which uses the package name as its id).
+  // STARTER_PRESET_ID remains the contract-level identifier used by tests and
+  // preset consumers that read the contract directly.
+  const bootstrap = createStarterPreset({
+    id: options.id ?? name,
+    name: options.name ?? "Starter Hono preset",
+    description: options.description ?? starterPresetContract.description,
+    transport: options.transport ?? (resolution.includesHono ? "hono" : "custom"),
+    capabilities: options.capabilities ?? resolveCapabilitiesFromContract(resolution),
+    ...(options.ports === undefined ? {} : { ports: options.ports }),
+  });
+
+  return Object.freeze({
+    ...bootstrap,
+    packageName: name,
+    version: STARTER_PRESET_VERSION,
+    resolution,
+  });
+}
+
+export const starterHonoPreset = createStarterHonoPreset();

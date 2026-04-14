@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveStarterPreset, starterPresetContract } from "./index.js";
+import {
+  createStarterHonoPreset,
+  resolveStarterPreset,
+  starterHonoPreset,
+  starterPresetContract,
+} from "./index.js";
 
 describe("@generic-ai/preset-starter-hono contract", () => {
   it("resolves the default plugin stack in canonical order", () => {
@@ -75,5 +80,17 @@ describe("@generic-ai/preset-starter-hono contract", () => {
     expect(starterPresetContract.id).toBe("preset.starter-hono");
     expect(starterPresetContract.version).toBe(1);
     expect(starterPresetContract.slots).toHaveLength(14);
+  });
+
+  it("builds a bootstrap-ready starter preset definition", () => {
+    const preset = createStarterHonoPreset({
+      slotOverrides: [{ slot: "transport", enabled: false }],
+    });
+
+    expect(starterHonoPreset.transport).toBe("hono");
+    expect(preset.transport).toBe("custom");
+    expect(preset.capabilities).not.toContain("transport-hono");
+    expect(preset.resolution.includesHono).toBe(false);
+    expect(preset.packageName).toBe("@generic-ai/preset-starter-hono");
   });
 });
