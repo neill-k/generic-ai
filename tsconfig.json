@@ -18,6 +18,7 @@
     { "path": "packages/plugin-messaging" },
     { "path": "packages/plugin-memory-files" },
     { "path": "packages/plugin-output-default" },
-    { "path": "packages/plugin-hono" }
+    { "path": "packages/plugin-hono" },
+    { "path": "examples/starter-hono" }
   ]
 }

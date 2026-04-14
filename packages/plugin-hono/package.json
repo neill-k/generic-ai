@@ -9,6 +9,9 @@
     "dist",
     "README.md"
   ],
+  "dependencies": {
+    "hono": "^4.10.4"
+  },
   "license": "MIT",
   "private": false,
   "publishConfig": {
