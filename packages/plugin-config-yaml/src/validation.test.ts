@@ -93,7 +93,9 @@ describe("validateConfigAtStartup", () => {
     );
 
     expect(result.ok).toBe(false);
-    expect(result.diagnostics.some((diagnostic) => diagnostic.code === "UNKNOWN_PLUGIN_NAMESPACE")).toBe(true);
+    expect(
+      result.diagnostics.some((diagnostic) => diagnostic.code === "UNKNOWN_PLUGIN_NAMESPACE"),
+    ).toBe(true);
   });
 
   it("supports allowing unknown namespaces when requested", () => {

@@ -81,7 +81,9 @@ describe("resolveCanonicalConfig", () => {
       throw new Error("Expected missing framework failure.");
     }
 
-    const missingFailure = result.failures.find((failure) => failure.code === "MISSING_FRAMEWORK_CONFIG");
+    const missingFailure = result.failures.find(
+      (failure) => failure.code === "MISSING_FRAMEWORK_CONFIG",
+    );
     expect(missingFailure).toBeDefined();
     expect(missingFailure?.concern).toBe("framework");
     expect(missingFailure?.suggestion).toContain(".generic-ai/framework.yaml");

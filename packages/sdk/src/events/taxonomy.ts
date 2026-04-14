@@ -138,9 +138,13 @@ export function getCanonicalEventFamily(name: string): CanonicalEventFamily | un
 export function createCanonicalEvent<
   TName extends CanonicalEventName,
   TData extends CanonicalEventData = CanonicalEventData,
->(input: CanonicalEventInput<TName, TData>, options: CreateCanonicalEventOptions = {}): CanonicalEvent<TName, TData> {
+>(
+  input: CanonicalEventInput<TName, TData>,
+  options: CreateCanonicalEventOptions = {},
+): CanonicalEvent<TName, TData> {
   const eventId = input.eventId ?? options.createEventId?.() ?? randomUUID();
-  const sequence = input.sequence !== undefined && input.sequence > 0 ? input.sequence : options.sequence ?? 0;
+  const sequence =
+    input.sequence !== undefined && input.sequence > 0 ? input.sequence : (options.sequence ?? 0);
   const occurredAt = input.occurredAt ?? options.now?.() ?? new Date().toISOString();
   const origin = Object.freeze({
     namespace: input.origin?.namespace ?? "core",
@@ -198,9 +202,7 @@ export function createDelegationLifecycleEvent<
   return createCanonicalEvent({ ...input, name }, options);
 }
 
-export function createPluginEvent<
-  TData extends CanonicalEventData = CanonicalEventData,
->(
+export function createPluginEvent<TData extends CanonicalEventData = CanonicalEventData>(
   pluginId: string,
   localName: string,
   input: Omit<CanonicalEventInput<CanonicalPluginEventName, TData>, "name">,

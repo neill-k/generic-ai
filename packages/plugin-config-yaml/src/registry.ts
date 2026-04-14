@@ -132,7 +132,9 @@ export class PluginSchemaRegistry {
     for (const [namespace, group] of grouped.entries()) {
       namespaces.push({
         namespace,
-        provenance: group.provenance.sort((left, right) => left.fragmentIndex - right.fragmentIndex),
+        provenance: group.provenance.sort(
+          (left, right) => left.fragmentIndex - right.fragmentIndex,
+        ),
         schema: composeNamespaceSchemas(namespace, group.schemas, group.provenance),
       });
     }
@@ -166,10 +168,13 @@ export class PluginSchemaRegistry {
       });
     }
 
-    const namespace = normalizeNamespace(fragment.namespace ?? deriveNamespaceFromPluginId(pluginId), {
-      pluginId,
-      context: "fragment namespace",
-    });
+    const namespace = normalizeNamespace(
+      fragment.namespace ?? deriveNamespaceFromPluginId(pluginId),
+      {
+        pluginId,
+        context: "fragment namespace",
+      },
+    );
 
     const source = fragment.source?.trim() || undefined;
     return {
@@ -191,7 +196,9 @@ export function deriveNamespaceFromPluginId(pluginId: string): string {
   const trimmed = pluginId.trim().toLowerCase();
   const slashIndex = trimmed.indexOf("/");
   const packageName = slashIndex >= 0 ? trimmed.slice(slashIndex + 1) : trimmed;
-  const withoutPluginPrefix = packageName.startsWith("plugin-") ? packageName.slice("plugin-".length) : packageName;
+  const withoutPluginPrefix = packageName.startsWith("plugin-")
+    ? packageName.slice("plugin-".length)
+    : packageName;
 
   return normalizeNamespace(withoutPluginPrefix, {
     pluginId,
@@ -268,7 +275,10 @@ function composeTwoSchemas(
   return createSequentialSchema(namespace, [left, right]);
 }
 
-function createSequentialSchema(namespace: string, schemas: readonly ZodSchemaLike<unknown>[]): ZodSchemaLike<unknown> {
+function createSequentialSchema(
+  namespace: string,
+  schemas: readonly ZodSchemaLike<unknown>[],
+): ZodSchemaLike<unknown> {
   return {
     safeParse(input: unknown): ZodSafeParseResult<unknown> {
       let current: unknown = input;
@@ -390,7 +400,12 @@ function toProvenance(fragment: RegisteredPluginSchemaFragment): SchemaProvenanc
 }
 
 function isSchemaLike(value: unknown): value is ZodSchemaLike<unknown> {
-  return typeof value === "object" && value !== null && "safeParse" in value && typeof value.safeParse === "function";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "safeParse" in value &&
+    typeof value.safeParse === "function"
+  );
 }
 
 function isSafeParseResult(value: unknown): value is ZodSafeParseResult<unknown> {

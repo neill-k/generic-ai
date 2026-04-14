@@ -33,7 +33,11 @@ describe("createPluginHost", () => {
       },
     });
 
-    expect(host.resolveOrder().map((plugin) => plugin.manifest.id)).toEqual(["gamma", "alpha", "beta"]);
+    expect(host.resolveOrder().map((plugin) => plugin.manifest.id)).toEqual([
+      "gamma",
+      "alpha",
+      "beta",
+    ]);
   });
 
   it("surfaces missing dependency diagnostics with the registered ids", () => {

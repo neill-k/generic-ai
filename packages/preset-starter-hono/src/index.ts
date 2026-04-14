@@ -1,5 +1,4 @@
-import { createGenericAI, type GenericAIInstance } from "@generic-ai/core";
-import type { GenericAIBootstrapOptions, PresetContract } from "@generic-ai/sdk";
+import type { PresetContract } from "@generic-ai/sdk";
 
 export const name = "@generic-ai/preset-starter-hono";
 
@@ -330,23 +329,4 @@ export function resolveStarterPreset(
   options?: StarterPresetResolutionOptions,
 ): StarterPresetResolvedContract {
   return starterPresetContract.resolve(options);
-}
-
-export function withStarterPreset<TOptions extends object, TResult>(
-  bootstrap: (options: TOptions & { preset: StarterPresetContract }) => TResult,
-  options?: TOptions,
-  preset: StarterPresetContract = starterPresetContract,
-): TResult {
-  const mergedOptions = {
-    ...(options ?? ({} as TOptions)),
-    preset,
-  };
-
-  return bootstrap(mergedOptions);
-}
-
-export function createStarterGenericAI(
-  options: Omit<GenericAIBootstrapOptions<StarterPresetContract>, "preset"> = {},
-): GenericAIInstance<StarterPresetContract> {
-  return withStarterPreset(createGenericAI, options);
 }

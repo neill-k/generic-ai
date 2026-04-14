@@ -20,7 +20,9 @@ export * from "./registry.js";
 export * from "./resolution.js";
 export * from "./validation.js";
 
-export interface LoadCanonicalConfigOptions extends ResolveCanonicalConfigOptions, StartupValidationOptions {
+export interface LoadCanonicalConfigOptions
+  extends ResolveCanonicalConfigOptions,
+    StartupValidationOptions {
   readonly schemaSource?: ValidationSchemaSource;
 }
 

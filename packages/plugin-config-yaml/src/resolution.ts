@@ -57,9 +57,9 @@ export type ConfigResolutionResult =
     };
 
 export interface ResolveCanonicalConfigOptions extends DiscoverCanonicalConfigOptions {
-  fs?: (NonNullable<DiscoverCanonicalConfigOptions["fs"]> & {
+  fs?: NonNullable<DiscoverCanonicalConfigOptions["fs"]> & {
     readFile?: typeof readFile;
-  });
+  };
   requireFramework?: boolean;
 }
 
@@ -301,7 +301,9 @@ function extractYamlModuleError(error: unknown, filePath: string): YamlParseErro
       : "Failed to parse YAML content.";
 
   const linePos =
-    "linePos" in error && Array.isArray(error.linePos) && error.linePos.length > 0 ? error.linePos[0] : undefined;
+    "linePos" in error && Array.isArray(error.linePos) && error.linePos.length > 0
+      ? error.linePos[0]
+      : undefined;
 
   const line = linePos && typeof linePos.line === "number" ? linePos.line : 1;
   const column = linePos && typeof linePos.col === "number" ? linePos.col : 1;
@@ -362,7 +364,11 @@ function parseSimpleYaml(raw: string, filePath: string): unknown {
     if (!trailingLine) {
       return value;
     }
-    throw new SimpleYamlParseError("Unexpected trailing content.", trailingLine.lineNumber, trailingLine.indent + 1);
+    throw new SimpleYamlParseError(
+      "Unexpected trailing content.",
+      trailingLine.lineNumber,
+      trailingLine.indent + 1,
+    );
   }
 
   return value;
@@ -387,7 +393,11 @@ function preprocessYamlLines(raw: string, filePath: string): ParsedLine[] {
     const indent = content.length === 0 ? 0 : countLeadingSpaces(withoutComment);
 
     if (content.length > 0 && indent % 2 !== 0) {
-      throw new SimpleYamlParseError("Use 2-space indentation for nested YAML blocks.", index + 1, indent + 1);
+      throw new SimpleYamlParseError(
+        "Use 2-space indentation for nested YAML blocks.",
+        index + 1,
+        indent + 1,
+      );
     }
 
     result.push({
@@ -417,7 +427,11 @@ function parseYamlBlock(lines: ParsedLine[], index: number, indent: number): [un
   return parseYamlMapping(lines, index, indent);
 }
 
-function parseYamlSequence(lines: ParsedLine[], index: number, indent: number): [unknown[], number] {
+function parseYamlSequence(
+  lines: ParsedLine[],
+  index: number,
+  indent: number,
+): [unknown[], number] {
   const values: unknown[] = [];
   let current = index;
 
@@ -435,7 +449,11 @@ function parseYamlSequence(lines: ParsedLine[], index: number, indent: number): 
       break;
     }
     if (line.indent > indent) {
-      throw new SimpleYamlParseError("Unexpected indentation in YAML sequence item.", line.lineNumber, line.indent + 1);
+      throw new SimpleYamlParseError(
+        "Unexpected indentation in YAML sequence item.",
+        line.lineNumber,
+        line.indent + 1,
+      );
     }
     if (!line.content.startsWith("- ")) {
       break;
@@ -446,7 +464,11 @@ function parseYamlSequence(lines: ParsedLine[], index: number, indent: number): 
       const nestedIndex = nextContentLine(lines, current + 1);
       const nestedLine = nestedIndex < 0 ? undefined : lines[nestedIndex];
       if (!nestedLine || nestedLine.indent <= indent) {
-        throw new SimpleYamlParseError("Missing value for YAML sequence item.", line.lineNumber, indent + 1);
+        throw new SimpleYamlParseError(
+          "Missing value for YAML sequence item.",
+          line.lineNumber,
+          indent + 1,
+        );
       }
       if (nestedLine.indent !== indent + 2) {
         throw new SimpleYamlParseError(
@@ -479,7 +501,11 @@ function parseYamlSequence(lines: ParsedLine[], index: number, indent: number): 
   return [values, current];
 }
 
-function parseYamlMapping(lines: ParsedLine[], index: number, indent: number): [Record<string, unknown>, number] {
+function parseYamlMapping(
+  lines: ParsedLine[],
+  index: number,
+  indent: number,
+): [Record<string, unknown>, number] {
   const value: Record<string, unknown> = {};
   let current = index;
 
@@ -497,7 +523,11 @@ function parseYamlMapping(lines: ParsedLine[], index: number, indent: number): [
       break;
     }
     if (line.indent > indent) {
-      throw new SimpleYamlParseError("Unexpected indentation in YAML mapping.", line.lineNumber, line.indent + 1);
+      throw new SimpleYamlParseError(
+        "Unexpected indentation in YAML mapping.",
+        line.lineNumber,
+        line.indent + 1,
+      );
     }
     if (line.content.startsWith("- ")) {
       throw new SimpleYamlParseError(
@@ -509,7 +539,11 @@ function parseYamlMapping(lines: ParsedLine[], index: number, indent: number): [
 
     const [key, valuePart] = splitKeyValue(line.content, line.lineNumber, line.indent + 1);
     if (Object.hasOwn(value, key)) {
-      throw new SimpleYamlParseError(`Duplicate YAML key "${key}".`, line.lineNumber, line.indent + 1);
+      throw new SimpleYamlParseError(
+        `Duplicate YAML key "${key}".`,
+        line.lineNumber,
+        line.indent + 1,
+      );
     }
 
     if (valuePart.length === 0) {

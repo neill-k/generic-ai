@@ -63,15 +63,12 @@ const freezeBootstrapPorts = (ports: BootstrapPortOverrides | undefined): Bootst
   });
 };
 
-export function createStarterPreset(
-  input: BootstrapPresetInput = {},
-): BootstrapPresetDefinition {
+export function createStarterPreset(input: BootstrapPresetInput = {}): BootstrapPresetDefinition {
   return Object.freeze({
     id: input.id ?? "@generic-ai/preset-starter-hono",
     name: input.name ?? "Starter Hono preset",
     description:
-      input.description ??
-      "Default local-first preset that keeps Hono in the starter path.",
+      input.description ?? "Default local-first preset that keeps Hono in the starter path.",
     transport: input.transport ?? "hono",
     capabilities: Object.freeze([...(input.capabilities ?? starterCapabilities)]),
     ports: freezeBootstrapPorts(input.ports),

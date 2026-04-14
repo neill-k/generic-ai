@@ -37,7 +37,8 @@ export type ZodShapeLike<TObject extends Record<string, unknown>> = {
   [TKey in keyof TObject]: ZodTypeLike<TObject[TKey]>;
 };
 
-export interface ZodObjectLike<TObject extends Record<string, unknown>> extends ZodTypeLike<TObject> {
+export interface ZodObjectLike<TObject extends Record<string, unknown>>
+  extends ZodTypeLike<TObject> {
   extend<TExtension extends Record<string, unknown>>(
     shape: ZodShapeLike<TExtension>,
   ): ZodObjectLike<TObject & TExtension>;
@@ -50,7 +51,9 @@ export interface ZodNamespaceLike {
   number(): ZodNumberLike;
   unknown(): ZodTypeLike<unknown>;
   literal<TLiteral extends string | number | boolean>(value: TLiteral): ZodTypeLike<TLiteral>;
-  object<TObject extends Record<string, unknown>>(shape: ZodShapeLike<TObject>): ZodObjectLike<TObject>;
+  object<TObject extends Record<string, unknown>>(
+    shape: ZodShapeLike<TObject>,
+  ): ZodObjectLike<TObject>;
   array<TItem>(schema: ZodTypeLike<TItem>): ZodArrayLike<TItem>;
   record<TValue>(valueSchema: ZodTypeLike<TValue>): ZodTypeLike<Record<string, TValue>>;
 }

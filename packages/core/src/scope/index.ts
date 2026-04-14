@@ -184,7 +184,12 @@ export function scopeChain(scope: Scope): ReadonlyArray<ScopeId> {
 }
 
 export function hasScope(value: unknown): value is ScopeCarrier {
-  return value !== null && typeof value === "object" && "scope" in value && isScope((value as ScopeCarrier).scope);
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "scope" in value &&
+    isScope((value as ScopeCarrier).scope)
+  );
 }
 
 export function getScope(value: unknown): Scope | undefined {
@@ -216,10 +221,7 @@ export function withChildScope<T extends object>(
   return withScope(value, createChildScope(parent, input));
 }
 
-export function ensureScope<T extends object>(
-  value: T,
-  scope: Scope,
-): Readonly<T & ScopeCarrier> {
+export function ensureScope<T extends object>(value: T, scope: Scope): Readonly<T & ScopeCarrier> {
   const currentScope = getScope(value);
 
   if (currentScope !== undefined) {

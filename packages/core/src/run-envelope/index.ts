@@ -15,9 +15,7 @@ function freezeEventStreamReference(
   return Object.freeze({ ...eventStream });
 }
 
-function freezeOutputEnvelope<TOutput>(
-  output: OutputEnvelope<TOutput>,
-): OutputEnvelope<TOutput> {
+function freezeOutputEnvelope<TOutput>(output: OutputEnvelope<TOutput>): OutputEnvelope<TOutput> {
   return Object.freeze({ ...output });
 }
 
@@ -38,7 +36,9 @@ function freezeEnvelope<TOutput>(envelope: RunEnvelope<TOutput>): RunEnvelope<TO
   return Object.freeze(frozenEnvelope);
 }
 
-export function createRunEnvelope<TOutput = unknown>(input: RunEnvelopeInput<TOutput>): RunEnvelope<TOutput> {
+export function createRunEnvelope<TOutput = unknown>(
+  input: RunEnvelopeInput<TOutput>,
+): RunEnvelope<TOutput> {
   const createdAt = input.timestamps?.createdAt ?? createTimestamp();
 
   return freezeEnvelope({
@@ -50,9 +50,15 @@ export function createRunEnvelope<TOutput = unknown>(input: RunEnvelopeInput<TOu
     status: input.status ?? "created",
     timestamps: freezeTimestamps({
       createdAt,
-      ...(input.timestamps?.startedAt === undefined ? {} : { startedAt: input.timestamps.startedAt }),
-      ...(input.timestamps?.completedAt === undefined ? {} : { completedAt: input.timestamps.completedAt }),
-      ...(input.timestamps?.cancelledAt === undefined ? {} : { cancelledAt: input.timestamps.cancelledAt }),
+      ...(input.timestamps?.startedAt === undefined
+        ? {}
+        : { startedAt: input.timestamps.startedAt }),
+      ...(input.timestamps?.completedAt === undefined
+        ? {}
+        : { completedAt: input.timestamps.completedAt }),
+      ...(input.timestamps?.cancelledAt === undefined
+        ? {}
+        : { cancelledAt: input.timestamps.cancelledAt }),
     }),
     ...(input.eventStream === undefined ? {} : { eventStream: input.eventStream }),
     ...(input.outputPluginId === undefined ? {} : { outputPluginId: input.outputPluginId }),
@@ -76,8 +82,14 @@ export async function finalizeRunEnvelope<TRun, TOutput>(
   const timestamps: RunEnvelopeTimestamps = {
     ...input.envelope.timestamps,
     ...(status === "cancelled"
-      ? { cancelledAt: input.completedAt ?? input.envelope.timestamps.cancelledAt ?? createTimestamp() }
-      : { completedAt: input.completedAt ?? input.envelope.timestamps.completedAt ?? createTimestamp() }),
+      ? {
+          cancelledAt:
+            input.completedAt ?? input.envelope.timestamps.cancelledAt ?? createTimestamp(),
+        }
+      : {
+          completedAt:
+            input.completedAt ?? input.envelope.timestamps.completedAt ?? createTimestamp(),
+        }),
   };
 
   return createRunEnvelope({

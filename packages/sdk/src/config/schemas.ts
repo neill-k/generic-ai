@@ -111,7 +111,9 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
         .optional(),
       metadata: z.record(z.unknown()).optional(),
     })
-    .describe("Canonical YAML concern schema for .generic-ai/framework.yaml") as ZodTypeLike<FrameworkConfig>;
+    .describe(
+      "Canonical YAML concern schema for .generic-ai/framework.yaml",
+    ) as ZodTypeLike<FrameworkConfig>;
 
   const agent = z
     .object({
@@ -121,17 +123,26 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
       instructions: z.string().min(1, "instructions cannot be empty").optional(),
       preset: packageName.optional(),
       plugins: ensureUniqueStrings(z.array(packageName), "agent.plugins").optional(),
-      tools: ensureUniqueStrings(z.array(z.string().min(1, "tool id cannot be empty")), "agent.tools").optional(),
+      tools: ensureUniqueStrings(
+        z.array(z.string().min(1, "tool id cannot be empty")),
+        "agent.tools",
+      ).optional(),
       memory: z
         .object({
           provider: packageName.optional(),
           path: z.string().min(1, "memory.path cannot be empty").optional(),
-          maxEntries: z.number().int("memory.maxEntries must be an integer").nonnegative().optional(),
+          maxEntries: z
+            .number()
+            .int("memory.maxEntries must be an integer")
+            .nonnegative()
+            .optional(),
         })
         .optional(),
       metadata: z.record(z.unknown()).optional(),
     })
-    .describe("Canonical YAML concern schema for .generic-ai/agents/*.yaml") as ZodTypeLike<AgentConfig>;
+    .describe(
+      "Canonical YAML concern schema for .generic-ai/agents/*.yaml",
+    ) as ZodTypeLike<AgentConfig>;
 
   const plugin = z
     .object({
@@ -142,7 +153,9 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
       config: z.record(z.unknown()).optional(),
       metadata: z.record(z.unknown()).optional(),
     })
-    .describe("Canonical YAML concern schema for .generic-ai/plugins/*.yaml") as ZodTypeLike<PluginConfig>;
+    .describe(
+      "Canonical YAML concern schema for .generic-ai/plugins/*.yaml",
+    ) as ZodTypeLike<PluginConfig>;
 
   const preset = z
     .object({
@@ -160,18 +173,32 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
           }),
         )
         .optional(),
-      frameworkDefaults: (framework as ZodTypeLike<FrameworkConfig> & { partial(): ZodTypeLike<Partial<FrameworkConfig>> })
+      frameworkDefaults: (
+        framework as ZodTypeLike<FrameworkConfig> & {
+          partial(): ZodTypeLike<Partial<FrameworkConfig>>;
+        }
+      )
         .partial()
         .optional(),
       agentDefaults: z
-        .record((agent as ZodTypeLike<AgentConfig> & { partial(): ZodTypeLike<Partial<AgentConfig>> }).partial())
+        .record(
+          (
+            agent as ZodTypeLike<AgentConfig> & { partial(): ZodTypeLike<Partial<AgentConfig>> }
+          ).partial(),
+        )
         .optional(),
       pluginDefaults: z
-        .record((plugin as ZodTypeLike<PluginConfig> & { partial(): ZodTypeLike<Partial<PluginConfig>> }).partial())
+        .record(
+          (
+            plugin as ZodTypeLike<PluginConfig> & { partial(): ZodTypeLike<Partial<PluginConfig>> }
+          ).partial(),
+        )
         .optional(),
       metadata: z.record(z.unknown()).optional(),
     })
-    .describe("Preset package/default composition metadata contract (not a user-facing YAML concern)") as ZodTypeLike<PresetConfig>;
+    .describe(
+      "Preset package/default composition metadata contract (not a user-facing YAML concern)",
+    ) as ZodTypeLike<PresetConfig>;
 
   const composePluginSchema = (
     fragments: readonly PluginConfigSchemaFragment[] = [],
@@ -185,21 +212,18 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
       fragmentByPlugin.set(fragment.plugin, fragment);
     }
 
-    return plugin.refine(
-      (candidate) => {
-        if (!candidate.plugin) {
-          return true;
-        }
+    return plugin.refine((candidate) => {
+      if (!candidate.plugin) {
+        return true;
+      }
 
-        const fragment = fragmentByPlugin.get(candidate.plugin);
-        if (!fragment || candidate.config === undefined) {
-          return true;
-        }
+      const fragment = fragmentByPlugin.get(candidate.plugin);
+      if (!fragment || candidate.config === undefined) {
+        return true;
+      }
 
-        return fragment.configSchema.safeParse(candidate.config).success;
-      },
-      "plugin.config does not match its registered plugin schema fragment",
-    ) as ZodTypeLike<PluginConfig>;
+      return fragment.configSchema.safeParse(candidate.config).success;
+    }, "plugin.config does not match its registered plugin schema fragment") as ZodTypeLike<PluginConfig>;
   };
 
   const composeResolvedSchema = (
@@ -221,7 +245,9 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
           .optional(),
         metadata: z.record(z.unknown()).optional(),
       })
-      .describe("Resolved config layer composed from framework/agent/plugin YAML concerns plus preset metadata") as ZodTypeLike<ResolvedConfig>;
+      .describe(
+        "Resolved config layer composed from framework/agent/plugin YAML concerns plus preset metadata",
+      ) as ZodTypeLike<ResolvedConfig>;
 
   return {
     framework,

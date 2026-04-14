@@ -78,8 +78,8 @@ export async function discoverCanonicalConfig(
   }
 
   const configDir = join(configRoot, CONFIG_DIR_NAME);
-  const frameworkFiles = FRAMEWORK_FILENAMES.map((name) => join(configDir, name)).filter((filePath) =>
-    hasYamlExt(filePath),
+  const frameworkFiles = FRAMEWORK_FILENAMES.map((name) => join(configDir, name)).filter(
+    (filePath) => hasYamlExt(filePath),
   );
 
   const foundFrameworkFiles: string[] = [];
@@ -125,11 +125,9 @@ export async function discoverCanonicalConfig(
     failures,
   });
 
-  const files = [
-    ...(frameworkFile ? [frameworkFile] : []),
-    ...agentFiles,
-    ...pluginFiles,
-  ].sort(compareDiscoveredFile);
+  const files = [...(frameworkFile ? [frameworkFile] : []), ...agentFiles, ...pluginFiles].sort(
+    compareDiscoveredFile,
+  );
 
   return {
     startDir: normalizedStartDir,

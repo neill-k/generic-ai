@@ -62,7 +62,9 @@ function createEvent(input: {
   };
 }
 
-export function createRunSessionMachine(options?: { readonly createId?: () => string }): RunSessionMachine {
+export function createRunSessionMachine(options?: {
+  readonly createId?: () => string;
+}): RunSessionMachine {
   const createId = options?.createId ?? createIdFactory("session");
 
   const buildSession = (
@@ -143,7 +145,11 @@ export function createRunSessionMachine(options?: { readonly createId?: () => st
       },
     };
 
-    function transition(nextState: Exclude<RunSessionState, "idle">, type: string, detail?: unknown): void {
+    function transition(
+      nextState: Exclude<RunSessionState, "idle">,
+      type: string,
+      detail?: unknown,
+    ): void {
       if (nextState === "running") {
         if (state !== "idle") {
           throw new Error(`Session ${id} is already running or terminal.`);

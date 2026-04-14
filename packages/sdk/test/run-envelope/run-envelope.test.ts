@@ -25,7 +25,10 @@ describe("@generic-ai/sdk run-envelope contracts", () => {
       },
     };
 
-    const sampleFinalizeInput: RunEnvelopeFinalizationInput<{ readonly message: string }, { readonly text: string }> = {
+    const sampleFinalizeInput: RunEnvelopeFinalizationInput<
+      { readonly message: string },
+      { readonly text: string }
+    > = {
       envelope: sampleEnvelope,
       outputPlugin: {
         kind: "output-plugin",
@@ -55,7 +58,9 @@ describe("@generic-ai/sdk run-envelope contracts", () => {
     expectTypeOf(sampleEnvelope).toMatchTypeOf<RunEnvelope>();
     expectTypeOf(sampleFinalizeInput).toMatchTypeOf<RunEnvelopeFinalizationInput>();
     expectTypeOf<RunEnvelopeMode>().toEqualTypeOf<"sync" | "async">();
-    expectTypeOf<RunEnvelopeStatus>().toEqualTypeOf<"created" | "running" | "succeeded" | "failed" | "cancelled">();
+    expectTypeOf<RunEnvelopeStatus>().toEqualTypeOf<
+      "created" | "running" | "succeeded" | "failed" | "cancelled"
+    >();
     expectTypeOf<RunEnvelopeTerminalStatus>().toEqualTypeOf<"succeeded" | "failed" | "cancelled">();
 
     expect(sampleEnvelope.kind).toBe("run-envelope");

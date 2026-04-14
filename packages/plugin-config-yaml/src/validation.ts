@@ -142,7 +142,9 @@ export function assertValidConfigAtStartup(
   }
 }
 
-export function formatConfigValidationDiagnostics(diagnostics: readonly ConfigValidationDiagnostic[]): string {
+export function formatConfigValidationDiagnostics(
+  diagnostics: readonly ConfigValidationDiagnostic[],
+): string {
   if (diagnostics.length === 0) {
     return "Config validation passed.";
   }
@@ -151,7 +153,8 @@ export function formatConfigValidationDiagnostics(diagnostics: readonly ConfigVa
   for (const [index, diagnostic] of diagnostics.entries()) {
     const namespace = diagnostic.namespace ? ` [namespace=${diagnostic.namespace}]` : "";
     const issue = diagnostic.issueCode ? ` [issue=${diagnostic.issueCode}]` : "";
-    const pluginSummary = diagnostic.pluginIds.length > 0 ? ` [plugins=${diagnostic.pluginIds.join(", ")}]` : "";
+    const pluginSummary =
+      diagnostic.pluginIds.length > 0 ? ` [plugins=${diagnostic.pluginIds.join(", ")}]` : "";
     const sourceSummary = formatSourceSummary(diagnostic.provenance);
     lines.push(
       `${index + 1}. ${diagnostic.path}${namespace}${issue}${pluginSummary}${sourceSummary}: ${diagnostic.message}`,
@@ -214,7 +217,9 @@ function safeParseNoThrow(
 }
 
 function formatSourceSummary(provenance: readonly SchemaProvenance[]): string {
-  const sources = [...new Set(provenance.map((entry) => entry.source).filter((source) => Boolean(source)))];
+  const sources = [
+    ...new Set(provenance.map((entry) => entry.source).filter((source) => Boolean(source))),
+  ];
   if (sources.length === 0) {
     return "";
   }

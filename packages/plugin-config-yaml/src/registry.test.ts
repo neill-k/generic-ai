@@ -110,7 +110,10 @@ function passSchema(): ZodSchemaLike<unknown> {
   };
 }
 
-function requiredFieldSchema(fieldName: string, expectedType: "boolean" | "string"): ZodSchemaLike<unknown> {
+function requiredFieldSchema(
+  fieldName: string,
+  expectedType: "boolean" | "string",
+): ZodSchemaLike<unknown> {
   return {
     safeParse(input: unknown) {
       if (!isRecord(input)) {

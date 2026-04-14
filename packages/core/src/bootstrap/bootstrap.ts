@@ -63,10 +63,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
   const capabilities = resolveStarterCapabilities(
     options.capabilities ?? options.preset?.capabilities,
   );
-  const ports = resolvePorts(
-    resolveStarterPorts(options.preset?.ports),
-    options.ports,
-  );
+  const ports = resolvePorts(resolveStarterPorts(options.preset?.ports), options.ports);
   const preset = resolvePreset(options.preset, capabilities, ports);
 
   return Object.freeze({

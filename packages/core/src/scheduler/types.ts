@@ -6,4 +6,3 @@ export interface ScheduledTaskHandle {
 export interface RunScheduler {
   schedule(task: () => void | Promise<void>): ScheduledTaskHandle;
 }
-

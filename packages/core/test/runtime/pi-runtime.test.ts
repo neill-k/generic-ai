@@ -41,21 +41,22 @@ describe("@generic-ai/core pi runtime adapter", () => {
     } satisfies Parameters<typeof createPiAgentSessionRuntime>[1];
 
     const runtime = await createPiAgentSessionRuntime(
-      async () => ({
-        session: { sessionId: "session-002" },
-        extensionsResult: {
-          extensionCount: 0,
-          loadErrors: [],
-          loadedExtensions: [],
-          commands: [],
-          tools: [],
-        },
-        services: {} as never,
-        diagnostics: [],
-      } as CreateAgentSessionRuntimeResult),
+      async () =>
+        ({
+          session: { sessionId: "session-002" },
+          extensionsResult: {
+            extensionCount: 0,
+            loadErrors: [],
+            loadedExtensions: [],
+            commands: [],
+            tools: [],
+          },
+          services: {} as never,
+          diagnostics: [],
+        }) as CreateAgentSessionRuntimeResult,
       options,
       {
-      createAgentSessionRuntime: async (receivedFactory, receivedOptions) => {
+        createAgentSessionRuntime: async (receivedFactory, receivedOptions) => {
           expect(receivedOptions).toBe(options);
           expect(receivedFactory).toBeTypeOf("function");
           return {

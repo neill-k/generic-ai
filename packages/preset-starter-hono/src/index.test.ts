@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  createStarterGenericAI,
-  resolveStarterPreset,
-  starterPresetContract,
-  withStarterPreset,
-  type StarterPresetContract,
-} from "./index.js";
+import { resolveStarterPreset, starterPresetContract } from "./index.js";
 
 describe("@generic-ai/preset-starter-hono contract", () => {
   it("resolves the default plugin stack in canonical order", () => {
@@ -77,25 +71,9 @@ describe("@generic-ai/preset-starter-hono contract", () => {
     ).toThrow('Slot "storage" is required and cannot be disabled.');
   });
 
-  it("provides a convenience helper that injects the starter contract", () => {
-    const fakeBootstrap = (options: { rootScopeId: string; preset: StarterPresetContract }) => options;
-
-    const resolved = withStarterPreset(fakeBootstrap, { rootScopeId: "scope-root" });
-
-    expect(resolved.rootScopeId).toBe("scope-root");
-    expect(resolved.preset).toBe(starterPresetContract);
-  });
-
-  it("creates a generic-ai instance prewired with the starter preset", () => {
-    const instance = createStarterGenericAI({
-      rootScopeId: "scope-root",
-    });
-
-    expect(instance.kind).toBe("generic-ai-instance");
-    expect(instance.rootScopeId).toBe("scope-root");
-    expect(instance.preset).toBe(starterPresetContract);
-    expect(instance.resolvedPreset).toMatchObject({
-      id: starterPresetContract.id,
-    });
+  it("exports the starter preset contract", () => {
+    expect(starterPresetContract.id).toBe("preset.starter-hono");
+    expect(starterPresetContract.version).toBe(1);
+    expect(starterPresetContract.slots).toHaveLength(14);
   });
 });

@@ -9,16 +9,19 @@ describe("run modes", () => {
     const syncMode = createSyncRunMode({ sessions: machine });
     const seen: string[] = [];
 
-    const result = syncMode.run((session) => {
-      seen.push(session.mode);
-      seen.push(session.state);
-      const child = session.createChild({ id: "sync-child" });
-      seen.push(child.mode);
-      seen.push(child.state);
-      child.start();
-      child.succeed("child-done");
-      return "done";
-    }, { id: "sync-root" });
+    const result = syncMode.run(
+      (session) => {
+        seen.push(session.mode);
+        seen.push(session.state);
+        const child = session.createChild({ id: "sync-child" });
+        seen.push(child.mode);
+        seen.push(child.state);
+        child.start();
+        child.succeed("child-done");
+        return "done";
+      },
+      { id: "sync-root" },
+    );
 
     expect(result).toBe("done");
     expect(seen).toEqual(["sync", "running", "sync", "idle"]);
@@ -30,12 +33,15 @@ describe("run modes", () => {
     const asyncMode = createAsyncRunMode({ scheduler, sessions: machine });
     const seen: string[] = [];
 
-    const run = asyncMode.run(async (session) => {
-      seen.push(session.mode);
-      seen.push(session.state);
-      session.emit("async-task-started");
-      return "async-done";
-    }, { id: "async-root" });
+    const run = asyncMode.run(
+      async (session) => {
+        seen.push(session.mode);
+        seen.push(session.state);
+        session.emit("async-task-started");
+        return "async-done";
+      },
+      { id: "async-root" },
+    );
 
     expect(seen).toEqual([]);
     expect(scheduler.pendingCount).toBe(1);

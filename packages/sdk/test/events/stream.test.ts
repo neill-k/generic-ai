@@ -132,7 +132,9 @@ describe("sdk canonical event stream", () => {
     );
 
     expect(stream.snapshot().map((event) => event.name)).toEqual(["run.started", "run.completed"]);
-    expect(stream.snapshot({ fromSequence: 3 }).map((event) => event.name)).toEqual(["run.completed"]);
+    expect(stream.snapshot({ fromSequence: 3 }).map((event) => event.name)).toEqual([
+      "run.completed",
+    ]);
 
     stream.close();
     expect(stream.closed).toBe(true);

@@ -36,7 +36,12 @@ export interface Registry<T> {
 function normalizeKey(key: string, registryName: string): string {
   const normalized = key.trim();
   if (normalized.length === 0) {
-    throw new RegistryError("invalid-key", registryName, key, `Registry "${registryName}" does not accept blank keys.`);
+    throw new RegistryError(
+      "invalid-key",
+      registryName,
+      key,
+      `Registry "${registryName}" does not accept blank keys.`,
+    );
   }
 
   return normalized;

@@ -5,7 +5,14 @@ export interface JsonObject {
 }
 export type JsonArray = JsonValue[];
 
-export type JsonSchemaTypeName = "array" | "boolean" | "integer" | "null" | "number" | "object" | "string";
+export type JsonSchemaTypeName =
+  | "array"
+  | "boolean"
+  | "integer"
+  | "null"
+  | "number"
+  | "object"
+  | "string";
 
 export interface JsonSchema {
   $id?: string;

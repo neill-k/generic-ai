@@ -20,7 +20,9 @@ describe("discoverCanonicalConfig", () => {
 
     expect(result.failures).toEqual([]);
     expect(result.rootDir).toBe(fixtureRoot("canonical"));
-    expect(toPosixPath(result.frameworkFile?.relativePath ?? "")).toBe(".generic-ai/framework.yaml");
+    expect(toPosixPath(result.frameworkFile?.relativePath ?? "")).toBe(
+      ".generic-ai/framework.yaml",
+    );
     expect(result.agentFiles.map((entry) => entry.key)).toEqual(["implementer", "research"]);
     expect(result.pluginFiles.map((entry) => entry.key)).toEqual(["output", "storage"]);
     expect(result.files.map((entry) => toPosixPath(entry.relativePath))).toEqual([
