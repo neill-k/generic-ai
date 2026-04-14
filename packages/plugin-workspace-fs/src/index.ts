@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -79,6 +79,52 @@ export function resolveWorkspacePath(rootInput: WorkspaceRootInput, ...segments:
 
   const candidate = path.resolve(root, ...segments);
   return ensureInsideRoot(root, candidate, "Workspace path");
+}
+
+/**
+ * Resolve a workspace-relative path and verify the result (including any existing
+ * symlinks in the ancestor chain) stays inside the workspace root.
+ *
+ * Unlike {@link resolveWorkspacePath}, this helper uses `fs.realpath` on the
+ * nearest existing ancestor so that a workspace-local symlink pointing outside
+ * the root (e.g. `workspace/shared -> /etc`) is rejected rather than silently
+ * followed.
+ */
+export async function resolveSafeWorkspacePath(
+  rootInput: WorkspaceRootInput,
+  ...segments: string[]
+): Promise<string> {
+  const candidate = resolveWorkspacePath(rootInput, ...segments);
+  const root = toAbsoluteWorkspaceRoot(rootInput);
+
+  let realRoot: string;
+  try {
+    realRoot = await realpath(root);
+  } catch {
+    realRoot = root;
+  }
+
+  const resolved = await resolveRealPath(candidate);
+  return ensureInsideRoot(realRoot, resolved, "Workspace path");
+}
+
+async function resolveRealPath(candidate: string): Promise<string> {
+  let current = candidate;
+  const suffixes: string[] = [];
+
+  while (true) {
+    try {
+      const real = await realpath(current);
+      return suffixes.length === 0 ? real : path.join(real, ...suffixes);
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) {
+        return candidate;
+      }
+      suffixes.unshift(path.basename(current));
+      current = parent;
+    }
+  }
 }
 
 export function createWorkspaceLayout(rootInput: WorkspaceRootInput): WorkspaceLayout {
