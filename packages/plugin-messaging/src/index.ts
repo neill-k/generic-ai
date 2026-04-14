@@ -86,10 +86,6 @@ function defaultThreadId(from: string, to: string): string {
   return [from, to].sort().join("::");
 }
 
-function messageStorageKey(message: AgentMessage): string {
-  return `${message.createdAt}::${message.id}`;
-}
-
 function sortMessages(messages: readonly AgentMessage[], direction: "asc" | "desc"): AgentMessage[] {
   const multiplier = direction === "asc" ? 1 : -1;
 
@@ -126,16 +122,24 @@ export function createMessagingService(options: MessagingServiceOptions): Messag
     return namespace.list<AgentMessage>().map((record) => record.value);
   }
 
-  function findStored(messageId: string): NamespaceRecord<AgentMessage> | undefined {
-    return namespace.list<AgentMessage>().find((record) => record.value.id === messageId);
+  function findStored(messageId: string): AgentMessage | undefined {
+    // Messages are keyed by id so inbox / thread lookups and updates are
+    // O(1) rather than scanning the full namespace on every call.
+    return namespace.get<AgentMessage>(messageId);
   }
 
   return Object.freeze({
     name,
     kind,
     send(input: SendMessageInput): AgentMessage {
+      const id = input.id ?? idFactory();
+
+      if (findStored(id) !== undefined) {
+        throw new Error(`Message id "${id}" already exists; ids must be unique per namespace.`);
+      }
+
       const message: AgentMessage = Object.freeze({
-        id: input.id ?? idFactory(),
+        id,
         threadId: input.threadId ?? defaultThreadId(input.from, input.to),
         from: input.from,
         to: input.to,
@@ -147,11 +151,11 @@ export function createMessagingService(options: MessagingServiceOptions): Messag
         },
       });
 
-      namespace.set(messageStorageKey(message), message);
+      namespace.set(message.id, message);
       return message;
     },
     get(messageId: string): AgentMessage | undefined {
-      return findStored(messageId)?.value;
+      return findStored(messageId);
     },
     inbox(agentId: string, inboxOptions: InboxOptions = {}): readonly AgentMessage[] {
       const messages = listAll().filter((message) => {
@@ -182,11 +186,11 @@ export function createMessagingService(options: MessagingServiceOptions): Messag
       }
 
       const updated: AgentMessage = Object.freeze({
-        ...stored.value,
+        ...stored,
         readAt: normalizeTimestamp(options.now),
       });
 
-      namespace.set(stored.key, updated);
+      namespace.set(updated.id, updated);
       return updated;
     },
     search(agentId: string, query: string, limit = 5): readonly MessageSearchResult[] {

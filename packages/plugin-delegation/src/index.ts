@@ -64,6 +64,55 @@ function isAbortError(value: unknown): value is Error {
   return value instanceof Error && value.name === "AbortError";
 }
 
+function isTerminalSnapshot(snapshot: SessionSnapshot | undefined): snapshot is SessionSnapshot {
+  return snapshot !== undefined && snapshot.status !== "active";
+}
+
+/**
+ * Complete a child session, tolerating the case where another actor already
+ * terminalized it (for example a cascading cancellation from the parent).
+ */
+function terminalizeSuccess(
+  orchestrator: SessionOrchestrator,
+  childSessionId: string,
+  result: unknown,
+): SessionSnapshot {
+  const existing = orchestrator.getSession(childSessionId);
+  if (isTerminalSnapshot(existing)) {
+    return existing;
+  }
+
+  return orchestrator.completeSession(childSessionId, { result });
+}
+
+/**
+ * Record a failure or cancellation for a child session, tolerating the case
+ * where another actor already terminalized it. Falling back to the existing
+ * terminal snapshot prevents `delegate()` from rejecting with
+ * "Session ... is already terminal" when cancellation cascades from a parent.
+ */
+function terminalizeFailure(
+  orchestrator: SessionOrchestrator,
+  childSessionId: string,
+  error: unknown,
+): SessionSnapshot {
+  const existing = orchestrator.getSession(childSessionId);
+  if (isTerminalSnapshot(existing)) {
+    return existing;
+  }
+
+  if (isAbortError(error)) {
+    return orchestrator.cancelSession(
+      childSessionId,
+      error.message.length === 0 ? {} : { reason: error.message },
+    );
+  }
+
+  return orchestrator.failSession(childSessionId, {
+    error: error instanceof Error ? error : String(error),
+  });
+}
+
 function toDelegationResult(
   snapshot: SessionSnapshot,
   request: DelegationRequest,
@@ -123,16 +172,9 @@ export function createDelegationCoordinator(
 
       try {
         const result = await executor(request, context);
-        terminal = orchestrator.completeSession(child.id, { result });
+        terminal = terminalizeSuccess(orchestrator, child.id, result);
       } catch (error) {
-        terminal = isAbortError(error)
-          ? orchestrator.cancelSession(
-              child.id,
-              error.message.length === 0 ? {} : { reason: error.message },
-            )
-          : orchestrator.failSession(child.id, {
-              error: error instanceof Error ? error : String(error),
-            });
+        terminal = terminalizeFailure(orchestrator, child.id, error);
       }
 
       const record = toDelegationResult(terminal, request) as DelegationResult<TResult>;
