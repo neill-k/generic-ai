@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -12,6 +12,7 @@ import {
 } from "@generic-ai/sdk";
 import {
   createWorkspaceFs,
+  resolveSafeWorkspacePath,
   type WorkspaceRootInput,
 } from "@generic-ai/plugin-workspace-fs";
 
@@ -79,7 +80,7 @@ function normalizeRelativePath(root: string, absolutePath: string): string {
 }
 
 function escapeRegex(value: string): string {
-  return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function createGlobMatcher(pattern: string): RegExp {
@@ -112,16 +113,27 @@ function matchesPattern(candidate: string, pattern: string): boolean {
 }
 
 async function walkFiles(absolutePath: string): Promise<string[]> {
-  const info = await stat(absolutePath);
+  // Use lstat so a symlinked root is not silently followed. Callers should
+  // already have validated the path via resolveSafeWorkspacePath, but we
+  // defensively skip symlinked entries during recursion as well.
+  const info = await lstat(absolutePath);
+
+  if (info.isSymbolicLink()) {
+    return [];
+  }
 
   if (!info.isDirectory()) {
-    return [absolutePath];
+    return info.isFile() ? [absolutePath] : [];
   }
 
   const files: string[] = [];
   const entries = await readdir(absolutePath, { withFileTypes: true });
 
   for (const entry of entries) {
+    if (entry.isSymbolicLink()) {
+      continue;
+    }
+
     const entryPath = path.join(absolutePath, entry.name);
 
     if (entry.isDirectory()) {
@@ -155,8 +167,17 @@ export function createWorkspaceFileTools(options: WorkspaceFileToolsOptions): Wo
 
   async function resolveExistingPath(targetPath?: string): Promise<string> {
     return targetPath === undefined || targetPath.trim().length === 0
-      ? workspace.root
-      : workspace.resolvePath(targetPath);
+      ? resolveSafeWorkspacePath(workspace.root)
+      : resolveSafeWorkspacePath(workspace.root, targetPath);
+  }
+
+  async function resolveWritablePath(filePath: string): Promise<string> {
+    // Ensure the parent directory exists before validating so that realpath can
+    // resolve any intermediate symlinks. We then re-check containment via the
+    // safe resolver before performing the write.
+    const absolutePath = workspace.resolvePath(filePath);
+    await mkdir(path.dirname(absolutePath), { recursive: true });
+    return resolveSafeWorkspacePath(workspace.root, filePath);
   }
 
   return Object.freeze({
@@ -165,15 +186,14 @@ export function createWorkspaceFileTools(options: WorkspaceFileToolsOptions): Wo
     root: workspace.root,
     piTools,
     async readText(filePath: string): Promise<string> {
-      return readFile(workspace.resolvePath(filePath), "utf8");
+      return readFile(await resolveSafeWorkspacePath(workspace.root, filePath), "utf8");
     },
     async writeText(filePath: string, content: string): Promise<void> {
-      const absolutePath = workspace.resolvePath(filePath);
-      await mkdir(path.dirname(absolutePath), { recursive: true });
+      const absolutePath = await resolveWritablePath(filePath);
       await writeFile(absolutePath, content, "utf8");
     },
     async editText(filePath: string, edits: readonly FileEdit[]): Promise<FileEditResult> {
-      const absolutePath = workspace.resolvePath(filePath);
+      const absolutePath = await resolveSafeWorkspacePath(workspace.root, filePath);
       let content = await readFile(absolutePath, "utf8");
       let changes = 0;
 

@@ -24,12 +24,7 @@ export default defineConfig({
   resolve: {
     alias: packageAliases.map((packageName) => ({
       find: new RegExp(`^@generic-ai/${packageName}$`),
-      replacement: resolve(
-        __dirname,
-        packageName === "preset-starter-hono"
-          ? `packages/${packageName}/src/index.ts`
-          : `packages/${packageName}/src/index.ts`,
-      ),
+      replacement: resolve(__dirname, `packages/${packageName}/src/index.ts`),
     })),
   },
   test: {

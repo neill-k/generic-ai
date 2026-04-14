@@ -6,7 +6,7 @@ import {
 } from "@generic-ai/sdk";
 import {
   createWorkspaceLayout,
-  resolveWorkspacePath,
+  resolveSafeWorkspacePath,
   type WorkspaceRootInput,
 } from "@generic-ai/plugin-workspace-fs";
 
@@ -80,19 +80,22 @@ function buildSpawnHook(
 }
 
 function applyCommandPrefix(command: string, commandPrefix: string | undefined): string {
+  // Join with a newline so prefix commands like `export FOO=bar` or `source
+  // setup.sh` still execute their own setup before the caller's command, which
+  // matches how pi's `createBashTool` treats commandPrefix.
   return commandPrefix && commandPrefix.trim().length > 0
-    ? `${commandPrefix} ${command}`
+    ? `${commandPrefix}\n${command}`
     : command;
 }
 
-export function resolveTerminalCwd(root: WorkspaceRootInput, cwd?: string): string {
+export async function resolveTerminalCwd(root: WorkspaceRootInput, cwd?: string): Promise<string> {
   const layout = createWorkspaceLayout(root);
 
   if (cwd === undefined || cwd.trim().length === 0 || cwd === ".") {
-    return layout.root;
+    return resolveSafeWorkspacePath(layout.root);
   }
 
-  return resolveWorkspacePath(layout.root, cwd);
+  return resolveSafeWorkspacePath(layout.root, cwd);
 }
 
 export function createTerminalToolPlugin(options: TerminalToolOptions): TerminalToolPlugin {
@@ -114,19 +117,25 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
     unrestrictedLocal,
     tool,
     async run(request: TerminalRunRequest): Promise<TerminalRunResult> {
-      const cwd = resolveTerminalCwd(layout.root, request.cwd);
+      const cwd = await resolveTerminalCwd(layout.root, request.cwd);
       const command = applyCommandPrefix(request.command, commandPrefix);
       const outputChunks: string[] = [];
       const startedAt = Date.now();
+      // BashOperations.exec expects `timeout` in seconds (pi's default
+      // backend schedules `setTimeout(..., timeout * 1000)`), but our public
+      // API is specified in milliseconds. Convert here so a caller passing
+      // `timeoutMs: 1000` actually times out after one second rather than
+      // ~16 minutes.
+      const timeoutMs = request.timeoutMs ?? options.defaultTimeoutMs;
+      const timeoutSeconds =
+        timeoutMs === undefined ? undefined : Math.max(1, Math.ceil(timeoutMs / 1000));
       const executionOptions = {
         onData: (data: Buffer) => {
           outputChunks.push(data.toString("utf8"));
         },
         env: mergeEnv(options.env, request.env),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
-        ...((request.timeoutMs ?? options.defaultTimeoutMs) === undefined
-          ? {}
-          : { timeout: request.timeoutMs ?? options.defaultTimeoutMs }),
+        ...(timeoutSeconds === undefined ? {} : { timeout: timeoutSeconds }),
       };
       const result = await operations.exec(command, cwd, executionOptions);
 
@@ -136,9 +145,7 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
         exitCode: result.exitCode,
         output: outputChunks.join(""),
         durationMs: Date.now() - startedAt,
-        timedOut:
-          (request.timeoutMs ?? options.defaultTimeoutMs) !== undefined &&
-          result.exitCode === null,
+        timedOut: timeoutMs !== undefined && result.exitCode === null,
         unrestrictedLocal,
       });
     },

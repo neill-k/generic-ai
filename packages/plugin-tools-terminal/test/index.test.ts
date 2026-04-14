@@ -59,8 +59,12 @@ describe("@generic-ai/plugin-tools-terminal", () => {
 
   it("resolves explicit working directories inside the workspace", async () => {
     await withTempRoot(async (root) => {
-      expect(resolveTerminalCwd(root, "workspace/shared")).toBe(path.join(root, "workspace", "shared"));
-      expect(() => resolveTerminalCwd(root, "..")).toThrow(/escapes the workspace root/i);
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(path.join(root, "workspace", "shared"), { recursive: true });
+      await expect(resolveTerminalCwd(root, "workspace/shared")).resolves.toBe(
+        path.join(root, "workspace", "shared"),
+      );
+      await expect(resolveTerminalCwd(root, "..")).rejects.toThrow(/escapes the workspace root/i);
     });
   });
 });
