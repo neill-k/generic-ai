@@ -3,8 +3,19 @@
   "version": "0.0.0",
   "description": "In-memory storage implementation for Generic AI. Intended for tests and fast local iteration.",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
   "files": [
     "dist",
     "README.md"

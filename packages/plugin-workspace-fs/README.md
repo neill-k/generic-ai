@@ -1,16 +1,59 @@
 # @generic-ai/plugin-workspace-fs
 
-Local-filesystem workspace plugin. Provides the workspace contract implementation for agents, file tools, and memory.
+Local-filesystem workspace helpers for Generic AI.
 
-Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin Intent"):
+This package stays intentionally small: it provides the canonical workspace layout, safe path resolution, and a tiny service object for code that needs to work with files under a local workspace root.
 
-- Provide local filesystem workspace services
-- Back local file tools so they do not reinvent path handling
-- Expose recommended workspace layout helpers for agent memory, results, and shared data
-- Stay within the filesystem contract the SDK exposes, so future workspace implementations remain swappable
+## What It Exposes
 
-Planning baseline:
+- `createWorkspaceLayout(root)`
+- `createAgentWorkspaceLayout(root, agentId)`
+- `createWorkspaceFs(root)`
+- `ensureRecommendedWorkspaceStructure(root)`
+- `ensureAgentWorkspaceStructure(root, agentId)`
+- `resolveWorkspacePath(root, ...segments)`
+
+## Canonical Layout
+
+The default layout matches the planning docs:
+
+```text
+<root>/
+  .generic-ai/
+    agents/
+    plugins/
+  .agents/
+    skills/
+  workspace/
+    agents/
+      <agent-id>/
+        memory/
+        results/
+    shared/
+```
+
+## Assumptions
+
+- The root is local filesystem input, either a string path or a `file:` URL.
+- `agentId` must be a single path segment, not a nested path.
+- This package handles workspace path safety and layout scaffolding only; it does not define file tool business logic.
+
+## Example
+
+```ts
+import {
+  createWorkspaceFs,
+  ensureRecommendedWorkspaceStructure,
+} from "@generic-ai/plugin-workspace-fs";
+
+const workspace = createWorkspaceFs(process.cwd());
+
+await ensureRecommendedWorkspaceStructure(workspace.root);
+const agent = workspace.createAgentWorkspaceLayout("primary");
+```
+
+## Planning Baseline
 
 - `docs/planning/README.md`
 - `docs/planning/02-architecture.md`
-- `docs/package-boundaries.md`
+- `docs/planning/03-linear-issue-tree.md`

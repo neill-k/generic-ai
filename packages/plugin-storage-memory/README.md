@@ -1,15 +1,37 @@
 # @generic-ai/plugin-storage-memory
 
-In-memory implementation of the storage contract. Targets tests and fast local development where durability is not required.
+Process-local storage implementation for Generic AI. This package is intended for tests, fast local iteration, and any workflow where durability is intentionally out of scope.
 
-Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin Intent"):
+## What It Provides
 
-- Implement the shared storage contract with an in-process memory backend
-- Allow the rest of the framework and its tests to run without external infrastructure
-- Match the behavior expected by storage-dependent plugins (messaging, memory, etc.)
+- `memoryStoragePlugin`: a stable package-local plugin descriptor
+- `createMemoryStorage()`: a namespaced, structured-clone-backed storage instance
+- `MemoryStorage` and `MemoryNamespace`: direct access to the storage view classes
+- `snapshot()` / `restore()`: deterministic state capture for tests
+- `transaction()`: copy-on-write commit semantics for isolated mutations
 
-Planning baseline:
+## Assumptions
 
-- `docs/planning/README.md`
-- `docs/planning/02-architecture.md`
-- `docs/package-boundaries.md`
+- Storage lives entirely in process memory and disappears on restart.
+- Stored values must be structured-cloneable.
+- Reads return cloned values, so callers cannot mutate internal state by accident.
+- Namespaces are isolated by string name, and record keys are isolated within each namespace.
+- The implementation favors deterministic test behavior over cross-process concurrency features.
+
+## Example
+
+```ts
+import { createMemoryStorage } from "@generic-ai/plugin-storage-memory";
+
+const storage = createMemoryStorage();
+const runs = storage.namespace("runs");
+
+runs.set("run-1", { status: "queued" });
+
+const snapshot = storage.snapshot();
+storage.restore(snapshot);
+```
+
+## Package Boundaries
+
+This package stays local to the in-memory storage implementation. It does not attempt to define the shared storage contract or modify shared kernel/core packages.
