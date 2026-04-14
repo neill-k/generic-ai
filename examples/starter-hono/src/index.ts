@@ -1,4 +1,4 @@
-import { createGenericAI } from "@generic-ai/core/bootstrap";
+import { createGenericAI } from "@generic-ai/core";
 import { createStarterHonoPreset, starterHonoPreset } from "@generic-ai/preset-starter-hono";
 
 export const defaultStarterBootstrap = createGenericAI();
@@ -20,4 +20,3 @@ export const examplePresets = {
   defaultStarterBootstrap,
   explicitStarterBootstrap,
 } as const;
-

@@ -1,31 +1,23 @@
-import type { OutputEnvelope } from "../../../sdk/src/contracts/output.js";
 import type {
+  OutputEnvelope,
   RunEnvelope,
   RunEnvelopeFinalizationInput,
   RunEnvelopeInput,
   RunEnvelopeStatus,
   RunEnvelopeTimestamps,
-} from "../../../sdk/src/run-envelope/index.js";
+} from "@generic-ai/sdk";
 
 const createTimestamp = (): string => new Date().toISOString();
 
 function freezeEventStreamReference(
-  eventStream: RunEnvelopeInput["eventStream"],
-): RunEnvelope["eventStream"] {
-  if (eventStream === undefined) {
-    return undefined;
-  }
-
+  eventStream: NonNullable<RunEnvelopeInput["eventStream"]>,
+): NonNullable<RunEnvelope["eventStream"]> {
   return Object.freeze({ ...eventStream });
 }
 
 function freezeOutputEnvelope<TOutput>(
-  output: OutputEnvelope<TOutput> | undefined,
-): OutputEnvelope<TOutput> | undefined {
-  if (output === undefined) {
-    return undefined;
-  }
-
+  output: OutputEnvelope<TOutput>,
+): OutputEnvelope<TOutput> {
   return Object.freeze({ ...output });
 }
 
@@ -34,12 +26,16 @@ function freezeTimestamps(timestamps: RunEnvelopeTimestamps): Readonly<RunEnvelo
 }
 
 function freezeEnvelope<TOutput>(envelope: RunEnvelope<TOutput>): RunEnvelope<TOutput> {
-  return Object.freeze({
+  const frozenEnvelope: RunEnvelope<TOutput> = {
     ...envelope,
     timestamps: freezeTimestamps(envelope.timestamps),
-    ...(envelope.eventStream === undefined ? {} : { eventStream: freezeEventStreamReference(envelope.eventStream) }),
+    ...(envelope.eventStream === undefined
+      ? {}
+      : { eventStream: freezeEventStreamReference(envelope.eventStream) }),
     ...(envelope.output === undefined ? {} : { output: freezeOutputEnvelope(envelope.output) }),
-  });
+  };
+
+  return Object.freeze(frozenEnvelope);
 }
 
 export function createRunEnvelope<TOutput = unknown>(input: RunEnvelopeInput<TOutput>): RunEnvelope<TOutput> {
@@ -67,13 +63,14 @@ export function createRunEnvelope<TOutput = unknown>(input: RunEnvelopeInput<TOu
 export async function finalizeRunEnvelope<TRun, TOutput>(
   input: RunEnvelopeFinalizationInput<TRun, TOutput>,
 ): Promise<RunEnvelope<TOutput>> {
-  const output = await input.outputPlugin.finalize({
+  const finalizeInput = {
     runId: input.envelope.runId,
     scopeId: input.envelope.rootScopeId,
     pluginId: input.outputPlugin.manifest.id,
     run: input.run,
-    context: input.context,
-  });
+    ...(input.context === undefined ? {} : { context: input.context }),
+  };
+  const output = await input.outputPlugin.finalize(finalizeInput);
 
   const status: RunEnvelopeStatus = input.status ?? "succeeded";
   const timestamps: RunEnvelopeTimestamps = {

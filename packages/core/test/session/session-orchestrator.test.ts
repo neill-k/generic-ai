@@ -21,12 +21,13 @@ describe("SessionOrchestrator", () => {
     const child = orchestrator.createChildSession(root.id, {
       metadata: { kind: "child" },
     });
+    const rootWithChild = orchestrator.getSession(root.id);
 
     expect(root.id).toBe("session-1");
     expect(root.kind).toBe("root");
-    expect(root.childSessionIds).toEqual(["session-2"]);
-    expect(root.childSessions).toHaveLength(1);
-    expect(root.childSessions[0]?.id).toBe("session-2");
+    expect(rootWithChild?.childSessionIds).toEqual(["session-2"]);
+    expect(rootWithChild?.childSessions).toHaveLength(1);
+    expect(rootWithChild?.childSessions[0]?.id).toBe("session-2");
 
     expect(child.id).toBe("session-2");
     expect(child.kind).toBe("child");

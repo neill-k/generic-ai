@@ -25,19 +25,19 @@ const starterCapabilities: ReadonlyArray<BootstrapCapabilityId> = Object.freeze(
 
 const starterPorts: BootstrapPorts = Object.freeze({
   pluginHost: Object.freeze({
-    module: "@generic-ai/core/plugin-host",
+    module: "@generic-ai/core",
     symbol: "createPluginHost",
     status: "expected",
     note: "Core owns the plugin-host port; the runtime implementation is still being wired.",
   }),
   runMode: Object.freeze({
-    module: "@generic-ai/core/run-modes",
+    module: "@generic-ai/core",
     symbol: "createSyncRunMode",
     status: "expected",
     note: "The bootstrap layer only needs the run-mode port contract for now.",
   }),
   runEnvelope: Object.freeze({
-    module: "@generic-ai/core/run-envelope",
+    module: "@generic-ai/core",
     symbol: "createRunEnvelope",
     status: "expected",
     note: "The envelope contract is intentionally described as a port until the upstream module lands.",

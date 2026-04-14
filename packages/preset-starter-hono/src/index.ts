@@ -67,19 +67,19 @@ const starterCapabilities: ReadonlyArray<StarterHonoCapabilityId> = Object.freez
 
 const starterPorts: StarterHonoPorts = Object.freeze({
   pluginHost: Object.freeze({
-    module: "@generic-ai/core/plugin-host",
+    module: "@generic-ai/core",
     symbol: "createPluginHost",
     status: "expected",
     note: "Bootstrap resolves the plugin host through the core port boundary.",
   }),
   runMode: Object.freeze({
-    module: "@generic-ai/core/run-modes",
+    module: "@generic-ai/core",
     symbol: "createSyncRunMode",
     status: "expected",
     note: "The starter preset assumes the core run-mode layer will wire the adapter.",
   }),
   runEnvelope: Object.freeze({
-    module: "@generic-ai/core/run-envelope",
+    module: "@generic-ai/core",
     symbol: "createRunEnvelope",
     status: "expected",
     note: "The envelope contract stays external to the preset package.",
