@@ -196,7 +196,6 @@ const slotToCapability = {
   messaging: "messaging",
   memory: "memory",
   output: "output",
-  transport: "transport-hono",
 } as const satisfies Partial<Record<StarterPresetSlot, BootstrapCapabilityId>>;
 
 function assertNonEmpty(value: string, label: string): void {
@@ -364,6 +363,15 @@ function resolveCapabilitiesFromContract(
     }
   }
 
+  // Only advertise the Hono transport capability when the resolved plugin set
+  // actually contains `@generic-ai/plugin-hono`; a slot override can keep the
+  // transport slot enabled while swapping the underlying plugin, in which case
+  // this preset must not pretend Hono is available to downstream bootstrap
+  // consumers.
+  if (resolution.includesHono) {
+    capabilities.add("transport-hono");
+  }
+
   return [...capabilities];
 }
 
@@ -389,8 +397,12 @@ export function createStarterHonoPreset(
   options: StarterHonoPresetOptions = {},
 ): StarterHonoPresetDefinition {
   const resolution = resolveStarterPreset(options);
+  // Default the bootstrap preset id to the package name so it stays aligned
+  // with core's `createStarterPreset` (which uses the package name as its id).
+  // STARTER_PRESET_ID remains the contract-level identifier used by tests and
+  // preset consumers that read the contract directly.
   const bootstrap = createStarterPreset({
-    id: options.id ?? STARTER_PRESET_ID,
+    id: options.id ?? name,
     name: options.name ?? "Starter Hono preset",
     description: options.description ?? starterPresetContract.description,
     transport: options.transport ?? (resolution.includesHono ? "hono" : "custom"),

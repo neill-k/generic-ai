@@ -48,11 +48,16 @@ export interface HonoPlugin {
 }
 
 function normalizeRoutePrefix(routePrefix: string | undefined): string {
-  if (routePrefix === undefined || routePrefix.trim().length === 0 || routePrefix === "/") {
+  if (routePrefix === undefined) {
     return "";
   }
 
-  const normalized = routePrefix.startsWith("/") ? routePrefix.trim() : `/${routePrefix.trim()}`;
+  const trimmed = routePrefix.trim();
+  if (trimmed.length === 0 || trimmed === "/") {
+    return "";
+  }
+
+  const normalized = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
   return normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
 }
 
@@ -65,25 +70,39 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   );
 }
 
+class InvalidRequestBodyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidRequestBodyError";
+  }
+}
+
 async function readPayload(request: Request): Promise<HonoRunPayload> {
-  try {
-    const body = await request.json();
+  const rawBody = await request.text();
 
-    if (isPlainObject(body) && "input" in body) {
-      return {
-        input: body["input"],
-        ...(isPlainObject(body["metadata"]) ? { metadata: body["metadata"] } : {}),
-      };
-    }
-
-    return {
-      input: body,
-    };
-  } catch {
+  if (rawBody.trim().length === 0) {
     return {
       input: undefined,
     };
   }
+
+  let body: unknown;
+  try {
+    body = JSON.parse(rawBody) as unknown;
+  } catch {
+    throw new InvalidRequestBodyError("Request body is not valid JSON.");
+  }
+
+  if (isPlainObject(body) && "input" in body) {
+    return {
+      input: body["input"],
+      ...(isPlainObject(body["metadata"]) ? { metadata: body["metadata"] } : {}),
+    };
+  }
+
+  return {
+    input: body,
+  };
 }
 
 function serializeChunk(chunk: HonoStreamChunk): string {
@@ -97,8 +116,15 @@ function serializeChunk(chunk: HonoStreamChunk): string {
     lines.push(`event: ${chunk.event}`);
   }
 
+  // JSON.stringify(undefined) returns `undefined`, which would then blow up on
+  // `.split()`. Emit an empty SSE data frame for nullish payloads so handlers
+  // that yield `data: undefined` don't crash the stream.
   const payload =
-    typeof chunk.data === "string" ? chunk.data : JSON.stringify(chunk.data, undefined, 2);
+    chunk.data === undefined || chunk.data === null
+      ? ""
+      : typeof chunk.data === "string"
+        ? chunk.data
+        : JSON.stringify(chunk.data, undefined, 2);
   for (const line of payload.split(/\r?\n/)) {
     lines.push(`data: ${line}`);
   }
@@ -107,17 +133,60 @@ function serializeChunk(chunk: HonoStreamChunk): string {
   return lines.join("\n");
 }
 
-function createSseResponse(stream: AsyncIterable<HonoStreamChunk>): Response {
+function createSseResponse(
+  stream: AsyncIterable<HonoStreamChunk>,
+  signal: AbortSignal,
+): Response {
   const encoder = new TextEncoder();
+  const iterator = stream[Symbol.asyncIterator]();
+
+  async function cleanup(): Promise<void> {
+    try {
+      await iterator.return?.();
+    } catch {
+      // Ignore cleanup failures - we're already aborting.
+    }
+  }
 
   return new Response(
-    new ReadableStream({
+    new ReadableStream<Uint8Array>({
       async start(controller) {
-        for await (const chunk of stream) {
-          controller.enqueue(encoder.encode(serializeChunk(chunk)));
+        const onAbort = (): void => {
+          void cleanup();
+        };
+
+        if (signal.aborted) {
+          onAbort();
+          controller.close();
+          return;
         }
 
-        controller.close();
+        signal.addEventListener("abort", onAbort, { once: true });
+
+        try {
+          while (true) {
+            if (signal.aborted) {
+              break;
+            }
+
+            const next = await iterator.next();
+            if (next.done) {
+              break;
+            }
+
+            controller.enqueue(encoder.encode(serializeChunk(next.value)));
+          }
+
+          controller.close();
+        } catch (error) {
+          controller.error(error);
+          await cleanup();
+        } finally {
+          signal.removeEventListener("abort", onAbort);
+        }
+      },
+      async cancel() {
+        await cleanup();
       },
     }),
     {
@@ -143,7 +212,16 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
   );
 
   app.post(`${routePrefix}/run`, async (context) => {
-    const payload = await readPayload(context.req.raw);
+    let payload: HonoRunPayload;
+    try {
+      payload = await readPayload(context.req.raw);
+    } catch (error) {
+      if (error instanceof InvalidRequestBodyError) {
+        return context.json({ error: error.message }, 400);
+      }
+      throw error;
+    }
+
     const requestId = createRequestId();
     const result = await options.run(payload, {
       requestId,
@@ -168,7 +246,16 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
       );
     }
 
-    const payload = await readPayload(context.req.raw);
+    let payload: HonoRunPayload;
+    try {
+      payload = await readPayload(context.req.raw);
+    } catch (error) {
+      if (error instanceof InvalidRequestBodyError) {
+        return context.json({ error: error.message }, 400);
+      }
+      throw error;
+    }
+
     const requestId = createRequestId();
     const stream = await options.stream(payload, {
       requestId,
@@ -176,7 +263,7 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
       signal: context.req.raw.signal,
     });
 
-    return createSseResponse(stream);
+    return createSseResponse(stream, context.req.raw.signal);
   });
 
   return Object.freeze({
