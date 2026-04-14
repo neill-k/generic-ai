@@ -1,3 +1,6 @@
+import { createGenericAI, type GenericAIInstance } from "@generic-ai/core";
+import type { GenericAIBootstrapOptions, PresetContract } from "@generic-ai/sdk";
+
 export const name = "@generic-ai/preset-starter-hono";
 
 export const STARTER_PRESET_ID = "preset.starter-hono";
@@ -64,7 +67,8 @@ export interface StarterPresetResolvedContract {
   readonly includesHono: boolean;
 }
 
-export interface StarterPresetContract {
+export interface StarterPresetContract
+  extends PresetContract<StarterPresetResolvedContract, StarterPresetResolutionOptions> {
   readonly id: string;
   readonly packageName: string;
   readonly version: number;
@@ -339,4 +343,10 @@ export function withStarterPreset<TOptions extends object, TResult>(
   };
 
   return bootstrap(mergedOptions);
+}
+
+export function createStarterGenericAI(
+  options: Omit<GenericAIBootstrapOptions<StarterPresetContract>, "preset"> = {},
+): GenericAIInstance<StarterPresetContract> {
+  return withStarterPreset(createGenericAI, options);
 }

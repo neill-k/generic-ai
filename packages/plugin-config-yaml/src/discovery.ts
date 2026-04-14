@@ -100,10 +100,12 @@ export async function discoverCanonicalConfig(
     });
   }
 
+  const sortedFrameworkFiles = [...foundFrameworkFiles].sort(comparePath);
+  const primaryFrameworkFile = sortedFrameworkFiles[0];
   const frameworkFile =
-    foundFrameworkFiles.length > 0
-      ? createDiscoveredFile(configRoot, foundFrameworkFiles.sort(comparePath)[0]!, "framework", "framework")
-      : undefined;
+    primaryFrameworkFile === undefined
+      ? undefined
+      : createDiscoveredFile(configRoot, primaryFrameworkFile, "framework", "framework");
 
   const agentFiles = await discoverConcernFiles({
     rootDir: configRoot,

@@ -75,12 +75,14 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: default starter preset. Composes the local-first working stack and is the path `createGenericAI()` loads by default.
 - Allowed deps: `@generic-ai/core`, `@generic-ai/sdk`, all plugins it bundles (`plugin-config-yaml`, `plugin-workspace-fs`, storage, queue, logging, tool, MCP, skill, delegation, messaging, memory, output, and Hono plugins), and `pi`.
 - Not responsible for: defining new plugin-owned business models. The preset only wires existing plugins together.
+- Notes: the starter package owns the default preset contract and may expose a convenience bootstrap wrapper around the generic core bootstrap. The kernel stays preset-agnostic.
 
 ### `@generic-ai/plugin-config-yaml`
 
 - Role: canonical YAML config discovery and validation. Produces the single resolved config layer the rest of the framework consumes.
 - Allowed deps: `@generic-ai/sdk`, `pi`.
 - Not responsible for: kernel bootstrap order, or plugin-owned runtime behavior that is merely configured via YAML.
+- Notes: this package also owns schema-fragment composition, startup-time config validation, and generation/export of the frozen machine-readable config contracts.
 
 ### `@generic-ai/plugin-workspace-fs`
 

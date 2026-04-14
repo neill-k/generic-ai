@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://generic-ai.dev/contracts/config/boundaries.json",
+  "title": "Generic AI Config Concern Boundaries",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["yamlConcerns", "nonYamlConcerns", "artifacts", "notes"],
+  "properties": {
+    "yamlConcerns": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["framework", "agent", "plugin"]
+      },
+      "uniqueItems": true,
+      "minItems": 3
+    },
+    "nonYamlConcerns": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["preset"]
+      },
+      "uniqueItems": true,
+      "minItems": 1
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["framework", "agent", "plugin", "preset", "resolved"],
+      "properties": {
+        "framework": {
+          "type": "string",
+          "const": "framework.schema.json"
+        },
+        "agent": {
+          "type": "string",
+          "const": "agent.schema.json"
+        },
+        "plugin": {
+          "type": "string",
+          "const": "plugin.schema.json"
+        },
+        "preset": {
+          "type": "string",
+          "const": "preset.schema.json"
+        },
+        "resolved": {
+          "type": "string",
+          "const": "resolved.schema.json"
+        }
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  }
+}

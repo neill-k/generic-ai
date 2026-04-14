@@ -9,6 +9,9 @@
     "dist",
     "README.md"
   ],
+  "dependencies": {
+    "zod": "^4.3.6"
+  },
   "license": "MIT",
   "private": false,
   "publishConfig": {

@@ -10,6 +10,10 @@ Expected initial contents, produced during Epic 1 and Epic 2 work (see `docs/pla
 - Config schema contracts from `CFG-01`
 - Any other contracts promoted out of `@generic-ai/sdk` when they reach a freeze point
 
+Current contract modules:
+
+- `config/` - canonical `CFG-01` concern schemas and boundaries
+
 Scope:
 
 - This directory tracks contracts. It is not a place for implementation.

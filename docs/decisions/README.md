@@ -25,6 +25,8 @@ ADRs must be written when:
 - [`0001-monorepo-scaffold.md`](0001-monorepo-scaffold.md) — initial monorepo layout, package manager choice, and package granularity.
 - [`0002-base-toolchain.md`](0002-base-toolchain.md) — base toolchain for the monorepo: Node LTS, TypeScript project references, Biome, Vitest, workspace scripts, and the four-command quality gate.
 - [`0003-release-and-publishing.md`](0003-release-and-publishing.md) — release tool (changesets), independent versioning, public-vs-internal classification, `publishConfig` with npm provenance, changelog policy, and the CI/release-ownership handoff to `CTL-02` and `CTL-03`.
+- [`0004-config-contracts-and-discovery.md`](0004-config-contracts-and-discovery.md) — Zod-backed config contracts, JSON Schema artifacts in `contracts/`, deterministic `.generic-ai/` discovery, and startup-time validation/composition.
+- [`0005-starter-preset-contract.md`](0005-starter-preset-contract.md) — SDK-owned preset contracts, starter preset composition rules, and the kernel/preset boundary.
 
 ## Planning Baseline
 

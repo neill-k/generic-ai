@@ -21,6 +21,9 @@ describe("resolveCanonicalConfig", () => {
       throw new Error("Expected successful resolution.");
     }
 
+    const { implementer, research } = result.config.agents;
+    const { output, storage } = result.config.plugins;
+
     expect(result.config.framework).toMatchObject({
       name: "generic-ai",
       runtime: {
@@ -29,21 +32,21 @@ describe("resolveCanonicalConfig", () => {
         tracing: true,
       },
     });
-    expect(result.config.agents["implementer"]).toMatchObject({
+    expect(implementer).toMatchObject({
       model: "gpt-5",
       temperature: 0.1,
       maxTokens: 4000,
     });
-    expect(result.config.agents["research"]).toMatchObject({
+    expect(research).toMatchObject({
       model: "gpt-5",
       temperature: 0.3,
       focus: "architecture",
     });
-    expect(result.config.plugins["output"]).toMatchObject({
+    expect(output).toMatchObject({
       format: "markdown",
       streaming: true,
     });
-    expect(result.config.plugins["storage"]).toMatchObject({
+    expect(storage).toMatchObject({
       kind: "sqlite",
       path: ".generic-ai/storage.db",
     });

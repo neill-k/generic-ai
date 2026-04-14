@@ -134,12 +134,18 @@ export async function resolveCanonicalConfig(
         sources.order.push(file.filePath);
         break;
       case "agent":
-        agents[file.key] = loaded.value;
+        agents[file.key] = {
+          id: file.key,
+          ...loaded.value,
+        };
         sources.agents[file.key] = file.filePath;
         sources.order.push(file.filePath);
         break;
       case "plugin":
-        plugins[file.key] = loaded.value;
+        plugins[file.key] = {
+          plugin: file.key,
+          ...loaded.value,
+        };
         sources.plugins[file.key] = file.filePath;
         sources.order.push(file.filePath);
         break;
@@ -344,10 +350,18 @@ function parseSimpleYaml(raw: string, filePath: string): unknown {
     return {};
   }
 
-  const [value, nextIndex] = parseYamlBlock(lines, startIndex, lines[startIndex]!.indent);
+  const startLine = lines[startIndex];
+  if (!startLine) {
+    return {};
+  }
+
+  const [value, nextIndex] = parseYamlBlock(lines, startIndex, startLine.indent);
   const trailingIndex = nextContentLine(lines, nextIndex);
   if (trailingIndex >= 0) {
-    const trailingLine = lines[trailingIndex]!;
+    const trailingLine = lines[trailingIndex];
+    if (!trailingLine) {
+      return value;
+    }
     throw new SimpleYamlParseError("Unexpected trailing content.", trailingLine.lineNumber, trailingLine.indent + 1);
   }
 
@@ -413,7 +427,10 @@ function parseYamlSequence(lines: ParsedLine[], index: number, indent: number): 
       break;
     }
 
-    const line = lines[current]!;
+    const line = lines[current];
+    if (!line) {
+      break;
+    }
     if (line.indent < indent) {
       break;
     }
@@ -427,14 +444,15 @@ function parseYamlSequence(lines: ParsedLine[], index: number, indent: number): 
     const itemText = line.content.slice(2).trimStart();
     if (itemText.length === 0) {
       const nestedIndex = nextContentLine(lines, current + 1);
-      if (nestedIndex < 0 || lines[nestedIndex]!.indent <= indent) {
+      const nestedLine = nestedIndex < 0 ? undefined : lines[nestedIndex];
+      if (!nestedLine || nestedLine.indent <= indent) {
         throw new SimpleYamlParseError("Missing value for YAML sequence item.", line.lineNumber, indent + 1);
       }
-      if (lines[nestedIndex]!.indent !== indent + 2) {
+      if (nestedLine.indent !== indent + 2) {
         throw new SimpleYamlParseError(
           "Nested YAML sequence content must be indented by 2 spaces.",
-          lines[nestedIndex]!.lineNumber,
-          lines[nestedIndex]!.indent + 1,
+          nestedLine.lineNumber,
+          nestedLine.indent + 1,
         );
       }
 
@@ -471,7 +489,10 @@ function parseYamlMapping(lines: ParsedLine[], index: number, indent: number): [
       break;
     }
 
-    const line = lines[current]!;
+    const line = lines[current];
+    if (!line) {
+      break;
+    }
     if (line.indent < indent) {
       break;
     }
@@ -493,17 +514,18 @@ function parseYamlMapping(lines: ParsedLine[], index: number, indent: number): [
 
     if (valuePart.length === 0) {
       const nestedIndex = nextContentLine(lines, current + 1);
-      if (nestedIndex < 0 || lines[nestedIndex]!.indent <= indent) {
+      const nestedLine = nestedIndex < 0 ? undefined : lines[nestedIndex];
+      if (!nestedLine || nestedLine.indent <= indent) {
         value[key] = {};
         current += 1;
         continue;
       }
 
-      if (lines[nestedIndex]!.indent !== indent + 2) {
+      if (nestedLine.indent !== indent + 2) {
         throw new SimpleYamlParseError(
           "Nested YAML mapping content must be indented by 2 spaces.",
-          lines[nestedIndex]!.lineNumber,
-          lines[nestedIndex]!.indent + 1,
+          nestedLine.lineNumber,
+          nestedLine.indent + 1,
         );
       }
 

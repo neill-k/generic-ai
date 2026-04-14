@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b --noEmit --pretty",
+    "typecheck": "tsc -b --pretty",
     "test": "vitest run",
     "lint": "biome lint .",
     "format": "biome format --write .",

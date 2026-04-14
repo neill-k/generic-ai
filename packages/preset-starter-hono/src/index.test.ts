@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createStarterGenericAI,
   resolveStarterPreset,
   starterPresetContract,
   withStarterPreset,
@@ -83,5 +84,18 @@ describe("@generic-ai/preset-starter-hono contract", () => {
 
     expect(resolved.rootScopeId).toBe("scope-root");
     expect(resolved.preset).toBe(starterPresetContract);
+  });
+
+  it("creates a generic-ai instance prewired with the starter preset", () => {
+    const instance = createStarterGenericAI({
+      rootScopeId: "scope-root",
+    });
+
+    expect(instance.kind).toBe("generic-ai-instance");
+    expect(instance.rootScopeId).toBe("scope-root");
+    expect(instance.preset).toBe(starterPresetContract);
+    expect(instance.resolvedPreset).toMatchObject({
+      id: starterPresetContract.id,
+    });
   });
 });

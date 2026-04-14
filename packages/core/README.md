@@ -15,6 +15,12 @@ Kernel responsibilities (see `docs/planning/02-architecture.md`):
 
 The kernel does not own business capabilities. MCP, Agent Skills, delegation, messaging, memory, storage, output shaping, and transport all live in plugins.
 
+Current bootstrap boundary:
+
+- `createGenericAI(options)` is the generic bootstrap entrypoint
+- callers provide a preset contract rather than the kernel importing preset packages directly
+- starter-path convenience wrappers live in preset packages such as `@generic-ai/preset-starter-hono`
+
 Planning baseline:
 
 - `docs/planning/README.md`

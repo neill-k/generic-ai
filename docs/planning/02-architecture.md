@@ -150,7 +150,7 @@ Recommended contents:
 - plugin manifest contract
 - plugin lifecycle contract
 - registry contracts
-- config-schema contract
+- config-schema contract, authored in the SDK and exported as JSON Schema artifacts under `contracts/`
 - scope contract
 - storage contract
 - workspace contract
@@ -192,6 +192,7 @@ The starter preset should include Hono anyway, but the plugin itself remains opt
 - load canonical YAML config files
 - validate plugin config schemas
 - produce a single resolved config object
+- export or support generation of the frozen machine-readable config contracts
 
 ### `plugin-workspace-fs`
 
@@ -280,6 +281,7 @@ Recommended preset behavior:
 - uses SQLite for persistent storage
 - uses the in-process queue for async execution
 - exposes a simple programmatic bootstrap path plus a runnable example
+- provides explicit extension points without requiring the kernel to import preset packages directly
 
 ## Canonical Config Layout
 
@@ -313,6 +315,7 @@ Rules:
 
 - this is the canonical config discovery layout
 - the system resolves one final config layer only
+- presets are package-driven in v1 rather than selected through a separate `preset.yaml`
 - plugins may own additional internal files, but the above layout is the documented default
 
 ## Recommended Workspace Layout

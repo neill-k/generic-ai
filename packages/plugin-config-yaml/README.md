@@ -9,6 +9,13 @@ Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin
 - Produce a single resolved config object for the framework
 - Surface actionable diagnostics on malformed or invalid config
 
+Current exports:
+
+- deterministic config discovery from the nearest `.generic-ai/` root
+- resolution of `framework`, `agents/*`, and `plugins/*` into one final config object with source provenance
+- plugin schema-fragment registry and namespace composition helpers
+- startup-time validation with structured diagnostics
+
 Config is canonical and file-first. See the canonical config layout in `docs/planning/02-architecture.md`.
 
 Planning baseline:

@@ -7,6 +7,7 @@ Default starter preset contract for Generic AI. This package exports a first-cla
 - `starterPresetContract`: canonical starter preset contract metadata and resolver
 - `resolveStarterPreset(options?)`: resolves the deterministic plugin composition order
 - `withStarterPreset(bootstrap, options?, preset?)`: convenience helper that injects a preset contract into a caller-provided bootstrap function
+- `createStarterGenericAI(options?)`: convenience bootstrap that calls `@generic-ai/core` with the starter preset wired in
 - `STARTER_PRESET_DEFAULT_SLOTS`: documented slot-to-plugin defaults for the starter stack
 
 The default composition is local-first and includes:

@@ -2,19 +2,12 @@
 
 The framework-facing SDK. This package defines the contracts plugin authors and preset authors depend on so they never need to import from `@generic-ai/core` directly.
 
-Planned SDK contents (see `docs/planning/02-architecture.md` section "SDK Responsibilities"):
+Current SDK contents:
 
-- Plugin manifest contract
-- Plugin lifecycle contract
-- Registry contracts
-- Config-schema contract
-- Scope contract
-- Storage contract
-- Workspace contract
-- Queue contract
-- Output-plugin contract
-- Typed helpers for writing plugins and presets
-- Re-exports of `pi` primitives where that materially improves plugin author ergonomics
+- Canonical config concern types for `framework`, `agent`, `plugin`, `preset`, and the resolved config layer
+- Schema-authoring helpers for config contracts and plugin config fragments
+- JSON Schema emission interfaces for frozen machine-readable artifacts under `contracts/config/`
+- Generic preset and bootstrap contract types used by core and preset packages
 
 The SDK is the stable public surface plugins compile against. The kernel is free to evolve its internals behind this boundary.
 
