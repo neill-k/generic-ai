@@ -1,17 +1,52 @@
 # @generic-ai/preset-starter-hono
 
-The default Generic AI starter preset. It composes the local-first working stack and is the path `createGenericAI()` loads when callers do not supply a custom composition.
+Default starter preset contract for Generic AI. This package exports a first-class preset contract and a convenience helper so callers can wire the starter path without requiring `@generic-ai/core` to import preset or plugin packages directly.
 
-Planned preset behavior (see `docs/planning/02-architecture.md` section "Starter Preset"):
+## What this package exports
 
-- Wires a local-first development stack
-- Uses SQLite for durable storage and the in-process queue for async runs
-- Ships standard terminal tools, file tools, MCP, Agent Skills, delegation, messaging, and file-backed memory
-- Includes Hono by default so the starter works without additional transport assembly
-- Exposes a simple programmatic bootstrap path and is exercised by the reference example in `examples/starter-hono/`
+- `starterPresetContract`: canonical starter preset contract metadata and resolver
+- `resolveStarterPreset(options?)`: resolves the deterministic plugin composition order
+- `withStarterPreset(bootstrap, options?, preset?)`: convenience helper that injects a preset contract into a caller-provided bootstrap function
+- `STARTER_PRESET_DEFAULT_SLOTS`: documented slot-to-plugin defaults for the starter stack
 
-Planning baseline:
+The default composition is local-first and includes:
+
+- canonical config plugin
+- workspace filesystem services
+- durable SQLite storage
+- in-process queueing
+- OTEL logging
+- terminal and file tools
+- MCP and Agent Skills
+- delegation, messaging, and file-backed memory
+- default output/finalization
+- Hono transport by default
+
+## Extension points (programmatic, v1)
+
+This package intentionally uses programmatic extension points in v1.
+
+- `slotOverrides`: replace a default slot plugin, or disable optional slots (for example, `transport` / Hono)
+- `addons`: insert additional plugins before or after a slot anchor
+
+Example:
+
+```ts
+import { resolveStarterPreset } from "@generic-ai/preset-starter-hono";
+
+const preset = resolveStarterPreset({
+  slotOverrides: [{ slot: "storage", pluginId: "@acme/plugin-storage-postgres" }],
+  addons: [{ pluginId: "@acme/plugin-policy", anchorSlot: "output", insert: "before" }],
+});
+```
+
+## No `preset.yaml` in v1
+
+There is no separate user-facing `preset.yaml` in v1. Preset composition is defined by this package contract and can be customized programmatically via the extension points above.
+
+## Planning baseline
 
 - `docs/planning/README.md`
 - `docs/planning/02-architecture.md`
+- `docs/planning/03-linear-issue-tree.md` (`CFG-04`)
 - `docs/package-boundaries.md`
