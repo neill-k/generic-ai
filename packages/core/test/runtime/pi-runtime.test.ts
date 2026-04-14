@@ -3,6 +3,7 @@ import type {
   AgentSessionRuntime,
   CreateAgentSessionOptions,
   CreateAgentSessionResult,
+  CreateAgentSessionRuntimeResult,
 } from "@mariozechner/pi-coding-agent";
 import { createPiAgentSession, createPiAgentSessionRuntime } from "../../src/runtime/index.js";
 

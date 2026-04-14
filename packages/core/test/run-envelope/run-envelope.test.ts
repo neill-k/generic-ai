@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OutputFinalizeInput } from "../../../sdk/src/contracts/output.js";
+import type { OutputFinalizeInput } from "@generic-ai/sdk";
 import { createRunEnvelope, finalizeRunEnvelope } from "../../src/run-envelope/index.js";
 
 describe("run-envelope helpers", () => {

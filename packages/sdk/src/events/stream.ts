@@ -140,13 +140,8 @@ export function createCanonicalEventStream(options: CanonicalEventStreamOptions 
       }
 
       const id = `subscription-${nextSubscriptionId++}`;
-      listeners.set(
-        id,
-        filter === undefined
-          ? { listener: listener as CanonicalEventListener }
-          : { listener: listener as CanonicalEventListener, filter },
-      );
 
+      // Replay history before adding to live listeners to ensure correct ordering
       for (const event of history) {
         if (!matchesFilter(event, filter)) {
           continue;
@@ -158,6 +153,14 @@ export function createCanonicalEventStream(options: CanonicalEventStreamOptions 
           options.onSubscriberError?.(error, event, id);
         }
       }
+
+      // Only add to live listeners after history replay completes
+      listeners.set(
+        id,
+        filter === undefined
+          ? { listener: listener as CanonicalEventListener }
+          : { listener: listener as CanonicalEventListener, filter },
+      );
 
       return {
         id,

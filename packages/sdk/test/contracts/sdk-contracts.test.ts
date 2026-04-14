@@ -1,17 +1,17 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import { createRegistry } from "../helpers/create-registry.js";
-import { createScope } from "../helpers/create-scope.js";
-import { defineConfigSchema } from "../helpers/define-config-schema.js";
-import { defineLifecycle } from "../helpers/define-lifecycle.js";
-import { defineOutputPlugin } from "../helpers/define-output-plugin.js";
-import { definePlugin } from "../helpers/define-plugin.js";
-import type { ConfigSchemaContract } from "./config-schema.js";
-import type { OutputPluginContract } from "./output.js";
-import type { PluginContract, PluginRuntimeContext } from "./plugin.js";
-import type { QueueContract, QueueJob, QueueLease } from "./queue.js";
-import type { Scope } from "./scope.js";
-import type { StorageContract, StorageKey, StorageRecord } from "./storage.js";
-import type { WorkspaceContract } from "./workspace.js";
+import { createRegistry } from "../../src/helpers/create-registry.js";
+import { createScope } from "../../src/helpers/create-scope.js";
+import { defineConfigSchema } from "../../src/helpers/define-config-schema.js";
+import { defineLifecycle } from "../../src/helpers/define-lifecycle.js";
+import { defineOutputPlugin } from "../../src/helpers/define-output-plugin.js";
+import { definePlugin } from "../../src/helpers/define-plugin.js";
+import type { ConfigSchemaContract } from "../../src/contracts/config-schema.js";
+import type { OutputPluginContract } from "../../src/contracts/output.js";
+import type { PluginContract, PluginRuntimeContext } from "../../src/contracts/plugin.js";
+import type { QueueContract, QueueJob, QueueLease } from "../../src/contracts/queue.js";
+import type { Scope } from "../../src/scope/index.js";
+import type { StorageContract, StorageKey, StorageRecord } from "../../src/contracts/storage.js";
+import type { WorkspaceContract } from "../../src/contracts/workspace.js";
 
 interface SampleConfig {
   readonly greeting: string;
@@ -195,7 +195,7 @@ describe("@generic-ai/sdk contracts", () => {
   it("lets a sample plugin implement the public contracts without kernel internals", async () => {
     const pluginRegistry = createRegistry<PluginContract<SampleConfig>>("plugins");
     const outputRegistry = createRegistry<OutputPluginContract<SampleRun, SampleOutput>>("outputs");
-    const scope = createScope({ id: "run-001", scopeKind: "run", labels: { team: "sdk" } });
+    const scope = createScope({ id: "run-001", kind: "run", metadata: { team: "sdk" } });
     const storage = createMemoryStorage();
     const workspace = createMemoryWorkspace();
     const queue = createMemoryQueue();

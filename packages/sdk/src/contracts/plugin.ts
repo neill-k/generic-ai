@@ -3,7 +3,7 @@ import type { ConfigSchemaContract } from "./config-schema.js";
 import type { LifecycleHooks } from "./lifecycle.js";
 import type { RegistryContract } from "./registry.js";
 import type { QueueContract } from "./queue.js";
-import type { Scope } from "./scope.js";
+import type { Scope } from "../scope/index.js";
 import type { StorageContract } from "./storage.js";
 import type { WorkspaceContract } from "./workspace.js";
 

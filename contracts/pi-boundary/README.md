@@ -11,10 +11,9 @@ second wrapper layer:
 - runtime creation: `createAgentSession`, `createAgentSessionRuntime`
 - runtime objects: `AgentSession`, `AgentSessionRuntime`
 - runtime managers and loaders: `SessionManager`, `SettingsManager`, `AuthStorage`, `ModelRegistry`, `DefaultResourceLoader`
-- runtime types: `AgentSessionConfig`, `AgentSessionEvent`, `AgentSessionEventListener`, `CreateAgentSessionOptions`, `CreateAgentSessionResult`, `CreateAgentSessionRuntimeFactory`, `CreateAgentSessionRuntimeResult`, `ModelCycleResult`, `PromptOptions`, `SessionStartEvent`, `SessionStats`
-- extension contracts: `ExtensionAPI`, `ExtensionContext`, `ExtensionCommandContext`, `ExtensionFactory`, `ExtensionHandler`, `ToolDefinition`
-- tool contracts and built-ins: `readTool`, `bashTool`, `editTool`, `writeTool`, `grepTool`, `findTool`, `lsTool`, `codingTools`, `readOnlyTools`, `createCodingTools`, `createReadOnlyTools`, `createReadTool`, `createBashTool`, `createEditTool`, `createWriteTool`, `createGrepTool`, `createFindTool`, `createLsTool`
-- resource types: `PromptTemplate`, `Skill`
+- runtime types: `AgentSessionConfig`, `AgentSessionEvent`, `AgentSessionEventListener`, `CreateAgentSessionOptions`, `CreateAgentSessionResult`, `CreateAgentSessionRuntimeFactory`, `CreateAgentSessionRuntimeResult`, `ModelCycleResult`, `PromptOptions`, `SessionStats`
+- extension contracts: `defineTool`, `ExtensionAPI`, `ExtensionContext`, `ExtensionCommandContext`, `ExtensionFactory`, `ExtensionHandler`, `ToolDefinition`
+- tool built-ins: `readTool`, `bashTool`, `editTool`, `writeTool`, `grepTool`, `findTool`, `lsTool`, `codingTools`, `readOnlyTools`, `createCodingTools`, `createReadOnlyTools`
 
 ## Kept Behind The Adapter
 

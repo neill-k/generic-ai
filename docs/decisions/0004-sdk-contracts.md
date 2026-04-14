@@ -59,14 +59,18 @@ readability. The runtime context passed to plugins includes only the services
 they need to author against the public surface: scope, config, registries, and
 optional storage/workspace/queue adapters.
 
-### No kernel imports, no hidden `pi` dependency
+### No kernel imports, explicit `pi` boundary
 
-This SDK pass deliberately does not import `@generic-ai/core`. It also does not
-pull in `pi` just to re-export primitives early. That boundary stays reserved
-for the kernel work tracked in `KRN-08`.
+This SDK pass deliberately does not import `@generic-ai/core`. However, the SDK
+now does pull in `pi` directly and re-exports the accepted `pi` primitives from
+its public surface where that improves authoring ergonomics.
 
-The aim here is to keep the public authoring surface easy to adopt today while
-leaving room for later direct `pi` exposure if that proves useful.
+This direct `pi` boundary is intentional and part of the accepted SDK contract,
+aligned with ADR `0011`, rather than being deferred to later kernel work.
+
+The aim here is to keep the public authoring surface easy to adopt while
+keeping the SDK kernel-agnostic and making any `pi` exposure explicit in the
+contract surface instead of hidden behind private kernel internals.
 
 ### Small helpers, not policy engines
 
