@@ -9,6 +9,9 @@
     "dist",
     "README.md"
   ],
+  "dependencies": {
+    "@generic-ai/core": "0.0.0"
+  },
   "license": "MIT",
   "private": false,
   "publishConfig": {
