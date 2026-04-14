@@ -1,0 +1,4 @@
+name: invalid
+runtime:
+  mode: local
+   retries: 2
