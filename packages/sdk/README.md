@@ -1,25 +1,55 @@
 # @generic-ai/sdk
 
-The framework-facing SDK. This package defines the contracts plugin authors and preset authors depend on so they never need to import from `@generic-ai/core` directly.
+The framework-facing SDK for Generic AI. This package is the public contract
+surface plugin authors and preset authors compile against.
 
-Planned SDK contents (see `docs/planning/02-architecture.md` section "SDK Responsibilities"):
+## What lives here
 
-- Plugin manifest contract
-- Plugin lifecycle contract
-- Registry contracts
-- Config-schema contract
-- Scope contract
-- Storage contract
-- Workspace contract
-- Queue contract
-- Output-plugin contract
-- Typed helpers for writing plugins and presets
-- Re-exports of `pi` primitives where that materially improves plugin author ergonomics
+- `src/contracts/` for the typed contract surface
+- `src/helpers/` for ergonomic contract constructors
+- package-level docs and contract tests that keep the surface honest
 
-The SDK is the stable public surface plugins compile against. The kernel is free to evolve its internals behind this boundary.
+## Contract surface
 
-Planning baseline:
+The SDK defines the contract families planned in
+`docs/planning/02-architecture.md`:
 
-- `docs/planning/README.md`
+- plugin contracts
+- registry contracts
+- lifecycle hooks
+- config-schema contracts
+- scope contracts
+- storage contracts
+- workspace contracts
+- queue contracts
+- output-plugin contracts
+
+The contract modules are intentionally kernel-agnostic. They do not import
+`@generic-ai/core`, and they do not require private kernel knowledge to
+implement.
+
+## Helper surface
+
+The helper layer is intentionally small and mostly ergonomic:
+
+- `definePlugin`
+- `defineLifecycle`
+- `defineConfigSchema`
+- `createRegistry`
+- `createScope`
+- `defineStorage`
+- `defineWorkspace`
+- `defineQueue`
+- `defineOutputPlugin`
+
+These helpers do not add policy. They keep plugin author code concise while
+staying faithful to the public contract shape.
+
+## Reference documents
+
+- `contracts/sdk/README.md`
+- `specs/sdk/README.md`
+- `docs/decisions/0004-sdk-contracts.md`
 - `docs/planning/02-architecture.md`
 - `docs/package-boundaries.md`
+

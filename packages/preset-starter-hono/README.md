@@ -1,14 +1,19 @@
 # @generic-ai/preset-starter-hono
 
-The default Generic AI starter preset. It composes the local-first working stack and is the path `createGenericAI()` loads when callers do not supply a custom composition.
+The default Generic AI starter preset. It keeps Hono in the default path, and callers can pass it straight into `createGenericAI()` when they want to make the composition explicit.
 
-Planned preset behavior (see `docs/planning/02-architecture.md` section "Starter Preset"):
+Current surface:
 
-- Wires a local-first development stack
-- Uses SQLite for durable storage and the in-process queue for async runs
-- Ships standard terminal tools, file tools, MCP, Agent Skills, delegation, messaging, and file-backed memory
-- Includes Hono by default so the starter works without additional transport assembly
-- Exposes a simple programmatic bootstrap path and is exercised by the reference example in `examples/starter-hono/`
+- `createStarterHonoPreset()` returns a frozen preset descriptor with the default local-first starter shape
+- `starterHonoPreset` is the package-level default descriptor
+- the preset exposes composition ports for plugin-host, run-mode, run-envelope, and `pi` boundary wiring
+- the reference example in `examples/starter-hono/` shows both the implicit default path and an explicit override
+
+Design notes:
+
+- the preset is intentionally a composition descriptor, not a kernel implementation
+- the actual plugin host, run-mode, run-envelope, and `pi` wiring remain in the kernel / SDK layers
+- the starter preset should optimize for "it works" over custom assembly
 
 Planning baseline:
 
