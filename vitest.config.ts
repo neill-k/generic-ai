@@ -3,23 +3,34 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const packageAliases = [
+  "core",
+  "sdk",
+  "preset-starter-hono",
+  "plugin-workspace-fs",
+  "plugin-storage-memory",
+  "plugin-tools-terminal",
+  "plugin-tools-files",
+  "plugin-mcp",
+  "plugin-agent-skills",
+  "plugin-delegation",
+  "plugin-messaging",
+  "plugin-memory-files",
+  "plugin-output-default",
+  "plugin-hono",
+];
 
 export default defineConfig({
   resolve: {
-    alias: [
-      {
-        find: /^@generic-ai\/core$/,
-        replacement: resolve(__dirname, "packages/core/src/index.ts"),
-      },
-      {
-        find: /^@generic-ai\/sdk$/,
-        replacement: resolve(__dirname, "packages/sdk/src/index.ts"),
-      },
-      {
-        find: /^@generic-ai\/preset-starter-hono$/,
-        replacement: resolve(__dirname, "packages/preset-starter-hono/src/index.ts"),
-      },
-    ],
+    alias: packageAliases.map((packageName) => ({
+      find: new RegExp(`^@generic-ai/${packageName}$`),
+      replacement: resolve(
+        __dirname,
+        packageName === "preset-starter-hono"
+          ? `packages/${packageName}/src/index.ts`
+          : `packages/${packageName}/src/index.ts`,
+      ),
+    })),
   },
   test: {
     include: [

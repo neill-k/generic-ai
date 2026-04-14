@@ -9,6 +9,10 @@
     "dist",
     "README.md"
   ],
+  "dependencies": {
+    "@generic-ai/plugin-workspace-fs": "0.0.0",
+    "@generic-ai/sdk": "0.0.0"
+  },
   "license": "MIT",
   "private": false,
   "publishConfig": {
