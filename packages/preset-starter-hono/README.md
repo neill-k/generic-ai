@@ -10,6 +10,8 @@ Default starter preset contract for Generic AI. This package exports a first-cla
 - `createStarterGenericAI(options?)`: convenience bootstrap that calls `@generic-ai/core` with the starter preset wired in
 - `STARTER_PRESET_DEFAULT_SLOTS`: documented slot-to-plugin defaults for the starter stack
 
+The preset keeps Hono in the default path, and callers can pass it straight into `createGenericAI()` when they want to make the composition explicit.
+
 The default composition is local-first and includes:
 
 - canonical config plugin

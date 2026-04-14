@@ -17,5 +17,9 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "dependencies": {
+    "@generic-ai/sdk": "0.0.0",
+    "@mariozechner/pi-coding-agent": "0.67.1"
   }
 }

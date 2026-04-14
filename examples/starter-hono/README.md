@@ -1,21 +1,14 @@
 # examples/starter-hono
 
-Reference example for the Generic AI starter preset. This directory is still a stub until `TRN-03`, but `CFG-04` establishes the preset contract that this example will consume.
+Reference example for the Generic AI starter preset.
 
-## Intended bootstrap shape
+What this example shows:
 
-The example should use the preset package contract directly, then pass that contract into top-level bootstrap wiring from `@generic-ai/core`.
+- `createGenericAI()` with no arguments resolves the starter preset by default
+- callers can still pass `createStarterHonoPreset()` explicitly when they want the composition to be visible in code
+- the example keeps the bootstrap layer and the preset package separate, which matches the repo boundary model
 
-```ts
-import { starterPresetContract, withStarterPreset } from "@generic-ai/preset-starter-hono";
-// import { createGenericAI } from "@generic-ai/core";
-
-// const app = withStarterPreset(createGenericAI, { scope: { id: "example" } });
-// or explicitly:
-// const app = createGenericAI({ scope: { id: "example" }, preset: starterPresetContract });
-```
-
-This keeps package boundaries clear: core does not need to directly import preset/plugin packages.
+The main source entrypoint is `examples/starter-hono/src/index.ts`. It is intentionally small for now so later runtime work can swap in the real kernel wiring without changing the example shape.
 
 ## Starter preset extension points
 
