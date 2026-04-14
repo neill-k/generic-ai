@@ -1,5 +1,11 @@
 export { createGenericAI } from "./bootstrap.js";
-export { createStarterPreset, resolveStarterCapabilities, resolveStarterPorts, starterPortsDefinition, starterPreset } from "./starter-preset.js";
+export {
+  createStarterPreset,
+  resolveStarterCapabilities,
+  resolveStarterPorts,
+  starterPortsDefinition,
+  starterPreset,
+} from "./starter-preset.js";
 export type {
   BootstrapCapabilityId,
   BootstrapPortDescriptor,
@@ -11,4 +17,3 @@ export type {
   GenericAIComposition,
   GenericAIOptions,
 } from "./types.js";
-

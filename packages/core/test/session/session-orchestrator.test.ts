@@ -85,9 +85,7 @@ describe("SessionOrchestrator", () => {
     orchestrator.cancelSession(cancelledChild.id, { reason: "stop" });
 
     expect(orchestrator.getSession(failedChild.id)?.status).toBe("failed");
-    expect(orchestrator.getSession(failedChild.id)?.terminalState?.error?.message).toBe(
-      "boom",
-    );
+    expect(orchestrator.getSession(failedChild.id)?.terminalState?.error?.message).toBe("boom");
 
     expect(orchestrator.getSession(cancelledChild.id)?.status).toBe("cancelled");
     expect(orchestrator.getSession(nestedChild.id)?.status).toBe("cancelled");

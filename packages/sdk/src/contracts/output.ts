@@ -24,4 +24,3 @@ export interface OutputPluginContract<TRun = unknown, TOutput = unknown> {
   readonly contentType: string;
   finalize(input: OutputFinalizeInput<TRun>): Awaitable<OutputEnvelope<TOutput>>;
 }
-

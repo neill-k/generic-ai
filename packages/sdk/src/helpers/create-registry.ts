@@ -25,8 +25,10 @@ export function createRegistry<TValue, TKey extends string = string>(
       entries.clear();
     },
     entries() {
-      return Array.from(entries.entries(), ([key, value]) => ({ key, value } satisfies RegistryEntry<TKey, TValue>));
+      return Array.from(
+        entries.entries(),
+        ([key, value]) => ({ key, value }) satisfies RegistryEntry<TKey, TValue>,
+      );
     },
   };
 }
-

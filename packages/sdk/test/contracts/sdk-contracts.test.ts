@@ -34,7 +34,9 @@ function createMemoryStorage(): StorageContract {
     kind: "storage",
     driver: "memory",
     async get<TValue>(key: StorageKey) {
-      return records.get(`${key.namespace}:${key.collection}:${key.id}`) as StorageRecord<TValue> | undefined;
+      return records.get(`${key.namespace}:${key.collection}:${key.id}`) as
+        | StorageRecord<TValue>
+        | undefined;
     },
     async set(record) {
       records.set(`${record.key.namespace}:${record.key.collection}:${record.key.id}`, record);
@@ -255,7 +257,10 @@ describe("@generic-ai/sdk contracts", () => {
         id: "sample.plugin",
         name: "Sample Plugin",
         description: "Demonstrates the SDK contract surface only.",
-        dependencies: [{ id: "plugin-workspace-fs" }, { id: "plugin-storage-memory", optional: true }],
+        dependencies: [
+          { id: "plugin-workspace-fs" },
+          { id: "plugin-storage-memory", optional: true },
+        ],
       },
       configSchema: sampleSchema,
       lifecycle: defineLifecycle({
@@ -267,7 +272,13 @@ describe("@generic-ai/sdk contracts", () => {
           });
 
           await context.workspace?.writeText(
-            context.workspace.resolvePath("workspace", "agents", context.scope.id, "memory", "note.txt"),
+            context.workspace.resolvePath(
+              "workspace",
+              "agents",
+              context.scope.id,
+              "memory",
+              "note.txt",
+            ),
             context.config.greeting,
           );
 
@@ -349,7 +360,9 @@ describe("@generic-ai/sdk contracts", () => {
     expect(storedRun?.value).toEqual({ greeting: "hello from sdk" });
 
     expect(await queue.size()).toBe(1);
-    expect(await workspace.readText("/workspace/workspace/agents/run-001/memory/note.txt")).toBe("hello from sdk");
+    expect(await workspace.readText("/workspace/workspace/agents/run-001/memory/note.txt")).toBe(
+      "hello from sdk",
+    );
 
     const lease = await queue.lease();
     expect(lease?.state).toBe("leased");

@@ -9,4 +9,3 @@ export interface JsonObject {
 }
 
 export interface JsonArray extends ReadonlyArray<JsonValue> {}
-

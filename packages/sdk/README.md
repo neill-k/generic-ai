@@ -5,6 +5,12 @@ surface plugin authors and preset authors compile against.
 
 ## What lives here
 
+Current SDK contents:
+
+- Canonical config concern types for `framework`, `agent`, `plugin`, `preset`, and the resolved config layer
+- Schema-authoring helpers for config contracts and plugin config fragments
+- JSON Schema emission interfaces for frozen machine-readable artifacts under `contracts/config/`
+- Generic preset and bootstrap contract types used by core and preset packages
 - `src/contracts/` for the typed contract surface
 - `src/helpers/` for ergonomic contract constructors
 - package-level docs and contract tests that keep the surface honest

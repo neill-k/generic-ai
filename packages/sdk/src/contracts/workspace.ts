@@ -32,4 +32,3 @@ export interface WorkspaceContract {
   list(path?: string): Awaitable<readonly WorkspaceEntry[]>;
   remove(path: string, recursive?: boolean): Awaitable<void>;
 }
-

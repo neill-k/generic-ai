@@ -36,4 +36,3 @@ describe("schedulers", () => {
     expect(second.cancelled).toBe(true);
   });
 });
-

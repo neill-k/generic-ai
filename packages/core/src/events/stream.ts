@@ -28,7 +28,11 @@ export interface CanonicalEventStreamOptions {
   readonly historyLimit?: number;
   readonly createEventId?: () => string;
   readonly now?: () => string;
-  readonly onSubscriberError?: (error: unknown, event: CanonicalEvent, subscriptionId: string) => void;
+  readonly onSubscriberError?: (
+    error: unknown,
+    event: CanonicalEvent,
+    subscriptionId: string,
+  ) => void;
 }
 
 export type CanonicalEventListener<TEvent extends CanonicalEvent = CanonicalEvent> = (
@@ -44,18 +48,28 @@ export interface CanonicalEventStream {
     listener: CanonicalEventListener<TEvent>,
     filter?: CanonicalEventSubscriptionFilter,
   ): Promise<CanonicalEventSubscription>;
-  snapshot(filter?: Pick<CanonicalEventSubscriptionFilter, "fromSequence">): readonly CanonicalEvent[];
+  snapshot(
+    filter?: Pick<CanonicalEventSubscriptionFilter, "fromSequence">,
+  ): readonly CanonicalEvent[];
   close(): void;
 }
 
-export function createCanonicalEventStream(options: CanonicalEventStreamOptions = {}): CanonicalEventStream {
-  const listeners = new Map<string, { listener: CanonicalEventListener; filter?: CanonicalEventSubscriptionFilter }>();
+export function createCanonicalEventStream(
+  options: CanonicalEventStreamOptions = {},
+): CanonicalEventStream {
+  const listeners = new Map<
+    string,
+    { listener: CanonicalEventListener; filter?: CanonicalEventSubscriptionFilter }
+  >();
   const history: CanonicalEvent[] = [];
   let closed = false;
   let nextSequence = 1;
   let nextSubscriptionId = 1;
 
-  function matchesFilter(event: CanonicalEvent, filter?: CanonicalEventSubscriptionFilter): boolean {
+  function matchesFilter(
+    event: CanonicalEvent,
+    filter?: CanonicalEventSubscriptionFilter,
+  ): boolean {
     if (!filter) {
       return true;
     }
@@ -103,7 +117,11 @@ export function createCanonicalEventStream(options: CanonicalEventStreamOptions 
   function store(event: CanonicalEvent): void {
     history.push(event);
 
-    if (options.historyLimit !== undefined && options.historyLimit >= 0 && history.length > options.historyLimit) {
+    if (
+      options.historyLimit !== undefined &&
+      options.historyLimit >= 0 &&
+      history.length > options.historyLimit
+    ) {
       history.splice(0, history.length - options.historyLimit);
     }
   }
@@ -113,14 +131,18 @@ export function createCanonicalEventStream(options: CanonicalEventStreamOptions 
       return closed;
     },
 
-    async emit<TName extends CanonicalEventName, TData extends CanonicalEventData = CanonicalEventData>(
-      event: CanonicalEventInput<TName, TData>,
-    ): Promise<CanonicalEvent<TName, TData>> {
+    async emit<
+      TName extends CanonicalEventName,
+      TData extends CanonicalEventData = CanonicalEventData,
+    >(event: CanonicalEventInput<TName, TData>): Promise<CanonicalEvent<TName, TData>> {
       if (closed) {
         throw new Error("Cannot emit to a closed canonical event stream.");
       }
 
-      const sequence = event.sequence !== undefined && event.sequence > 0 ? Math.max(event.sequence, nextSequence) : nextSequence;
+      const sequence =
+        event.sequence !== undefined && event.sequence > 0
+          ? Math.max(event.sequence, nextSequence)
+          : nextSequence;
       const sealedEvent = createCanonicalEvent(event, {
         ...options,
         sequence,
@@ -173,7 +195,9 @@ export function createCanonicalEventStream(options: CanonicalEventStreamOptions 
       };
     },
 
-    snapshot(filter?: Pick<CanonicalEventSubscriptionFilter, "fromSequence">): readonly CanonicalEvent[] {
+    snapshot(
+      filter?: Pick<CanonicalEventSubscriptionFilter, "fromSequence">,
+    ): readonly CanonicalEvent[] {
       const fromSequence = filter?.fromSequence;
       if (fromSequence === undefined) {
         return [...history];

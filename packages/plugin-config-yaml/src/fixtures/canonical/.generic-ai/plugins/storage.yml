@@ -1,0 +1,2 @@
+kind: sqlite
+path: .generic-ai/storage.db

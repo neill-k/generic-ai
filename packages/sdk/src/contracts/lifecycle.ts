@@ -23,4 +23,3 @@ export interface LifecycleHooks<TContext = unknown> {
   readonly start?: (context: TContext) => Awaitable<void>;
   readonly stop?: (context: TContext) => Awaitable<void>;
 }
-

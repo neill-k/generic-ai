@@ -22,7 +22,10 @@ function normalizePluginId(pluginId: string): string {
   return normalized;
 }
 
-function normalizeDependencies(pluginId: string, dependencies: unknown): readonly string[] | undefined {
+function normalizeDependencies(
+  pluginId: string,
+  dependencies: unknown,
+): readonly string[] | undefined {
   if (dependencies === undefined) {
     return undefined;
   }
@@ -151,7 +154,10 @@ export function createPluginHost(): PluginHost {
     }
   };
 
-  const runLifecycle = async (phase: PluginLifecyclePhase, state: Record<string, unknown> = {}): Promise<void> => {
+  const runLifecycle = async (
+    phase: PluginLifecyclePhase,
+    state: Record<string, unknown> = {},
+  ): Promise<void> => {
     const orderedPlugins = phase === "stop" ? [...resolveOrder()].reverse() : resolveOrder();
     const context = {
       host,

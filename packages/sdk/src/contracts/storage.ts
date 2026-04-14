@@ -28,4 +28,3 @@ export interface StorageContract {
   list(filter?: StorageFilter): Awaitable<readonly StorageRecord[]>;
   clear(filter?: StorageFilter): Awaitable<void>;
 }
-

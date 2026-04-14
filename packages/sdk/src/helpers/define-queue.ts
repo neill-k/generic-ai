@@ -5,4 +5,3 @@ export function defineQueue<TPayload, TResult>(
 ): QueueContract<TPayload, TResult> {
   return queue;
 }
-

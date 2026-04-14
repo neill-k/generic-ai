@@ -1,5 +1,10 @@
 import type { PluginDefinition, PluginManifest } from "./types.js";
-import { PluginHostError, type CyclicPluginDependencyIssue, type MissingPluginDependencyIssue, type PluginHostIssue } from "./errors.js";
+import {
+  PluginHostError,
+  type CyclicPluginDependencyIssue,
+  type MissingPluginDependencyIssue,
+  type PluginHostIssue,
+} from "./errors.js";
 
 interface ResolvedPlugin {
   readonly plugin: PluginDefinition;
@@ -11,7 +16,9 @@ function getNormalizedDependencies(manifest: PluginManifest): readonly string[] 
 }
 
 function findCycle(definitions: readonly ResolvedPlugin[]): readonly string[] {
-  const pluginsById = new Map(definitions.map((entry) => [entry.plugin.manifest.id, entry.plugin] as const));
+  const pluginsById = new Map(
+    definitions.map((entry) => [entry.plugin.manifest.id, entry.plugin] as const),
+  );
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const stack: string[] = [];
@@ -61,7 +68,9 @@ function findCycle(definitions: readonly ResolvedPlugin[]): readonly string[] {
   return [];
 }
 
-export function validatePluginDependencies(definitions: readonly PluginDefinition[]): readonly PluginHostIssue[] {
+export function validatePluginDependencies(
+  definitions: readonly PluginDefinition[],
+): readonly PluginHostIssue[] {
   const knownIds = new Set(definitions.map((definition) => definition.manifest.id));
   const issues: PluginHostIssue[] = [];
 
@@ -87,7 +96,9 @@ export function validatePluginDependencies(definitions: readonly PluginDefinitio
   return issues;
 }
 
-export function resolvePluginOrder(definitions: readonly PluginDefinition[]): readonly PluginDefinition[] {
+export function resolvePluginOrder(
+  definitions: readonly PluginDefinition[],
+): readonly PluginDefinition[] {
   const dependencyIssues = validatePluginDependencies(definitions);
   if (dependencyIssues.length > 0) {
     throw new PluginHostError(dependencyIssues);
@@ -113,11 +124,16 @@ export function resolvePluginOrder(definitions: readonly PluginDefinition[]): re
     }
 
     if (next === undefined) {
-      const cycle = findCycle(unresolved.filter((entry) => !resolvedIds.has(entry.plugin.manifest.id)));
+      const cycle = findCycle(
+        unresolved.filter((entry) => !resolvedIds.has(entry.plugin.manifest.id)),
+      );
       const issue: CyclicPluginDependencyIssue = {
         code: "cyclic-plugin-dependency",
         cycle,
-        message: cycle.length > 0 ? `Plugin dependency cycle detected: ${cycle.join(" -> ")}.` : "Plugin dependency cycle detected, but the cycle could not be reconstructed.",
+        message:
+          cycle.length > 0
+            ? `Plugin dependency cycle detected: ${cycle.join(" -> ")}.`
+            : "Plugin dependency cycle detected, but the cycle could not be reconstructed.",
       };
 
       throw new PluginHostError(issue);

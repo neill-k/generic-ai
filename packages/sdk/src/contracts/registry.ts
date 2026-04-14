@@ -15,4 +15,3 @@ export interface RegistryContract<TValue = unknown, TKey extends string = string
   clear(): Awaitable<void>;
   entries(): readonly RegistryEntry<TKey, TValue>[];
 }
-

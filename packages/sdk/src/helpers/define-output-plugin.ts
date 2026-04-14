@@ -5,4 +5,3 @@ export function defineOutputPlugin<TRun, TOutput>(
 ): OutputPluginContract<TRun, TOutput> {
   return plugin;
 }
-

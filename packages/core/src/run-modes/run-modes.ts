@@ -1,5 +1,10 @@
 import type { RunScheduler } from "../scheduler/types.js";
-import { createRunSessionMachine, type RunSession, type RunSessionMachine, type RunSessionSeed } from "./session-machine.js";
+import {
+  createRunSessionMachine,
+  type RunSession,
+  type RunSessionMachine,
+  type RunSessionSeed,
+} from "./session-machine.js";
 
 export type SyncRunTask<T> = (session: RunSession) => T;
 export type AsyncRunTask<T> = (session: RunSession) => T | Promise<T>;
@@ -76,7 +81,9 @@ export function createAsyncRunMode(options: AsyncRunModeFactoryOptions): AsyncRu
 
       return new Promise<T>((resolve, reject) => {
         try {
-          options.scheduler.schedule(() => completeSession(session, () => task(session), resolve, reject));
+          options.scheduler.schedule(() =>
+            completeSession(session, () => task(session), resolve, reject),
+          );
         } catch (error) {
           session.fail(error);
           reject(error);

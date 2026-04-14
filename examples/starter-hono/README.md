@@ -10,7 +10,16 @@ What this example shows:
 
 The main source entrypoint is `examples/starter-hono/src/index.ts`. It is intentionally small for now so later runtime work can swap in the real kernel wiring without changing the example shape.
 
-Planning baseline:
+## Starter preset extension points
+
+When the example needs customization, use programmatic contract extension points:
+
+- slot overrides (for replacing defaults like storage/transport)
+- addon plugins before/after a slot anchor
+
+There is no separate user-facing `preset.yaml` file in v1.
+
+## Planning baseline
 
 - `docs/planning/README.md`
 - `docs/planning/02-architecture.md`

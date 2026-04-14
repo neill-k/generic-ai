@@ -1,22 +1,55 @@
 # @generic-ai/preset-starter-hono
 
-The default Generic AI starter preset. It keeps Hono in the default path, and callers can pass it straight into `createGenericAI()` when they want to make the composition explicit.
+Default starter preset contract for Generic AI. This package exports a first-class preset contract and a convenience helper so callers can wire the starter path without requiring `@generic-ai/core` to import preset or plugin packages directly.
 
-Current surface:
+## What this package exports
 
-- `createStarterHonoPreset()` returns a frozen preset descriptor with the default local-first starter shape
-- `starterHonoPreset` is the package-level default descriptor
-- the preset exposes composition ports for plugin-host, run-mode, run-envelope, and `pi` boundary wiring
-- the reference example in `examples/starter-hono/` shows both the implicit default path and an explicit override
+- `starterPresetContract`: canonical starter preset contract metadata and resolver
+- `resolveStarterPreset(options?)`: resolves the deterministic plugin composition order
+- `withStarterPreset(bootstrap, options?, preset?)`: convenience helper that injects a preset contract into a caller-provided bootstrap function
+- `createStarterGenericAI(options?)`: convenience bootstrap that calls `@generic-ai/core` with the starter preset wired in
+- `STARTER_PRESET_DEFAULT_SLOTS`: documented slot-to-plugin defaults for the starter stack
 
-Design notes:
+The preset keeps Hono in the default path, and callers can pass it straight into `createGenericAI()` when they want to make the composition explicit.
 
-- the preset is intentionally a composition descriptor, not a kernel implementation
-- the actual plugin host, run-mode, run-envelope, and `pi` wiring remain in the kernel / SDK layers
-- the starter preset should optimize for "it works" over custom assembly
+The default composition is local-first and includes:
 
-Planning baseline:
+- canonical config plugin
+- workspace filesystem services
+- durable SQLite storage
+- in-process queueing
+- OTEL logging
+- terminal and file tools
+- MCP and Agent Skills
+- delegation, messaging, and file-backed memory
+- default output/finalization
+- Hono transport by default
+
+## Extension points (programmatic, v1)
+
+This package intentionally uses programmatic extension points in v1.
+
+- `slotOverrides`: replace a default slot plugin, or disable optional slots (for example, `transport` / Hono)
+- `addons`: insert additional plugins before or after a slot anchor
+
+Example:
+
+```ts
+import { resolveStarterPreset } from "@generic-ai/preset-starter-hono";
+
+const preset = resolveStarterPreset({
+  slotOverrides: [{ slot: "storage", pluginId: "@acme/plugin-storage-postgres" }],
+  addons: [{ pluginId: "@acme/plugin-policy", anchorSlot: "output", insert: "before" }],
+});
+```
+
+## No `preset.yaml` in v1
+
+There is no separate user-facing `preset.yaml` in v1. Preset composition is defined by this package contract and can be customized programmatically via the extension points above.
+
+## Planning baseline
 
 - `docs/planning/README.md`
 - `docs/planning/02-architecture.md`
+- `docs/planning/03-linear-issue-tree.md` (`CFG-04`)
 - `docs/package-boundaries.md`

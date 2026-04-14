@@ -25,7 +25,9 @@ describe("sdk canonical event taxonomy", () => {
     expect(canonicalSessionLifecycleNames).toContain("session.child.started");
     expect(canonicalDelegationLifecycleNames).toContain("delegation.rejected");
     expect(canonicalCoreEventNames).toHaveLength(
-      canonicalRunLifecycleNames.length + canonicalSessionLifecycleNames.length + canonicalDelegationLifecycleNames.length,
+      canonicalRunLifecycleNames.length +
+        canonicalSessionLifecycleNames.length +
+        canonicalDelegationLifecycleNames.length,
     );
   });
 

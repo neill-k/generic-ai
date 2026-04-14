@@ -77,9 +77,7 @@ export class SessionOrchestrator {
     const parent = this.getRequiredRecord(parentSessionId);
 
     if (parent.status !== "active") {
-      throw new Error(
-        `Cannot create a child session under terminal session ${parentSessionId}.`,
-      );
+      throw new Error(`Cannot create a child session under terminal session ${parentSessionId}.`);
     }
 
     const id = this.requireUniqueId(options.id ?? this.idFactory());
@@ -107,10 +105,7 @@ export class SessionOrchestrator {
     return this.getRequiredSession(id);
   }
 
-  completeSession(
-    sessionId: SessionId,
-    options: SessionCompleteOptions = {},
-  ): SessionSnapshot {
+  completeSession(sessionId: SessionId, options: SessionCompleteOptions = {}): SessionSnapshot {
     const record = this.getRequiredRecord(sessionId);
     this.ensureActive(record);
     this.ensureNoActiveDescendantsForSuccess(record);
@@ -143,10 +138,7 @@ export class SessionOrchestrator {
     return this.getRequiredSession(sessionId);
   }
 
-  cancelSession(
-    sessionId: SessionId,
-    options: SessionCancelOptions = {},
-  ): SessionSnapshot {
+  cancelSession(sessionId: SessionId, options: SessionCancelOptions = {}): SessionSnapshot {
     const record = this.getRequiredRecord(sessionId);
     this.ensureActive(record);
 
@@ -180,10 +172,7 @@ export class SessionOrchestrator {
     return this.collectTerminalStatesFromRecord(record);
   }
 
-  private cancelActiveDescendants(
-    record: SessionRecord,
-    reason: string,
-  ): void {
+  private cancelActiveDescendants(record: SessionRecord, reason: string): void {
     for (const childSessionId of record.childSessionIds) {
       const child = this.getRequiredRecord(childSessionId);
       if (child.status === "active") {
@@ -219,9 +208,7 @@ export class SessionOrchestrator {
     }
   }
 
-  private findFirstActiveDescendant(
-    record: SessionRecord,
-  ): SessionRecord | undefined {
+  private findFirstActiveDescendant(record: SessionRecord): SessionRecord | undefined {
     for (const childSessionId of record.childSessionIds) {
       const child = this.getRequiredRecord(childSessionId);
       if (child.status === "active") {
@@ -237,9 +224,7 @@ export class SessionOrchestrator {
     return undefined;
   }
 
-  private collectTerminalStatesFromRecord(
-    record: SessionRecord,
-  ): readonly SessionTerminalState[] {
+  private collectTerminalStatesFromRecord(record: SessionRecord): readonly SessionTerminalState[] {
     const states: SessionTerminalState[] = [];
 
     for (const childSessionId of record.childSessionIds) {
@@ -255,8 +240,7 @@ export class SessionOrchestrator {
   }
 
   private toSnapshot(record: SessionRecord): SessionSnapshot {
-    const terminalState =
-      record.status === "active" ? undefined : this.toTerminalState(record);
+    const terminalState = record.status === "active" ? undefined : this.toTerminalState(record);
 
     return {
       id: record.id,
@@ -316,10 +300,7 @@ export class SessionOrchestrator {
     };
   }
 
-  private buildCascadeReason(
-    record: SessionRecord,
-    status: "failed" | "cancelled",
-  ): string {
+  private buildCascadeReason(record: SessionRecord, status: "failed" | "cancelled"): string {
     if (status === "failed") {
       return `Parent session ${record.id} failed.`;
     }

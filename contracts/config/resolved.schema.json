@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://generic-ai.dev/contracts/config/resolved.schema.json",
+  "title": "Generic AI Resolved Config Contract",
+  "description": "Composed runtime config after canonical framework/agent/plugin YAML concerns are loaded and preset metadata is applied.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["framework", "agents", "plugins"],
+  "properties": {
+    "framework": {
+      "$ref": "https://generic-ai.dev/contracts/config/framework.schema.json"
+    },
+    "agents": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "https://generic-ai.dev/contracts/config/agent.schema.json"
+      }
+    },
+    "plugins": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "https://generic-ai.dev/contracts/config/plugin.schema.json"
+      }
+    },
+    "preset": {
+      "$ref": "https://generic-ai.dev/contracts/config/preset.schema.json"
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "framework": {
+          "type": "string"
+        },
+        "agents": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "plugins": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

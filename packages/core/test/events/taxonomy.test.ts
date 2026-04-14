@@ -25,7 +25,9 @@ describe("core canonical event taxonomy", () => {
     expect(canonicalSessionLifecycleNames).toContain("session.child.completed");
     expect(canonicalDelegationLifecycleNames).toContain("delegation.accepted");
     expect(canonicalCoreEventNames).toHaveLength(
-      canonicalRunLifecycleNames.length + canonicalSessionLifecycleNames.length + canonicalDelegationLifecycleNames.length,
+      canonicalRunLifecycleNames.length +
+        canonicalSessionLifecycleNames.length +
+        canonicalDelegationLifecycleNames.length,
     );
   });
 

@@ -1,0 +1,17 @@
+# Config Contracts (`CFG-01`)
+
+This directory freezes the canonical config contracts introduced by `NEI-317` (`CFG-01`).
+
+Boundaries:
+
+- YAML concerns (`.generic-ai/**`): `framework`, `agent`, `plugin`
+- Non-YAML concern: `preset` (preset package/default composition metadata)
+
+Artifacts:
+
+- `framework.schema.json` - `.generic-ai/framework.yaml`
+- `agent.schema.json` - `.generic-ai/agents/*.yaml`
+- `plugin.schema.json` - `.generic-ai/plugins/*.yaml`
+- `preset.schema.json` - preset package metadata (not a dedicated user-facing `preset.yaml`)
+- `resolved.schema.json` - single resolved config layer composed from concerns above
+- `boundaries.json` - machine-readable concern boundary metadata

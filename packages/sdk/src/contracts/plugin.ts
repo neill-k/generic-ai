@@ -41,4 +41,3 @@ export interface PluginContract<TConfig = unknown> {
   readonly lifecycle?: LifecycleHooks<PluginRuntimeContext<TConfig>>;
   register?(context: PluginRuntimeContext<TConfig>): Awaitable<void>;
 }
-

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  createGenericAI,
-  createStarterPreset,
-  starterPreset,
-} from "./index.js";
+import { createGenericAI, createStarterPreset, starterPreset } from "./index.js";
 
 describe("createGenericAI", () => {
   it("defaults to the starter preset", () => {
@@ -51,4 +47,3 @@ describe("createGenericAI", () => {
     expect(bootstrap.preset).toEqual(starterPreset);
   });
 });
-

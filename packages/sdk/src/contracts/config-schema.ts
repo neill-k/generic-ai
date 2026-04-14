@@ -15,4 +15,3 @@ export interface ConfigSchemaFragment {
   readonly path: string;
   readonly schema: JsonObject;
 }
-
