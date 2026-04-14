@@ -65,6 +65,7 @@ export class MemoryStorageError extends Error {
   constructor(
     public readonly code:
       | "INVALID_NAME"
+      | "INVALID_TRANSACTION"
       | "NON_CLONEABLE_VALUE"
       | "INVALID_SNAPSHOT",
     message: string,
@@ -177,6 +178,13 @@ export class MemoryStorage implements MemoryStorageView {
       internals.namespaces,
     );
     const result = operation(draft);
+    if (isThenable(result)) {
+      throw new MemoryStorageError(
+        "INVALID_TRANSACTION",
+        "MemoryStorage.transaction() does not support async operations; the draft would commit before the returned promise settled.",
+      );
+    }
+
     internals.namespaces = getMemoryStorageInternals(draft).namespaces;
     return result;
   }
@@ -480,5 +488,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     value !== null &&
     !Array.isArray(value) &&
     Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    "then" in (value as Record<string, unknown>) &&
+    typeof (value as { then?: unknown }).then === "function"
   );
 }

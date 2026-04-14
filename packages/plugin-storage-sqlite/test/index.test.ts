@@ -122,4 +122,24 @@ describe("@generic-ai/plugin-storage-sqlite", () => {
       storage.close();
     });
   });
+
+  it("refuses async transaction operations and rolls back writes", async () => {
+    await withTempDatabases((primaryPath) => {
+      const storage = createSqliteStorage({ path: primaryPath });
+      storage.namespace("runs").set("stable", { status: "queued" });
+
+      expect(() => {
+        storage.transaction(() => {
+          storage.namespace("runs").set("temp", { status: "running" });
+          return Promise.resolve("never-committed");
+        });
+      }).toThrow(SqliteStorageError);
+
+      expect(storage.namespace("runs").has("temp")).toBe(false);
+      expect(storage.namespace("runs").get("stable")).toEqual({
+        status: "queued",
+      });
+      storage.close();
+    });
+  });
 });

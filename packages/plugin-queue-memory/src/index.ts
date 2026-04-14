@@ -134,9 +134,11 @@ type QueueEventListener<
   TEventName extends QueueEventName<TPayload, TResult>,
 > = (...args: QueueEventMap<TPayload, TResult>[TEventName]) => void;
 
-function normalizeRunAt(runAt: number | Date | undefined, now: () => number): number {
+function normalizeRunAt(runAt: number | Date | undefined): number {
   if (runAt === undefined) {
-    return now();
+    // Immediate jobs share a sentinel timestamp so priority and FIFO
+    // ordering are not perturbed by sub-millisecond enqueue timing.
+    return 0;
   }
 
   const normalized = runAt instanceof Date ? runAt.getTime() : runAt;
@@ -280,7 +282,7 @@ export class InMemoryQueue<TPayload, TResult> {
       id: job.id ?? `job-${sequence}`,
       payload: job.payload,
       priority: normalizePriority(job.priority),
-      runAt: normalizeRunAt(job.runAt, this.#now),
+      runAt: normalizeRunAt(job.runAt),
       enqueuedAt,
       sequence,
     };
@@ -383,7 +385,7 @@ export class InMemoryQueue<TPayload, TResult> {
       this.#closed = true;
       this.#closing = false;
       this.#clearScheduledWork();
-      this.#flushIdleWaiters();
+      this.#forceReleaseIdleWaiters();
       this.#emit("closed", this.state);
       return;
     }
@@ -484,6 +486,15 @@ export class InMemoryQueue<TPayload, TResult> {
       return;
     }
 
+    const waiters = this.#idleWaiters.splice(0, this.#idleWaiters.length);
+    for (const resolve of waiters) {
+      resolve();
+    }
+
+    this.#emit("drained", this.state);
+  }
+
+  #forceReleaseIdleWaiters(): void {
     const waiters = this.#idleWaiters.splice(0, this.#idleWaiters.length);
     for (const resolve of waiters) {
       resolve();

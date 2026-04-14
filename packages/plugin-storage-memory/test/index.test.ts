@@ -105,4 +105,18 @@ describe("@generic-ai/plugin-storage-memory", () => {
       });
     }).toThrow(MemoryStorageError);
   });
+
+  it("refuses async transaction operations so draft state is not committed", () => {
+    const storage = createMemoryStorage();
+    storage.namespace("runs").set("alpha", { status: "queued" });
+
+    expect(() => {
+      storage.transaction(async (draft) => {
+        draft.namespace("runs").set("beta", { status: "running" });
+      });
+    }).toThrow(MemoryStorageError);
+
+    expect(storage.namespace("runs").has("beta")).toBe(false);
+    expect(storage.namespace("runs").get("alpha")).toEqual({ status: "queued" });
+  });
 });

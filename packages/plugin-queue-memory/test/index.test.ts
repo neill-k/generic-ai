@@ -124,6 +124,51 @@ describe("@generic-ai/plugin-queue-memory", () => {
     expect(started).toEqual(["blocker"]);
   });
 
+  it("runs immediate jobs by priority regardless of enqueue timing", async () => {
+    let tick = 1_000;
+    const seen: string[] = [];
+    const queue = createInMemoryQueue(
+      async (job) => {
+        seen.push(job.id);
+        return job.payload;
+      },
+      { now: () => tick++ },
+    );
+
+    queue.pause();
+    const low = queue.enqueue({ id: "low", payload: "low", priority: 0 });
+    const high = queue.enqueue({ id: "high", payload: "high", priority: 10 });
+    queue.resume();
+
+    await queue.drain();
+    await expect(low).resolves.toBe("low");
+    await expect(high).resolves.toBe("high");
+    expect(seen).toEqual(["high", "low"]);
+  });
+
+  it("releases pending drain waiters when force-closed", async () => {
+    let releaseBlocker!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      releaseBlocker = resolve;
+    });
+
+    const queue = createInMemoryQueue(async () => {
+      await blocker;
+      return "done";
+    });
+
+    const running = queue.enqueue({ id: "blocker", payload: "blocker" });
+    await delay(0);
+
+    const drainPromise = queue.drain();
+    await queue.close({ drain: false });
+
+    await expect(drainPromise).resolves.toBeUndefined();
+
+    releaseBlocker();
+    await expect(running).resolves.toBe("done");
+  });
+
   it("emits lifecycle events through the typed listener API", async () => {
     const seen: string[] = [];
     const queue = createInMemoryQueue(async (job) => job.payload);

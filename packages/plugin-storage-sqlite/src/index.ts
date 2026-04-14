@@ -58,6 +58,7 @@ export class SqliteStorageError extends Error {
     public readonly code:
       | "INVALID_NAME"
       | "INVALID_PATH"
+      | "INVALID_TRANSACTION"
       | "NON_SERIALIZABLE_VALUE"
       | "INVALID_SNAPSHOT",
     message: string,
@@ -323,14 +324,33 @@ function runSqliteTransaction<T>(
 ): T {
   const { db } = getSqliteStorageInternals(storage);
   db.exec("BEGIN IMMEDIATE");
+  let result: T;
   try {
-    const result = operation();
-    db.exec("COMMIT");
-    return result;
+    result = operation();
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
   }
+
+  if (isThenable(result)) {
+    db.exec("ROLLBACK");
+    throw new SqliteStorageError(
+      "INVALID_TRANSACTION",
+      "SqliteStorage.transaction() does not support async operations; the returned promise would resolve after COMMIT.",
+    );
+  }
+
+  db.exec("COMMIT");
+  return result;
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    "then" in (value as Record<string, unknown>) &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
 }
 
 function migrateSqliteStorage(storage: SqliteStorage): number {
