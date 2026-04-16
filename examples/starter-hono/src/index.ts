@@ -1,228 +1,234 @@
-import { createGenericAI } from "@generic-ai/core";
-import { createAgentSkillsPlugin } from "@generic-ai/plugin-agent-skills";
-import { createDelegationCoordinator } from "@generic-ai/plugin-delegation";
-import { createHonoPlugin } from "@generic-ai/plugin-hono";
-import { createFileMemoryStore } from "@generic-ai/plugin-memory-files";
-import { createMessagingService } from "@generic-ai/plugin-messaging";
-import { createMcpRegistry } from "@generic-ai/plugin-mcp";
-import { createMemoryStorage } from "@generic-ai/plugin-storage-memory";
-import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
-import { createTerminalToolPlugin } from "@generic-ai/plugin-tools-terminal";
-import { createWorkspaceFs } from "@generic-ai/plugin-workspace-fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
-  createStarterHonoPreset,
-  starterHonoPreset,
-  type StarterHonoPresetDefinition,
-} from "@generic-ai/preset-starter-hono";
+  createGenericAILlmRuntime,
+  DEFAULT_GENERIC_AI_RUNTIME_ADAPTER,
+  DEFAULT_OPENAI_CODEX_MODEL,
+  type CreateGenericAILlmRuntimeOptions,
+  type GenericAIConfiguredBootstrap,
+  type GenericAILlmRuntime,
+  type GenericAILlmRuntimeAdapter,
+} from "@generic-ai/core";
+import { createHonoPlugin, type HonoPlugin } from "@generic-ai/plugin-hono";
+import { createStarterHonoBootstrapFromYaml } from "@generic-ai/preset-starter-hono";
 
-export const defaultStarterBootstrap = createGenericAI();
+const providerKeyName = "GENERIC_AI_PROVIDER_API_KEY";
+const modelName = "GENERIC_AI_MODEL";
+const adapterName = "GENERIC_AI_RUNTIME_ADAPTER";
+const workspaceRootName = "GENERIC_AI_WORKSPACE_ROOT";
+const hostName = "GENERIC_AI_HOST";
+const portName = "GENERIC_AI_PORT";
+const fallbackHostName = "HOST";
+const fallbackPortName = "PORT";
+const DEFAULT_HOST = "127.0.0.1";
+const DEFAULT_PORT = 3000;
+const SUPPORTED_ADAPTERS = new Set<GenericAILlmRuntimeAdapter>(["openai-codex", "pi"]);
+const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-export const explicitStarterBootstrap = createGenericAI({
-  preset: createStarterHonoPreset({
-    description: "Explicit example override showing the starter preset can be swapped in directly.",
-  }),
-  ports: {
-    pluginHost: {
-      status: "provided",
-      note: "The example harness provides the current utility-first runtime composition.",
-    },
-  },
-});
+export const STARTER_ROUTE_PREFIX = "/starter" as const;
+export const STARTER_DEFAULT_START_DIR = PACKAGE_ROOT;
 
-export const examplePresets = {
-  starterHonoPreset,
-  defaultStarterBootstrap,
-  explicitStarterBootstrap,
-} as const;
-
-export interface ReferenceExampleOptions {
-  readonly root: string;
-  readonly includeUserSkills?: boolean;
-  readonly includeGlobalSkills?: boolean;
+export class StarterExampleConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StarterExampleConfigError";
+  }
 }
 
-export interface ReferenceExampleHarness {
-  readonly preset: StarterHonoPresetDefinition;
-  readonly bootstrap: typeof defaultStarterBootstrap;
+export interface StarterExampleEnvironment {
+  readonly adapter: GenericAILlmRuntimeAdapter;
+  readonly apiKey: string;
+  readonly model?: string;
+  readonly workspaceRoot?: string;
+  readonly host: string;
+  readonly port: number;
+}
+
+export interface StarterExampleServer {
+  readonly app: HonoPlugin["app"];
+  readonly transport: HonoPlugin;
+  readonly bootstrap: GenericAIConfiguredBootstrap<GenericAILlmRuntime>;
+  readonly runtime: GenericAILlmRuntime;
+  readonly environment: StarterExampleEnvironment;
   readonly workspaceRoot: string;
-  readonly fileTools: ReturnType<typeof createWorkspaceFileTools>;
-  readonly terminalTools: ReturnType<typeof createTerminalToolPlugin>;
-  readonly skills: ReturnType<typeof createAgentSkillsPlugin>;
-  readonly mcp: ReturnType<typeof createMcpRegistry>;
-  readonly delegation: ReturnType<typeof createDelegationCoordinator>;
-  readonly messaging: ReturnType<typeof createMessagingService>;
-  readonly memory: ReturnType<typeof createFileMemoryStore>;
-  readonly transport: ReturnType<typeof createHonoPlugin>;
-  run(topic?: string): Promise<ReferenceExampleRun>;
+  readonly stop: () => Promise<void>;
 }
 
-export interface ReferenceExampleRun {
-  readonly bootstrapDescription: string;
-  readonly delegatedSummary: string;
-  readonly inboxSize: number;
-  readonly memoryHits: number;
-  readonly skillNames: readonly string[];
-  readonly mcpServers: readonly string[];
-  readonly transportHealth: {
-    readonly transport: string;
-    readonly streaming: boolean;
-  };
+export interface StarterExampleServerOptions {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly startDir?: string;
+  readonly createRuntime?: (
+    options: CreateGenericAILlmRuntimeOptions,
+  ) => Promise<GenericAILlmRuntime> | GenericAILlmRuntime;
 }
 
-async function seedProjectSkill(root: string): Promise<void> {
-  const files = createWorkspaceFileTools({ root });
+function readTrimmedEnv(env: NodeJS.ProcessEnv, ...keys: readonly string[]): string | undefined {
+  for (const key of keys) {
+    const value = env[key];
+    if (typeof value !== "string") {
+      continue;
+    }
 
-  await files.writeText(
-    ".agents/skills/starter-summarizer/SKILL.md",
-    `---
-name: starter-summarizer
-description: summarize the Generic AI starter stack
----
-
-Use this skill when you need to explain the default Generic AI starter stack and call out transport, delegation, messaging, memory, MCP, and skills.`,
-  );
-}
-
-export async function createReferenceExampleHarness(
-  options: ReferenceExampleOptions,
-): Promise<ReferenceExampleHarness> {
-  const workspace = createWorkspaceFs(options.root);
-  await workspace.ensureLayout();
-  await seedProjectSkill(workspace.root);
-
-  const fileTools = createWorkspaceFileTools({ root: workspace.root });
-  const terminalTools = createTerminalToolPlugin({ root: workspace.root });
-  const skills = createAgentSkillsPlugin({
-    root: workspace.root,
-    includeUser: options.includeUserSkills ?? false,
-    includeGlobal: options.includeGlobalSkills ?? false,
-  });
-  const mcp = createMcpRegistry([
-    {
-      id: "filesystem",
-      transport: "stdio",
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-filesystem", workspace.root],
-      description: "Workspace filesystem server for the starter stack.",
-    },
-  ]);
-  const delegation = createDelegationCoordinator();
-  const messaging = createMessagingService({
-    storage: createMemoryStorage(),
-  });
-  const memory = createFileMemoryStore({
-    root: workspace.root,
-  });
-  const preset = createStarterHonoPreset();
-  const bootstrap = createGenericAI({
-    preset,
-  });
-
-  async function execute(topic: string = "the Generic AI starter stack") {
-    await fileTools.writeText(
-      "workspace/shared/brief.md",
-      `# Brief\n\nTopic: ${topic}\n\nFocus on delegation, messaging, memory, MCP, skills, file tools, terminal tools, and Hono transport.`,
-    );
-
-    await memory.remember("coordinator", {
-      id: "starter-brief",
-      text: "Mention MCP, skills, messaging, memory, file tools, and Hono transport in the answer.",
-      tags: ["starter", "demo"],
-    });
-
-    messaging.send({
-      from: "coordinator",
-      to: "implementer",
-      body: `Summarize ${topic}.`,
-      subject: "Starter stack brief",
-      threadId: "starter-demo",
-    });
-
-    const loadedSkills = await skills.load();
-    const rootSession = delegation.createRootSession({
-      topic,
-    });
-    const delegated = await delegation.delegate(
-      rootSession.id,
-      {
-        agentId: "implementer",
-        task: {
-          topic,
-        },
-      },
-      async () => {
-        const inbox = messaging.inbox("implementer");
-        const memoryHits = await memory.search("coordinator", "MCP skills messaging memory transport");
-        const sharedFiles = await fileTools.list("workspace/shared");
-
-        return {
-          summary: `Implementer saw ${inbox.length} message(s), ${memoryHits.length} memory hit(s), ${sharedFiles.length} shared file(s), ${loadedSkills.skills.length} skill(s), and ${mcp.list().length} MCP server(s) while preparing ${topic}.`,
-          inboxSize: inbox.length,
-          memoryHits: memoryHits.length,
-          skillNames: loadedSkills.skills.map((skill) => skill.name),
-          mcpServers: mcp.list().map((server) => server.id),
-        };
-      },
-    );
-    delegation.orchestrator.completeSession(rootSession.id, {
-      result: delegated.result,
-    });
-
-    const healthResponse = await transport.app.request("/starter/health");
-    const transportHealth = (await healthResponse.json()) as ReferenceExampleRun["transportHealth"];
-
-    return {
-      bootstrapDescription: bootstrap.describe(),
-      delegatedSummary: (delegated.result as { summary: string }).summary,
-      inboxSize: (delegated.result as { inboxSize: number }).inboxSize,
-      memoryHits: (delegated.result as { memoryHits: number }).memoryHits,
-      skillNames: (delegated.result as { skillNames: readonly string[] }).skillNames,
-      mcpServers: (delegated.result as { mcpServers: readonly string[] }).mcpServers,
-      transportHealth,
-    } satisfies ReferenceExampleRun;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
   }
 
-  const transport = createHonoPlugin({
-    routePrefix: "/starter",
-    run: async (payload) => execute(typeof payload.input === "string" ? payload.input : undefined),
-    stream: async function* (payload) {
-      const topic = typeof payload.input === "string" ? payload.input : "the Generic AI starter stack";
-      yield {
-        event: "status",
-        data: {
-          state: "started",
-          topic,
-        },
-      };
+  return undefined;
+}
 
-      const result = await execute(topic);
-      yield {
-        event: "done",
-        data: result,
-      };
+function parsePort(raw: string | undefined): number {
+  if (raw === undefined) {
+    return DEFAULT_PORT;
+  }
+
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || value > 65_535) {
+    throw new StarterExampleConfigError(
+      `${portName} must be an integer between 0 and 65535.`,
+    );
+  }
+
+  return value;
+}
+
+function normalizePrompt(input: unknown): string {
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  if (input === undefined || input === null) {
+    return "Summarize the Generic AI starter stack.";
+  }
+
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+
+    return "Summarize the Generic AI starter stack.";
+  }
+
+  return JSON.stringify(input, null, 2);
+}
+
+export function loadStarterExampleEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+  startDir: string = STARTER_DEFAULT_START_DIR,
+): StarterExampleEnvironment {
+  const apiKey = readTrimmedEnv(env, providerKeyName);
+  if (apiKey === undefined) {
+    throw new StarterExampleConfigError(
+      `${providerKeyName} must be set before starting the starter example server.`,
+    );
+  }
+
+  const adapterValue =
+    readTrimmedEnv(env, adapterName) ?? DEFAULT_GENERIC_AI_RUNTIME_ADAPTER;
+  if (!SUPPORTED_ADAPTERS.has(adapterValue as GenericAILlmRuntimeAdapter)) {
+    throw new StarterExampleConfigError(
+      `${adapterName} must be one of: ${[...SUPPORTED_ADAPTERS].join(", ")}.`,
+    );
+  }
+
+  const model = readTrimmedEnv(env, modelName);
+  const workspaceRootValue = readTrimmedEnv(env, workspaceRootName);
+  const workspaceRoot =
+    workspaceRootValue === undefined ? undefined : resolve(startDir, workspaceRootValue);
+
+  return Object.freeze({
+    adapter: adapterValue as GenericAILlmRuntimeAdapter,
+    apiKey,
+    ...(model === undefined ? {} : { model }),
+    ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+    host: readTrimmedEnv(env, hostName, fallbackHostName) ?? DEFAULT_HOST,
+    port: parsePort(readTrimmedEnv(env, portName, fallbackPortName)),
+  });
+}
+
+export async function createStarterExampleServer(
+  options: StarterExampleServerOptions = {},
+): Promise<StarterExampleServer> {
+  const startDir = resolve(options.startDir ?? STARTER_DEFAULT_START_DIR);
+  const environment = loadStarterExampleEnvironment(options.env, startDir);
+  const createRuntime = options.createRuntime ?? createGenericAILlmRuntime;
+  const bootstrap = await createStarterHonoBootstrapFromYaml<GenericAILlmRuntime>({
+    startDir,
+    startRuntime: (input) => {
+      const workspaceRoot = environment.workspaceRoot ?? input.runtimePlan.runtime.workspaceRoot;
+
+      return createRuntime({
+        adapter: environment.adapter,
+        apiKey: environment.apiKey,
+        model:
+          environment.model ?? input.runtimePlan.primaryAgent.model ?? DEFAULT_OPENAI_CODEX_MODEL,
+        cwd: workspaceRoot,
+        agentDir: resolve(workspaceRoot, ".pi", "agent"),
+        ...(input.runtimePlan.primaryAgent.instructions === undefined
+          ? {}
+          : { instructions: input.runtimePlan.primaryAgent.instructions }),
+      });
+    },
+  });
+
+  const runtime = await bootstrap.startRuntime();
+  const workspaceRoot = environment.workspaceRoot ?? bootstrap.runtimePlan.runtime.workspaceRoot;
+
+  const transport = createHonoPlugin({
+    routePrefix: STARTER_ROUTE_PREFIX,
+    health: () => ({
+      transport: "@generic-ai/plugin-hono",
+      streaming: true,
+      adapter: runtime.adapter,
+      model: runtime.model,
+      workspaceRoot,
+      bootstrap: bootstrap.describe(),
+    }),
+    run: async (payload, context) =>
+      bootstrap.run(() =>
+        runtime.run(normalizePrompt(payload.input), {
+          signal: context.signal,
+        }),
+      ),
+    stream: async function* (payload, context) {
+      const prompt = normalizePrompt(payload.input);
+
+      for await (const chunk of bootstrap.stream(() =>
+        runtime.run(prompt, {
+          signal: context.signal,
+        }),
+      )) {
+        if (chunk.type === "event") {
+          yield {
+            event: chunk.event.name,
+            data: chunk.event,
+          };
+          continue;
+        }
+
+        yield {
+          event: "run.envelope",
+          data: chunk.envelope,
+        };
+      }
     },
   });
 
   return Object.freeze({
-    preset,
-    bootstrap,
-    workspaceRoot: workspace.root,
-    fileTools,
-    terminalTools,
-    skills,
-    mcp,
-    delegation,
-    messaging,
-    memory,
+    app: transport.app,
     transport,
-    run: execute,
+    bootstrap,
+    runtime,
+    environment,
+    workspaceRoot,
+    stop: async () => {
+      await runtime.close?.();
+      await bootstrap.stop();
+    },
   });
-}
-
-export async function runReferenceExample(
-  options: ReferenceExampleOptions,
-  topic?: string,
-): Promise<ReferenceExampleRun> {
-  const harness = await createReferenceExampleHarness(options);
-  return harness.run(topic);
 }

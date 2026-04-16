@@ -19,6 +19,12 @@ The default preset is the starter Hono preset. The core bootstrap layer ships a 
 
 Advanced callers can override the preset descriptor, plugin specs, plugin config, capabilities, and port descriptors without changing the rest of the bootstrap shape.
 
+As runtime/config work lands, the config-aware path stays dependency-inverted:
+
+- `@generic-ai/core` exposes `createGenericAIFromConfig()` and accepts an injected config loader plus optional schema source hooks.
+- `@generic-ai/preset-starter-hono` owns the convenience wrapper that injects `@generic-ai/plugin-config-yaml`'s `loadCanonicalConfig()`.
+- YAML therefore becomes the runtime source of truth before any runtime starter/plugin init callback runs, while the kernel still avoids importing plugin packages directly.
+
 The bootstrap port descriptors are intentionally explicit about the expected upstream symbols:
 
 - plugin host: `createPluginHost`

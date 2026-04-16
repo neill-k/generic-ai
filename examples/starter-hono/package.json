@@ -1,10 +1,12 @@
 {
   "name": "@generic-ai/example-starter-hono",
   "version": "0.0.0",
-  "description": "Runnable reference example for the Generic AI starter preset. Intentionally private: this example is never published to npm. TRN-03 will build it out.",
+  "description": "Runnable Hono server example for the Generic AI starter preset with a real provider adapter path.",
   "type": "module",
   "scripts": {
     "check:node": "node ../../scripts/check-node-version.mjs",
+    "predev": "node ../../scripts/check-node-version.mjs",
+    "dev": "node --watch --experimental-strip-types src/run.ts",
     "prestart": "node ../../scripts/check-node-version.mjs",
     "start": "node dist/run.js",
     "build": "tsc -b",

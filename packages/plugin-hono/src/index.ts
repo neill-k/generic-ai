@@ -12,7 +12,7 @@ export interface HonoRunPayload {
 
 export interface HonoRunContext {
   readonly requestId: string;
-  readonly mode: "sync" | "stream";
+  readonly mode: "health" | "sync" | "stream";
   readonly signal: AbortSignal;
 }
 
@@ -34,6 +34,7 @@ export type HonoStreamHandler = (
 
 export interface HonoPluginOptions {
   readonly routePrefix?: string;
+  readonly health?: (context: HonoRunContext) => Promise<unknown> | unknown;
   readonly run: HonoRunHandler;
   readonly stream?: HonoStreamHandler;
   readonly createRequestId?: () => string;
@@ -204,12 +205,22 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
   const createRequestId = options.createRequestId ?? randomUUID;
   const app = new Hono();
 
-  app.get(`${routePrefix}/health`, (context) =>
-    context.json({
-      transport: name,
-      streaming: options.stream !== undefined,
-    }),
-  );
+  app.get(`${routePrefix}/health`, async (context) => {
+    const requestId = createRequestId();
+    const result =
+      options.health === undefined
+        ? {
+            transport: name,
+            streaming: options.stream !== undefined,
+          }
+        : await options.health({
+            requestId,
+            mode: "health",
+            signal: context.req.raw.signal,
+          });
+
+    return context.json(result);
+  });
 
   app.post(`${routePrefix}/run`, async (context) => {
     let payload: HonoRunPayload;

@@ -1,0 +1,9 @@
+schemaVersion: v1
+name: Starter Hono example
+preset: "@generic-ai/preset-starter-hono"
+primaryAgent: starter
+runtime:
+  mode: async
+  workspaceRoot: .
+  logging:
+    level: info

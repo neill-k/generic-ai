@@ -1,4 +1,4 @@
-import type { RunEnvelope } from "@generic-ai/sdk";
+import type { AgentConfig, PluginConfig, ResolvedConfig, RunEnvelope } from "@generic-ai/sdk";
 import type { CanonicalEvent } from "../events/index.js";
 import type { PluginDefinition, PluginHost, PluginLifecyclePhase } from "../plugin-host/index.js";
 import type { Scope } from "../scope/index.js";
@@ -161,4 +161,120 @@ export interface GenericAIBootstrap extends GenericAIComposition {
     task: GenericAIRunTask<TOutput>,
   ) => AsyncIterable<GenericAIStreamChunk<TOutput>>;
   readonly stop: () => Promise<void>;
+}
+
+export interface GenericAIResolvedConfig extends ResolvedConfig {
+  readonly rootDir?: string;
+  readonly configDir?: string;
+}
+
+export interface GenericAIConfigLoaderOptions<TSchemaSource = unknown> {
+  readonly schemaSource?: TSchemaSource;
+  readonly rejectUnknownPluginNamespaces?: boolean;
+  readonly requireFramework?: boolean;
+}
+
+export interface GenericAIConfigLoadFailure {
+  readonly code?: string;
+  readonly message: string;
+  readonly suggestion?: string;
+}
+
+export interface GenericAIConfigValidationDiagnostic {
+  readonly code?: string;
+  readonly message: string;
+  readonly path?: string;
+}
+
+export type GenericAIConfigLoaderResult =
+  | {
+      readonly ok: true;
+      readonly config: GenericAIResolvedConfig;
+      readonly diagnostics?: readonly GenericAIConfigValidationDiagnostic[];
+      readonly failures?: readonly GenericAIConfigLoadFailure[];
+    }
+  | {
+      readonly ok: false;
+      readonly diagnostics?: readonly GenericAIConfigValidationDiagnostic[];
+      readonly failures?: readonly GenericAIConfigLoadFailure[];
+    };
+
+export type GenericAIConfigLoader<TSchemaSource = unknown> = (
+  startDir: string,
+  options: GenericAIConfigLoaderOptions<TSchemaSource>,
+) => Promise<GenericAIConfigLoaderResult>;
+
+export interface GenericAIConfigSource<TSchemaSource = unknown> {
+  readonly startDir: string;
+  readonly load: GenericAIConfigLoader<TSchemaSource>;
+  readonly schemaSource?: TSchemaSource;
+  readonly rejectUnknownPluginNamespaces?: boolean;
+  readonly requireFramework?: boolean;
+}
+
+export interface GenericAIRuntimeSettingsPlan {
+  readonly mode?: string;
+  readonly retries?: number;
+  readonly tracing?: boolean;
+  readonly workspaceRoot: string;
+  readonly storageProvider?: string;
+  readonly queueProvider?: string;
+  readonly loggingLevel?: "debug" | "info" | "warn" | "error";
+}
+
+export interface GenericAIAgentSessionPlan {
+  readonly id: string;
+  readonly model?: string;
+  readonly instructions?: string;
+  readonly tools: readonly string[];
+  readonly plugins: readonly string[];
+  readonly memory?: NonNullable<AgentConfig["memory"]>;
+}
+
+export interface GenericAIPluginInitPlan {
+  readonly namespace: string;
+  readonly pluginId: string;
+  readonly packageName?: string;
+  readonly enabled: boolean;
+  readonly dependsOn: readonly string[];
+  readonly config: Readonly<Record<string, unknown>>;
+  readonly raw: PluginConfig & Readonly<Record<string, unknown>>;
+}
+
+export interface GenericAIRuntimePlan {
+  readonly runtime: GenericAIRuntimeSettingsPlan;
+  readonly primaryAgent: GenericAIAgentSessionPlan;
+  readonly plugins: readonly GenericAIPluginInitPlan[];
+  readonly sources?: NonNullable<ResolvedConfig["sources"]>;
+}
+
+export interface GenericAIRuntimeStarterInput extends GenericAIComposition {
+  readonly config: GenericAIResolvedConfig;
+  readonly runtimePlan: GenericAIRuntimePlan;
+}
+
+export interface GenericAIRuntimeStartResult {
+  readonly status: "planned";
+  readonly plan: GenericAIRuntimePlan;
+}
+
+export type GenericAIRuntimeStarter<TResult = GenericAIRuntimeStartResult> = (
+  input: GenericAIRuntimeStarterInput,
+) => Promise<TResult> | TResult;
+
+export interface GenericAIFromConfigOptions<
+  TSchemaSource = unknown,
+  TRuntimeStart = GenericAIRuntimeStartResult,
+> extends GenericAIOptions {
+  readonly config?: GenericAIResolvedConfig;
+  readonly configSource?: GenericAIConfigSource<TSchemaSource>;
+  readonly primaryAgentId?: string;
+  readonly startRuntime?: GenericAIRuntimeStarter<TRuntimeStart>;
+}
+
+export interface GenericAIConfiguredBootstrap<TRuntimeStart = GenericAIRuntimeStartResult>
+  extends GenericAIBootstrap {
+  readonly config: GenericAIResolvedConfig;
+  readonly runtimePlan: GenericAIRuntimePlan;
+  readonly startRuntime: () => Promise<TRuntimeStart>;
 }
