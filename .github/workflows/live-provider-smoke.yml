@@ -1,0 +1,36 @@
+name: live-provider-smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Materialize trusted pi auth (optional)
+        shell: bash
+        env:
+          GENERIC_AI_PI_AUTH_JSON: ${{ secrets.GENERIC_AI_PI_AUTH_JSON }}
+        run: |
+          if [ -n "$GENERIC_AI_PI_AUTH_JSON" ]; then
+            mkdir -p "$RUNNER_TEMP/pi-agent"
+            printf '%s' "$GENERIC_AI_PI_AUTH_JSON" > "$RUNNER_TEMP/pi-agent/auth.json"
+            echo "GENERIC_AI_LIVE_AGENT_DIR=$RUNNER_TEMP/pi-agent" >> "$GITHUB_ENV"
+          fi
+
+      - name: Run live provider smoke test
+        env:
+          GENERIC_AI_ENABLE_LIVE_SMOKE: "1"
+          GENERIC_AI_LIVE_PROVIDER: openai-codex
+          GENERIC_AI_LIVE_PROVIDER_API_KEY: ${{ secrets.GENERIC_AI_LIVE_PROVIDER_API_KEY }}
+        run: npx vitest run --passWithNoTests=false examples/starter-hono/src/live-smoke.test.ts
