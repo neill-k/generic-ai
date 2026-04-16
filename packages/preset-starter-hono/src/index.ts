@@ -569,21 +569,10 @@ export async function createStarterHonoBootstrapFromYaml<
     configSource.requireFramework = requireFramework;
   }
 
-  const bootstrapOptions: {
-    preset: StarterHonoPresetDefinition;
-    configSource: typeof configSource;
-    primaryAgentId?: string;
-    startRuntime?: GenericAIRuntimeStarter<TRuntimeStart>;
-  } = {
+  return createGenericAIFromConfig({
     preset,
     configSource,
-  };
-  if (primaryAgentId !== undefined) {
-    bootstrapOptions.primaryAgentId = primaryAgentId;
-  }
-  if (startRuntime !== undefined) {
-    bootstrapOptions.startRuntime = startRuntime;
-  }
-
-  return createGenericAIFromConfig(bootstrapOptions);
+    ...(primaryAgentId === undefined ? {} : { primaryAgentId }),
+    ...(startRuntime === undefined ? {} : { startRuntime }),
+  });
 }

@@ -1,55 +1,75 @@
-import { mkdtemp } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import {
+  createStarterExampleServer,
+  type StarterExampleServerOptions,
+} from "./index.js";
+import { startFetchServer, type StartedFetchServer } from "./node-server.js";
 
-import { runReferenceExample } from "./index.js";
+export interface StarterExampleCliRun {
+  readonly server: StartedFetchServer;
+  readonly close: () => Promise<void>;
+}
 
-const providerKeyName = "GENERIC_AI_PROVIDER_API_KEY";
-const workspaceRootName = "GENERIC_AI_WORKSPACE_ROOT";
-
-export interface StarterExampleCliOptions {
-  readonly args?: readonly string[];
+export interface StarterExampleCliOptions extends Pick<StarterExampleServerOptions, "createRuntime"> {
   readonly env?: NodeJS.ProcessEnv;
   readonly log?: (message: string) => void;
 }
 
-export async function runStarterExampleCli(options: StarterExampleCliOptions = {}) {
-  const env = options.env ?? process.env;
+export async function runStarterExampleCli(
+  options: StarterExampleCliOptions = {},
+): Promise<StarterExampleCliRun> {
   const log = options.log ?? console.log;
-  const providerKey = env[providerKeyName];
+  const starter = await createStarterExampleServer({
+    ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.createRuntime === undefined ? {} : { createRuntime: options.createRuntime }),
+  });
 
-  if (!providerKey) {
-    throw new Error(
-      `${providerKeyName} must be set before running the starter example. The current harness is local-only, but the fresh-clone path keeps the provider key in place for the real execution route.`,
-    );
+  let server: StartedFetchServer;
+  try {
+    server = await startFetchServer(starter.transport.fetch, {
+      host: starter.environment.host,
+      port: starter.environment.port,
+    });
+  } catch (error) {
+    await starter.stop();
+    throw error;
   }
-
-  const workspaceRoot =
-    env[workspaceRootName] ??
-    (await mkdtemp(path.join(os.tmpdir(), "generic-ai-starter-")));
-  const topic = options.args?.join(" ").trim() || "the Generic AI starter stack";
-  const result = await runReferenceExample({ root: workspaceRoot }, topic);
 
   log(
     [
-      `Workspace: ${workspaceRoot}`,
-      `Bootstrap: ${result.bootstrapDescription}`,
-      `Summary: ${result.delegatedSummary}`,
-      `Skills: ${result.skillNames.join(", ") || "none"}`,
-      `MCP servers: ${result.mcpServers.join(", ") || "none"}`,
-      `Transport: ${result.transportHealth.transport} (streaming: ${result.transportHealth.streaming})`,
+      `Starter example listening on http://${server.host}:${server.port}${starter.transport.routePrefix}/health`,
+      `Adapter: ${starter.runtime.adapter}`,
+      `Model: ${starter.runtime.model}`,
+      `Workspace: ${starter.workspaceRoot}`,
     ].join("\n"),
   );
 
-  return result;
+  return {
+    server,
+    close: async () => {
+      await server.close();
+      await starter.stop();
+    },
+  };
 }
 
 const isCli = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isCli) {
-  runStarterExampleCli({ args: process.argv.slice(2) }).catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 1;
-  });
+  runStarterExampleCli()
+    .then((started) => {
+      const shutdown = async () => {
+        process.off("SIGINT", shutdown);
+        process.off("SIGTERM", shutdown);
+        await started.close();
+      };
+
+      process.on("SIGINT", shutdown);
+      process.on("SIGTERM", shutdown);
+    })
+    .catch((error) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
 }
