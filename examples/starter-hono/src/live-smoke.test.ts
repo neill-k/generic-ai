@@ -114,7 +114,13 @@ describe("@generic-ai/example-starter-hono live smoke", () => {
       // prefix, and join them so `JSON.parse` receives the complete object.
       const doneSection = text.match(/event: done\n((?:data: .*\n?)+)/);
       expect(doneSection).not.toBeNull();
-      const doneJson = doneSection![1]
+      const donePayload = doneSection?.[1];
+      expect(donePayload).toBeDefined();
+      if (donePayload === undefined) {
+        throw new Error("Expected to capture the done event payload.");
+      }
+
+      const doneJson = donePayload
         .split("\n")
         .filter((line) => line.startsWith("data: "))
         .map((line) => line.slice("data: ".length))
