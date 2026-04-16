@@ -47,7 +47,7 @@ Anything outside these rules needs an entry in `docs/decisions/` explaining the 
 
 Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and the repo root itself are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
-- **Public (19 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
+- **Public (20 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
 - **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. Any new workspace under `examples/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
@@ -119,6 +119,12 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: standard `pi` tool for local command execution.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs` where it needs workspace-aware paths.
 - Not responsible for: file operations (those belong to `@generic-ai/plugin-tools-files`) or governance/hardening (deferred).
+
+### `@generic-ai/plugin-tools-terminal-sandbox`
+
+- Role: Docker-backed sandbox terminal execution with per-session containers, structured stdout/stderr capture, resource ceilings, timeout enforcement, and explicit cleanup semantics.
+- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, plus Docker-facing client or process libraries used to talk to the local daemon.
+- Not responsible for: starter preset selection/defaulting (`@generic-ai/preset-starter-hono`), non-Docker backends, or higher-level security/governance policy outside the sandbox execution boundary.
 
 ### `@generic-ai/plugin-tools-files`
 

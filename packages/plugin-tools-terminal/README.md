@@ -10,7 +10,7 @@ This package is the explicit host-execution path. It is intentionally local-firs
 - the public plugin surface defaults `unrestrictedLocal` to `true`
 - this is appropriate for local development and tests, not as a production isolation boundary
 
-Sandboxed code execution is tracked separately in [`docs/decisions/0013-sandboxed-code-execution.md`](../../docs/decisions/0013-sandboxed-code-execution.md). The planned migration path is a dedicated `@generic-ai/plugin-tools-terminal-sandbox` package that can replace this package in the starter preset's `terminalTools` slot without changing kernel boundaries.
+Sandboxed code execution is tracked separately in [`docs/decisions/0013-sandboxed-execution.md`](../../docs/decisions/0013-sandboxed-execution.md). The planned migration path is a dedicated `@generic-ai/plugin-tools-terminal-sandbox` package that can replace this package in the starter preset's `terminalTools` slot without changing kernel boundaries.
 
 Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin Intent"):
 

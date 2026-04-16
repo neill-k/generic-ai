@@ -36,7 +36,7 @@ ADRs must be written when:
 - [`0010-run-envelope.md`](0010-run-envelope.md) — the minimal stable run envelope the kernel returns before output plugins finalize payloads.
 - [`0011-pi-direct-boundary.md`](0011-pi-direct-boundary.md) — direct `pi` exposure and the thin boundary Generic AI keeps around runtime/tool primitives.
 - [`0012-bootstrap-api.md`](0012-bootstrap-api.md) — `createGenericAI()`, starter-preset defaulting, and config-aware bootstrap composition.
-- [`0013-sandboxed-code-execution.md`](0013-sandboxed-code-execution.md) — Docker-first sandbox planning for terminal tools, the migration path from host execution, and the backend-neutral contract boundary.
+- [`0013-sandboxed-execution.md`](0013-sandboxed-execution.md) — Docker-backed sandbox execution, migration posture, and trade-offs.
 
 ## Planning Baseline
 

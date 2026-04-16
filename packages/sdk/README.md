@@ -29,6 +29,7 @@ The SDK defines the contract families planned in
 - workspace contracts
 - queue contracts
 - output-plugin contracts
+- sandbox execution contracts for container-backed terminal backends, including policy ceilings, per-stream output truncation, and execution resource reporting
 
 The contract modules are intentionally kernel-agnostic. They do not import
 `@generic-ai/core`, and they do not require private kernel knowledge to

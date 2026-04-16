@@ -94,6 +94,7 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 ### Capability plugins
 
 - [`@generic-ai/plugin-tools-terminal`](packages/plugin-tools-terminal) — local command execution as a shipped `pi` tool.
+- [`@generic-ai/plugin-tools-terminal-sandbox`](packages/plugin-tools-terminal-sandbox) — Docker-backed sandbox terminal execution with per-session containers, resource ceilings, timeout enforcement, and structured output capture.
 - [`@generic-ai/plugin-tools-files`](packages/plugin-tools-files) — local file read/write/list/edit `pi` tools.
 - [`@generic-ai/plugin-tools-web`](packages/plugin-tools-web) — configurable web fetch/search tools with shared host allow/block policies.
 - [`@generic-ai/plugin-mcp`](packages/plugin-mcp) — Model Context Protocol support as a replaceable plugin.
@@ -111,6 +112,17 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 ### Reference example
 
 - [`examples/starter-hono`](examples/starter-hono) — runnable example that proves the whole stack: `createGenericAI()` with no arguments resolves the starter preset, and callers can also pass `createStarterHonoPreset()` explicitly.
+
+## Sandbox Execution Docs
+
+The sandbox stack has its own operator and API docs pack:
+
+- [`docs/sandbox/README.md`](docs/sandbox/README.md) — overview and entry points
+- [`docs/sandbox/plugin-api-reference.md`](docs/sandbox/plugin-api-reference.md) — public SDK and plugin contract surface
+- [`docs/sandbox/operator-guide.md`](docs/sandbox/operator-guide.md) — prerequisites, enablement, verification, and troubleshooting
+- [`docs/sandbox/migration-guide.md`](docs/sandbox/migration-guide.md) — step-by-step move from unrestricted host execution to sandbox execution
+- [`docs/sandbox/security-model.md`](docs/sandbox/security-model.md) — protections, limitations, and deployment posture
+- [`docs/decisions/0013-sandboxed-execution.md`](docs/decisions/0013-sandboxed-execution.md) — repo-level decision and alternatives considered
 
 ## Roadmap
 

@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import {
   type BootstrapCapabilityId,
   type BootstrapPluginSlot,
@@ -18,6 +19,34 @@ export const name = "@generic-ai/preset-starter-hono" as const;
 
 export const STARTER_PRESET_ID = "preset.starter-hono";
 export const STARTER_PRESET_VERSION = 1;
+export const STARTER_TERMINAL_PLUGIN_ID = "@generic-ai/plugin-tools-terminal";
+export const STARTER_SANDBOX_TERMINAL_PLUGIN_ID = "@generic-ai/plugin-tools-terminal-sandbox";
+export const STARTER_SANDBOX_ENV_VAR = "GENERIC_AI_SANDBOX";
+export const STARTER_SANDBOX_FALLBACK_ENV_VAR = "GENERIC_AI_SANDBOX_FALLBACK";
+
+export type StarterSandboxMode = "docker" | "none";
+export type StarterSandboxFallbackMode = "warn" | "fail";
+export type StarterRuntimeEnvironment = "development" | "production";
+export type StarterSandboxSelectionSource = "default" | "environment" | "explicit";
+
+export interface StarterSandboxBootstrapOptions {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly environment?: StarterRuntimeEnvironment;
+  readonly fallbackMode?: StarterSandboxFallbackMode;
+  readonly dockerProbe?: () => boolean | Promise<boolean>;
+  readonly warn?: (message: string) => void;
+}
+
+export interface StarterSandboxSelection {
+  readonly environment: StarterRuntimeEnvironment;
+  readonly source: StarterSandboxSelectionSource;
+  readonly requestedMode: StarterSandboxMode;
+  readonly mode: StarterSandboxMode;
+  readonly fallbackMode: StarterSandboxFallbackMode;
+  readonly terminalPluginId: string;
+  readonly dockerAvailable?: boolean;
+  readonly warning?: string;
+}
 
 export type StarterPresetSlot =
   | "config"
@@ -60,6 +89,17 @@ export interface StarterPresetAddonPlugin {
 export interface StarterPresetResolutionOptions {
   readonly slotOverrides?: readonly StarterPresetSlotOverride[];
   readonly addons?: readonly StarterPresetAddonPlugin[];
+  readonly sandboxMode?: StarterSandboxMode;
+  /**
+   * How `sandboxMode` was selected. When omitted, the preset assumes
+   * `"explicit"` to preserve programmatic callers' behavior. Callers derived
+   * from `resolveStarterSandboxSelection()` should pass the matching source so
+   * the preset can honor prior `terminalTools` slot overrides when the sandbox
+   * only became active through a production default.
+   */
+  readonly sandboxSource?: StarterSandboxSelectionSource;
+  /** Optional structured logger used to report mode downgrades. */
+  readonly warn?: (message: string) => void;
 }
 
 export interface StarterPresetResolvedPlugin {
@@ -78,6 +118,8 @@ export interface StarterPresetResolvedContract {
   readonly version: number;
   readonly plugins: readonly StarterPresetResolvedPlugin[];
   readonly includesHono: boolean;
+  readonly sandboxMode: StarterSandboxMode;
+  readonly terminalPluginId: string;
 }
 
 export interface StarterPresetContract
@@ -101,6 +143,7 @@ export interface StarterHonoYamlBootstrapOptions<TRuntimeStart = GenericAIRuntim
   readonly rejectUnknownPluginNamespaces?: boolean;
   readonly requireFramework?: boolean;
   readonly primaryAgentId?: string;
+  readonly sandbox?: StarterSandboxBootstrapOptions;
   readonly startRuntime?: GenericAIRuntimeStarter<TRuntimeStart>;
 }
 
@@ -108,6 +151,7 @@ export interface StarterHonoPresetDefinition extends BootstrapPresetDefinition {
   readonly packageName: string;
   readonly version: number;
   readonly resolution: StarterPresetResolvedContract;
+  readonly sandboxMode: StarterSandboxMode;
 }
 
 export const STARTER_PRESET_DEFAULT_SLOTS = [
@@ -143,7 +187,7 @@ export const STARTER_PRESET_DEFAULT_SLOTS = [
   },
   {
     slot: "terminalTools",
-    pluginId: "@generic-ai/plugin-tools-terminal",
+    pluginId: STARTER_TERMINAL_PLUGIN_ID,
     required: true,
     description: "Local terminal tooling.",
   },
@@ -238,6 +282,222 @@ function assertNonEmpty(value: string, label: string): void {
   }
 
   throw new Error(`${label} must be a non-empty string.`);
+}
+
+function normalizeStarterSandboxMode(value: string, sourceLabel: string): StarterSandboxMode {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "docker" || normalized === "none") {
+    return normalized;
+  }
+
+  throw new Error(`${sourceLabel} must be "docker" or "none". Received "${value}".`);
+}
+
+function normalizeStarterSandboxFallbackMode(
+  value: string,
+  sourceLabel: string,
+): StarterSandboxFallbackMode {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "warn" || normalized === "fail") {
+    return normalized;
+  }
+
+  throw new Error(`${sourceLabel} must be "warn" or "fail". Received "${value}".`);
+}
+
+function resolveStarterRuntimeEnvironment(
+  options: StarterSandboxBootstrapOptions | undefined,
+): StarterRuntimeEnvironment {
+  if (options?.environment !== undefined) {
+    return options.environment;
+  }
+
+  const env = options?.env ?? process.env;
+  return env["NODE_ENV"]?.trim().toLowerCase() === "production" ? "production" : "development";
+}
+
+function resolveStarterFallbackMode(
+  options: StarterSandboxBootstrapOptions | undefined,
+): StarterSandboxFallbackMode {
+  if (options?.fallbackMode !== undefined) {
+    return options.fallbackMode;
+  }
+
+  const env = options?.env ?? process.env;
+  const rawFallback = env[STARTER_SANDBOX_FALLBACK_ENV_VAR];
+  if (rawFallback === undefined || rawFallback.trim().length === 0) {
+    return "warn";
+  }
+
+  return normalizeStarterSandboxFallbackMode(rawFallback, STARTER_SANDBOX_FALLBACK_ENV_VAR);
+}
+
+function resolveRequestedSandboxMode(
+  explicitMode: StarterSandboxMode | undefined,
+  options: StarterSandboxBootstrapOptions | undefined,
+): {
+  readonly environment: StarterRuntimeEnvironment;
+  readonly mode: StarterSandboxMode;
+  readonly source: StarterSandboxSelectionSource;
+  readonly fallbackMode: StarterSandboxFallbackMode;
+} {
+  const environment = resolveStarterRuntimeEnvironment(options);
+  const fallbackMode = resolveStarterFallbackMode(options);
+
+  if (explicitMode !== undefined) {
+    return {
+      environment,
+      mode: explicitMode,
+      source: "explicit",
+      fallbackMode,
+    };
+  }
+
+  const env = options?.env ?? process.env;
+  const rawEnvMode = env[STARTER_SANDBOX_ENV_VAR];
+  if (rawEnvMode !== undefined && rawEnvMode.trim().length > 0) {
+    return {
+      environment,
+      mode: normalizeStarterSandboxMode(rawEnvMode, STARTER_SANDBOX_ENV_VAR),
+      source: "environment",
+      fallbackMode,
+    };
+  }
+
+  return {
+    environment,
+    mode: environment === "production" ? "docker" : "none",
+    source: "default",
+    fallbackMode,
+  };
+}
+
+function createDockerUnavailableMessage(
+  source: StarterSandboxSelectionSource,
+  environment: StarterRuntimeEnvironment,
+): string {
+  const sourceDetail =
+    source === "default" ? `default ${environment} preset behavior` : `${source} configuration`;
+  return `Starter Hono bootstrap requested sandbox mode "docker" via ${sourceDetail}, but Docker is unavailable. Falling back to "${STARTER_TERMINAL_PLUGIN_ID}". Set ${STARTER_SANDBOX_ENV_VAR}=none to opt out, or ${STARTER_SANDBOX_FALLBACK_ENV_VAR}=fail to fail hard.`;
+}
+
+async function probeDockerAvailability(
+  probe: StarterSandboxBootstrapOptions["dockerProbe"],
+): Promise<boolean> {
+  if (probe !== undefined) {
+    return await probe();
+  }
+
+  return new Promise((resolve) => {
+    const child = spawn("docker", ["info"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill();
+      } catch {
+        // Ignore kill failures and report Docker as unavailable.
+      }
+      finish(false);
+    }, 3_000);
+
+    child.once("error", () => finish(false));
+    child.once("exit", (code) => finish(code === 0));
+  });
+}
+
+export async function resolveStarterSandboxSelection(
+  explicitMode: StarterSandboxMode | undefined,
+  options?: StarterSandboxBootstrapOptions,
+): Promise<StarterSandboxSelection> {
+  const requested = resolveRequestedSandboxMode(explicitMode, options);
+  if (requested.mode === "none") {
+    return {
+      environment: requested.environment,
+      source: requested.source,
+      requestedMode: requested.mode,
+      mode: "none",
+      fallbackMode: requested.fallbackMode,
+      terminalPluginId: STARTER_TERMINAL_PLUGIN_ID,
+    };
+  }
+
+  const dockerAvailable = await probeDockerAvailability(options?.dockerProbe);
+  if (dockerAvailable) {
+    return {
+      environment: requested.environment,
+      source: requested.source,
+      requestedMode: requested.mode,
+      mode: "docker",
+      fallbackMode: requested.fallbackMode,
+      terminalPluginId: STARTER_SANDBOX_TERMINAL_PLUGIN_ID,
+      dockerAvailable,
+    };
+  }
+
+  const warning = createDockerUnavailableMessage(requested.source, requested.environment);
+  if (requested.fallbackMode === "fail") {
+    throw new Error(warning);
+  }
+
+  (options?.warn ?? console.warn)(warning);
+  return {
+    environment: requested.environment,
+    source: requested.source,
+    requestedMode: requested.mode,
+    mode: "none",
+    fallbackMode: requested.fallbackMode,
+    terminalPluginId: STARTER_TERMINAL_PLUGIN_ID,
+    dockerAvailable,
+    warning,
+  };
+}
+
+function withSandboxSlotOverrides(
+  overrides: readonly StarterPresetSlotOverride[],
+  sandboxMode: StarterSandboxMode | undefined,
+  sandboxSource: StarterSandboxSelectionSource | undefined,
+  warn: ((message: string) => void) | undefined,
+): readonly StarterPresetSlotOverride[] {
+  if (sandboxMode === undefined || sandboxMode === "none") {
+    return overrides;
+  }
+
+  const hasTerminalOverride = overrides.some((override) => override.slot === "terminalTools");
+  if (hasTerminalOverride) {
+    // Only treat the terminalTools override as a hard error when the caller
+    // actively opted into sandbox mode. When the sandbox was derived from the
+    // production default behavior, honor the caller's explicit override to
+    // avoid breaking existing configs and emit a WARN-level downgrade log.
+    const callerOptedIn = sandboxSource === undefined || sandboxSource !== "default";
+    if (callerOptedIn) {
+      throw new Error('sandboxMode cannot be combined with a "terminalTools" slot override.');
+    }
+    (warn ?? console.warn)(
+      'Starter Hono preset: defaulting sandboxMode="docker" was overridden by an existing "terminalTools" slot binding; sandbox resolution downgraded to "caller-overridden".',
+    );
+    return overrides;
+  }
+
+  return [
+    ...overrides,
+    {
+      slot: "terminalTools",
+      pluginId: STARTER_SANDBOX_TERMINAL_PLUGIN_ID,
+      description: "Docker-backed sandbox terminal tooling.",
+    },
+  ];
 }
 
 function resolveSlotBindings(
@@ -341,7 +601,12 @@ function createResolvedStarterPreset(
   slotBindings: readonly StarterPresetSlotBinding[],
   options: StarterPresetResolutionOptions | undefined,
 ): StarterPresetResolvedContract {
-  const slotOverrides = options?.slotOverrides ?? [];
+  const slotOverrides = withSandboxSlotOverrides(
+    options?.slotOverrides ?? [],
+    options?.sandboxMode,
+    options?.sandboxSource,
+    options?.warn,
+  );
   const addons = options?.addons ?? [];
   const resolvedSlots = resolveSlotBindings(slotBindings, slotOverrides);
   const addonsBySlot = resolveAddonsBySlot(addons, resolvedSlots);
@@ -369,12 +634,17 @@ function createResolvedStarterPreset(
     plugins.push(...after);
   }
 
+  const terminalPluginId =
+    resolvedSlots.get("terminalTools")?.pluginId ?? STARTER_TERMINAL_PLUGIN_ID;
+
   return {
     id: STARTER_PRESET_ID,
     packageName: name,
     version: STARTER_PRESET_VERSION,
     plugins,
     includesHono: plugins.some((plugin) => plugin.pluginId === "@generic-ai/plugin-hono"),
+    sandboxMode: terminalPluginId === STARTER_SANDBOX_TERMINAL_PLUGIN_ID ? "docker" : "none",
+    terminalPluginId,
   };
 }
 
@@ -526,6 +796,7 @@ export function createStarterHonoPreset(
     packageName: name,
     version: STARTER_PRESET_VERSION,
     resolution,
+    sandboxMode: resolution.sandboxMode,
   });
 }
 
@@ -542,10 +813,17 @@ export async function createStarterHonoBootstrapFromYaml<
     rejectUnknownPluginNamespaces,
     requireFramework,
     primaryAgentId,
+    sandbox,
     startRuntime,
     ...presetOptions
   } = options;
-  const preset = createStarterHonoPreset(presetOptions);
+  const sandboxSelection = await resolveStarterSandboxSelection(presetOptions.sandboxMode, sandbox);
+  const preset = createStarterHonoPreset({
+    ...presetOptions,
+    sandboxMode: sandboxSelection.mode,
+    sandboxSource: sandboxSelection.source,
+    ...(sandbox?.warn === undefined ? {} : { warn: sandbox.warn }),
+  });
   const configSource: {
     startDir: string;
     load: NonNullable<

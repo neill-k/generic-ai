@@ -11,6 +11,7 @@ const packageAliases = [
   "plugin-workspace-fs",
   "plugin-storage-memory",
   "plugin-tools-terminal",
+  "plugin-tools-terminal-sandbox",
   "plugin-tools-files",
   "plugin-mcp",
   "plugin-agent-skills",

@@ -12,6 +12,8 @@ import {
   createStarterHonoBootstrapFromYaml,
   createStarterHonoPreset,
   resolveStarterPreset,
+  STARTER_SANDBOX_TERMINAL_PLUGIN_ID,
+  STARTER_TERMINAL_PLUGIN_ID,
   starterHonoPreset,
   starterPresetContract,
 } from "./index.js";
@@ -67,6 +69,48 @@ describe("@generic-ai/preset-starter-hono contract", () => {
 
     expect(pluginIds).toContain("@acme/plugin-storage-postgres");
     expect(pluginIds).not.toContain("@generic-ai/plugin-storage-sqlite");
+  });
+
+  it("switches the terminal slot to the sandbox plugin when sandbox mode is docker", () => {
+    const preset = createStarterHonoPreset({
+      sandboxMode: "docker",
+    });
+
+    expect(preset.sandboxMode).toBe("docker");
+    expect(preset.resolution.sandboxMode).toBe("docker");
+    expect(preset.resolution.terminalPluginId).toBe(STARTER_SANDBOX_TERMINAL_PLUGIN_ID);
+    expect(preset.plugins.find((plugin) => plugin.slot === "terminalTools")).toMatchObject({
+      pluginId: STARTER_SANDBOX_TERMINAL_PLUGIN_ID,
+      dependencies: ["@generic-ai/plugin-workspace-fs"],
+    });
+  });
+
+  it("supports swapping the terminal slot to the sandbox plugin", async () => {
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: sandbox migration
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          slotOverrides: [
+            {
+              slot: "terminalTools",
+              pluginId: "@generic-ai/plugin-tools-terminal-sandbox",
+              description: "Docker-backed sandbox terminal execution.",
+            },
+          ],
+        });
+
+        expect(
+          bootstrap.preset.plugins.find((plugin) => plugin.slot === "terminalTools"),
+        ).toMatchObject({
+          pluginId: "@generic-ai/plugin-tools-terminal-sandbox",
+          dependencies: ["@generic-ai/plugin-workspace-fs"],
+        });
+      },
+    );
   });
 
   it("supports disabling optional Hono transport", () => {
@@ -287,6 +331,169 @@ kind: 42
     );
 
     expect(startCalls).toEqual([]);
+  });
+
+  it("keeps unrestricted terminal mode when sandbox mode is explicitly disabled", async () => {
+    let dockerProbeCalls = 0;
+
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: sandbox disabled
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          sandboxMode: "none",
+          sandbox: {
+            dockerProbe: async () => {
+              dockerProbeCalls += 1;
+              return true;
+            },
+          },
+        });
+
+        expect(
+          bootstrap.preset.plugins.find((plugin) => plugin.slot === "terminalTools"),
+        ).toMatchObject({
+          pluginId: STARTER_TERMINAL_PLUGIN_ID,
+          dependencies: ["@generic-ai/plugin-workspace-fs"],
+        });
+      },
+    );
+
+    expect(dockerProbeCalls).toBe(0);
+  });
+
+  it("enables sandbox terminal mode when Docker is available", async () => {
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: sandbox enabled
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          sandboxMode: "docker",
+          sandbox: {
+            dockerProbe: async () => true,
+          },
+        });
+
+        expect(
+          bootstrap.preset.plugins.find((plugin) => plugin.slot === "terminalTools"),
+        ).toMatchObject({
+          pluginId: STARTER_SANDBOX_TERMINAL_PLUGIN_ID,
+          dependencies: ["@generic-ai/plugin-workspace-fs"],
+        });
+      },
+    );
+  });
+
+  it("warns and falls back to unrestricted terminal mode when Docker is unavailable", async () => {
+    const warnings: string[] = [];
+
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: docker unavailable
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          sandbox: {
+            env: {
+              NODE_ENV: "production",
+            },
+            dockerProbe: async () => false,
+            warn: (message) => warnings.push(message),
+          },
+        });
+
+        expect(
+          bootstrap.preset.plugins.find((plugin) => plugin.slot === "terminalTools"),
+        ).toMatchObject({
+          pluginId: STARTER_TERMINAL_PLUGIN_ID,
+          dependencies: ["@generic-ai/plugin-workspace-fs"],
+        });
+      },
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Docker is unavailable");
+    expect(warnings[0]).toContain(STARTER_TERMINAL_PLUGIN_ID);
+  });
+
+  it("honors a caller terminalTools override when sandbox mode came from production default", async () => {
+    const warnings: string[] = [];
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: default sandbox with override
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          slotOverrides: [
+            {
+              slot: "terminalTools",
+              pluginId: "@acme/custom-terminal",
+              description: "Custom terminal plugin pinned by config.",
+            },
+          ],
+          sandbox: {
+            env: {
+              NODE_ENV: "production",
+            },
+            dockerProbe: async () => true,
+            warn: (message) => warnings.push(message),
+          },
+        });
+
+        const terminalPlugin = bootstrap.preset.plugins.find(
+          (plugin) => plugin.slot === "terminalTools",
+        );
+        expect(terminalPlugin?.pluginId).toBe("@acme/custom-terminal");
+      },
+    );
+
+    expect(warnings.some((warning) => warning.includes("caller-overridden"))).toBe(true);
+  });
+
+  it("throws when caller explicitly opts into sandbox AND sets a terminalTools override", () => {
+    expect(() =>
+      resolveStarterPreset({
+        sandboxMode: "docker",
+        sandboxSource: "explicit",
+        slotOverrides: [
+          {
+            slot: "terminalTools",
+            pluginId: "@acme/custom-terminal",
+          },
+        ],
+      }),
+    ).toThrow(/sandboxMode cannot be combined with a "terminalTools" slot override/);
+  });
+
+  it("fails hard when Docker is unavailable and fail-hard fallback is requested", async () => {
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: docker required
+`,
+      },
+      async (root) => {
+        await expect(
+          createStarterHonoBootstrapFromYaml({
+            startDir: root,
+            sandboxMode: "docker",
+            sandbox: {
+              fallbackMode: "fail",
+              dockerProbe: async () => false,
+            },
+          }),
+        ).rejects.toThrow("Docker is unavailable");
+      },
+    );
   });
 });
 
