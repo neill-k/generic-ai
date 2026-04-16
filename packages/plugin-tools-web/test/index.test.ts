@@ -151,6 +151,24 @@ describe("@generic-ai/plugin-tools-web", () => {
     });
   });
 
+  it("blocks obvious internal hosts when no allow list is configured", async () => {
+    await withTempRoot(async (root) => {
+      const plugin = createWebToolsPlugin({
+        root,
+        searchProvider: {
+          name: "test-provider",
+          search: async () => [],
+        },
+      });
+
+      await expect(
+        plugin.fetch({
+          url: "http://127.0.0.1/admin",
+        }),
+      ).rejects.toThrow(/requires an explicit allow list/i);
+    });
+  });
+
   it("surfaces http failures", async () => {
     await withTempRoot(async (root) => {
       const plugin = createWebToolsPlugin({
@@ -171,7 +189,77 @@ describe("@generic-ai/plugin-tools-web", () => {
         plugin.fetch({
           url: "https://example.com/missing",
         }),
-      ).rejects.toThrow(/status 404 not found/i);
+      ).rejects.toThrow(/status 404 not found\. response: not found/i);
+    });
+  });
+
+  it("follows redirects and cancels the redirected response body", async () => {
+    await withTempRoot(async (root) => {
+      let redirectedBodyCancelled = false;
+
+      const plugin = createWebToolsPlugin({
+        root,
+        allowedHosts: ["docs.example.com"],
+        searchProvider: {
+          name: "test-provider",
+          search: async () => [],
+        },
+        fetcher: async (input) => {
+          const url = input instanceof URL ? input.toString() : String(input);
+          if (url.endsWith("/start")) {
+            return new Response(
+              new ReadableStream({
+                cancel() {
+                  redirectedBodyCancelled = true;
+                },
+              }),
+              {
+                status: 302,
+                headers: { location: "https://docs.example.com/final" },
+              },
+            );
+          }
+
+          return new Response("final content", {
+            status: 200,
+            headers: { "content-type": "text/plain" },
+          });
+        },
+      });
+
+      const result = await plugin.fetch({
+        url: "https://docs.example.com/start",
+      });
+
+      expect(result.finalUrl).toBe("https://docs.example.com/final");
+      expect(result.redirected).toBe(true);
+      expect(redirectedBodyCancelled).toBe(true);
+    });
+  });
+
+  it("rejects malformed runtime limits passed to the public helpers", async () => {
+    await withTempRoot(async (root) => {
+      const plugin = createWebToolsPlugin({
+        root,
+        searchProvider: {
+          name: "test-provider",
+          search: async () => [],
+        },
+      });
+
+      await expect(
+        plugin.fetch({
+          url: "https://example.com/slow",
+          timeoutMs: 70_000,
+        }),
+      ).rejects.toThrow(/web_fetch timeoutMs/i);
+
+      await expect(
+        plugin.search({
+          query: "generic ai",
+          limit: 25,
+        }),
+      ).rejects.toThrow(/web_search limit/i);
     });
   });
 
@@ -201,6 +289,67 @@ describe("@generic-ai/plugin-tools-web", () => {
           timeoutMs: 10,
         }),
       ).rejects.toThrow(/timed out/i);
+    });
+  });
+
+  it("keeps the timeout active while reading a stalled response body", async () => {
+    await withTempRoot(async (root) => {
+      const plugin = createWebToolsPlugin({
+        root,
+        searchProvider: {
+          name: "test-provider",
+          search: async () => [],
+        },
+        fetcher: async (_input, init) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                init?.signal?.addEventListener(
+                  "abort",
+                  () => {
+                    controller.error(init.signal?.reason ?? new DOMException("Aborted", "AbortError"));
+                  },
+                  { once: true },
+                );
+              },
+            }),
+            {
+              status: 200,
+              headers: { "content-type": "text/plain" },
+            },
+          ),
+      });
+
+      await expect(
+        plugin.fetch({
+          url: "https://example.com/hangs-after-headers",
+          timeoutMs: 10,
+        }),
+      ).rejects.toThrow(/timed out/i);
+    });
+  });
+
+  it("leaves invalid numeric HTML entities untouched instead of throwing", async () => {
+    await withTempRoot(async (root) => {
+      const plugin = createWebToolsPlugin({
+        root,
+        allowedHosts: ["docs.example.com"],
+        searchProvider: {
+          name: "test-provider",
+          search: async () => [],
+        },
+        fetcher: async () =>
+          new Response("<html><body><p>Value: &#99999999;</p></body></html>", {
+            status: 200,
+            headers: { "content-type": "text/html; charset=utf-8" },
+          }),
+      });
+
+      const result = await plugin.fetch({
+        url: "https://docs.example.com/entities",
+      });
+
+      expect(result.content).toContain("Value: &#99999999;");
     });
   });
 });
