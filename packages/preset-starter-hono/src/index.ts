@@ -1,11 +1,11 @@
 import {
-  createStarterPreset,
   type BootstrapCapabilityId,
   type BootstrapPluginSlot,
   type BootstrapPluginSpec,
   type BootstrapPresetDefinition,
   type BootstrapPresetInput,
   createGenericAIFromConfig,
+  createStarterPreset,
   type GenericAIConfiguredBootstrap,
   type GenericAIFromConfigOptions,
   type GenericAIRuntimeStarter,

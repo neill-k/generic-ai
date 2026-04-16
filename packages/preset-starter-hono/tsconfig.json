@@ -5,9 +5,5 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [
-    { "path": "../sdk" },
-    { "path": "../core" },
-    { "path": "../plugin-config-yaml" }
-  ]
+  "references": [{ "path": "../sdk" }, { "path": "../core" }, { "path": "../plugin-config-yaml" }]
 }

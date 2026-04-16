@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isAbsolute, resolve } from "node:path";
+
 import type {
   AgentConfig,
   OutputEnvelope,
@@ -17,6 +18,11 @@ import {
 } from "../plugin-host/index.js";
 import { createRunEnvelope, finalizeRunEnvelope } from "../run-envelope/index.js";
 import { createRootScope } from "../scope/index.js";
+import {
+  resolveStarterCapabilities,
+  resolveStarterPorts,
+  starterPreset,
+} from "./starter-preset.js";
 import type {
   BootstrapCapabilityId,
   BootstrapLifecycleEvent,
@@ -29,29 +35,24 @@ import type {
   BootstrapPorts,
   BootstrapPresetDefinition,
   BootstrapPresetInput,
-  GenericAIBootstrap,
   GenericAIAgentSessionPlan,
-  GenericAIConfiguredBootstrap,
+  GenericAIBootstrap,
   GenericAIConfigLoaderOptions,
   GenericAIConfigLoadFailure,
+  GenericAIConfiguredBootstrap,
   GenericAIConfigValidationDiagnostic,
   GenericAIFromConfigOptions,
   GenericAIOptions,
   GenericAIPluginInitPlan,
   GenericAIResolvedConfig,
   GenericAIRunContext,
-  GenericAIRunTask,
   GenericAIRuntimePlan,
   GenericAIRuntimeSettingsPlan,
   GenericAIRuntimeStarterInput,
   GenericAIRuntimeStartResult,
+  GenericAIRunTask,
   GenericAIStreamChunk,
 } from "./types.js";
-import {
-  resolveStarterCapabilities,
-  resolveStarterPorts,
-  starterPreset,
-} from "./starter-preset.js";
 
 const BOOTSTRAP_ROOT_AGENT_ID = "generic-ai-bootstrap";
 const DEFAULT_OUTPUT_PLUGIN_ID = "@generic-ai/plugin-output-default";
@@ -116,6 +117,22 @@ function resolvePreset(
     ports,
     plugins: resolvePresetPlugins(base.plugins),
   });
+}
+
+export class GenericAIConfigError extends Error {
+  readonly diagnostics: readonly GenericAIConfigValidationDiagnostic[];
+  readonly failures: readonly GenericAIConfigLoadFailure[];
+
+  constructor(input: {
+    readonly message: string;
+    readonly diagnostics?: readonly GenericAIConfigValidationDiagnostic[];
+    readonly failures?: readonly GenericAIConfigLoadFailure[];
+  }) {
+    super(input.message);
+    this.name = "GenericAIConfigError";
+    this.diagnostics = Object.freeze([...(input.diagnostics ?? [])]);
+    this.failures = Object.freeze([...(input.failures ?? [])]);
+  }
 }
 
 function normalizePluginSource(source: BootstrapPluginSpec["source"]): BootstrapPluginSource {
@@ -351,22 +368,6 @@ function createRunEventInput(
   };
 }
 
-export class GenericAIConfigError extends Error {
-  readonly diagnostics: readonly GenericAIConfigValidationDiagnostic[];
-  readonly failures: readonly GenericAIConfigLoadFailure[];
-
-  constructor(input: {
-    readonly message: string;
-    readonly diagnostics?: readonly GenericAIConfigValidationDiagnostic[];
-    readonly failures?: readonly GenericAIConfigLoadFailure[];
-  }) {
-    super(input.message);
-    this.name = "GenericAIConfigError";
-    this.diagnostics = Object.freeze([...(input.diagnostics ?? [])]);
-    this.failures = Object.freeze([...(input.failures ?? [])]);
-  }
-}
-
 function createPresetInputFromConfig(
   config: GenericAIResolvedConfig,
 ): BootstrapPresetInput | undefined {
@@ -460,12 +461,57 @@ function cloneSources(sources: NonNullable<GenericAIResolvedConfig["sources"]>) 
   };
 }
 
+/**
+ * Shallow-freezes the top-level resolved config and its `agents`/`plugins` maps.
+ * The `framework` and `sources` fields are deep-frozen via dedicated helpers so
+ * that nested runtime, storage, queue, and logging sub-objects are also immutable.
+ */
 function freezeResolvedConfig(config: GenericAIResolvedConfig): GenericAIResolvedConfig {
   return Object.freeze({
     ...config,
+    framework: deepFreezeFramework(config.framework),
     agents: Object.freeze({ ...config.agents }),
     plugins: Object.freeze({ ...config.plugins }),
-    ...(config.sources === undefined ? {} : { sources: cloneSources(config.sources) }),
+    ...(config.sources === undefined ? {} : { sources: deepFreezeSources(config.sources) }),
+  });
+}
+
+function deepFreezeFramework(
+  framework: GenericAIResolvedConfig["framework"],
+): GenericAIResolvedConfig["framework"] {
+  const runtime = framework.runtime;
+  const frozenRuntime =
+    runtime === undefined
+      ? undefined
+      : Object.freeze({
+          ...runtime,
+          ...(runtime.storage === undefined ? {} : { storage: Object.freeze({ ...runtime.storage }) }),
+          ...(runtime.queue === undefined ? {} : { queue: Object.freeze({ ...runtime.queue }) }),
+          ...(runtime.logging === undefined
+            ? {}
+            : { logging: Object.freeze({ ...runtime.logging }) }),
+        });
+
+  return Object.freeze({
+    ...framework,
+    ...(frozenRuntime === undefined ? {} : { runtime: frozenRuntime }),
+    ...(framework.metadata === undefined
+      ? {}
+      : { metadata: Object.freeze({ ...framework.metadata }) }),
+    ...(framework.plugins === undefined
+      ? {}
+      : { plugins: [...framework.plugins] }),
+  });
+}
+
+function deepFreezeSources(
+  sources: NonNullable<GenericAIResolvedConfig["sources"]>,
+): NonNullable<GenericAIResolvedConfig["sources"]> {
+  return Object.freeze({
+    ...sources,
+    ...(sources.agents === undefined ? {} : { agents: Object.freeze({ ...sources.agents }) }),
+    ...(sources.plugins === undefined ? {} : { plugins: Object.freeze({ ...sources.plugins }) }),
+    ...(sources.order === undefined ? {} : { order: [...sources.order] }),
   });
 }
 
@@ -503,12 +549,50 @@ async function resolveConfig<TSchemaSource, TRuntimeStart>(
     });
   }
 
-  const result = await source.load(source.startDir, createLoaderOptions(source));
+  const loadOptions = createLoaderOptions(source);
+
+  let result: Awaited<ReturnType<typeof source.load>>;
+  try {
+    result = await source.load(source.startDir, loadOptions);
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Config loader threw an unexpected error.";
+    throw new GenericAIConfigError({
+      message: `Config loader failed: ${message}`,
+      failures: [
+        {
+          code: "CONFIG_LOADER_EXCEPTION",
+          message,
+          suggestion: "Check that the config source loader is correctly implemented.",
+        },
+      ],
+    });
+  }
+
   if (!result.ok) {
+    const errorInput: {
+      message: string;
+      diagnostics?: readonly GenericAIConfigValidationDiagnostic[];
+      failures?: readonly GenericAIConfigLoadFailure[];
+    } = {
+      message: summarizeConfigLoadFailure(result.failures, result.diagnostics),
+    };
+
+    if (result.diagnostics !== undefined) {
+      errorInput.diagnostics = result.diagnostics;
+    }
+    if (result.failures !== undefined) {
+      errorInput.failures = result.failures;
+    }
+
+    throw new GenericAIConfigError(errorInput);
+  }
+
+  if (result.failures !== undefined && result.failures.length > 0) {
     throw new GenericAIConfigError({
       message: summarizeConfigLoadFailure(result.failures, result.diagnostics),
-      ...(result.diagnostics === undefined ? {} : { diagnostics: result.diagnostics }),
-      ...(result.failures === undefined ? {} : { failures: result.failures }),
+      ...(result.diagnostics !== undefined ? { diagnostics: result.diagnostics } : {}),
+      failures: result.failures,
     });
   }
 
@@ -1115,6 +1199,7 @@ export async function createGenericAIFromConfig<
   const config = await resolveConfig(options);
   const composition = createGenericAI(resolveBootstrapOptions(config, options));
   const runtimePlan = createRuntimePlan(config, options);
+
   const starterInput: GenericAIRuntimeStarterInput = Object.freeze({
     preset: composition.preset,
     capabilities: composition.capabilities,

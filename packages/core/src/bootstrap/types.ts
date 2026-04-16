@@ -1,9 +1,4 @@
-import type {
-  AgentConfig,
-  PluginConfig,
-  ResolvedConfig,
-  RunEnvelope,
-} from "@generic-ai/sdk";
+import type { AgentConfig, PluginConfig, ResolvedConfig, RunEnvelope } from "@generic-ai/sdk";
 import type { CanonicalEvent } from "../events/index.js";
 import type { PluginDefinition, PluginHost, PluginLifecyclePhase } from "../plugin-host/index.js";
 import type { Scope } from "../scope/index.js";

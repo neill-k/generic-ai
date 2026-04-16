@@ -15,6 +15,7 @@ Current exports:
 - resolution of `framework`, `agents/*`, and `plugins/*` into one final config object with source provenance
 - plugin schema-fragment registry and namespace composition helpers
 - startup-time validation with structured diagnostics
+- `loadCanonicalConfig`, which starter presets can inject into `@generic-ai/core`'s config-aware bootstrap path so YAML is resolved and validated before runtime start
 
 Config is canonical and file-first. See the canonical config layout in `docs/planning/02-architecture.md`.
 
