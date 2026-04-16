@@ -1,6 +1,8 @@
 import {
   createStarterPreset,
   type BootstrapCapabilityId,
+  type BootstrapPluginSlot,
+  type BootstrapPluginSpec,
   type BootstrapPresetDefinition,
   type BootstrapPresetInput,
 } from "@generic-ai/core";
@@ -198,6 +200,22 @@ const slotToCapability = {
   output: "output",
 } as const satisfies Partial<Record<StarterPresetSlot, BootstrapCapabilityId>>;
 
+const dependencySlotsBySlot: Partial<Record<StarterPresetSlot, readonly StarterPresetSlot[]>> = {
+  workspace: ["config"],
+  storage: ["config"],
+  queue: ["config"],
+  logging: ["config"],
+  terminalTools: ["workspace"],
+  fileTools: ["workspace"],
+  mcp: ["config"],
+  skills: ["workspace"],
+  delegation: ["queue"],
+  messaging: ["storage"],
+  memory: ["workspace"],
+  output: ["config"],
+  transport: ["output"],
+};
+
 function assertNonEmpty(value: string, label: string): void {
   if (value.trim().length > 0) {
     return;
@@ -375,6 +393,46 @@ function resolveCapabilitiesFromContract(
   return [...capabilities];
 }
 
+function resolveBootstrapPluginSpecs(
+  resolution: StarterPresetResolvedContract,
+): readonly BootstrapPluginSpec[] {
+  const pluginIdBySlot = new Map<StarterPresetSlot, string>();
+
+  for (const plugin of resolution.plugins) {
+    if (plugin.slot !== undefined) {
+      pluginIdBySlot.set(plugin.slot, plugin.pluginId);
+    }
+  }
+
+  return Object.freeze(
+    resolution.plugins.map((plugin) => {
+      const dependencies =
+        plugin.slot === undefined
+          ? plugin.insert === "after" && plugin.anchorSlot !== undefined
+            ? [pluginIdBySlot.get(plugin.anchorSlot)].filter(
+                (pluginId): pluginId is string => pluginId !== undefined,
+              )
+            : plugin.anchorSlot === undefined
+              ? []
+              : (dependencySlotsBySlot[plugin.anchorSlot] ?? [])
+                  .map((slot) => pluginIdBySlot.get(slot))
+                  .filter((pluginId): pluginId is string => pluginId !== undefined)
+          : (dependencySlotsBySlot[plugin.slot] ?? [])
+              .map((slot) => pluginIdBySlot.get(slot))
+              .filter((pluginId): pluginId is string => pluginId !== undefined);
+
+      return Object.freeze({
+        pluginId: plugin.pluginId,
+        required: plugin.required,
+        source: plugin.source,
+        ...(plugin.slot === undefined ? {} : { slot: plugin.slot as BootstrapPluginSlot }),
+        ...(plugin.description === undefined ? {} : { description: plugin.description }),
+        ...(dependencies.length === 0 ? {} : { dependencies: Object.freeze(dependencies) }),
+      });
+    }),
+  );
+}
+
 export const starterPresetContract: StarterPresetContract = {
   id: STARTER_PRESET_ID,
   packageName: name,
@@ -407,6 +465,7 @@ export function createStarterHonoPreset(
     description: options.description ?? starterPresetContract.description,
     transport: options.transport ?? (resolution.includesHono ? "hono" : "custom"),
     capabilities: options.capabilities ?? resolveCapabilitiesFromContract(resolution),
+    plugins: options.plugins ?? resolveBootstrapPluginSpecs(resolution),
     ...(options.ports === undefined ? {} : { ports: options.ports }),
   });
 
