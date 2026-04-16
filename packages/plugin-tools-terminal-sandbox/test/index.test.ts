@@ -11,10 +11,13 @@ import {
   isDockerDaemonReachable,
   name,
   SANDBOX_DEFAULT_IMAGES,
+  SANDBOX_OUTPUT_MOUNT_PATH,
   sandboxTerminalConfigSchema,
   sandboxTerminalPluginContract,
   sandboxTerminalPluginDefinition,
   SandboxUnavailableError,
+  type SandboxContainerState,
+  type SandboxContainerUsageSnapshot,
   type SandboxDockerCreateContainerRequest,
   type SandboxDockerExecRequest,
   type SandboxDockerExecResult,
@@ -41,14 +44,33 @@ afterEach(async () => {
 class FakeDockerOperations implements SandboxDockerOperations {
   readonly created: SandboxDockerCreateContainerRequest[] = [];
   readonly execCalls: SandboxDockerExecRequest[] = [];
-  readonly stopped: string[] = [];
+  readonly stopped: Array<{ containerId: string; graceMs?: number }> = [];
   readonly removed: string[] = [];
+  readonly copied: Array<{ containerId: string; sourcePath: string; destinationPath: string }> = [];
   available = true;
   execResult: SandboxDockerExecResult = {
     exitCode: 0,
     stdout: "ok\n",
     stderr: "",
   };
+  usageSnapshots: SandboxContainerUsageSnapshot[] = [
+    {
+      cpuTimeMs: 100,
+      peakMemoryMb: 48,
+      diskWrittenMb: 1,
+    },
+    {
+      cpuTimeMs: 140,
+      peakMemoryMb: 64,
+      diskWrittenMb: 2,
+    },
+  ];
+  containerState: SandboxContainerState | undefined = {
+    running: true,
+    oomKilled: false,
+  };
+  execHandler?: (request: SandboxDockerExecRequest) => Promise<SandboxDockerExecResult>;
+  stopHandler?: (containerId: string, graceMs?: number) => Promise<void>;
 
   async isAvailable(): Promise<boolean> {
     return this.available;
@@ -69,15 +91,37 @@ class FakeDockerOperations implements SandboxDockerOperations {
 
   async exec(request: SandboxDockerExecRequest): Promise<SandboxDockerExecResult> {
     this.execCalls.push(request);
+    if (this.execHandler !== undefined) {
+      return this.execHandler(request);
+    }
     return this.execResult;
   }
 
-  async stopContainer(containerId: string): Promise<void> {
-    this.stopped.push(containerId);
+  async stopContainer(containerId: string, graceMs?: number): Promise<void> {
+    this.stopped.push({ containerId, graceMs });
+    if (this.stopHandler !== undefined) {
+      await this.stopHandler(containerId, graceMs);
+    }
   }
 
   async removeContainer(containerId: string): Promise<void> {
     this.removed.push(containerId);
+  }
+
+  async copyFromContainer(
+    containerId: string,
+    sourcePath: string,
+    destinationPath: string,
+  ): Promise<void> {
+    this.copied.push({ containerId, sourcePath, destinationPath });
+  }
+
+  async inspectContainer(): Promise<SandboxContainerState | undefined> {
+    return this.containerState;
+  }
+
+  async readUsageSnapshot(): Promise<SandboxContainerUsageSnapshot | undefined> {
+    return this.usageSnapshots.shift();
   }
 }
 
@@ -89,10 +133,11 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       images: SANDBOX_DEFAULT_IMAGES,
       defaultPolicy: {
         resources: {
-          timeoutMs: 300_000,
-          memoryMb: 1024,
+          timeoutMs: 30_000,
+          timeoutGraceMs: 5_000,
+          memoryMb: 512,
           cpuCores: 1,
-          diskMb: 512,
+          diskMb: 100,
         },
         network: {
           mode: "isolated",
@@ -144,9 +189,35 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(plugin.listSessions()).toHaveLength(1);
       expect(docker.created[0]?.image).toBe("node:24-bookworm-slim");
       expect(docker.created[0]?.networkMode).toBe("none");
+      expect(docker.created[0]?.mounts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            source: root,
+            target: "/workspace",
+            readOnly: true,
+          }),
+          expect.objectContaining({
+            type: "tmpfs",
+            target: SANDBOX_OUTPUT_MOUNT_PATH,
+            sizeMb: 100,
+          }),
+        ]),
+      );
       expect(result.status).toBe("succeeded");
       expect(result.stdout).toBe("ok\n");
       expect(result.output).toBe("ok\n");
+      expect(result.resourceUsage).toEqual({
+        wallClockMs: expect.any(Number),
+        cpuTimeMs: 40,
+        peakMemoryMb: 64,
+        diskWrittenMb: 2,
+      });
+      expect(docker.copied[0]).toEqual(
+        expect.objectContaining({
+          containerId: "container-session-123",
+          sourcePath: `${SANDBOX_OUTPUT_MOUNT_PATH}/.`,
+        }),
+      );
     });
   });
 
@@ -162,12 +233,124 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       const result = await plugin.run({
         runtime: "python",
         command: "python -c \"print('hello')\"",
+        policy: {
+          resources: {
+            cpuCores: 0.5,
+            memoryMb: 256,
+            diskMb: 32,
+            timeoutMs: 5_000,
+          },
+        },
       });
 
       expect(result.status).toBe("succeeded");
       expect(plugin.listSessions()).toHaveLength(0);
-      expect(docker.stopped).toEqual(["container-ephemeral-1"]);
+      expect(docker.created[0]?.cpus).toBe(0.5);
+      expect(docker.created[0]?.memoryMb).toBe(256);
+      expect(docker.created[0]?.mounts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "tmpfs",
+            target: SANDBOX_OUTPUT_MOUNT_PATH,
+            sizeMb: 32,
+          }),
+        ]),
+      );
+      expect(docker.stopped).toEqual([{ containerId: "container-ephemeral-1", graceMs: undefined }]);
       expect(docker.removed).toEqual(["container-ephemeral-1"]);
+    });
+  });
+
+  it("enforces timeouts with a Docker stop grace period and clears the session", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      let resolveExec: ((value: SandboxDockerExecResult) => void) | undefined;
+      docker.execHandler = async () =>
+        new Promise<SandboxDockerExecResult>((resolve) => {
+          resolveExec = resolve;
+        });
+      docker.stopHandler = async () => {
+        docker.containerState = {
+          running: false,
+          oomKilled: false,
+        };
+        resolveExec?.({
+          exitCode: 137,
+          stdout: "",
+          stderr: "",
+        });
+      };
+
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "timeout-1",
+      });
+      const session = await plugin.createSession({
+        runtime: "bash",
+        workspaceRoot: root,
+        policy: {
+          resources: {
+            timeoutMs: 5,
+            timeoutGraceMs: 2_500,
+          },
+        },
+      });
+
+      const result = await plugin.exec({
+        sessionId: session.sessionId,
+        command: "sleep 10",
+      });
+
+      expect(result.status).toBe("timed_out");
+      expect(result.exitCode).toBeNull();
+      expect(result.timedOut).toBe(true);
+      expect(result.stderr).toMatch(/timed out after 5ms/i);
+      expect(result.stderr).toMatch(/2500ms/i);
+      expect(docker.stopped).toEqual(
+        expect.arrayContaining([{ containerId: "container-timeout-1", graceMs: 2_500 }]),
+      );
+      expect(plugin.listSessions()).toHaveLength(0);
+      expect(docker.removed).toEqual(["container-timeout-1"]);
+    });
+  });
+
+  it("reports OOM failures with actionable memory guidance", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      docker.execResult = {
+        exitCode: 137,
+        stdout: "",
+        stderr: "Killed\n",
+      };
+      docker.containerState = {
+        running: true,
+        oomKilled: true,
+      };
+
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "oom-1",
+      });
+      const session = await plugin.createSession({
+        runtime: "python",
+        workspaceRoot: root,
+        policy: {
+          resources: {
+            memoryMb: 256,
+          },
+        },
+      });
+
+      const result = await plugin.exec({
+        sessionId: session.sessionId,
+        command: "python -c \"print('boom')\"",
+      });
+
+      expect(result.status).toBe("oom");
+      expect(result.stderr).toMatch(/256MiB memory limit/i);
+      expect(result.stderr).toMatch(/memoryMb/i);
     });
   });
 

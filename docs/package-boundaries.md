@@ -122,7 +122,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/plugin-tools-terminal-sandbox`
 
-- Role: Docker-backed sandbox terminal execution with per-session containers, structured stdout/stderr capture, and explicit cleanup semantics.
+- Role: Docker-backed sandbox terminal execution with per-session containers, structured stdout/stderr capture, resource ceilings, timeout enforcement, and explicit cleanup semantics.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, plus Docker-facing client or process libraries used to talk to the local daemon.
 - Not responsible for: starter preset selection/defaulting (`@generic-ai/preset-starter-hono`), non-Docker backends, or higher-level security/governance policy outside the sandbox execution boundary.
 

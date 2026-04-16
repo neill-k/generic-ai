@@ -47,10 +47,11 @@ export const SANDBOX_DEFAULT_IMAGES = Object.freeze({
 
 export const SANDBOX_DEFAULT_POLICY = Object.freeze({
   resources: {
-    timeoutMs: 300_000,
-    memoryMb: 1024,
+    timeoutMs: 30_000,
+    timeoutGraceMs: 5_000,
+    memoryMb: 512,
     cpuCores: 1,
-    diskMb: 512,
+    diskMb: 100,
   },
   network: {
     mode: "isolated",
@@ -101,11 +102,19 @@ export interface SandboxTerminalPlugin extends SandboxContract {
   destroyAll(): Promise<void>;
 }
 
-export interface SandboxDockerMount {
+export interface SandboxDockerBindMount {
   readonly source: string;
   readonly target: string;
   readonly readOnly?: boolean;
 }
+
+export interface SandboxDockerTmpfsMount {
+  readonly type: "tmpfs";
+  readonly target: string;
+  readonly sizeMb?: number;
+}
+
+export type SandboxDockerMount = SandboxDockerBindMount | SandboxDockerTmpfsMount;
 
 export interface SandboxDockerCreateContainerRequest {
   readonly image: string;
@@ -132,14 +141,29 @@ export interface SandboxDockerExecResult {
   readonly stderr: string;
 }
 
+export interface SandboxContainerUsageSnapshot {
+  readonly cpuTimeMs?: number;
+  readonly memoryCurrentMb?: number;
+  readonly peakMemoryMb?: number;
+  readonly diskWrittenMb?: number;
+}
+
+export interface SandboxContainerState {
+  readonly running?: boolean;
+  readonly oomKilled?: boolean;
+}
+
 export interface SandboxDockerOperations {
   isAvailable(): Promise<boolean>;
   ensureImage(image: string): Promise<void>;
   createContainer(request: SandboxDockerCreateContainerRequest): Promise<string>;
   startContainer(containerId: string): Promise<void>;
   exec(request: SandboxDockerExecRequest): Promise<SandboxDockerExecResult>;
-  stopContainer(containerId: string): Promise<void>;
+  stopContainer(containerId: string, graceMs?: number): Promise<void>;
   removeContainer(containerId: string): Promise<void>;
+  copyFromContainer(containerId: string, sourcePath: string, destinationPath: string): Promise<void>;
+  inspectContainer(containerId: string): Promise<SandboxContainerState | undefined>;
+  readUsageSnapshot(containerId: string): Promise<SandboxContainerUsageSnapshot | undefined>;
 }
 
 interface ProcessResult {
@@ -154,6 +178,13 @@ interface ActiveSandboxSession {
   readonly policy: SandboxPolicy;
   readonly defaultCwd: string;
   readonly env: Readonly<Record<string, string>>;
+}
+
+interface UsageSummary {
+  readonly startCpuTimeMs?: number;
+  readonly lastCpuTimeMs?: number;
+  readonly peakMemoryMb?: number;
+  readonly diskWrittenMb?: number;
 }
 
 const DEFAULT_CONFIG: SandboxTerminalPluginConfig = Object.freeze({
@@ -342,12 +373,16 @@ function resolveStatus(
   result: SandboxDockerExecResult,
   timedOut: boolean,
   unavailable: boolean,
+  oomKilled: boolean,
 ): SandboxExecutionStatus {
   if (unavailable) {
     return "unavailable";
   }
   if (timedOut) {
     return "timed_out";
+  }
+  if (oomKilled) {
+    return "oom";
   }
   if (result.exitCode === 0) {
     return "succeeded";
@@ -360,6 +395,173 @@ function resolveStatus(
     return "signaled";
   }
   return "failed";
+}
+
+function toDockerStopSeconds(graceMs: number | undefined): string {
+  if (graceMs === undefined) {
+    return "0";
+  }
+
+  return String(Math.max(1, Math.ceil(graceMs / 1000)));
+}
+
+function parseOptionalMetric(value: string | undefined): number | undefined {
+  if (value === undefined || value.length === 0) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function parseUsageSnapshot(output: string): SandboxContainerUsageSnapshot | undefined {
+  const values = new Map<string, string>();
+  for (const line of output.split(/\r?\n/u)) {
+    const separator = line.indexOf("=");
+    if (separator <= 0) {
+      continue;
+    }
+
+    values.set(line.slice(0, separator), line.slice(separator + 1));
+  }
+
+  const cpuTimeMs = parseOptionalMetric(values.get("cpuTimeMs"));
+  const memoryCurrentMb = parseOptionalMetric(values.get("memoryCurrentMb"));
+  const peakMemoryMb = parseOptionalMetric(values.get("peakMemoryMb"));
+  const diskWrittenMb = parseOptionalMetric(values.get("diskWrittenMb"));
+  if (
+    cpuTimeMs === undefined &&
+    memoryCurrentMb === undefined &&
+    peakMemoryMb === undefined &&
+    diskWrittenMb === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    ...(cpuTimeMs === undefined ? {} : { cpuTimeMs }),
+    ...(memoryCurrentMb === undefined ? {} : { memoryCurrentMb }),
+    ...(peakMemoryMb === undefined ? {} : { peakMemoryMb }),
+    ...(diskWrittenMb === undefined ? {} : { diskWrittenMb }),
+  };
+}
+
+function parseContainerState(output: string): SandboxContainerState | undefined {
+  const trimmed = output.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const candidate = JSON.parse(trimmed) as Record<string, unknown>;
+  return {
+    ...(typeof candidate["Running"] === "boolean" ? { running: candidate["Running"] } : {}),
+    ...(typeof candidate["OOMKilled"] === "boolean"
+      ? { oomKilled: candidate["OOMKilled"] }
+      : {}),
+  };
+}
+
+async function safeReadUsageSnapshot(
+  docker: SandboxDockerOperations,
+  containerId: string,
+): Promise<SandboxContainerUsageSnapshot | undefined> {
+  try {
+    return await docker.readUsageSnapshot(containerId);
+  } catch {
+    return undefined;
+  }
+}
+
+function summarizeUsage(
+  snapshots: readonly SandboxContainerUsageSnapshot[],
+): UsageSummary | undefined {
+  if (snapshots.length === 0) {
+    return undefined;
+  }
+
+  const first = snapshots[0];
+  const last = snapshots[snapshots.length - 1];
+  const peakMemoryMb = snapshots.reduce<number | undefined>((peak, snapshot) => {
+    const value = snapshot.peakMemoryMb ?? snapshot.memoryCurrentMb;
+    if (value === undefined) {
+      return peak;
+    }
+    return peak === undefined ? value : Math.max(peak, value);
+  }, undefined);
+  const diskWrittenMb = snapshots.reduce<number | undefined>((peak, snapshot) => {
+    const value = snapshot.diskWrittenMb;
+    if (value === undefined) {
+      return peak;
+    }
+    return peak === undefined ? value : Math.max(peak, value);
+  }, undefined);
+
+  return {
+    ...(first?.cpuTimeMs === undefined ? {} : { startCpuTimeMs: first.cpuTimeMs }),
+    ...(last?.cpuTimeMs === undefined ? {} : { lastCpuTimeMs: last.cpuTimeMs }),
+    ...(peakMemoryMb === undefined ? {} : { peakMemoryMb }),
+    ...(diskWrittenMb === undefined ? {} : { diskWrittenMb }),
+  };
+}
+
+function buildResourceUsage(
+  usage: UsageSummary | undefined,
+  durationMs: number,
+): NonNullable<SandboxExecutionResult["resourceUsage"]> {
+  const cpuTimeMs =
+    usage?.lastCpuTimeMs !== undefined
+      ? usage.startCpuTimeMs === undefined
+        ? usage.lastCpuTimeMs
+        : Math.max(0, usage.lastCpuTimeMs - usage.startCpuTimeMs)
+      : undefined;
+
+  return {
+    wallClockMs: durationMs,
+    ...(cpuTimeMs === undefined ? {} : { cpuTimeMs }),
+    ...(usage?.peakMemoryMb === undefined ? {} : { peakMemoryMb: usage.peakMemoryMb }),
+    ...(usage?.diskWrittenMb === undefined ? {} : { diskWrittenMb: usage.diskWrittenMb }),
+  };
+}
+
+function decorateExecutionStderr(
+  stderr: string,
+  options: {
+    readonly timedOut: boolean;
+    readonly timeoutMs: number | undefined;
+    readonly timeoutGraceMs: number | undefined;
+    readonly oomKilled: boolean;
+    readonly memoryMb: number | undefined;
+  },
+): string {
+  const messages: string[] = [];
+  const trimmed = stderr.trim();
+  if (trimmed.length > 0) {
+    messages.push(trimmed);
+  }
+
+  if (options.timedOut) {
+    const timeoutLabel =
+      options.timeoutMs === undefined
+        ? "Sandbox timed out."
+        : `Sandbox timed out after ${options.timeoutMs}ms.`;
+    const graceLabel =
+      options.timeoutGraceMs === undefined
+        ? "The container was terminated."
+        : `A SIGTERM grace period of ${options.timeoutGraceMs}ms was applied before SIGKILL.`;
+    messages.push(`${timeoutLabel} ${graceLabel}`);
+  } else if (options.oomKilled) {
+    const limitLabel =
+      options.memoryMb === undefined
+        ? "Sandbox exceeded its memory limit."
+        : `Sandbox exceeded its ${options.memoryMb}MiB memory limit.`;
+    messages.push(`${limitLabel} Reduce memory use or raise sandbox policy.resources.memoryMb.`);
+  }
+
+  return messages.join(trimmed.length > 0 ? "\n" : "");
 }
 
 async function runProcess(
@@ -401,6 +603,14 @@ async function runProcess(
 }
 
 function buildMountArg(mount: SandboxDockerMount): string {
+  if ("type" in mount && mount.type === "tmpfs") {
+    return `type=tmpfs,target=${mount.target}${mount.sizeMb === undefined ? "" : `,tmpfs-size=${mount.sizeMb * 1024 * 1024}`}`;
+  }
+
+  if (!("source" in mount)) {
+    throw new Error("Bind mount is missing a source path.");
+  }
+
   return `type=bind,source=${mount.source},target=${mount.target}${mount.readOnly ? ",readonly" : ""}`;
 }
 
@@ -447,6 +657,22 @@ async function collectArtifacts(root: string): Promise<readonly SandboxArtifact[
   await mkdir(root, { recursive: true });
   await walk(root);
   return artifacts;
+}
+
+async function syncArtifactsFromContainer(
+  docker: SandboxDockerOperations,
+  containerId: string,
+  outputDir: string,
+): Promise<void> {
+  await mkdir(outputDir, { recursive: true });
+  try {
+    await docker.copyFromContainer(containerId, `${SANDBOX_OUTPUT_MOUNT_PATH}/.`, outputDir);
+  } catch (error) {
+    if (error instanceof SandboxUnavailableError) {
+      return;
+    }
+    throw error;
+  }
 }
 
 function isDockerUnavailable(result: ProcessResult): boolean {
@@ -547,11 +773,71 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
         stderr: result.stderr || (result.error?.name === "AbortError" ? "Sandbox execution aborted." : ""),
       };
     },
-    async stopContainer(containerId) {
-      await runProcess(binary, ["stop", "--time", "0", containerId]);
+    async stopContainer(containerId, graceMs) {
+      await runProcess(binary, ["stop", "--time", toDockerStopSeconds(graceMs), containerId]);
     },
     async removeContainer(containerId) {
       await runProcess(binary, ["rm", "--force", containerId]);
+    },
+    async copyFromContainer(containerId, sourcePath, destinationPath) {
+      const result = await runProcess(binary, ["cp", `${containerId}:${sourcePath}`, destinationPath]);
+      if (result.exitCode !== 0) {
+        const message = result.stderr.trim() || result.error?.message || "unknown Docker error";
+        throw new SandboxUnavailableError(
+          `Failed to copy sandbox artifacts from "${containerId}": ${message}`,
+        );
+      }
+    },
+    async inspectContainer(containerId) {
+      const result = await runProcess(binary, [
+        "inspect",
+        "--format",
+        "{{json .State}}",
+        containerId,
+      ]);
+      if (result.exitCode !== 0) {
+        return undefined;
+      }
+
+      return parseContainerState(result.stdout);
+    },
+    async readUsageSnapshot(containerId) {
+      const result = await runProcess(binary, [
+        "exec",
+        containerId,
+        "sh",
+        "-lc",
+        [
+          "cpu_ms=\"\"",
+          "if [ -f /sys/fs/cgroup/cpu.stat ]; then",
+          "  cpu_ms=$(awk '/usage_usec/ { printf \"%d\", $2 / 1000 }' /sys/fs/cgroup/cpu.stat 2>/dev/null)",
+          "elif [ -f /sys/fs/cgroup/cpuacct/cpuacct.usage ]; then",
+          "  cpu_ms=$(awk '{ printf \"%d\", $1 / 1000000 }' /sys/fs/cgroup/cpuacct/cpuacct.usage 2>/dev/null)",
+          "fi",
+          "mem_cur=\"\"",
+          "if [ -f /sys/fs/cgroup/memory.current ]; then",
+          "  mem_cur=$(awk '{ printf \"%d\", $1 / 1048576 }' /sys/fs/cgroup/memory.current 2>/dev/null)",
+          "elif [ -f /sys/fs/cgroup/memory/memory.usage_in_bytes ]; then",
+          "  mem_cur=$(awk '{ printf \"%d\", $1 / 1048576 }' /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null)",
+          "fi",
+          "mem_peak=\"\"",
+          "if [ -f /sys/fs/cgroup/memory.peak ]; then",
+          "  mem_peak=$(awk '{ printf \"%d\", $1 / 1048576 }' /sys/fs/cgroup/memory.peak 2>/dev/null)",
+          "elif [ -f /sys/fs/cgroup/memory/memory.max_usage_in_bytes ]; then",
+          "  mem_peak=$(awk '{ printf \"%d\", $1 / 1048576 }' /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null)",
+          "fi",
+          "disk_mb=\"\"",
+          "if command -v du >/dev/null 2>&1 && [ -d \"$GENERIC_AI_SANDBOX_OUTPUT_DIR\" ]; then",
+          "  disk_mb=$(du -sk \"$GENERIC_AI_SANDBOX_OUTPUT_DIR\" 2>/dev/null | awk '{ printf \"%d\", ($1 + 1023) / 1024 }')",
+          "fi",
+          `printf 'cpuTimeMs=%s\\nmemoryCurrentMb=%s\\npeakMemoryMb=%s\\ndiskWrittenMb=%s\\n' "\${cpu_ms:-}" "\${mem_cur:-}" "\${mem_peak:-}" "\${disk_mb:-}"`,
+        ].join("\n"),
+      ]);
+      if (result.exitCode !== 0) {
+        return undefined;
+      }
+
+      return parseUsageSnapshot(result.stdout);
     },
   };
 }
@@ -622,20 +908,23 @@ export function createSandboxTerminalPlugin(
     const env = mergeStringRecord(runtimeConfig.env, {
       [SANDBOX_OUTPUT_ENV_VAR]: SANDBOX_OUTPUT_MOUNT_PATH,
     });
+    const mounts: SandboxDockerMount[] = [];
+    if (policy.files?.mode !== "none") {
+      mounts.push({
+        source: layout.root,
+        target: SANDBOX_WORKSPACE_MOUNT_PATH,
+        readOnly: true,
+      });
+    }
+    mounts.push({
+      type: "tmpfs",
+      target: SANDBOX_OUTPUT_MOUNT_PATH,
+      ...(policy.resources?.diskMb === undefined ? {} : { sizeMb: policy.resources.diskMb }),
+    });
     const containerId = await docker.createContainer({
       image,
       sessionId,
-      mounts: [
-        {
-          source: layout.root,
-          target: SANDBOX_WORKSPACE_MOUNT_PATH,
-          readOnly: policy.files?.mode !== "none",
-        },
-        {
-          source: outputDir,
-          target: SANDBOX_OUTPUT_MOUNT_PATH,
-        },
-      ],
+      mounts,
       ...(env === undefined ? {} : { env }),
       networkMode: policy.network?.mode === "open" ? "bridge" : "none",
       ...(policy.resources?.cpuCores === undefined ? {} : { cpus: policy.resources.cpuCores }),
@@ -689,17 +978,28 @@ export function createSandboxTerminalPlugin(
     const env = mergeStringRecord(active.env, request.env);
     const startedAt = now();
     const timeoutMs = request.timeoutMs ?? active.policy.resources?.timeoutMs;
-    const controller = new AbortController();
-    const signal = request.signal ?? controller.signal;
+    const timeoutGraceMs = active.policy.resources?.timeoutGraceMs;
     let timedOut = false;
+    let callerAborted = false;
+
+    const usageBefore = await safeReadUsageSnapshot(docker, active.session.containerId);
 
     const timeoutHandle =
       timeoutMs === undefined
         ? undefined
         : setTimeout(() => {
             timedOut = true;
-            controller.abort();
+            void docker.stopContainer(active.session.containerId, timeoutGraceMs);
           }, timeoutMs);
+
+    const abortListener =
+      request.signal === undefined
+        ? undefined
+        : () => {
+            callerAborted = true;
+            void docker.stopContainer(active.session.containerId, 0);
+          };
+    request.signal?.addEventListener("abort", abortListener ?? (() => {}), { once: true });
 
     let execResult: SandboxDockerExecResult;
     let unavailable = false;
@@ -709,7 +1009,6 @@ export function createSandboxTerminalPlugin(
         command: request.command,
         cwd,
         ...(env === undefined ? {} : { env }),
-        signal,
       });
     } catch (error) {
       if (error instanceof SandboxUnavailableError) {
@@ -726,28 +1025,52 @@ export function createSandboxTerminalPlugin(
       if (timeoutHandle !== undefined) {
         clearTimeout(timeoutHandle);
       }
+      if (abortListener !== undefined) {
+        request.signal?.removeEventListener("abort", abortListener);
+      }
     }
 
-    if (timedOut) {
+    const inspectResult = await docker.inspectContainer(active.session.containerId);
+    const oomKilled = inspectResult?.oomKilled ?? false;
+    const usageAfter = timedOut
+      ? undefined
+      : await safeReadUsageSnapshot(docker, active.session.containerId);
+
+    await syncArtifactsFromContainer(docker, active.session.containerId, active.session.outputDir);
+
+    if (timedOut || callerAborted || inspectResult?.running === false) {
       await destroy(request.sessionId);
     }
 
     const artifacts = await collectArtifacts(active.session.outputDir);
     const durationMs = Math.max(0, now() - startedAt);
-    const output = formatCombinedOutput(execResult.stdout, execResult.stderr);
+    const usage = summarizeUsage(
+      [usageBefore, usageAfter].filter(
+        (snapshot): snapshot is SandboxContainerUsageSnapshot => snapshot !== undefined,
+      ),
+    );
+    const stderr = decorateExecutionStderr(execResult.stderr, {
+      timedOut,
+      timeoutMs,
+      timeoutGraceMs,
+      oomKilled,
+      memoryMb: active.policy.resources?.memoryMb,
+    });
+    const output = formatCombinedOutput(execResult.stdout, stderr);
 
     return Object.freeze({
       command: request.command,
       runtime: active.session.runtime,
       cwd,
-      exitCode: execResult.exitCode,
+      exitCode: timedOut || callerAborted ? null : execResult.exitCode,
       stdout: execResult.stdout,
-      stderr: execResult.stderr,
+      stderr,
       output,
       durationMs,
       timedOut,
-      status: resolveStatus(execResult, timedOut, unavailable),
+      status: resolveStatus(execResult, timedOut, unavailable, oomKilled),
       artifacts,
+      resourceUsage: buildResourceUsage(usage, durationMs),
     });
   }
 
