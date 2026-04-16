@@ -7,6 +7,7 @@ const packageAliases = [
   "core",
   "sdk",
   "preset-starter-hono",
+  "plugin-config-yaml",
   "plugin-workspace-fs",
   "plugin-storage-memory",
   "plugin-tools-terminal",

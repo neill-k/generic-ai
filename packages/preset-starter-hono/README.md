@@ -1,13 +1,13 @@
 # @generic-ai/preset-starter-hono
 
-Default starter preset contract for Generic AI. This package exports a first-class preset contract and a convenience helper so callers can wire the starter path without requiring `@generic-ai/core` to import preset or plugin packages directly.
+Default starter preset contract for Generic AI. This package exports a first-class preset contract plus convenience helpers so callers can wire the starter path without requiring `@generic-ai/core` to import plugin packages directly.
 
 ## What this package exports
 
 - `starterPresetContract`: canonical starter preset contract metadata and resolver
 - `resolveStarterPreset(options?)`: resolves the deterministic plugin composition order
-- `withStarterPreset(bootstrap, options?, preset?)`: convenience helper that injects a preset contract into a caller-provided bootstrap function
-- `createStarterGenericAI(options?)`: convenience bootstrap that calls `@generic-ai/core` with the starter preset wired in
+- `createStarterHonoPreset(options?)`: builds the bootstrap-ready starter preset definition
+- `createStarterHonoBootstrapFromYaml(options)`: starter convenience that injects `loadCanonicalConfig()` into `createGenericAIFromConfig()` so canonical YAML drives runtime/session/plugin init planning
 - `STARTER_PRESET_DEFAULT_SLOTS`: documented slot-to-plugin defaults for the starter stack
 
 The preset keeps Hono in the default path, and callers can pass it straight into `createGenericAI()` when they want to make the composition explicit.

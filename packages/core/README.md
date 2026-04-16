@@ -18,8 +18,10 @@ The kernel does not own business capabilities. MCP, Agent Skills, delegation, me
 Current bootstrap boundary:
 
 - `createGenericAI(options)` is the generic bootstrap entrypoint
+- `createGenericAIFromConfig(options)` loads or accepts resolved canonical config, validates it through an injected config loader, and produces the runtime/session/plugin-init plan before runtime start
 - callers provide a preset contract rather than the kernel importing preset packages directly
 - starter-path convenience wrappers live in preset packages such as `@generic-ai/preset-starter-hono`
+- the kernel accepts config loader and schema registry hooks, but does not import `@generic-ai/plugin-config-yaml` directly
 
 Planning baseline:
 
