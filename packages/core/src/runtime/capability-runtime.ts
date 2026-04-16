@@ -229,6 +229,26 @@ function createTextResult(summary: string, details: Record<string, unknown>) {
   };
 }
 
+function redactEnv(
+  env: Readonly<Record<string, string>> | undefined,
+): Record<string, string> | undefined {
+  if (env === undefined) {
+    return undefined;
+  }
+
+  const redacted: Record<string, string> = {};
+  for (const key of Object.keys(env)) {
+    redacted[key] = "[REDACTED]";
+  }
+  return redacted;
+}
+
+function redactMcpServer<T extends { readonly env?: Readonly<Record<string, string>> }>(
+  server: T,
+): T {
+  return { ...server, env: redactEnv(server.env) } as T;
+}
+
 function createMcpRegistryTool(capability: PiCapabilityMcp): ToolDefinition {
   return defineTool({
     name: "mcp_registry",
@@ -268,7 +288,7 @@ function createMcpRegistryTool(capability: PiCapabilityMcp): ToolDefinition {
           ),
           {
             action: params.action,
-            servers,
+            servers: servers.map(redactMcpServer),
           },
         );
       }
@@ -283,14 +303,14 @@ function createMcpRegistryTool(capability: PiCapabilityMcp): ToolDefinition {
 
         return createTextResult(`Loaded MCP server "${serverId}".`, {
           action: params.action,
-          server,
+          server: redactMcpServer(server),
         });
       }
 
       const launch = capability.resolveLaunch(serverId);
       return createTextResult(`Resolved launch configuration for MCP server "${serverId}".`, {
         action: params.action,
-        launch,
+        launch: redactMcpServer(launch),
       });
     },
   });
@@ -593,8 +613,17 @@ function createSkillsOverride(
   }
 
   return (base) => {
+    const snapshotSkillNames = new Set(
+      snapshot.skills.map((s) => s.name.trim().toLowerCase()),
+    );
+    const mergedSkills = [
+      ...base.skills.filter(
+        (s) => !snapshotSkillNames.has(s.name.trim().toLowerCase()),
+      ),
+      ...snapshot.skills,
+    ];
     const bridged = {
-      skills: [...snapshot.skills],
+      skills: mergedSkills,
       diagnostics: [...base.diagnostics, ...snapshot.diagnostics],
     };
 
@@ -837,22 +866,28 @@ export async function runCapabilityPiAgentSession(
   let forwarder = Promise.resolve();
   const unsubscribe = sessionResult.session.subscribe((event) => {
     forwarder = forwarder
-      .then(() =>
-        eventStream.emit(
-          createPluginEvent(PI_RUNTIME_EVENT_PLUGIN_ID, `pi.${event.type}`, {
-            ...eventContext,
-            origin: {
-              subsystem: "pi-session",
-            },
-            data: serializePiSessionEvent(event),
-          }),
-        ),
-      )
+      .then(() => {
+        try {
+          return eventStream.emit(
+            createPluginEvent(PI_RUNTIME_EVENT_PLUGIN_ID, `pi.${event.type}`, {
+              ...eventContext,
+              origin: {
+                subsystem: "pi-session",
+              },
+              data: serializePiSessionEvent(event),
+            }),
+          );
+        } catch {
+          return undefined;
+        }
+      })
+      .catch(() => undefined)
       .then(() => undefined);
   });
 
   try {
     await sessionResult.session.prompt(options.prompt, options.promptOptions);
+    unsubscribe();
     await forwarder;
 
     const completedAt = new Date().toISOString();
@@ -898,6 +933,7 @@ export async function runCapabilityPiAgentSession(
     });
   } catch (error) {
     const failureMessage = toErrorMessage(error);
+    unsubscribe();
     await forwarder;
 
     const completedAt = new Date().toISOString();
