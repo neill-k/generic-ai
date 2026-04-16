@@ -44,6 +44,29 @@ const preset = resolveStarterPreset({
 });
 ```
 
+To migrate the starter path from unrestricted host execution to the sandbox
+plugin, override the `terminalTools` slot explicitly:
+
+```ts
+import { createStarterHonoBootstrapFromYaml } from "@generic-ai/preset-starter-hono";
+
+const bootstrap = await createStarterHonoBootstrapFromYaml({
+  startDir: process.cwd(),
+  slotOverrides: [
+    {
+      slot: "terminalTools",
+      pluginId: "@generic-ai/plugin-tools-terminal-sandbox",
+      description: "Docker-backed sandbox terminal execution.",
+    },
+  ],
+});
+```
+
+See [`../../docs/sandbox/operator-guide.md`](../../docs/sandbox/operator-guide.md)
+and
+[`../../docs/sandbox/migration-guide.md`](../../docs/sandbox/migration-guide.md)
+for the operational rollout guidance.
+
 ## No `preset.yaml` in v1
 
 There is no separate user-facing `preset.yaml` in v1. Preset composition is defined by this package contract and can be customized programmatically via the extension points above.
