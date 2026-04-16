@@ -226,6 +226,7 @@ interface ActiveSandboxSession {
   readonly fileMode: SandboxFileIOMode;
   readonly workspaceMountRoot: string;
   readonly workspaceMountReadOnly: boolean;
+  readonly mountsWorkspace: boolean;
   readonly copyOutPaths: readonly string[];
   readonly cleanupRoot: string;
   readonly defaultCwd: string;
@@ -276,6 +277,42 @@ export class SandboxUnavailableError extends Error {
     super(message);
     this.name = "SandboxUnavailableError";
   }
+}
+
+export class SandboxConfigurationError extends Error {
+  readonly code = "sandbox-configuration";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "SandboxConfigurationError";
+  }
+}
+
+export class SandboxSessionConflictError extends Error {
+  readonly code = "sandbox-session-conflict";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "SandboxSessionConflictError";
+  }
+}
+
+const SANDBOX_SESSION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/u;
+const WINDOWS_DRIVE_LETTER_PATTERN = /^[A-Za-z]:[\\/]|^[A-Za-z]:$/u;
+
+export function validateSessionId(sessionId: string): string {
+  if (typeof sessionId !== "string") {
+    throw new SandboxConfigurationError("Sandbox sessionId must be a string.");
+  }
+  if (sessionId.length === 0) {
+    throw new SandboxConfigurationError("Sandbox sessionId must be non-empty.");
+  }
+  if (!SANDBOX_SESSION_ID_PATTERN.test(sessionId)) {
+    throw new SandboxConfigurationError(
+      `Sandbox sessionId "${sessionId}" must match /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/: start with an ASCII letter or digit, contain only letters, digits, '-', '_', and be at most 63 characters long (Docker-safe).`,
+    );
+  }
+  return sessionId;
 }
 
 function assertRecord(input: unknown, label: string): Record<string, unknown> {
@@ -597,7 +634,14 @@ function buildResourceUsage(
   return {
     wallClockMs: durationMs,
     ...(cpuTimeMs === undefined ? {} : { cpuTimeMs }),
-    ...(usage?.peakMemoryMb === undefined ? {} : { peakMemoryMb: usage.peakMemoryMb }),
+    ...(usage?.peakMemoryMb === undefined
+      ? {}
+      : {
+          peakMemoryMb: usage.peakMemoryMb,
+          // Deprecated alias populated for backward compatibility; see
+          // SandboxResourceUsage.maxMemoryMb JSDoc in @generic-ai/sdk.
+          maxMemoryMb: usage.peakMemoryMb,
+        }),
     ...(usage?.diskWrittenMb === undefined ? {} : { diskWrittenMb: usage.diskWrittenMb }),
   };
 }
@@ -670,40 +714,106 @@ function truncateOutput(text: string, maxOutputBytes: number | undefined): Trunc
   };
 }
 
+interface RunProcessOptions {
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
+  readonly timeoutKillGraceMs?: number;
+}
+
 async function runProcess(
   command: string,
   args: readonly string[],
-  signal?: AbortSignal,
+  signalOrOptions?: AbortSignal | RunProcessOptions,
 ): Promise<ProcessResult> {
+  const options: RunProcessOptions =
+    signalOrOptions === undefined
+      ? {}
+      : signalOrOptions instanceof AbortSignal
+        ? { signal: signalOrOptions }
+        : signalOrOptions;
+  const signal = options.signal;
+  const timeoutMs = options.timeoutMs;
+  const timeoutKillGraceMs = options.timeoutKillGraceMs ?? 500;
+
   return new Promise((resolve) => {
-    const child = spawn(command, [...args], {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-      ...(signal === undefined ? {} : { signal }),
-    });
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(command, [...args], {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+        ...(signal === undefined ? {} : { signal }),
+      });
+    } catch (spawnError) {
+      resolve({
+        exitCode: null,
+        stdout: "",
+        stderr: "",
+        error: spawnError instanceof Error ? spawnError : new Error(String(spawnError)),
+      });
+      return;
+    }
 
     let stdout = "";
     let stderr = "";
     let capturedError: Error | undefined;
+    let settled = false;
+    let timeoutHandle: NodeJS.Timeout | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
 
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.once("error", (error) => {
-      capturedError = error;
-    });
-    child.once("close", (exitCode) => {
+    const finish = (exitCode: number | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutHandle !== undefined) {
+        clearTimeout(timeoutHandle);
+      }
+      if (killTimer !== undefined) {
+        clearTimeout(killTimer);
+      }
       resolve({
         exitCode,
         stdout,
         stderr,
         ...(capturedError === undefined ? {} : { error: capturedError }),
       });
+    };
+
+    if (timeoutMs !== undefined) {
+      timeoutHandle = setTimeout(() => {
+        try {
+          child.kill("SIGTERM");
+        } catch (killError) {
+          capturedError = killError instanceof Error ? killError : new Error(String(killError));
+        }
+
+        killTimer = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            // ignore — process may already be gone
+          }
+          finish(null);
+        }, timeoutKillGraceMs);
+      }, timeoutMs);
+    }
+
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr?.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once("error", (error) => {
+      capturedError = error;
+      // If the error fires before/without a close event (e.g. ENOENT), resolve now.
+      // When a close follows, the settled guard prevents a double-resolve.
+      finish(null);
+    });
+    child.once("close", (exitCode) => {
+      finish(exitCode);
     });
   });
 }
@@ -747,8 +857,13 @@ function normalizeRelativeSandboxPath(relativePath: string): string {
     return "";
   }
   if (path.isAbsolute(trimmed)) {
-    throw new Error(
+    throw new SandboxConfigurationError(
       `Sandbox relative path "${relativePath}" must be workspace-relative, not absolute.`,
+    );
+  }
+  if (WINDOWS_DRIVE_LETTER_PATTERN.test(trimmed)) {
+    throw new SandboxConfigurationError(
+      `Sandbox relative path "${relativePath}" must not include a Windows drive letter.`,
     );
   }
 
@@ -756,8 +871,22 @@ function normalizeRelativeSandboxPath(relativePath: string): string {
   if (normalized === "." || normalized.length === 0) {
     return "";
   }
-  if (normalized === ".." || normalized.startsWith(`..${path.sep}`)) {
-    throw new Error(`Sandbox relative path "${relativePath}" escapes the workspace root.`);
+  if (path.isAbsolute(normalized)) {
+    throw new SandboxConfigurationError(
+      `Sandbox relative path "${relativePath}" resolves to an absolute path.`,
+    );
+  }
+  if (WINDOWS_DRIVE_LETTER_PATTERN.test(normalized)) {
+    throw new SandboxConfigurationError(
+      `Sandbox relative path "${relativePath}" must not include a Windows drive letter.`,
+    );
+  }
+
+  const segments = normalized.split(/[\\/]/u);
+  if (segments.some((segment) => segment === "..")) {
+    throw new SandboxConfigurationError(
+      `Sandbox relative path "${relativePath}" escapes the workspace root.`,
+    );
   }
 
   return normalized.replace(/^[\\/]+/u, "");
@@ -1151,6 +1280,34 @@ function appendStderr(base: string, extra: string | undefined): string {
   return `${base.trimEnd()}\n${extra}`;
 }
 
+async function copyStagedEntryToOutput(sourcePath: string, destinationPath: string): Promise<void> {
+  const info = await lstat(sourcePath);
+  if (info.isSymbolicLink()) {
+    throw new SandboxConfigurationError(
+      `Refusing to copy symbolic link "${sourcePath}" out of the sandbox staging area.`,
+    );
+  }
+
+  if (info.isDirectory()) {
+    await mkdir(destinationPath, { recursive: true });
+    const entries = await readdir(sourcePath, { withFileTypes: true });
+    for (const entry of entries) {
+      const nextSource = path.join(sourcePath, entry.name);
+      const nextDestination = path.join(destinationPath, entry.name);
+      await copyStagedEntryToOutput(nextSource, nextDestination);
+    }
+    return;
+  }
+
+  if (!info.isFile()) {
+    // Skip sockets, FIFOs, etc. Never copy anything we can't statically reason about.
+    return;
+  }
+
+  await mkdir(path.dirname(destinationPath), { recursive: true });
+  await cp(sourcePath, destinationPath, { dereference: false, force: true, recursive: false });
+}
+
 async function copySelectedStagedPathsToOutput(
   stagingRoot: string,
   outputRoot: string,
@@ -1169,7 +1326,7 @@ async function copySelectedStagedPathsToOutput(
 
     const destinationPath = path.join(outputRoot, normalizedPath);
     await mkdir(path.dirname(destinationPath), { recursive: true });
-    await cp(sourcePath, destinationPath, { dereference: true, force: true, recursive: true });
+    await copyStagedEntryToOutput(sourcePath, destinationPath);
   }
 }
 
@@ -1230,7 +1387,15 @@ function isDockerUnavailable(result: ProcessResult): boolean {
 export function createDockerCliSandboxOperations(binary = "docker"): SandboxDockerOperations {
   return {
     async isAvailable() {
-      const result = await runProcess(binary, ["info", "--format", "{{json .ServerVersion}}"]);
+      // Bound the probe so a wedged Docker CLI (e.g. ENOENT, daemon stuck)
+      // can never hang session creation indefinitely. runProcess now also
+      // resolves on spawn errors instead of never settling.
+      const result = await runProcess(binary, ["info", "--format", "{{json .ServerVersion}}"], {
+        timeoutMs: 5_000,
+      });
+      if (result.error !== undefined) {
+        return false;
+      }
       return result.exitCode === 0;
     },
     async ensureImage(image) {
@@ -1462,6 +1627,7 @@ export function createSandboxTerminalPlugin(
     readonly fileMode: SandboxFileIOMode;
     readonly workspaceMountRoot: string;
     readonly workspaceMountReadOnly: boolean;
+    readonly mountsWorkspace: boolean;
     readonly copyOutPaths: readonly string[];
     readonly cleanupRoot: string;
   }> {
@@ -1479,7 +1645,7 @@ export function createSandboxTerminalPlugin(
     } else if (fileMode === "copy") {
       const copyInPaths = dedupeRelativeSandboxPaths(policy.files?.copyInPaths);
       if (copyInPaths.length === 0) {
-        throw new Error(
+        throw new SandboxConfigurationError(
           'Sandbox file mode "copy" requires at least one policy.files.copyInPaths entry.',
         );
       }
@@ -1495,12 +1661,15 @@ export function createSandboxTerminalPlugin(
       }
     }
 
-    await ensureStagedWorkingDirectory(layout.root, workspaceMountRoot, hostCwd);
+    if (fileMode !== "none") {
+      await ensureStagedWorkingDirectory(layout.root, workspaceMountRoot, hostCwd);
+    }
 
     return {
       fileMode,
       workspaceMountRoot,
-      workspaceMountReadOnly: fileMode !== "copy",
+      workspaceMountReadOnly: fileMode === "readonly-mount",
+      mountsWorkspace: fileMode !== "none",
       copyOutPaths:
         fileMode === "copy"
           ? dedupeRelativeSandboxPaths(policy.files?.copyOutPaths)
@@ -1523,7 +1692,7 @@ export function createSandboxTerminalPlugin(
   async function ensurePluginRoot(requestWorkspaceRoot: string): Promise<void> {
     const resolvedRoot = await resolveSafeWorkspacePath(requestWorkspaceRoot);
     if (resolvedRoot !== layout.root) {
-      throw new Error(
+      throw new SandboxConfigurationError(
         `Sandbox session workspaceRoot must match the plugin root. Expected "${layout.root}" but received "${resolvedRoot}".`,
       );
     }
@@ -1546,7 +1715,7 @@ export function createSandboxTerminalPlugin(
   ): Promise<AllowlistNetworkResources> {
     const normalizedAllowlist = normalizeNetworkAllowlist(allowlist);
     if (normalizedAllowlist.length === 0) {
-      throw new Error(
+      throw new SandboxConfigurationError(
         'Sandbox network mode "allowlist" requires at least one policy.network.allowlist entry.',
       );
     }
@@ -1611,6 +1780,17 @@ export function createSandboxTerminalPlugin(
   }
 
   async function createSession(request: SandboxSessionRequest): Promise<SandboxSession> {
+    // Validate caller-supplied sessionId BEFORE any side effects (docker probe,
+    // image pulls, etc.) so invalid ids fail fast with a clean error.
+    const sessionId =
+      request.sessionId === undefined ? sessionIdFactory() : validateSessionId(request.sessionId);
+
+    if (sessions.has(sessionId)) {
+      throw new SandboxSessionConflictError(
+        `Sandbox session "${sessionId}" already exists. Destroy the existing session before creating a new one with the same id.`,
+      );
+    }
+
     await ensurePluginRoot(request.workspaceRoot);
     await ensureDockerAvailable("session creation");
 
@@ -1620,8 +1800,6 @@ export function createSandboxTerminalPlugin(
     if (config.ensureImages) {
       await docker.ensureImage(image);
     }
-
-    const sessionId = request.sessionId ?? sessionIdFactory();
     const defaultHostCwd = await resolveHostCwd(layout.root, request.cwd);
     const defaultCwd = await resolveContainerCwd(layout.root, request.cwd);
     const workspaceMount = await prepareWorkspaceMount(sessionId, policy, defaultHostCwd);
@@ -1643,18 +1821,26 @@ export function createSandboxTerminalPlugin(
         ...(allowlistResources?.proxyEnv ?? {}),
       };
       const env = mergeStringRecord(runtimeConfig.env, protectedEnv);
-      const mounts: SandboxDockerMount[] = [
-        {
+      const mounts: SandboxDockerMount[] = [];
+      if (workspaceMount.mountsWorkspace) {
+        mounts.push({
           source: workspaceMount.workspaceMountRoot,
           target: SANDBOX_WORKSPACE_MOUNT_PATH,
           ...(workspaceMount.workspaceMountReadOnly ? { readOnly: true } : {}),
-        },
-        {
+        });
+      } else {
+        // mode === "none": back /workspace with a writable tmpfs so downstream
+        // `docker exec --workdir /workspace` calls still resolve to a real path.
+        mounts.push({
           type: "tmpfs",
-          target: SANDBOX_OUTPUT_MOUNT_PATH,
-          ...(policy.resources?.diskMb === undefined ? {} : { sizeMb: policy.resources.diskMb }),
-        },
-      ];
+          target: SANDBOX_WORKSPACE_MOUNT_PATH,
+        });
+      }
+      mounts.push({
+        type: "tmpfs",
+        target: SANDBOX_OUTPUT_MOUNT_PATH,
+        ...(policy.resources?.diskMb === undefined ? {} : { sizeMb: policy.resources.diskMb }),
+      });
 
       containerId = await docker.createContainer({
         image,
@@ -1688,6 +1874,7 @@ export function createSandboxTerminalPlugin(
         fileMode: workspaceMount.fileMode,
         workspaceMountRoot: workspaceMount.workspaceMountRoot,
         workspaceMountReadOnly: workspaceMount.workspaceMountReadOnly,
+        mountsWorkspace: workspaceMount.mountsWorkspace,
         copyOutPaths: workspaceMount.copyOutPaths,
         cleanupRoot: workspaceMount.cleanupRoot,
         defaultCwd,
@@ -1759,7 +1946,7 @@ export function createSandboxTerminalPlugin(
       ? await resolveHostCwd(layout.root, request.cwd)
       : active.defaultHostCwd;
     const sandboxCwd = request.cwd ? toContainerPath(layout.root, hostCwd) : active.defaultCwd;
-    if (active.fileMode !== "readonly-mount") {
+    if (active.fileMode === "copy") {
       await ensureStagedWorkingDirectory(layout.root, active.workspaceMountRoot, hostCwd);
     }
     const env = mergeStringRecord(mergeStringRecord(active.env, request.env), active.protectedEnv);
@@ -1770,15 +1957,77 @@ export function createSandboxTerminalPlugin(
     let timedOut = false;
     let callerAborted = false;
 
+    // Short-circuit when the caller-supplied signal is already aborted so we
+    // never invoke docker.exec against a dead request.
+    if (request.signal?.aborted === true) {
+      const durationMs = 0;
+      const execResult: SandboxDockerExecResult = {
+        exitCode: null,
+        stdout: "",
+        stderr: "Sandbox execution aborted.",
+      };
+      const stdoutResult = truncateOutput(execResult.stdout, maxOutputBytes);
+      const stderrResult = truncateOutput(
+        decorateExecutionStderr(execResult.stderr, {
+          timedOut: false,
+          timeoutMs,
+          timeoutGraceMs,
+          oomKilled: false,
+          memoryMb: active.policy.resources?.memoryMb,
+        }),
+        maxOutputBytes,
+      );
+      const output = formatCombinedOutput(stdoutResult.text, stderrResult.text);
+      return Object.freeze({
+        command: request.command,
+        runtime: active.session.runtime,
+        image: active.session.image,
+        cwd: hostCwd,
+        sandboxCwd,
+        exitCode: null,
+        stdout: stdoutResult.text,
+        stderr: stderrResult.text,
+        output,
+        durationMs,
+        timedOut: false,
+        truncated: stdoutResult.truncated || stderrResult.truncated,
+        stdoutTruncated: stdoutResult.truncated,
+        stderrTruncated: stderrResult.truncated,
+        status: "signaled" as SandboxExecutionStatus,
+        artifacts: Object.freeze([]),
+        generatedFiles: Object.freeze([]),
+        resourceUsage: buildResourceUsage(undefined, durationMs),
+        unrestrictedLocal: false,
+      });
+    }
+
     const usageBefore = await safeReadUsageSnapshot(docker, active.session.containerId);
 
+    // Build a combined signal that aborts on caller-abort OR on timeout so we
+    // can forward a single, correct AbortSignal into docker.exec.
+    const timeoutController = new AbortController();
     const timeoutHandle =
       timeoutMs === undefined
         ? undefined
         : setTimeout(() => {
             timedOut = true;
             void docker.stopContainer(active.session.containerId, timeoutGraceMs);
+            timeoutController.abort();
           }, timeoutMs);
+
+    const signalsToCombine: AbortSignal[] = [timeoutController.signal];
+    if (request.signal !== undefined) {
+      signalsToCombine.unshift(request.signal);
+    }
+    const fallbackSignal =
+      signalsToCombine[signalsToCombine.length - 1] ?? timeoutController.signal;
+    const combinedSignal: AbortSignal =
+      typeof (AbortSignal as unknown as { any?: (signals: readonly AbortSignal[]) => AbortSignal })
+        .any === "function"
+        ? (AbortSignal as unknown as { any: (signals: readonly AbortSignal[]) => AbortSignal }).any(
+            signalsToCombine,
+          )
+        : fallbackSignal;
 
     const abortListener =
       request.signal === undefined
@@ -1787,7 +2036,9 @@ export function createSandboxTerminalPlugin(
             callerAborted = true;
             void docker.stopContainer(active.session.containerId, 0);
           };
-    request.signal?.addEventListener("abort", abortListener ?? (() => {}), { once: true });
+    if (abortListener !== undefined) {
+      request.signal?.addEventListener("abort", abortListener, { once: true });
+    }
 
     let execResult: SandboxDockerExecResult;
     let unavailable = false;
@@ -1798,6 +2049,7 @@ export function createSandboxTerminalPlugin(
         cwd: sandboxCwd,
         ...(env === undefined ? {} : { env }),
         ...(request.onOutput === undefined ? {} : { onOutput: request.onOutput }),
+        signal: combinedSignal,
       });
     } catch (error) {
       if (error instanceof SandboxUnavailableError) {
@@ -1881,21 +2133,14 @@ export function createSandboxTerminalPlugin(
   }
 
   async function run(request: SandboxRunRequest): Promise<SandboxExecutionResult> {
-    if (request.sessionId !== undefined) {
-      return exec({
-        sessionId: request.sessionId,
-        command: request.command,
-        ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
-        ...(request.env === undefined ? {} : { env: request.env }),
-        ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
-        ...(request.onOutput === undefined ? {} : { onOutput: request.onOutput }),
-        ...(request.signal === undefined ? {} : { signal: request.signal }),
-      });
-    }
-
+    // `run` is always a one-shot helper: create → exec → destroy. When the
+    // caller supplies a sessionId we still create a fresh ephemeral session
+    // with that id (surfacing SandboxSessionConflictError if it collides) so
+    // we never execute against an unrelated, pre-existing session.
     const session = await createSession({
       runtime: request.runtime ?? config.defaultRuntime,
       workspaceRoot: layout.root,
+      ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
       ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
       ...(request.policy === undefined ? {} : { policy: request.policy }),
       ...(request.runtimeConfig === undefined ? {} : { runtimeConfig: request.runtimeConfig }),

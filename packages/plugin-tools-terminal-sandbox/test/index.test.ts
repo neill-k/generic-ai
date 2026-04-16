@@ -11,6 +11,9 @@ import {
   SANDBOX_ALLOWLIST_PROXY_ALIAS,
   SANDBOX_ALLOWLIST_PROXY_IMAGE,
   SANDBOX_ALLOWLIST_PROXY_PORT,
+  SANDBOX_WORKSPACE_MOUNT_PATH,
+  SandboxConfigurationError,
+  SandboxSessionConflictError,
   createDockerCliSandboxOperations,
   createSandboxTerminalPlugin,
   isDockerDaemonReachable,
@@ -21,6 +24,7 @@ import {
   sandboxTerminalPluginContract,
   sandboxTerminalPluginDefinition,
   SandboxUnavailableError,
+  validateSessionId,
   type SandboxContainerState,
   type SandboxContainerUsageSnapshot,
   type SandboxDockerCreateContainerRequest,
@@ -367,6 +371,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         wallClockMs: expect.any(Number),
         cpuTimeMs: 40,
         peakMemoryMb: 64,
+        maxMemoryMb: 64,
         diskWrittenMb: 2,
       });
       expect(docker.copied[0]).toEqual(
@@ -1262,4 +1267,297 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
     },
     90_000,
   );
+
+  describe("validateSessionId", () => {
+    it("accepts the Docker-safe character set", () => {
+      expect(() => validateSessionId("abc-123_XYZ")).not.toThrow();
+      expect(() => validateSessionId("0")).not.toThrow();
+      expect(() => validateSessionId("a".repeat(63))).not.toThrow();
+    });
+
+    it("rejects empty, path-separated, non-ASCII, or over-long ids", () => {
+      expect(() => validateSessionId("")).toThrow(SandboxConfigurationError);
+      expect(() => validateSessionId("foo/bar")).toThrow(SandboxConfigurationError);
+      expect(() => validateSessionId("foo\\bar")).toThrow(SandboxConfigurationError);
+      expect(() => validateSessionId("-leading-dash")).toThrow(SandboxConfigurationError);
+      expect(() => validateSessionId("..")).toThrow(SandboxConfigurationError);
+      expect(() => validateSessionId("a".repeat(64))).toThrow(SandboxConfigurationError);
+      expect(() => validateSessionId("sesión")).toThrow(SandboxConfigurationError);
+    });
+  });
+
+  describe("P1 hardening", () => {
+    it("rejects caller-supplied session ids containing path separators", async () => {
+      await withTempRoot(async (root) => {
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: new FakeDockerOperations(),
+        });
+
+        await expect(
+          plugin.createSession({
+            runtime: "bash",
+            workspaceRoot: root,
+            sessionId: "path/with/separator",
+          }),
+        ).rejects.toBeInstanceOf(SandboxConfigurationError);
+      });
+    });
+
+    it("throws SandboxSessionConflictError when creating a duplicate session id", async () => {
+      await withTempRoot(async (root) => {
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: new FakeDockerOperations(),
+          sessionIdFactory: () => "duplicate-test",
+        });
+
+        await plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+          sessionId: "duplicate-test",
+        });
+
+        await expect(
+          plugin.createSession({
+            runtime: "bash",
+            workspaceRoot: root,
+            sessionId: "duplicate-test",
+          }),
+        ).rejects.toBeInstanceOf(SandboxSessionConflictError);
+      });
+    });
+
+    it("treats run() as an ephemeral create→exec→destroy even when sessionId is provided", async () => {
+      await withTempRoot(async (root) => {
+        const docker = new FakeDockerOperations();
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: docker,
+          sessionIdFactory: () => "unused",
+        });
+
+        const result = await plugin.run({
+          runtime: "bash",
+          command: "true",
+          sessionId: "ephemeral-supplied",
+        });
+
+        expect(result.status).toBe("succeeded");
+        expect(docker.created[0]?.sessionId).toBe("ephemeral-supplied");
+        expect(docker.removed).toContain("container-ephemeral-supplied");
+        expect(plugin.listSessions()).toHaveLength(0);
+      });
+    });
+
+    it("run() with a colliding sessionId surfaces SandboxSessionConflictError", async () => {
+      await withTempRoot(async (root) => {
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: new FakeDockerOperations(),
+        });
+
+        await plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+          sessionId: "busy",
+        });
+
+        await expect(
+          plugin.run({ runtime: "bash", command: "true", sessionId: "busy" }),
+        ).rejects.toBeInstanceOf(SandboxSessionConflictError);
+      });
+    });
+
+    it("run() without a sessionId creates and destroys an ephemeral session", async () => {
+      await withTempRoot(async (root) => {
+        const docker = new FakeDockerOperations();
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: docker,
+          sessionIdFactory: () => "auto-ephemeral",
+        });
+
+        const result = await plugin.run({
+          runtime: "bash",
+          command: "echo hi",
+        });
+
+        expect(result.status).toBe("succeeded");
+        expect(docker.created[0]?.sessionId).toBe("auto-ephemeral");
+        expect(docker.removed).toContain("container-auto-ephemeral");
+        expect(plugin.listSessions()).toHaveLength(0);
+      });
+    });
+
+    it("short-circuits exec when the caller signal is already aborted without invoking docker.exec", async () => {
+      await withTempRoot(async (root) => {
+        const docker = new FakeDockerOperations();
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: docker,
+          sessionIdFactory: () => "aborted-1",
+        });
+
+        const session = await plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+        });
+
+        const abortController = new AbortController();
+        abortController.abort();
+
+        const result = await plugin.exec({
+          sessionId: session.sessionId,
+          command: "echo hi",
+          signal: abortController.signal,
+        });
+
+        expect(result.status).toBe("signaled");
+        expect(result.stderr).toContain("aborted");
+        expect(docker.execCalls).toHaveLength(0);
+      });
+    });
+
+    it("forwards the caller signal into docker.exec", async () => {
+      await withTempRoot(async (root) => {
+        const docker = new FakeDockerOperations();
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: docker,
+          sessionIdFactory: () => "signal-forward-1",
+        });
+
+        const session = await plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+        });
+
+        const abortController = new AbortController();
+        await plugin.exec({
+          sessionId: session.sessionId,
+          command: "true",
+          signal: abortController.signal,
+        });
+
+        expect(docker.execCalls).toHaveLength(1);
+        expect(docker.execCalls[0]?.signal).toBeDefined();
+      });
+    });
+
+    it('file mode "none" does not bind-mount the workspace and backs /workspace with a tmpfs', async () => {
+      await withTempRoot(async (root) => {
+        await writeFile(path.join(root, "secret.txt"), "sekret\n", "utf8");
+        const docker = new FakeDockerOperations();
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: docker,
+          sessionIdFactory: () => "no-mount-1",
+        });
+
+        await plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+          policy: {
+            files: {
+              mode: "none",
+            },
+          },
+        });
+
+        const mounts = docker.created[0]?.mounts ?? [];
+        const workspaceBindMount = mounts.find(
+          (mount): mount is Extract<(typeof mounts)[number], { source: string }> =>
+            "source" in mount && mount.target === SANDBOX_WORKSPACE_MOUNT_PATH,
+        );
+        expect(workspaceBindMount).toBeUndefined();
+
+        const workspaceTmpfsMount = mounts.find(
+          (mount): mount is Extract<(typeof mounts)[number], { type: "tmpfs" }> =>
+            "type" in mount &&
+            mount.type === "tmpfs" &&
+            mount.target === SANDBOX_WORKSPACE_MOUNT_PATH,
+        );
+        expect(workspaceTmpfsMount).toBeDefined();
+      });
+    });
+
+    it('file mode "readonly-mount" bind-mounts the staging dir read-only', async () => {
+      await withTempRoot(async (root) => {
+        const docker = new FakeDockerOperations();
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: docker,
+          sessionIdFactory: () => "ro-mount-1",
+        });
+
+        await plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+        });
+
+        const workspaceMount = getWorkspaceMount(docker);
+        expect(workspaceMount.readOnly).toBe(true);
+      });
+    });
+
+    it("refuses to copy symlinks out of the staging area", async () => {
+      await withTempRoot(async (root) => {
+        const outsideRoot = await mkdtemp(
+          path.join(os.tmpdir(), "plugin-tools-terminal-sandbox-outside-"),
+        );
+        try {
+          await writeFile(path.join(outsideRoot, "secret.txt"), "secret\n", "utf8");
+          await mkdir(path.join(root, "workspace", "shared"), { recursive: true });
+          await writeFile(path.join(root, "workspace", "shared", "source.txt"), "seed\n", "utf8");
+
+          const docker = new FakeDockerOperations();
+          const plugin = createSandboxTerminalPlugin({
+            root,
+            dockerOperations: docker,
+            sessionIdFactory: () => "symlink-copy-1",
+          });
+
+          const session = await plugin.createSession({
+            runtime: "bash",
+            workspaceRoot: root,
+            policy: {
+              files: {
+                mode: "copy",
+                copyInPaths: ["workspace/shared/source.txt"],
+                copyOutPaths: ["leak"],
+              },
+            },
+          });
+
+          const workspaceMount = getWorkspaceMount(docker);
+          try {
+            await symlink(
+              path.join(outsideRoot, "secret.txt"),
+              path.join(workspaceMount.source, "leak"),
+            );
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "EPERM") {
+              return; // Windows without symlink privilege
+            }
+            throw error;
+          }
+
+          await expect(
+            plugin.exec({
+              sessionId: session.sessionId,
+              command: "true",
+            }),
+          ).rejects.toBeInstanceOf(SandboxConfigurationError);
+        } finally {
+          await rm(outsideRoot, { recursive: true, force: true });
+        }
+      });
+    });
+
+    it("runProcess-backed Docker probe returns a boolean even when the binary is missing", async () => {
+      const docker = createDockerCliSandboxOperations("generic-ai-missing-docker-binary");
+      await expect(docker.isAvailable()).resolves.toBe(false);
+    });
+  });
 });
