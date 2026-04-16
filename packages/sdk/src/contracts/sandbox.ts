@@ -52,9 +52,11 @@ export interface SandboxArtifact {
  */
 export interface SandboxResourceUsage {
   /** Maximum observed resident memory, in MiB. */
-  readonly maxMemoryMb?: number;
+  readonly peakMemoryMb?: number;
   /** Approximate CPU time spent by the sandboxed command, in milliseconds. */
   readonly cpuTimeMs?: number;
+  /** Total wall-clock time spent by the sandboxed command, in milliseconds. */
+  readonly wallClockMs?: number;
   /** Disk written to the writable sandbox area, in MiB. */
   readonly diskWrittenMb?: number;
 }
@@ -71,6 +73,8 @@ export interface SandboxResourceLimits {
   readonly diskMb?: number;
   /** Maximum wall-clock runtime per command, in milliseconds. */
   readonly timeoutMs?: number;
+  /** Grace period between timeout SIGTERM and forced SIGKILL, in milliseconds. */
+  readonly timeoutGraceMs?: number;
 }
 
 /**
@@ -238,6 +242,7 @@ export const SANDBOX_RESOURCE_LIMITS_SCHEMA = {
     memoryMb: { type: "integer", minimum: 1 },
     diskMb: { type: "integer", minimum: 1 },
     timeoutMs: { type: "integer", minimum: 1 },
+    timeoutGraceMs: { type: "integer", minimum: 1 },
   },
   additionalProperties: false,
 } as const satisfies JsonObject;
@@ -399,29 +404,35 @@ export function parseSandboxPolicy(input: unknown): SandboxPolicy {
   const candidate = assertRecord(input, "sandbox policy");
 
   let resources: SandboxResourceLimits | undefined;
-  if (candidate.resources !== undefined) {
-    const source = assertRecord(candidate.resources, "sandbox policy.resources");
-    const cpuCores = parseNumber(source.cpuCores, "sandbox policy.resources.cpuCores", false);
-    const memoryMb = parseNumber(source.memoryMb, "sandbox policy.resources.memoryMb", true);
-    const diskMb = parseNumber(source.diskMb, "sandbox policy.resources.diskMb", true);
-    const timeoutMs = parseNumber(source.timeoutMs, "sandbox policy.resources.timeoutMs", true);
+  if (candidate["resources"] !== undefined) {
+    const source = assertRecord(candidate["resources"], "sandbox policy.resources");
+    const cpuCores = parseNumber(source["cpuCores"], "sandbox policy.resources.cpuCores", false);
+    const memoryMb = parseNumber(source["memoryMb"], "sandbox policy.resources.memoryMb", true);
+    const diskMb = parseNumber(source["diskMb"], "sandbox policy.resources.diskMb", true);
+    const timeoutMs = parseNumber(source["timeoutMs"], "sandbox policy.resources.timeoutMs", true);
+    const timeoutGraceMs = parseNumber(
+      source["timeoutGraceMs"],
+      "sandbox policy.resources.timeoutGraceMs",
+      true,
+    );
     resources = {
       ...(cpuCores === undefined ? {} : { cpuCores }),
       ...(memoryMb === undefined ? {} : { memoryMb }),
       ...(diskMb === undefined ? {} : { diskMb }),
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      ...(timeoutGraceMs === undefined ? {} : { timeoutGraceMs }),
     };
   }
 
   let network: SandboxNetworkPolicy | undefined;
-  if (candidate.network !== undefined) {
-    const source = assertRecord(candidate.network, "sandbox policy.network");
+  if (candidate["network"] !== undefined) {
+    const source = assertRecord(candidate["network"], "sandbox policy.network");
     const allowlist = parseOptionalStringArray(
-      source.allowlist,
+      source["allowlist"],
       "sandbox policy.network.allowlist",
     );
     network = {
-      mode: parseEnumValue(source.mode, "sandbox policy.network.mode", SANDBOX_NETWORK_MODES),
+      mode: parseEnumValue(source["mode"], "sandbox policy.network.mode", SANDBOX_NETWORK_MODES),
       ...(allowlist === undefined ? {} : { allowlist }),
     };
   }
@@ -430,34 +441,22 @@ export function parseSandboxPolicy(input: unknown): SandboxPolicy {
   if (candidate["files"] !== undefined) {
     const source = assertRecord(candidate["files"], "sandbox policy.files");
     const outputDir = source["outputDir"];
+    const copyInPaths = parseOptionalStringArray(
+      source["copyInPaths"],
+      "sandbox policy.files.copyInPaths",
+    );
+    const copyOutPaths = parseOptionalStringArray(
+      source["copyOutPaths"],
+      "sandbox policy.files.copyOutPaths",
+    );
     if (outputDir !== undefined && (typeof outputDir !== "string" || outputDir.trim().length === 0)) {
       throw new Error("sandbox policy.files.outputDir must be a non-empty string.");
     }
 
     files = {
       mode: parseEnumValue(source["mode"], "sandbox policy.files.mode", SANDBOX_FILE_IO_MODES),
-      ...(parseOptionalStringArray(
-        source["copyInPaths"],
-        "sandbox policy.files.copyInPaths",
-      ) === undefined
-        ? {}
-        : {
-            copyInPaths: parseOptionalStringArray(
-              source["copyInPaths"],
-              "sandbox policy.files.copyInPaths",
-            )!,
-          }),
-      ...(parseOptionalStringArray(
-        source["copyOutPaths"],
-        "sandbox policy.files.copyOutPaths",
-      ) === undefined
-        ? {}
-        : {
-            copyOutPaths: parseOptionalStringArray(
-              source["copyOutPaths"],
-              "sandbox policy.files.copyOutPaths",
-            )!,
-          }),
+      ...(copyInPaths === undefined ? {} : { copyInPaths }),
+      ...(copyOutPaths === undefined ? {} : { copyOutPaths }),
       ...(typeof outputDir === "string" ? { outputDir } : {}),
     };
   }
@@ -476,32 +475,22 @@ export function parseSandboxRuntimeConfig(input: unknown): SandboxRuntimeConfig 
   const candidate = assertRecord(input, "sandbox runtime config");
 
   const image = candidate["image"];
+  const env = parseOptionalStringRecord(candidate["env"], "sandbox runtime config.env");
   if (image !== undefined && (typeof image !== "string" || image.trim().length === 0)) {
     throw new Error("sandbox runtime config.image must be a non-empty string.");
   }
 
   const workdir = candidate["workdir"];
+  const volumes = parseOptionalStringArray(candidate["volumes"], "sandbox runtime config.volumes");
   if (workdir !== undefined && (typeof workdir !== "string" || workdir.trim().length === 0)) {
     throw new Error("sandbox runtime config.workdir must be a non-empty string.");
   }
 
   return {
     ...(typeof image === "string" ? { image } : {}),
-    ...(parseOptionalStringRecord(candidate["env"], "sandbox runtime config.env") === undefined
-      ? {}
-      : {
-          env: parseOptionalStringRecord(candidate["env"], "sandbox runtime config.env")!,
-        }),
+    ...(env === undefined ? {} : { env }),
     ...(typeof workdir === "string" ? { workdir } : {}),
-    ...(parseOptionalStringArray(candidate["volumes"], "sandbox runtime config.volumes") ===
-    undefined
-      ? {}
-      : {
-          volumes: parseOptionalStringArray(
-            candidate["volumes"],
-            "sandbox runtime config.volumes",
-          )!,
-        }),
+    ...(volumes === undefined ? {} : { volumes }),
   };
 }
 

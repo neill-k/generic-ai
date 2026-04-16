@@ -6,8 +6,9 @@ Docker-backed sandbox terminal execution for Generic AI agents.
 
 - creates one container per sandbox session
 - executes commands inside that container instead of on the host
-- captures structured `stdout`, `stderr`, exit codes, duration, and produced artifacts
-- mounts the workspace read-only and exposes a separate writable output directory
+- captures structured `stdout`, `stderr`, exit codes, wall-clock timing, resource usage, and produced artifacts
+- mounts the workspace read-only and exposes a separate tmpfs-backed writable output directory
+- enforces Docker CPU and memory ceilings plus Docker-stop timeout escalation
 - degrades cleanly when the Docker daemon is unavailable
 
 This package is the production-oriented counterpart to
@@ -19,6 +20,7 @@ remains the explicit unrestricted local-development path.
 - backend: Docker CLI / Docker daemon
 - Node image: `node:24-bookworm-slim`
 - Python image: `python:3.12-slim`
+- default resource ceilings: `1` CPU, `512MiB` memory, `30s` timeout, `5s` timeout grace, `100MiB` writable output
 - default network policy: `isolated`
 - default file policy: read-only workspace mount plus `workspace/shared/sandbox-results`
 
@@ -26,6 +28,7 @@ remains the explicit unrestricted local-development path.
 
 - Docker CLI must be installed on the host
 - Docker Desktop / daemon must be reachable for real sandbox execution
+- writable sandbox output is constrained inside the container and copied back to the host output directory after execution
 - when Docker is unavailable, session creation fails with a clear
   `SandboxUnavailableError` instead of crashing the caller
 
