@@ -14,9 +14,15 @@
     "examples/*"
   ],
   "scripts": {
+    "check:node": "node scripts/check-node-version.mjs",
+    "preinstall": "node scripts/check-node-version.mjs",
+    "pretypecheck": "node scripts/check-node-version.mjs",
     "build": "tsc -b",
+    "prebuild": "node scripts/check-node-version.mjs",
     "typecheck": "tsc -b --pretty && rimraf --glob \"packages/*/dist\" \"packages/*/*.tsbuildinfo\" \"examples/*/dist\" \"examples/*/*.tsbuildinfo\"",
+    "pretest": "node scripts/check-node-version.mjs",
     "test": "vitest run",
+    "prelint": "node scripts/check-node-version.mjs",
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
