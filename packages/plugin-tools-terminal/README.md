@@ -18,6 +18,9 @@ Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin
 - Expose the tool to the starter preset toolbelt
 - Start unrestricted for local workspace use in v1, with hardening tracked under the deferred governance track
 
+The concrete hardening roadmap for this deferred track now lives in
+[`docs/runtime-governance.md`](../../docs/runtime-governance.md).
+
 This plugin is intentionally split from `@generic-ai/plugin-tools-files` so consumers can opt into only the surface they need.
 
 Planning baseline:

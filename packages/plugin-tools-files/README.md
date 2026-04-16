@@ -8,6 +8,9 @@ Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin
 - Integrate with `@generic-ai/plugin-workspace-fs` so tools share a consistent view of the workspace
 - Start unrestricted for local workspace use in v1, with hardening tracked under the deferred governance track
 
+The concrete hardening roadmap for this deferred track now lives in
+[`docs/runtime-governance.md`](../../docs/runtime-governance.md).
+
 Planning baseline:
 
 - `docs/planning/README.md`

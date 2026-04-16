@@ -197,6 +197,9 @@ These areas should exist in the roadmap, but not in the first detailed implement
 - compounding/learning loops
 - product-specific org chart, board, and enterprise control planes
 
+The concrete resumption plan for the deferred runtime-governance/security track
+now lives in [`docs/runtime-governance.md`](../runtime-governance.md).
+
 ## Planning Rule For Linear Issues
 
 Every implementation issue should explicitly tell the assignee to:
