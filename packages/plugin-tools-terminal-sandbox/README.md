@@ -7,8 +7,8 @@ Docker-backed sandbox terminal execution for Generic AI agents.
 - creates one container per sandbox session
 - executes commands inside that container instead of on the host
 - captures structured `stdout`, `stderr`, exit codes, wall-clock timing, resource usage, and produced artifacts
-- preserves terminal-compatible fields like `output`, `timedOut`, and `unrestrictedLocal: false` while adding sandbox-specific `image`, `sandboxCwd`, artifact, and truncation metadata
-- mounts the workspace read-only and exposes a separate tmpfs-backed writable output directory
+- preserves terminal-compatible fields like `output`, `timedOut`, and `unrestrictedLocal: false` while adding sandbox-specific `image`, `sandboxCwd`, artifact, `generatedFiles`, and truncation metadata
+- stages a workspace snapshot for read-only mounts and supports writable copy-mode staging for explicit file lists
 - enforces Docker CPU and memory ceilings plus Docker-stop timeout escalation
 - degrades cleanly when the Docker daemon is unavailable
 
@@ -25,12 +25,15 @@ remains the explicit unrestricted local-development path.
 - optional output cap: `policy.resources.maxOutputBytes` truncates `stdout` and `stderr` independently and marks the result when either stream is clipped
 - default network policy: `isolated`
 - default file policy: read-only workspace mount plus `workspace/shared/sandbox-results`
+- default staged-workspace cap: `policy.files.maxInputBytes = 268435456` (256 MiB)
+- readonly snapshots skip top-level `.git/` and `node_modules/` directories before mounting
 
 ## Runtime expectations
 
 - Docker CLI must be installed on the host
 - Docker Desktop / daemon must be reachable for real sandbox execution
 - writable sandbox output is constrained inside the container and copied back to the host output directory after execution
+- copy mode stages only `policy.files.copyInPaths` into `/workspace` and mirrors `policy.files.copyOutPaths` back into the host output directory
 - when Docker is unavailable, session creation fails with a clear
   `SandboxUnavailableError` instead of crashing the caller
 

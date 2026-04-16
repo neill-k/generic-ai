@@ -118,6 +118,8 @@ export interface SandboxNetworkPolicy {
 export interface SandboxFileIOPolicy {
   /** How workspace files are exposed to the sandbox. */
   readonly mode: SandboxFileIOMode;
+  /** Maximum total bytes staged into the sandbox workspace. */
+  readonly maxInputBytes?: number;
   /** Relative paths copied into the sandbox when `mode` is `copy`. */
   readonly copyInPaths?: readonly string[];
   /** Relative paths copied out of the sandbox after execution when `mode` is `copy`. */
@@ -249,6 +251,8 @@ export interface SandboxExecutionResult {
   readonly status: SandboxExecutionStatus;
   /** Files produced in the writable sandbox area. */
   readonly artifacts: readonly SandboxArtifact[];
+  /** Compatibility alias for callers that refer to produced files as generated files. */
+  readonly generatedFiles: readonly SandboxArtifact[];
   /** Best-effort runtime resource usage. */
   readonly resourceUsage?: SandboxResourceUsage;
   /** Compatibility field matching the existing terminal-tool shape. */
@@ -320,6 +324,7 @@ export const SANDBOX_POLICY_SCHEMA = {
           type: "array",
           items: { type: "string", minLength: 1 },
         },
+        maxInputBytes: { type: "integer", minimum: 1 },
         copyOutPaths: {
           type: "array",
           items: { type: "string", minLength: 1 },
@@ -487,6 +492,11 @@ export function parseSandboxPolicy(input: unknown): SandboxPolicy {
   if (candidate["files"] !== undefined) {
     const source = assertRecord(candidate["files"], "sandbox policy.files");
     const outputDir = source["outputDir"];
+    const maxInputBytes = parseNumber(
+      source["maxInputBytes"],
+      "sandbox policy.files.maxInputBytes",
+      true,
+    );
     const copyInPaths = parseOptionalStringArray(
       source["copyInPaths"],
       "sandbox policy.files.copyInPaths",
@@ -501,6 +511,7 @@ export function parseSandboxPolicy(input: unknown): SandboxPolicy {
 
     files = {
       mode: parseEnumValue(source["mode"], "sandbox policy.files.mode", SANDBOX_FILE_IO_MODES),
+      ...(maxInputBytes === undefined ? {} : { maxInputBytes }),
       ...(copyInPaths === undefined ? {} : { copyInPaths }),
       ...(copyOutPaths === undefined ? {} : { copyOutPaths }),
       ...(typeof outputDir === "string" ? { outputDir } : {}),

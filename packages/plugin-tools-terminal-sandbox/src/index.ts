@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
 import {
@@ -9,6 +10,7 @@ import {
   parseSandboxPolicy,
   SANDBOX_POLICY_SCHEMA,
   type ConfigSchemaContract,
+  type SandboxFileIOMode,
   type PluginContract,
   type SandboxArtifact,
   type SandboxContract,
@@ -34,6 +36,8 @@ export const kind = "tools-terminal-sandbox" as const;
 export const SANDBOX_WORKSPACE_MOUNT_PATH = "/workspace";
 export const SANDBOX_OUTPUT_MOUNT_PATH = "/workspace-output";
 export const SANDBOX_OUTPUT_ENV_VAR = "GENERIC_AI_SANDBOX_OUTPUT_DIR";
+export const SANDBOX_DEFAULT_MAX_INPUT_BYTES = 256 * 1024 * 1024;
+export const SANDBOX_SNAPSHOT_EXCLUDED_TOP_LEVEL_NAMES = Object.freeze([".git", "node_modules"]);
 export const SANDBOX_KEEPALIVE_COMMAND = Object.freeze([
   "sh",
   "-lc",
@@ -59,6 +63,7 @@ export const SANDBOX_DEFAULT_POLICY = Object.freeze({
   },
   files: {
     mode: "readonly-mount",
+    maxInputBytes: SANDBOX_DEFAULT_MAX_INPUT_BYTES,
     outputDir: path.join("workspace", "shared", "sandbox-results"),
   },
 } as const satisfies SandboxPolicy);
@@ -179,6 +184,11 @@ interface ProcessResult {
 interface ActiveSandboxSession {
   readonly session: SandboxSession;
   readonly policy: SandboxPolicy;
+  readonly fileMode: SandboxFileIOMode;
+  readonly workspaceMountRoot: string;
+  readonly workspaceMountReadOnly: boolean;
+  readonly copyOutPaths: readonly string[];
+  readonly cleanupRoot: string;
   readonly defaultCwd: string;
   readonly defaultHostCwd: string;
   readonly env: Readonly<Record<string, string>>;
@@ -194,6 +204,10 @@ interface UsageSummary {
 interface TruncatedOutput {
   readonly text: string;
   readonly truncated: boolean;
+}
+
+interface SizeLimitedCopyTracker {
+  totalBytes: number;
 }
 
 const DEFAULT_CONFIG: SandboxTerminalPluginConfig = Object.freeze({
@@ -675,6 +689,160 @@ async function resolveContainerCwd(root: string, cwd?: string): Promise<string> 
   return toContainerPath(root, hostPath);
 }
 
+function normalizeRelativeSandboxPath(relativePath: string): string {
+  const normalized = path.normalize(relativePath);
+  if (normalized === "." || normalized.length === 0) {
+    return "";
+  }
+
+  return normalized.replace(/^[\\/]+/u, "");
+}
+
+function dedupeRelativeSandboxPaths(paths: readonly string[] | undefined): readonly string[] {
+  if (paths === undefined || paths.length === 0) {
+    return Object.freeze([]);
+  }
+
+  const sorted = Array.from(
+    new Set(
+      paths
+        .map((candidate) => normalizeRelativeSandboxPath(candidate))
+        .filter((candidate) => candidate.length > 0),
+    ),
+  ).sort((left, right) => {
+    const depth = left.split(path.sep).length - right.split(path.sep).length;
+    return depth !== 0 ? depth : left.localeCompare(right);
+  });
+  const pruned: string[] = [];
+
+  for (const candidate of sorted) {
+    if (pruned.some((existing) => candidate === existing || candidate.startsWith(`${existing}${path.sep}`))) {
+      continue;
+    }
+    pruned.push(candidate);
+  }
+
+  return Object.freeze(pruned);
+}
+
+function enforceStagedInputLimit(
+  tracker: SizeLimitedCopyTracker,
+  maxInputBytes: number | undefined,
+  nextBytes: number,
+  relativePath: string,
+): void {
+  if (maxInputBytes === undefined) {
+    tracker.totalBytes += nextBytes;
+    return;
+  }
+
+  const projectedBytes = tracker.totalBytes + nextBytes;
+  if (projectedBytes > maxInputBytes) {
+    const label = relativePath.length === 0 ? "workspace snapshot" : relativePath;
+    throw new Error(
+      `Sandbox file policy exceeded maxInputBytes while staging "${label}". Limit ${maxInputBytes} bytes, attempted ${projectedBytes} bytes.`,
+    );
+  }
+
+  tracker.totalBytes = projectedBytes;
+}
+
+async function stageWorkspacePath(
+  workspaceRoot: string,
+  destinationRoot: string,
+  relativePath: string,
+  tracker: SizeLimitedCopyTracker,
+  maxInputBytes: number | undefined,
+): Promise<void> {
+  const normalizedPath = normalizeRelativeSandboxPath(relativePath);
+  const sourcePath =
+    normalizedPath.length === 0
+      ? await resolveSafeWorkspacePath(workspaceRoot)
+      : await resolveSafeWorkspacePath(workspaceRoot, normalizedPath);
+  const sourceInfo = await stat(sourcePath);
+  const destinationPath =
+    normalizedPath.length === 0 ? destinationRoot : path.join(destinationRoot, normalizedPath);
+
+  if (sourceInfo.isDirectory()) {
+    await mkdir(destinationPath, { recursive: true });
+    const entries = await readdir(sourcePath, { withFileTypes: true });
+    for (const entry of entries) {
+      const childRelativePath =
+        normalizedPath.length === 0 ? entry.name : path.join(normalizedPath, entry.name);
+      await stageWorkspacePath(workspaceRoot, destinationRoot, childRelativePath, tracker, maxInputBytes);
+    }
+    return;
+  }
+
+  if (!sourceInfo.isFile()) {
+    return;
+  }
+
+  enforceStagedInputLimit(tracker, maxInputBytes, sourceInfo.size, normalizedPath);
+  await mkdir(path.dirname(destinationPath), { recursive: true });
+  await cp(sourcePath, destinationPath, { dereference: true, force: true, recursive: false });
+}
+
+async function ensureStagedWorkingDirectory(
+  workspaceRoot: string,
+  stagingRoot: string,
+  hostCwd: string,
+): Promise<void> {
+  const relativeCwd = normalizeRelativeSandboxPath(path.relative(workspaceRoot, hostCwd));
+  if (relativeCwd.length === 0) {
+    return;
+  }
+
+  await mkdir(path.join(stagingRoot, relativeCwd), { recursive: true });
+}
+
+async function stageReadonlyWorkspaceSnapshot(
+  workspaceRoot: string,
+  destinationRoot: string,
+  tracker: SizeLimitedCopyTracker,
+  maxInputBytes: number | undefined,
+): Promise<void> {
+  const entries = await readdir(workspaceRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (SANDBOX_SNAPSHOT_EXCLUDED_TOP_LEVEL_NAMES.includes(entry.name)) {
+      continue;
+    }
+
+    await stageWorkspacePath(workspaceRoot, destinationRoot, entry.name, tracker, maxInputBytes);
+  }
+}
+
+async function pathExists(candidate: string): Promise<boolean> {
+  try {
+    await lstat(candidate);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function copySelectedStagedPathsToOutput(
+  stagingRoot: string,
+  outputRoot: string,
+  relativePaths: readonly string[],
+): Promise<void> {
+  for (const relativePath of relativePaths) {
+    const normalizedPath = normalizeRelativeSandboxPath(relativePath);
+    if (normalizedPath.length === 0) {
+      continue;
+    }
+
+    const sourcePath = path.join(stagingRoot, normalizedPath);
+    if (!(await pathExists(sourcePath))) {
+      continue;
+    }
+
+    const destinationPath = path.join(outputRoot, normalizedPath);
+    await mkdir(path.dirname(destinationPath), { recursive: true });
+    await cp(sourcePath, destinationPath, { dereference: true, force: true, recursive: true });
+  }
+}
+
 async function collectArtifacts(root: string): Promise<readonly SandboxArtifact[]> {
   const artifacts: SandboxArtifact[] = [];
 
@@ -902,6 +1070,49 @@ export function createSandboxTerminalPlugin(
   const now = options.now ?? Date.now;
   const sessions = new Map<string, ActiveSandboxSession>();
 
+  async function prepareWorkspaceMount(
+    sessionId: string,
+    policy: SandboxPolicy,
+    hostCwd: string,
+  ): Promise<{
+    readonly fileMode: SandboxFileIOMode;
+    readonly workspaceMountRoot: string;
+    readonly workspaceMountReadOnly: boolean;
+    readonly copyOutPaths: readonly string[];
+    readonly cleanupRoot: string;
+  }> {
+    const fileMode = policy.files?.mode ?? SANDBOX_DEFAULT_POLICY.files?.mode ?? "readonly-mount";
+    const maxInputBytes = policy.files?.maxInputBytes ?? SANDBOX_DEFAULT_POLICY.files?.maxInputBytes;
+    const cleanupRoot = await mkdtemp(path.join(os.tmpdir(), `generic-ai-sandbox-${sessionId}-`));
+    const workspaceMountRoot = path.join(cleanupRoot, "workspace");
+    const tracker: SizeLimitedCopyTracker = { totalBytes: 0 };
+
+    await mkdir(workspaceMountRoot, { recursive: true });
+
+    if (fileMode === "readonly-mount") {
+      await stageReadonlyWorkspaceSnapshot(layout.root, workspaceMountRoot, tracker, maxInputBytes);
+    } else if (fileMode === "copy") {
+      const copyInPaths = dedupeRelativeSandboxPaths(policy.files?.copyInPaths);
+      if (copyInPaths.length === 0) {
+        throw new Error('Sandbox file mode "copy" requires at least one policy.files.copyInPaths entry.');
+      }
+
+      for (const relativePath of copyInPaths) {
+        await stageWorkspacePath(layout.root, workspaceMountRoot, relativePath, tracker, maxInputBytes);
+      }
+    }
+
+    await ensureStagedWorkingDirectory(layout.root, workspaceMountRoot, hostCwd);
+
+    return {
+      fileMode,
+      workspaceMountRoot,
+      workspaceMountReadOnly: fileMode !== "copy",
+      copyOutPaths: fileMode === "copy" ? dedupeRelativeSandboxPaths(policy.files?.copyOutPaths) : Object.freeze([]),
+      cleanupRoot,
+    };
+  }
+
   async function resolveOutputDirectory(sessionId: string, policy: SandboxPolicy): Promise<string> {
     const outputDir = policy.files?.outputDir ?? SANDBOX_DEFAULT_POLICY.files?.outputDir;
     const hostPath = await resolveSafeWorkspacePath(layout.root, outputDir ?? path.join("workspace", "shared"));
@@ -947,58 +1158,71 @@ export function createSandboxTerminalPlugin(
     }
 
     const sessionId = request.sessionId ?? sessionIdFactory();
-    const outputDir = await resolveOutputDirectory(sessionId, policy);
     const defaultHostCwd = await resolveHostCwd(layout.root, request.cwd);
     const defaultCwd = await resolveContainerCwd(layout.root, request.cwd);
-    const env = mergeStringRecord(runtimeConfig.env, {
-      [SANDBOX_OUTPUT_ENV_VAR]: SANDBOX_OUTPUT_MOUNT_PATH,
-    });
-    const mounts: SandboxDockerMount[] = [];
-    if (policy.files?.mode !== "none") {
-      mounts.push({
-        source: layout.root,
-        target: SANDBOX_WORKSPACE_MOUNT_PATH,
-        readOnly: true,
+    const workspaceMount = await prepareWorkspaceMount(sessionId, policy, defaultHostCwd);
+    let outputDir: string | undefined;
+    let containerId: string | undefined;
+    try {
+      outputDir = await resolveOutputDirectory(sessionId, policy);
+      const env = mergeStringRecord(runtimeConfig.env, {
+        [SANDBOX_OUTPUT_ENV_VAR]: SANDBOX_OUTPUT_MOUNT_PATH,
       });
+      const mounts: SandboxDockerMount[] = [
+        {
+          source: workspaceMount.workspaceMountRoot,
+          target: SANDBOX_WORKSPACE_MOUNT_PATH,
+          ...(workspaceMount.workspaceMountReadOnly ? { readOnly: true } : {}),
+        },
+        {
+          type: "tmpfs",
+          target: SANDBOX_OUTPUT_MOUNT_PATH,
+          ...(policy.resources?.diskMb === undefined ? {} : { sizeMb: policy.resources.diskMb }),
+        },
+      ];
+
+      containerId = await docker.createContainer({
+        image,
+        sessionId,
+        mounts,
+        ...(env === undefined ? {} : { env }),
+        networkMode: policy.network?.mode === "open" ? "bridge" : "none",
+        ...(policy.resources?.cpuCores === undefined ? {} : { cpus: policy.resources.cpuCores }),
+        ...(policy.resources?.memoryMb === undefined
+          ? {}
+          : { memoryMb: policy.resources.memoryMb }),
+      });
+      await docker.startContainer(containerId);
+
+      const session: SandboxSession = Object.freeze({
+        sessionId,
+        backend: config.backend,
+        runtime: request.runtime,
+        image,
+        containerId,
+        workspaceRoot: layout.root,
+        outputDir,
+        createdAt: new Date(now()).toISOString(),
+      });
+
+      sessions.set(sessionId, {
+        session,
+        policy,
+        fileMode: workspaceMount.fileMode,
+        workspaceMountRoot: workspaceMount.workspaceMountRoot,
+        workspaceMountReadOnly: workspaceMount.workspaceMountReadOnly,
+        copyOutPaths: workspaceMount.copyOutPaths,
+        cleanupRoot: workspaceMount.cleanupRoot,
+        defaultCwd,
+        defaultHostCwd,
+        env: env ?? {},
+      });
+
+      return session;
+    } catch (error) {
+      await rm(workspaceMount.cleanupRoot, { recursive: true, force: true });
+      throw error;
     }
-    mounts.push({
-      type: "tmpfs",
-      target: SANDBOX_OUTPUT_MOUNT_PATH,
-      ...(policy.resources?.diskMb === undefined ? {} : { sizeMb: policy.resources.diskMb }),
-    });
-    const containerId = await docker.createContainer({
-      image,
-      sessionId,
-      mounts,
-      ...(env === undefined ? {} : { env }),
-      networkMode: policy.network?.mode === "open" ? "bridge" : "none",
-      ...(policy.resources?.cpuCores === undefined ? {} : { cpus: policy.resources.cpuCores }),
-      ...(policy.resources?.memoryMb === undefined
-        ? {}
-        : { memoryMb: policy.resources.memoryMb }),
-    });
-    await docker.startContainer(containerId);
-
-    const session: SandboxSession = Object.freeze({
-      sessionId,
-      backend: config.backend,
-      runtime: request.runtime,
-      image,
-      containerId,
-      workspaceRoot: layout.root,
-      outputDir,
-      createdAt: new Date(now()).toISOString(),
-    });
-
-    sessions.set(sessionId, {
-      session,
-      policy,
-      defaultCwd,
-      defaultHostCwd,
-      env: env ?? {},
-    });
-
-    return session;
   }
 
   async function destroy(sessionId: string): Promise<void> {
@@ -1010,6 +1234,7 @@ export function createSandboxTerminalPlugin(
     sessions.delete(sessionId);
     await docker.stopContainer(active.session.containerId);
     await docker.removeContainer(active.session.containerId);
+    await rm(active.cleanupRoot, { recursive: true, force: true });
   }
 
   async function exec(request: SandboxExecutionRequest): Promise<SandboxExecutionResult> {
@@ -1024,6 +1249,9 @@ export function createSandboxTerminalPlugin(
     const sandboxCwd = request.cwd
       ? toContainerPath(layout.root, hostCwd)
       : active.defaultCwd;
+    if (active.fileMode !== "readonly-mount") {
+      await ensureStagedWorkingDirectory(layout.root, active.workspaceMountRoot, hostCwd);
+    }
     const env = mergeStringRecord(active.env, request.env);
     const startedAt = now();
     const timeoutMs = request.timeoutMs ?? active.policy.resources?.timeoutMs;
@@ -1088,6 +1316,13 @@ export function createSandboxTerminalPlugin(
       : await safeReadUsageSnapshot(docker, active.session.containerId);
 
     await syncArtifactsFromContainer(docker, active.session.containerId, active.session.outputDir);
+    if (active.fileMode === "copy" && active.copyOutPaths.length > 0) {
+      await copySelectedStagedPathsToOutput(
+        active.workspaceMountRoot,
+        active.session.outputDir,
+        active.copyOutPaths,
+      );
+    }
 
     if (timedOut || callerAborted || inspectResult?.running === false) {
       await destroy(request.sessionId);
@@ -1128,6 +1363,7 @@ export function createSandboxTerminalPlugin(
       stderrTruncated: stderrResult.truncated,
       status: resolveStatus(execResult, timedOut, unavailable, oomKilled),
       artifacts,
+      generatedFiles: artifacts,
       resourceUsage: buildResourceUsage(usage, durationMs),
       unrestrictedLocal: false,
     });
