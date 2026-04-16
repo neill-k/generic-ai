@@ -6,6 +6,10 @@ import { createPluginHost } from "@generic-ai/core";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  SANDBOX_ALLOWLIST_NETWORK_NAME_PREFIX,
+  SANDBOX_ALLOWLIST_PROXY_ALIAS,
+  SANDBOX_ALLOWLIST_PROXY_IMAGE,
+  SANDBOX_ALLOWLIST_PROXY_PORT,
   createDockerCliSandboxOperations,
   createSandboxTerminalPlugin,
   isDockerDaemonReachable,
@@ -19,6 +23,7 @@ import {
   type SandboxContainerState,
   type SandboxContainerUsageSnapshot,
   type SandboxDockerCreateContainerRequest,
+  type SandboxDockerCreateNetworkRequest,
   type SandboxDockerExecRequest,
   type SandboxDockerExecResult,
   type SandboxDockerOperations,
@@ -43,9 +48,16 @@ afterEach(async () => {
 
 class FakeDockerOperations implements SandboxDockerOperations {
   readonly created: SandboxDockerCreateContainerRequest[] = [];
+  readonly createdNetworks: SandboxDockerCreateNetworkRequest[] = [];
+  readonly connectedNetworks: Array<{
+    containerId: string;
+    networkName: string;
+    aliases?: readonly string[];
+  }> = [];
   readonly execCalls: SandboxDockerExecRequest[] = [];
   readonly stopped: Array<{ containerId: string; graceMs?: number }> = [];
   readonly removed: string[] = [];
+  readonly removedNetworks: string[] = [];
   readonly copied: Array<{ containerId: string; sourcePath: string; destinationPath: string }> = [];
   available = true;
   execResult: SandboxDockerExecResult = {
@@ -85,6 +97,19 @@ class FakeDockerOperations implements SandboxDockerOperations {
     return;
   }
 
+  async createNetwork(request: SandboxDockerCreateNetworkRequest): Promise<string> {
+    this.createdNetworks.push(request);
+    return request.name;
+  }
+
+  async connectContainerToNetwork(
+    containerId: string,
+    networkName: string,
+    aliases?: readonly string[],
+  ): Promise<void> {
+    this.connectedNetworks.push({ containerId, networkName, aliases });
+  }
+
   async createContainer(request: SandboxDockerCreateContainerRequest): Promise<string> {
     this.created.push(request);
     return `container-${request.sessionId}`;
@@ -111,6 +136,10 @@ class FakeDockerOperations implements SandboxDockerOperations {
 
   async removeContainer(containerId: string): Promise<void> {
     this.removed.push(containerId);
+  }
+
+  async removeNetwork(networkName: string): Promise<void> {
+    this.removedNetworks.push(networkName);
   }
 
   async copyFromContainer(
@@ -304,6 +333,149 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       );
       expect(docker.stopped).toEqual([{ containerId: "container-ephemeral-1", graceMs: undefined }]);
       expect(docker.removed).toEqual(["container-ephemeral-1"]);
+    });
+  });
+
+  it("requires an allowlist when allowlist network mode is selected", async () => {
+    await withTempRoot(async (root) => {
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: new FakeDockerOperations(),
+      });
+
+      await expect(
+        plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+          policy: {
+            network: {
+              mode: "allowlist",
+            },
+          },
+        }),
+      ).rejects.toThrow(/allowlist/i);
+    });
+  });
+
+  it("creates an allowlist proxy sidecar and injects protected proxy env vars", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "allowlist-1",
+      });
+
+      const session = await plugin.createSession({
+        runtime: "python",
+        workspaceRoot: root,
+        policy: {
+          network: {
+            mode: "allowlist",
+            allowlist: ["example.com", "api.example.com:8443"],
+          },
+        },
+      });
+
+      expect(session.containerId).toBe("container-allowlist-1");
+      expect(docker.createdNetworks).toEqual([
+        {
+          name: `${SANDBOX_ALLOWLIST_NETWORK_NAME_PREFIX}-allowlist-1`,
+          internal: true,
+        },
+      ]);
+      expect(docker.created).toHaveLength(2);
+      expect(docker.created[0]).toEqual(
+        expect.objectContaining({
+          image: SANDBOX_ALLOWLIST_PROXY_IMAGE,
+          networkName: `${SANDBOX_ALLOWLIST_NETWORK_NAME_PREFIX}-allowlist-1`,
+          networkAliases: [SANDBOX_ALLOWLIST_PROXY_ALIAS],
+          env: expect.objectContaining({
+            GENERIC_AI_PROXY_CONFIG: expect.stringContaining("/generic-ai-network-proxy/config.json"),
+          }),
+          command: ["node", "/generic-ai-network-proxy/proxy.mjs"],
+        }),
+      );
+      expect(docker.connectedNetworks).toEqual([
+        {
+          containerId: "container-allowlist-1-allowlist-proxy",
+          networkName: "bridge",
+          aliases: undefined,
+        },
+      ]);
+      expect(docker.created[1]).toEqual(
+        expect.objectContaining({
+          networkName: `${SANDBOX_ALLOWLIST_NETWORK_NAME_PREFIX}-allowlist-1`,
+          env: expect.objectContaining({
+            HTTP_PROXY: `http://${SANDBOX_ALLOWLIST_PROXY_ALIAS}:${SANDBOX_ALLOWLIST_PROXY_PORT}`,
+            HTTPS_PROXY: `http://${SANDBOX_ALLOWLIST_PROXY_ALIAS}:${SANDBOX_ALLOWLIST_PROXY_PORT}`,
+            GENERIC_AI_SANDBOX_OUTPUT_DIR: SANDBOX_OUTPUT_MOUNT_PATH,
+          }),
+        }),
+      );
+
+      await plugin.destroy(session.sessionId);
+
+      expect(docker.removed).toEqual(
+        expect.arrayContaining(["container-allowlist-1", "container-allowlist-1-allowlist-proxy"]),
+      );
+      expect(docker.removedNetworks).toEqual([`${SANDBOX_ALLOWLIST_NETWORK_NAME_PREFIX}-allowlist-1`]);
+    });
+  });
+
+  it("surfaces blocked allowlist destinations in stderr", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      docker.execResult = {
+        exitCode: 1,
+        stdout: "",
+        stderr: "proxy denied\n",
+      };
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "allowlist-log-1",
+      });
+
+      const session = await plugin.createSession({
+        runtime: "python",
+        workspaceRoot: root,
+        policy: {
+          network: {
+            mode: "allowlist",
+            allowlist: ["example.com"],
+          },
+        },
+      });
+
+      const proxyCreate = docker.created[0];
+      if (proxyCreate?.mounts === undefined) {
+        throw new Error("Expected allowlist proxy mounts.");
+      }
+      const logMount = proxyCreate.mounts.find(
+        (mount): mount is Extract<typeof proxyCreate.mounts[number], { source: string }> =>
+          "source" in mount && mount.target === "/generic-ai-network-logs",
+      );
+      expect(logMount).toBeDefined();
+      if (logMount === undefined) {
+        throw new Error("Expected allowlist proxy log mount.");
+      }
+
+      await mkdir(logMount.source, { recursive: true });
+      await writeFile(
+        path.join(logMount.source, "blocked.log"),
+        "2026-04-16T10:00:00.000Z openai.com:443 blocked-connect\n",
+        "utf8",
+      );
+
+      const result = await plugin.exec({
+        sessionId: session.sessionId,
+        command: "python -c \"print('nope')\"",
+      });
+
+      expect(result.status).toBe("failed");
+      expect(result.stderr).toContain("Blocked outbound network attempts");
+      expect(result.stderr).toContain("openai.com:443");
     });
   });
 
@@ -651,6 +823,71 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       }
 
       expect(plugin.listSessions()).toHaveLength(0);
+    });
+  });
+
+  it("enforces isolated, allowlist, and open network modes in live Docker runs", async () => {
+    if (!(await isDockerDaemonReachable())) {
+      return;
+    }
+
+    await withTempRoot(async (root) => {
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        sessionIdFactory: () => "network-live",
+      });
+
+      const pythonFetch = (url: string) =>
+        `python -c "import urllib.request; print(urllib.request.urlopen('${url}', timeout=10).status)"`;
+
+      const isolatedResult = await plugin.run({
+        runtime: "python",
+        command: pythonFetch("http://example.com"),
+        policy: {
+          network: {
+            mode: "isolated",
+          },
+        },
+      });
+      expect(isolatedResult.status).toBe("failed");
+
+      const allowlistedResult = await plugin.run({
+        runtime: "python",
+        command: pythonFetch("http://example.com"),
+        policy: {
+          network: {
+            mode: "allowlist",
+            allowlist: ["example.com"],
+          },
+        },
+      });
+      expect(allowlistedResult.status).toBe("succeeded");
+      expect(allowlistedResult.stdout).toContain("200");
+
+      const blockedAllowlistResult = await plugin.run({
+        runtime: "python",
+        command: pythonFetch("http://example.org"),
+        policy: {
+          network: {
+            mode: "allowlist",
+            allowlist: ["example.com"],
+          },
+        },
+      });
+      expect(blockedAllowlistResult.status).toBe("failed");
+      expect(blockedAllowlistResult.stderr).toContain("example.org:80");
+
+      const openResult = await plugin.run({
+        runtime: "python",
+        command: pythonFetch("http://example.com"),
+        policy: {
+          network: {
+            mode: "open",
+          },
+        },
+      });
+      expect(openResult.status).toBe("succeeded");
+      expect(openResult.stdout).toContain("200");
     });
   });
 

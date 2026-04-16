@@ -28,12 +28,23 @@ remains the explicit unrestricted local-development path.
 - default staged-workspace cap: `policy.files.maxInputBytes = 268435456` (256 MiB)
 - readonly snapshots skip top-level `.git/` and `node_modules/` directories before mounting
 
+## Network modes
+
+- `isolated`: starts the sandbox with `--network none`
+- `open`: uses Docker bridge networking directly
+- `allowlist`: puts the sandbox on a Docker `--internal` network and injects HTTP(S) proxy env vars that route outbound traffic through a sidecar allowlist proxy
+
+Allowlist entries accept exact hosts (`example.com`), host/port pairs
+(`registry.npmjs.org:443`), and wildcard subdomains (`*.example.dev`).
+Blocked outbound targets are appended to sandbox stderr with destination info.
+
 ## Runtime expectations
 
 - Docker CLI must be installed on the host
 - Docker Desktop / daemon must be reachable for real sandbox execution
 - writable sandbox output is constrained inside the container and copied back to the host output directory after execution
 - copy mode stages only `policy.files.copyInPaths` into `/workspace` and mirrors `policy.files.copyOutPaths` back into the host output directory
+- allowlist mode currently governs outbound HTTP(S) flows by forcing the sandbox through the sidecar proxy; host-side `plugin-tools-web` traffic is unaffected because it runs outside the sandbox session
 - when Docker is unavailable, session creation fails with a clear
   `SandboxUnavailableError` instead of crashing the caller
 

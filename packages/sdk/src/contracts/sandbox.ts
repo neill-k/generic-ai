@@ -108,7 +108,7 @@ export interface SandboxResourceLimits {
 export interface SandboxNetworkPolicy {
   /** Requested network isolation profile. */
   readonly mode: SandboxNetworkMode;
-  /** Explicit allowlist used when `mode` is `allowlist`. */
+  /** Explicit allowlist used when `mode` is `allowlist` (`host`, `host:port`, or `*.domain`). */
   readonly allowlist?: readonly string[];
 }
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { cp, lstat, mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -38,11 +38,22 @@ export const SANDBOX_OUTPUT_MOUNT_PATH = "/workspace-output";
 export const SANDBOX_OUTPUT_ENV_VAR = "GENERIC_AI_SANDBOX_OUTPUT_DIR";
 export const SANDBOX_DEFAULT_MAX_INPUT_BYTES = 256 * 1024 * 1024;
 export const SANDBOX_SNAPSHOT_EXCLUDED_TOP_LEVEL_NAMES = Object.freeze([".git", "node_modules"]);
+export const SANDBOX_ALLOWLIST_PROXY_IMAGE = "node:24-bookworm-slim";
 export const SANDBOX_KEEPALIVE_COMMAND = Object.freeze([
   "sh",
   "-lc",
   "trap 'exit 0' TERM INT; while :; do sleep 1; done",
 ]);
+export const SANDBOX_ALLOWLIST_PROXY_ALIAS = "sandbox-egress-proxy";
+export const SANDBOX_ALLOWLIST_PROXY_PORT = 3128;
+export const SANDBOX_ALLOWLIST_NETWORK_NAME_PREFIX = "generic-ai-sandbox";
+
+const SANDBOX_ALLOWLIST_PROXY_MOUNT_PATH = "/generic-ai-network-proxy";
+const SANDBOX_ALLOWLIST_PROXY_LOGS_MOUNT_PATH = "/generic-ai-network-logs";
+const SANDBOX_ALLOWLIST_PROXY_SCRIPT_NAME = "proxy.mjs";
+const SANDBOX_ALLOWLIST_PROXY_CONFIG_NAME = "config.json";
+const SANDBOX_ALLOWLIST_PROXY_BLOCK_LOG_NAME = "blocked.log";
+const SANDBOX_ALLOWLIST_PROXY_CONFIG_ENV_VAR = "GENERIC_AI_PROXY_CONFIG";
 
 export const SANDBOX_DEFAULT_IMAGES = Object.freeze({
   bash: "node:24-bookworm-slim",
@@ -128,10 +139,17 @@ export interface SandboxDockerCreateContainerRequest {
   readonly sessionId: string;
   readonly mounts: readonly SandboxDockerMount[];
   readonly env?: Readonly<Record<string, string>>;
-  readonly networkMode: "none" | "bridge";
+  readonly networkMode?: "none" | "bridge";
+  readonly networkName?: string;
+  readonly networkAliases?: readonly string[];
   readonly cpus?: number;
   readonly memoryMb?: number;
   readonly command?: readonly string[];
+}
+
+export interface SandboxDockerCreateNetworkRequest {
+  readonly name: string;
+  readonly internal?: boolean;
 }
 
 export interface SandboxDockerExecRequest {
@@ -164,11 +182,18 @@ export interface SandboxContainerState {
 export interface SandboxDockerOperations {
   isAvailable(): Promise<boolean>;
   ensureImage(image: string): Promise<void>;
+  createNetwork(request: SandboxDockerCreateNetworkRequest): Promise<string>;
+  connectContainerToNetwork(
+    containerId: string,
+    networkName: string,
+    aliases?: readonly string[],
+  ): Promise<void>;
   createContainer(request: SandboxDockerCreateContainerRequest): Promise<string>;
   startContainer(containerId: string): Promise<void>;
   exec(request: SandboxDockerExecRequest): Promise<SandboxDockerExecResult>;
   stopContainer(containerId: string, graceMs?: number): Promise<void>;
   removeContainer(containerId: string): Promise<void>;
+  removeNetwork(networkName: string): Promise<void>;
   copyFromContainer(containerId: string, sourcePath: string, destinationPath: string): Promise<void>;
   inspectContainer(containerId: string): Promise<SandboxContainerState | undefined>;
   readUsageSnapshot(containerId: string): Promise<SandboxContainerUsageSnapshot | undefined>;
@@ -192,6 +217,11 @@ interface ActiveSandboxSession {
   readonly defaultCwd: string;
   readonly defaultHostCwd: string;
   readonly env: Readonly<Record<string, string>>;
+  readonly protectedEnv: Readonly<Record<string, string>>;
+  readonly allowlistNetworkName?: string;
+  readonly allowlistProxyContainerId?: string;
+  readonly allowlistBlockedLogPath?: string;
+  allowlistBlockedLogOffset: number;
 }
 
 interface UsageSummary {
@@ -208,6 +238,13 @@ interface TruncatedOutput {
 
 interface SizeLimitedCopyTracker {
   totalBytes: number;
+}
+
+interface AllowlistNetworkResources {
+  readonly networkName: string;
+  readonly proxyContainerId: string;
+  readonly blockedLogPath: string;
+  readonly proxyEnv: Readonly<Record<string, string>>;
 }
 
 const DEFAULT_CONFIG: SandboxTerminalPluginConfig = Object.freeze({
@@ -725,6 +762,184 @@ function dedupeRelativeSandboxPaths(paths: readonly string[] | undefined): reado
   return Object.freeze(pruned);
 }
 
+function normalizeNetworkAllowlist(allowlist: readonly string[] | undefined): readonly string[] {
+  if (allowlist === undefined || allowlist.length === 0) {
+    return Object.freeze([]);
+  }
+
+  return Object.freeze(
+    Array.from(
+      new Set(
+        allowlist
+          .map((entry) => entry.trim().toLowerCase())
+          .filter((entry) => entry.length > 0),
+      ),
+    ),
+  );
+}
+
+function buildAllowlistProxyEnv(): Readonly<Record<string, string>> {
+  const proxyUrl = `http://${SANDBOX_ALLOWLIST_PROXY_ALIAS}:${SANDBOX_ALLOWLIST_PROXY_PORT}`;
+  const noProxy = "localhost,127.0.0.1,::1";
+  return Object.freeze({
+    HTTP_PROXY: proxyUrl,
+    HTTPS_PROXY: proxyUrl,
+    ALL_PROXY: proxyUrl,
+    http_proxy: proxyUrl,
+    https_proxy: proxyUrl,
+    all_proxy: proxyUrl,
+    NO_PROXY: noProxy,
+    no_proxy: noProxy,
+  });
+}
+
+function buildAllowlistProxyScript(): string {
+  return [
+    'import fs from "node:fs/promises";',
+    'import http from "node:http";',
+    'import https from "node:https";',
+    'import net from "node:net";',
+    "",
+    'const configPath = process.env.GENERIC_AI_PROXY_CONFIG;',
+    'if (!configPath) {',
+    '  throw new Error("GENERIC_AI_PROXY_CONFIG is required.");',
+    "}",
+    "",
+    'const config = JSON.parse(await fs.readFile(configPath, "utf8"));',
+    'const allowlist = Array.isArray(config.allowlist) ? config.allowlist : [];',
+    'const listenPort = Number(config.port ?? 3128);',
+    'const blockedLogPath = String(config.blockedLogPath ?? "/tmp/generic-ai-blocked.log");',
+    "",
+    "function parseAllowlistEntry(entry) {",
+    '  const trimmed = String(entry ?? "").trim().toLowerCase();',
+    "  if (trimmed.length === 0) {",
+    "    return undefined;",
+    "  }",
+    '  if (trimmed.startsWith("[")) {',
+    '    const closing = trimmed.indexOf("]");',
+    "    if (closing === -1) {",
+    '      return { host: trimmed, port: undefined };',
+    "    }",
+    "    const host = trimmed.slice(1, closing);",
+    "    const portText = trimmed.slice(closing + 1).replace(/^:/, '');",
+    "    const port = portText.length === 0 ? undefined : Number(portText);",
+    "    return Number.isInteger(port) ? { host, port } : { host, port: undefined };",
+    "  }",
+    "  const firstColon = trimmed.indexOf(':');",
+    "  const lastColon = trimmed.lastIndexOf(':');",
+    "  if (firstColon > 0 && firstColon === lastColon) {",
+    "    const host = trimmed.slice(0, firstColon);",
+    "    const port = Number(trimmed.slice(firstColon + 1));",
+    "    return Number.isInteger(port) ? { host, port } : { host: trimmed, port: undefined };",
+    "  }",
+    '  return { host: trimmed, port: undefined };',
+    "}",
+    "",
+    "const normalizedAllowlist = allowlist.map(parseAllowlistEntry).filter(Boolean);",
+    "",
+    "function matchesHost(hostname, pattern) {",
+    '  if (pattern.startsWith("*.")) {',
+    "    const suffix = pattern.slice(1);",
+    "    return hostname.endsWith(suffix) && hostname.length > suffix.length;",
+    "  }",
+    "  return hostname === pattern;",
+    "}",
+    "",
+    "function isAllowed(hostname, port) {",
+    "  const normalizedHost = hostname.toLowerCase();",
+    "  return normalizedAllowlist.some((entry) => {",
+    "    if (!entry || !matchesHost(normalizedHost, entry.host)) {",
+    "      return false;",
+    "    }",
+    "    return entry.port === undefined || entry.port === port;",
+    "  });",
+    "}",
+    "",
+    "async function logBlocked(target, reason) {",
+    '  const line = [new Date().toISOString(), target, reason].join(" ") + "\\n";',
+    "  await fs.appendFile(blockedLogPath, line, 'utf8');",
+    "}",
+    "",
+    "function filterProxyHeaders(headers) {",
+    "  const filtered = { ...headers };",
+    "  delete filtered['proxy-authorization'];",
+    "  delete filtered['proxy-connection'];",
+    "  return filtered;",
+    "}",
+    "",
+    "const server = http.createServer(async (req, res) => {",
+    "  let target;",
+    "  try {",
+    '    target = new URL(req.url ?? "", "http://" + (req.headers.host ?? "invalid"));',
+    "  } catch {",
+    '    res.writeHead(400, { "content-type": "text/plain" });',
+    '    res.end("Invalid proxy request target.\\n");',
+    "    return;",
+    "  }",
+    "",
+    '  const port = Number(target.port || (target.protocol === "https:" ? "443" : "80"));',
+    '  const destination = target.hostname + ":" + port;',
+    "  if (!isAllowed(target.hostname, port)) {",
+    "    await logBlocked(destination, 'blocked');",
+    '    res.writeHead(403, { "content-type": "text/plain" });',
+    '    res.end("Blocked by Generic AI sandbox allowlist: " + destination + "\\n");',
+    "    return;",
+    "  }",
+    "",
+    '  const transport = target.protocol === "https:" ? https : http;',
+    "  const upstream = transport.request(target, {",
+    "    method: req.method,",
+    "    headers: filterProxyHeaders(req.headers),",
+    "  }, (upstreamRes) => {",
+    "    res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.statusMessage, upstreamRes.headers);",
+    "    upstreamRes.pipe(res);",
+    "  });",
+    "  upstream.on('error', async (error) => {",
+    "    await logBlocked(destination, 'error:' + error.message);",
+    '    res.writeHead(502, { "content-type": "text/plain" });',
+    '    res.end("Proxy upstream error for " + destination + ": " + error.message + "\\n");',
+    "  });",
+    "  req.pipe(upstream);",
+    "});",
+    "",
+    "server.on('connect', async (req, clientSocket, head) => {",
+    "  const target = String(req.url ?? '');",
+    "  const separator = target.lastIndexOf(':');",
+    "  const hostname = separator === -1 ? target : target.slice(0, separator);",
+    "  const port = Number(separator === -1 ? '443' : target.slice(separator + 1));",
+    '  const normalizedHost = hostname.replace(/^\\[/u, "").replace(/\\]$/u, "");',
+    '  const destination = normalizedHost + ":" + port;',
+    "  if (!isAllowed(normalizedHost, port)) {",
+    "    await logBlocked(destination, 'blocked-connect');",
+    '    clientSocket.write("HTTP/1.1 403 Forbidden\\r\\nContent-Type: text/plain\\r\\nConnection: close\\r\\n\\r\\n");',
+    '    clientSocket.end("Blocked by Generic AI sandbox allowlist: " + destination + "\\n");',
+    "    return;",
+    "  }",
+    "",
+    "  const upstream = net.connect(port, normalizedHost, () => {",
+    '    clientSocket.write("HTTP/1.1 200 Connection Established\\r\\n\\r\\n");',
+    "    if (head.length > 0) {",
+    "      upstream.write(head);",
+    "    }",
+    "    upstream.pipe(clientSocket);",
+    "    clientSocket.pipe(upstream);",
+    "  });",
+    "",
+    "  upstream.on('error', async (error) => {",
+    "    await logBlocked(destination, 'connect-error:' + error.message);",
+    '    clientSocket.write("HTTP/1.1 502 Bad Gateway\\r\\nContent-Type: text/plain\\r\\nConnection: close\\r\\n\\r\\n");',
+    '    clientSocket.end("Proxy upstream error for " + destination + ": " + error.message + "\\n");',
+    "  });",
+    "",
+    "  clientSocket.on('error', () => upstream.destroy());",
+    "});",
+    "",
+    "server.listen(listenPort, '0.0.0.0');",
+    "process.on('SIGTERM', () => server.close(() => process.exit(0)));",
+    "process.on('SIGINT', () => server.close(() => process.exit(0)));",
+  ].join("\n");
+}
+
 function enforceStagedInputLimit(
   tracker: SizeLimitedCopyTracker,
   maxInputBytes: number | undefined,
@@ -819,6 +1034,87 @@ async function pathExists(candidate: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function prepareAllowlistProxyFiles(
+  cleanupRoot: string,
+  allowlist: readonly string[],
+): Promise<{ readonly blockedLogPath: string; readonly mounts: readonly SandboxDockerMount[] }> {
+  const proxyRoot = path.join(cleanupRoot, "allowlist-proxy");
+  const logsRoot = path.join(cleanupRoot, "allowlist-logs");
+  await mkdir(proxyRoot, { recursive: true });
+  await mkdir(logsRoot, { recursive: true });
+
+  const scriptPath = path.join(proxyRoot, SANDBOX_ALLOWLIST_PROXY_SCRIPT_NAME);
+  const configPath = path.join(proxyRoot, SANDBOX_ALLOWLIST_PROXY_CONFIG_NAME);
+  const blockedLogPath = path.join(logsRoot, SANDBOX_ALLOWLIST_PROXY_BLOCK_LOG_NAME);
+
+  await writeFile(scriptPath, buildAllowlistProxyScript(), "utf8");
+  await writeFile(
+    configPath,
+    JSON.stringify(
+      {
+        allowlist,
+        port: SANDBOX_ALLOWLIST_PROXY_PORT,
+        blockedLogPath: path.posix.join(
+          SANDBOX_ALLOWLIST_PROXY_LOGS_MOUNT_PATH,
+          SANDBOX_ALLOWLIST_PROXY_BLOCK_LOG_NAME,
+        ),
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+
+  return {
+    blockedLogPath,
+    mounts: Object.freeze([
+      {
+        source: proxyRoot,
+        target: SANDBOX_ALLOWLIST_PROXY_MOUNT_PATH,
+        readOnly: true,
+      },
+      {
+        source: logsRoot,
+        target: SANDBOX_ALLOWLIST_PROXY_LOGS_MOUNT_PATH,
+      },
+    ]),
+  };
+}
+
+async function readAllowlistBlockLog(
+  active: ActiveSandboxSession,
+): Promise<string | undefined> {
+  if (active.allowlistBlockedLogPath === undefined) {
+    return undefined;
+  }
+  if (!(await pathExists(active.allowlistBlockedLogPath))) {
+    return undefined;
+  }
+
+  const contents = await readFile(active.allowlistBlockedLogPath, "utf8");
+  if (contents.length <= active.allowlistBlockedLogOffset) {
+    return undefined;
+  }
+
+  const nextChunk = contents.slice(active.allowlistBlockedLogOffset).trim();
+  active.allowlistBlockedLogOffset = contents.length;
+  if (nextChunk.length === 0) {
+    return undefined;
+  }
+
+  return `Blocked outbound network attempts:\n${nextChunk}`;
+}
+
+function appendStderr(base: string, extra: string | undefined): string {
+  if (extra === undefined || extra.trim().length === 0) {
+    return base;
+  }
+  if (base.trim().length === 0) {
+    return extra;
+  }
+  return `${base.trimEnd()}\n${extra}`;
 }
 
 async function copySelectedStagedPathsToOutput(
@@ -917,6 +1213,40 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       const message = pullResult.stderr.trim() || inspectResult.stderr.trim() || "unknown Docker error";
       throw new SandboxUnavailableError(`Failed to ensure Docker image "${image}": ${message}`);
     },
+    async createNetwork(request) {
+      const args = ["network", "create", "--driver", "bridge"];
+      if (request.internal) {
+        args.push("--internal");
+      }
+      args.push(
+        "--label",
+        "generic-ai.sandbox=true",
+        request.name,
+      );
+
+      const result = await runProcess(binary, args);
+      if (result.exitCode !== 0) {
+        const message = result.stderr.trim() || result.error?.message || "unknown Docker error";
+        throw new SandboxUnavailableError(`Failed to create sandbox network "${request.name}": ${message}`);
+      }
+
+      return result.stdout.trim() || request.name;
+    },
+    async connectContainerToNetwork(containerId, networkName, aliases) {
+      const args = ["network", "connect"];
+      for (const alias of aliases ?? []) {
+        args.push("--alias", alias);
+      }
+      args.push(networkName, containerId);
+
+      const result = await runProcess(binary, args);
+      if (result.exitCode !== 0) {
+        const message = result.stderr.trim() || result.error?.message || "unknown Docker error";
+        throw new SandboxUnavailableError(
+          `Failed to connect sandbox container "${containerId}" to network "${networkName}": ${message}`,
+        );
+      }
+    },
     async createContainer(request) {
       const args = [
         "create",
@@ -926,9 +1256,15 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
         "generic-ai.sandbox=true",
         "--label",
         `generic-ai.sandbox.session=${request.sessionId}`,
-        "--network",
-        request.networkMode,
       ];
+      if (request.networkName !== undefined) {
+        args.push("--network", request.networkName);
+        for (const alias of request.networkAliases ?? []) {
+          args.push("--network-alias", alias);
+        }
+      } else {
+        args.push("--network", request.networkMode ?? "bridge");
+      }
 
       if (request.cpus !== undefined) {
         args.push("--cpus", String(request.cpus));
@@ -990,6 +1326,9 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
     },
     async removeContainer(containerId) {
       await runProcess(binary, ["rm", "--force", containerId]);
+    },
+    async removeNetwork(networkName) {
+      await runProcess(binary, ["network", "rm", networkName]);
     },
     async copyFromContainer(containerId, sourcePath, destinationPath) {
       const result = await runProcess(binary, ["cp", `${containerId}:${sourcePath}`, destinationPath]);
@@ -1140,17 +1479,76 @@ export function createSandboxTerminalPlugin(
     );
   }
 
+  async function prepareAllowlistResources(
+    sessionId: string,
+    cleanupRoot: string,
+    allowlist: readonly string[] | undefined,
+  ): Promise<AllowlistNetworkResources> {
+    const normalizedAllowlist = normalizeNetworkAllowlist(allowlist);
+    if (normalizedAllowlist.length === 0) {
+      throw new Error(
+        'Sandbox network mode "allowlist" requires at least one policy.network.allowlist entry.',
+      );
+    }
+
+    if (config.ensureImages) {
+      await docker.ensureImage(SANDBOX_ALLOWLIST_PROXY_IMAGE);
+    }
+
+    const networkName = `${SANDBOX_ALLOWLIST_NETWORK_NAME_PREFIX}-${sessionId}`;
+    const { blockedLogPath, mounts } = await prepareAllowlistProxyFiles(cleanupRoot, normalizedAllowlist);
+    let proxyContainerId: string | undefined;
+    let networkCreated = false;
+
+    try {
+      await docker.createNetwork({
+        name: networkName,
+        internal: true,
+      });
+      networkCreated = true;
+
+      proxyContainerId = await docker.createContainer({
+        image: SANDBOX_ALLOWLIST_PROXY_IMAGE,
+        sessionId: `${sessionId}-allowlist-proxy`,
+        mounts,
+        env: {
+          [SANDBOX_ALLOWLIST_PROXY_CONFIG_ENV_VAR]: path.posix.join(
+            SANDBOX_ALLOWLIST_PROXY_MOUNT_PATH,
+            SANDBOX_ALLOWLIST_PROXY_CONFIG_NAME,
+          ),
+        },
+        networkName,
+        networkAliases: [SANDBOX_ALLOWLIST_PROXY_ALIAS],
+        command: ["node", path.posix.join(SANDBOX_ALLOWLIST_PROXY_MOUNT_PATH, SANDBOX_ALLOWLIST_PROXY_SCRIPT_NAME)],
+      });
+      await docker.connectContainerToNetwork(proxyContainerId, "bridge");
+      await docker.startContainer(proxyContainerId);
+
+      return {
+        networkName,
+        proxyContainerId,
+        blockedLogPath,
+        proxyEnv: buildAllowlistProxyEnv(),
+      };
+    } catch (error) {
+      if (proxyContainerId !== undefined) {
+        await Promise.allSettled([
+          docker.stopContainer(proxyContainerId),
+          docker.removeContainer(proxyContainerId),
+        ]);
+      }
+      if (networkCreated) {
+        await Promise.allSettled([docker.removeNetwork(networkName)]);
+      }
+      throw error;
+    }
+  }
+
   async function createSession(request: SandboxSessionRequest): Promise<SandboxSession> {
     await ensurePluginRoot(request.workspaceRoot);
     await ensureDockerAvailable("session creation");
 
     const policy = mergeSandboxPolicy(config.defaultPolicy, request.policy) ?? config.defaultPolicy;
-    if (policy.network?.mode === "allowlist") {
-      throw new Error(
-        'Sandbox network mode "allowlist" is defined in the SDK contract but not implemented by the Docker backend yet.',
-      );
-    }
-
     const runtimeConfig = request.runtimeConfig ?? {};
     const image = runtimeConfig.image ?? config.images[request.runtime];
     if (config.ensureImages) {
@@ -1163,11 +1561,22 @@ export function createSandboxTerminalPlugin(
     const workspaceMount = await prepareWorkspaceMount(sessionId, policy, defaultHostCwd);
     let outputDir: string | undefined;
     let containerId: string | undefined;
+    let allowlistResources: AllowlistNetworkResources | undefined;
     try {
       outputDir = await resolveOutputDirectory(sessionId, policy);
-      const env = mergeStringRecord(runtimeConfig.env, {
+      if (policy.network?.mode === "allowlist") {
+        allowlistResources = await prepareAllowlistResources(
+          sessionId,
+          workspaceMount.cleanupRoot,
+          policy.network.allowlist,
+        );
+      }
+
+      const protectedEnv = {
         [SANDBOX_OUTPUT_ENV_VAR]: SANDBOX_OUTPUT_MOUNT_PATH,
-      });
+        ...(allowlistResources?.proxyEnv ?? {}),
+      };
+      const env = mergeStringRecord(runtimeConfig.env, protectedEnv);
       const mounts: SandboxDockerMount[] = [
         {
           source: workspaceMount.workspaceMountRoot,
@@ -1186,7 +1595,9 @@ export function createSandboxTerminalPlugin(
         sessionId,
         mounts,
         ...(env === undefined ? {} : { env }),
-        networkMode: policy.network?.mode === "open" ? "bridge" : "none",
+        ...(allowlistResources === undefined
+          ? { networkMode: policy.network?.mode === "open" ? "bridge" : "none" }
+          : { networkName: allowlistResources.networkName }),
         ...(policy.resources?.cpuCores === undefined ? {} : { cpus: policy.resources.cpuCores }),
         ...(policy.resources?.memoryMb === undefined
           ? {}
@@ -1216,10 +1627,32 @@ export function createSandboxTerminalPlugin(
         defaultCwd,
         defaultHostCwd,
         env: env ?? {},
+        protectedEnv,
+        allowlistBlockedLogOffset: 0,
+        ...(allowlistResources === undefined
+          ? {}
+          : {
+              allowlistNetworkName: allowlistResources.networkName,
+              allowlistProxyContainerId: allowlistResources.proxyContainerId,
+              allowlistBlockedLogPath: allowlistResources.blockedLogPath,
+            }),
       });
 
       return session;
     } catch (error) {
+      if (containerId !== undefined) {
+        await Promise.allSettled([
+          docker.stopContainer(containerId),
+          docker.removeContainer(containerId),
+        ]);
+      }
+      if (allowlistResources !== undefined) {
+        await Promise.allSettled([
+          docker.stopContainer(allowlistResources.proxyContainerId),
+          docker.removeContainer(allowlistResources.proxyContainerId),
+          docker.removeNetwork(allowlistResources.networkName),
+        ]);
+      }
       await rm(workspaceMount.cleanupRoot, { recursive: true, force: true });
       throw error;
     }
@@ -1232,8 +1665,21 @@ export function createSandboxTerminalPlugin(
     }
 
     sessions.delete(sessionId);
-    await docker.stopContainer(active.session.containerId);
-    await docker.removeContainer(active.session.containerId);
+    await Promise.allSettled([
+      docker.stopContainer(active.session.containerId),
+      ...(active.allowlistProxyContainerId === undefined
+        ? []
+        : [docker.stopContainer(active.allowlistProxyContainerId)]),
+    ]);
+    await Promise.allSettled([
+      docker.removeContainer(active.session.containerId),
+      ...(active.allowlistProxyContainerId === undefined
+        ? []
+        : [docker.removeContainer(active.allowlistProxyContainerId)]),
+    ]);
+    if (active.allowlistNetworkName !== undefined) {
+      await Promise.allSettled([docker.removeNetwork(active.allowlistNetworkName)]);
+    }
     await rm(active.cleanupRoot, { recursive: true, force: true });
   }
 
@@ -1252,7 +1698,7 @@ export function createSandboxTerminalPlugin(
     if (active.fileMode !== "readonly-mount") {
       await ensureStagedWorkingDirectory(layout.root, active.workspaceMountRoot, hostCwd);
     }
-    const env = mergeStringRecord(active.env, request.env);
+    const env = mergeStringRecord(mergeStringRecord(active.env, request.env), active.protectedEnv);
     const startedAt = now();
     const timeoutMs = request.timeoutMs ?? active.policy.resources?.timeoutMs;
     const timeoutGraceMs = active.policy.resources?.timeoutGraceMs;
@@ -1323,6 +1769,7 @@ export function createSandboxTerminalPlugin(
         active.copyOutPaths,
       );
     }
+    const networkBlockLog = await readAllowlistBlockLog(active);
 
     if (timedOut || callerAborted || inspectResult?.running === false) {
       await destroy(request.sessionId);
@@ -1335,7 +1782,7 @@ export function createSandboxTerminalPlugin(
         (snapshot): snapshot is SandboxContainerUsageSnapshot => snapshot !== undefined,
       ),
     );
-    const stderr = decorateExecutionStderr(execResult.stderr, {
+    const stderr = decorateExecutionStderr(appendStderr(execResult.stderr, networkBlockLog), {
       timedOut,
       timeoutMs,
       timeoutGraceMs,
