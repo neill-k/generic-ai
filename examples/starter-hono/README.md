@@ -37,6 +37,22 @@ $env:GENERIC_AI_PROVIDER_API_KEY = "<provider-key>"
 
 The current starter harness runs the local plugin composition and validates that the provider key is present. The later RT-04 runtime work will use the same run path for live provider execution.
 
+To exercise the sandbox-aware preset wiring, set the starter bootstrap env vars before launch:
+
+```bash
+export GENERIC_AI_SANDBOX=docker
+export GENERIC_AI_SANDBOX_FALLBACK=fail
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:GENERIC_AI_SANDBOX = "docker"
+$env:GENERIC_AI_SANDBOX_FALLBACK = "fail"
+```
+
+When `GENERIC_AI_SANDBOX` is omitted, development defaults to unrestricted terminal mode and production defaults to the sandbox terminal slot. If Docker is unavailable, bootstrap warns and falls back unless `GENERIC_AI_SANDBOX_FALLBACK=fail` is set.
+
 Useful verification commands:
 
 ```bash

@@ -12,6 +12,8 @@ import {
   createStarterHonoBootstrapFromYaml,
   createStarterHonoPreset,
   resolveStarterPreset,
+  STARTER_SANDBOX_TERMINAL_PLUGIN_ID,
+  STARTER_TERMINAL_PLUGIN_ID,
   starterHonoPreset,
   starterPresetContract,
 } from "./index.js";
@@ -67,6 +69,20 @@ describe("@generic-ai/preset-starter-hono contract", () => {
 
     expect(pluginIds).toContain("@acme/plugin-storage-postgres");
     expect(pluginIds).not.toContain("@generic-ai/plugin-storage-sqlite");
+  });
+
+  it("switches the terminal slot to the sandbox plugin when sandbox mode is docker", () => {
+    const preset = createStarterHonoPreset({
+      sandboxMode: "docker",
+    });
+
+    expect(preset.sandboxMode).toBe("docker");
+    expect(preset.resolution.sandboxMode).toBe("docker");
+    expect(preset.resolution.terminalPluginId).toBe(STARTER_SANDBOX_TERMINAL_PLUGIN_ID);
+    expect(preset.plugins.find((plugin) => plugin.slot === "terminalTools")).toMatchObject({
+      pluginId: STARTER_SANDBOX_TERMINAL_PLUGIN_ID,
+      dependencies: ["@generic-ai/plugin-workspace-fs"],
+    });
   });
 
   it("supports disabling optional Hono transport", () => {
@@ -236,6 +252,118 @@ kind: 42
     );
 
     expect(startCalls).toEqual([]);
+  });
+
+  it("keeps unrestricted terminal mode when sandbox mode is explicitly disabled", async () => {
+    let dockerProbeCalls = 0;
+
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: sandbox disabled
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          sandboxMode: "none",
+          sandbox: {
+            dockerProbe: async () => {
+              dockerProbeCalls += 1;
+              return true;
+            },
+          },
+        });
+
+        expect(
+          bootstrap.preset.plugins.find((plugin) => plugin.slot === "terminalTools"),
+        ).toMatchObject({
+          pluginId: STARTER_TERMINAL_PLUGIN_ID,
+          dependencies: ["@generic-ai/plugin-workspace-fs"],
+        });
+      },
+    );
+
+    expect(dockerProbeCalls).toBe(0);
+  });
+
+  it("enables sandbox terminal mode when Docker is available", async () => {
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: sandbox enabled
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          sandboxMode: "docker",
+          sandbox: {
+            dockerProbe: async () => true,
+          },
+        });
+
+        expect(
+          bootstrap.preset.plugins.find((plugin) => plugin.slot === "terminalTools"),
+        ).toMatchObject({
+          pluginId: STARTER_SANDBOX_TERMINAL_PLUGIN_ID,
+          dependencies: ["@generic-ai/plugin-workspace-fs"],
+        });
+      },
+    );
+  });
+
+  it("warns and falls back to unrestricted terminal mode when Docker is unavailable", async () => {
+    const warnings: string[] = [];
+
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: docker unavailable
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          sandbox: {
+            env: {
+              NODE_ENV: "production",
+            },
+            dockerProbe: async () => false,
+            warn: (message) => warnings.push(message),
+          },
+        });
+
+        expect(
+          bootstrap.preset.plugins.find((plugin) => plugin.slot === "terminalTools"),
+        ).toMatchObject({
+          pluginId: STARTER_TERMINAL_PLUGIN_ID,
+          dependencies: ["@generic-ai/plugin-workspace-fs"],
+        });
+      },
+    );
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Docker is unavailable");
+    expect(warnings[0]).toContain(STARTER_TERMINAL_PLUGIN_ID);
+  });
+
+  it("fails hard when Docker is unavailable and fail-hard fallback is requested", async () => {
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: docker required
+`,
+      },
+      async (root) => {
+        await expect(
+          createStarterHonoBootstrapFromYaml({
+            startDir: root,
+            sandboxMode: "docker",
+            sandbox: {
+              fallbackMode: "fail",
+              dockerProbe: async () => false,
+            },
+          }),
+        ).rejects.toThrow("Docker is unavailable");
+      },
+    );
   });
 });
 
