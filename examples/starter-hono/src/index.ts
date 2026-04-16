@@ -106,7 +106,12 @@ function normalizePrompt(input: unknown): string {
   }
 
   if (typeof input === "string") {
-    return input;
+    const trimmed = input.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+
+    return "Summarize the Generic AI starter stack.";
   }
 
   return JSON.stringify(input, null, 2);

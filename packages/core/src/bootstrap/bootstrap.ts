@@ -627,7 +627,20 @@ function extractPluginOwnedConfig(
     return Object.freeze({ ...plugin.config });
   }
 
-  const reserved = new Set(["plugin", "package", "enabled", "dependsOn", "metadata"]);
+  if (plugin.config !== undefined) {
+    throw new GenericAIConfigError({
+      message: `Plugin "config" field must be an object when present.`,
+      failures: [
+        {
+          code: "PLUGIN_CONFIG_NOT_OBJECT",
+          message: `Plugin "config" field must be an object when present, got ${typeof plugin.config}.`,
+          suggestion: `Use a nested object under "config:" or spread top-level keys instead.`,
+        },
+      ],
+    });
+  }
+
+  const reserved = new Set(["plugin", "package", "enabled", "dependsOn", "metadata", "config"]);
   const config: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(plugin)) {
@@ -711,26 +724,52 @@ function createRuntimePlan<TSchemaSource, TRuntimeStart>(
   });
 }
 
+function buildShortNameToPresetIdMap(
+  presetPlugins: readonly BootstrapPluginSpec[],
+): ReadonlyMap<string, string> {
+  const mapping = new Map<string, string>();
+  for (const spec of presetPlugins) {
+    const lastSegment = spec.pluginId.split("/").pop() ?? spec.pluginId;
+    const shortName = lastSegment.startsWith("plugin-")
+      ? lastSegment.slice("plugin-".length)
+      : lastSegment;
+    mapping.set(shortName, spec.pluginId);
+  }
+  return mapping;
+}
+
 function resolveConfigPluginOverrides(
   config: GenericAIResolvedConfig,
+  presetPlugins: readonly BootstrapPluginSpec[],
 ): Readonly<Record<string, BootstrapPluginConfig>> | undefined {
   const plans = createPluginInitPlans(config);
   if (plans.length === 0) {
     return undefined;
   }
 
+  const shortNameMap = buildShortNameToPresetIdMap(presetPlugins);
+
   return Object.freeze(
     Object.fromEntries(
-      plans.map((plan) => [
-        plan.pluginId,
-        Object.freeze({
-          namespace: plan.namespace,
-          enabled: plan.enabled,
-          dependsOn: Object.freeze([...plan.dependsOn]),
-          ...(plan.packageName === undefined ? {} : { packageName: plan.packageName }),
-          ...plan.config,
-        }),
-      ]),
+      plans.map((plan) => {
+        let resolvedId = plan.pluginId;
+        if (!resolvedId.startsWith("@")) {
+          const fullId = shortNameMap.get(resolvedId);
+          if (fullId !== undefined) {
+            resolvedId = fullId;
+          }
+        }
+        return [
+          resolvedId,
+          Object.freeze({
+            namespace: plan.namespace,
+            enabled: plan.enabled,
+            dependsOn: Object.freeze([...plan.dependsOn]),
+            ...(plan.packageName === undefined ? {} : { packageName: plan.packageName }),
+            ...plan.config,
+          }),
+        ];
+      }),
     ),
   ) as Readonly<Record<string, BootstrapPluginConfig>>;
 }
@@ -740,7 +779,8 @@ function resolveBootstrapOptions<TSchemaSource, TRuntimeStart>(
   options: GenericAIFromConfigOptions<TSchemaSource, TRuntimeStart>,
 ): GenericAIOptions {
   const preset = options.preset ?? createPresetInputFromConfig(config);
-  const pluginConfigFromConfig = resolveConfigPluginOverrides(config);
+  const presetPlugins = preset?.plugins ?? starterPreset.plugins;
+  const pluginConfigFromConfig = resolveConfigPluginOverrides(config, presetPlugins);
   const pluginConfig =
     options.pluginConfig === undefined
       ? pluginConfigFromConfig

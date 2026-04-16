@@ -24,10 +24,17 @@ export async function runStarterExampleCli(
     ...(options.env === undefined ? {} : { env: options.env }),
     ...(options.createRuntime === undefined ? {} : { createRuntime: options.createRuntime }),
   });
-  const server = await startFetchServer(starter.transport.fetch, {
-    host: starter.environment.host,
-    port: starter.environment.port,
-  });
+
+  let server: StartedFetchServer;
+  try {
+    server = await startFetchServer(starter.transport.fetch, {
+      host: starter.environment.host,
+      port: starter.environment.port,
+    });
+  } catch (error) {
+    await starter.stop();
+    throw error;
+  }
 
   log(
     [

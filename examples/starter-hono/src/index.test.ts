@@ -1,3 +1,4 @@
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
   CreateGenericAILlmRuntimeOptions,
@@ -43,7 +44,7 @@ describe("@generic-ai/example-starter-hono", () => {
         expect(options.adapter).toBe("openai-codex");
         expect(options.apiKey).toBe("test-key");
         expect(options.model).toBe("gpt-5.2-codex");
-        expect(options.cwd).toContain("examples\\starter-hono");
+        expect(options.cwd).toContain(path.join("examples", "starter-hono"));
         expect(options.instructions).toContain("Generic AI starter example agent");
         return createFakeRuntime("runtime result");
       },
