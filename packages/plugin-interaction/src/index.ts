@@ -292,6 +292,32 @@ function normalizeTimestamp(value: InteractionPluginOptions["now"]): string {
   return date.toISOString();
 }
 
+function isInteractionQuestionKind(value: string): value is InteractionQuestionKind {
+  return interactionQuestionKinds.includes(value as InteractionQuestionKind);
+}
+
+function isInteractionTaskStatus(value: string): value is InteractionTaskStatus {
+  return interactionTaskStatuses.includes(value as InteractionTaskStatus);
+}
+
+function parseReplaySequence(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function assertUnreachable(value: never, label: string): never {
+  throw new InteractionValidationError(`${label} "${String(value)}" is not supported.`);
+}
+
 function assertNonEmpty(value: string | undefined, label: string): string {
   if (typeof value === "string" && value.trim().length > 0) {
     return value.trim();
@@ -349,6 +375,10 @@ function normalizeQuestion(
   now: InteractionPluginOptions["now"],
   idFactory: () => string,
 ): InteractionQuestion {
+  if (!isInteractionQuestionKind(input.kind)) {
+    throw new InteractionValidationError(`question.kind "${input.kind}" is not supported.`);
+  }
+
   const id = input.id === undefined ? idFactory() : assertNonEmpty(input.id, "question.id");
   const createdAt = normalizeTimestamp(now);
   const timeoutMs =
@@ -466,6 +496,8 @@ function normalizeResponse(
         submittedAt,
       });
     }
+    default:
+      return assertUnreachable(question.kind, "question.kind");
   }
 }
 
@@ -480,6 +512,11 @@ function freezeTasks(tasks: readonly InteractionTask[]): readonly InteractionTas
     }
 
     seen.add(id);
+    if (!isInteractionTaskStatus(task.status)) {
+      throw new InteractionValidationError(
+        `tasks[${index}].status "${task.status}" is not supported.`,
+      );
+    }
     normalized.push(
       Object.freeze({
         id,
@@ -713,6 +750,17 @@ export function createInteractionPlugin(
       requestOptions: InteractionRequestOptions = {},
     ): Promise<InteractionResponse> {
       const question = normalizeQuestion(input, options.now, idFactory);
+      if (requestOptions.signal?.aborted === true) {
+        throw new InteractionQuestionCancelledError(
+          question.id,
+          "aborted",
+          "Question was aborted before the user responded.",
+        );
+      }
+
+      if (pendingQuestions.has(question.id)) {
+        throw new InteractionValidationError(`Question id "${question.id}" is already pending.`);
+      }
 
       let resolveResponse!: (response: InteractionResponse) => void;
       let rejectResponse!: (error: unknown) => void;
@@ -758,14 +806,6 @@ export function createInteractionPlugin(
         occurredAt: question.createdAt,
         question,
       });
-
-      if (requestOptions.signal?.aborted === true) {
-        closePendingQuestion(
-          question.id,
-          "aborted",
-          "Question was aborted before the user responded.",
-        );
-      }
 
       return responsePromise;
     },
@@ -878,15 +918,38 @@ function normalizeResponsePayload(body: unknown): InteractionResponseInput {
     throw new InteractionValidationError("Answer payload must be a JSON object.");
   }
 
-  const rawChoiceIds = body["choiceIds"];
+  const hasText = Object.hasOwn(body, "text");
+  const hasChoiceId = Object.hasOwn(body, "choiceId");
+  const hasChoiceIds = Object.hasOwn(body, "choiceIds");
+
+  if (hasText && typeof body.text !== "string") {
+    throw new InteractionValidationError('Answer payload field "text" must be a string.');
+  }
+
+  if (hasChoiceId && typeof body.choiceId !== "string") {
+    throw new InteractionValidationError('Answer payload field "choiceId" must be a string.');
+  }
+
+  if (
+    hasChoiceIds &&
+    (!Array.isArray(body.choiceIds) ||
+      !body.choiceIds.every((value): value is string => typeof value === "string"))
+  ) {
+    throw new InteractionValidationError(
+      'Answer payload field "choiceIds" must be an array of strings.',
+    );
+  }
+
+  if (hasChoiceId && hasChoiceIds) {
+    throw new InteractionValidationError(
+      'Answer payload must include either "choiceId" or "choiceIds", but not both.',
+    );
+  }
 
   return {
-    ...(typeof body["text"] === "string" ? { text: body["text"] } : {}),
-    ...(typeof body["choiceId"] === "string" ? { choiceId: body["choiceId"] } : {}),
-    ...(Array.isArray(rawChoiceIds) &&
-    rawChoiceIds.every((value): value is string => typeof value === "string")
-      ? { choiceIds: rawChoiceIds }
-      : {}),
+    ...(typeof body.text === "string" ? { text: body.text } : {}),
+    ...(typeof body.choiceId === "string" ? { choiceId: body.choiceId } : {}),
+    ...(Array.isArray(body.choiceIds) ? { choiceIds: body.choiceIds } : {}),
   };
 }
 
@@ -895,8 +958,8 @@ function normalizeCancelReason(body: unknown): string | undefined {
     return undefined;
   }
 
-  return typeof body["reason"] === "string" && body["reason"].trim().length > 0
-    ? body["reason"].trim()
+  return typeof body.reason === "string" && body.reason.trim().length > 0
+    ? body.reason.trim()
     : undefined;
 }
 
@@ -918,6 +981,7 @@ export function createHonoInteractionTransport(
   const routePrefix = normalizeRoutePrefix(options.routePrefix ?? "/interaction");
   const app = new Hono();
   const listeners = new Map<number, (event: InteractionTransportEvent) => void>();
+  const activeStreams = new Set<(closeController: boolean) => void>();
   const history: InteractionTransportEvent[] = [];
   const historyLimit = options.historyLimit ?? 100;
   const createEventId = options.createEventId ?? randomUUID;
@@ -946,7 +1010,7 @@ export function createHonoInteractionTransport(
     }
 
     const recorded = record(event);
-    for (const listener of listeners.values()) {
+    for (const listener of [...listeners.values()]) {
       listener(recorded);
     }
   }
@@ -992,16 +1056,17 @@ export function createHonoInteractionTransport(
 
   app.get(`${routePrefix}/events`, async (context) => {
     const encoder = new TextEncoder();
-    const fromSequence = Number.parseInt(context.req.query("fromSequence") ?? "", 10);
     const replayFrom =
-      Number.isNaN(fromSequence) || fromSequence <= 0 ? undefined : fromSequence;
+      parseReplaySequence(context.req.query("fromSequence")) ??
+      parseReplaySequence(context.req.raw.headers.get("last-event-id") ?? undefined);
+    let streamCleanup: (closeController: boolean) => void = () => undefined;
 
     return new Response(
       new ReadableStream<Uint8Array>({
         start(controller) {
           let active = true;
           let unsubscribe: () => void = () => undefined;
-
+          let onAbort: () => void = () => undefined;
           const push = (event: InteractionTransportEvent): void => {
             if (!active) {
               return;
@@ -1010,28 +1075,44 @@ export function createHonoInteractionTransport(
             controller.enqueue(encoder.encode(serializeInteractionEvent(event)));
           };
 
-          for (const event of snapshot(replayFrom)) {
-            push(event);
-          }
-
-          unsubscribe = subscribe(push);
-
-          const onAbort = (): void => {
+          streamCleanup = (closeController: boolean): void => {
             if (!active) {
               return;
             }
 
             active = false;
             unsubscribe();
-            controller.close();
+            context.req.raw.signal.removeEventListener("abort", onAbort);
+            activeStreams.delete(streamCleanup);
+            if (closeController) {
+              try {
+                controller.close();
+              } catch {
+                // Stream may already be closed or errored.
+              }
+            }
+          };
+
+          unsubscribe = subscribe(push);
+          activeStreams.add(streamCleanup);
+
+          for (const event of snapshot(replayFrom)) {
+            push(event);
+          }
+
+          onAbort = () => {
+            streamCleanup(true);
           };
 
           if (context.req.raw.signal.aborted) {
-            onAbort();
+            streamCleanup(true);
             return;
           }
 
           context.req.raw.signal.addEventListener("abort", onAbort, { once: true });
+        },
+        cancel() {
+          streamCleanup(false);
         },
       }),
       {
@@ -1114,6 +1195,9 @@ export function createHonoInteractionTransport(
     snapshot,
     close(): void {
       closed = true;
+      for (const cleanup of [...activeStreams]) {
+        cleanup(true);
+      }
       listeners.clear();
       history.length = 0;
     },
