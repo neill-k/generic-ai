@@ -26,7 +26,7 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "docs": "node -e \"console.log('TODO: CTL-04 will implement docs generation')\"",
+    "docs": "node -e \"console.log('Docs generation pending — tracked under Linear NEI-382 (Epic 6 control plane) and the CTL-04 branch in docs/planning/03-linear-issue-tree.md.')\"",
     "clean": "rimraf --glob \"packages/*/dist\" \"packages/*/*.tsbuildinfo\" \"examples/*/dist\" \"examples/*/*.tsbuildinfo\" node_modules",
     "changeset": "changeset",
     "changeset:status": "changeset status",

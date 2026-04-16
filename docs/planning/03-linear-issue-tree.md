@@ -361,6 +361,18 @@ Acceptance criteria:
 - shared hostname allow/block rules apply to both fetches and search results
 - the plugin is documented and covered by unit tests
 
+### `CAP-09` Build `plugin-interaction`
+
+Depends on: `CFG-03`, `KRN-08`
+
+Acceptance criteria:
+
+- `plugin-interaction` exists under `packages/`
+- agents can ask blocking user questions through a shipped `ask_user` `pi` tool
+- agents can publish visible task-list updates through a shipped `task_write` `pi` tool
+- a Hono adapter delivers SSE interaction events and handles answer routes
+- the plugin is documented and covered by unit tests
+
 ## Epic 5: Transport, Starter Preset, And Reference Example
 
 ### `TRN-01` Build `plugin-hono`
@@ -524,6 +536,174 @@ Acceptance criteria:
 - richer dashboards/analytics remain in roadmap
 - baseline OTEL support stays separate from product-grade observability
 
+### `DEF-07` Plan sandboxed code execution
+
+Depends on: `CAP-01`
+
+Acceptance criteria:
+
+- research doc captures chosen sandbox approach, alternatives, and trade-offs
+- architectural decision record exists alongside the other framework ADRs
+- the plan is concrete enough to turn into Epic 9 without further research
+
+## Epic 8: Runtime Integration (Minimum It Actually Works)
+
+Epic 8 turns Epics 0–5 into a runnable end-to-end path: composed plugin-host startup, config-driven session construction, real provider inference, Hono routes that call the composed runtime, and a live smoke test.
+
+### `RT-01` Wire plugin-host composition into `createGenericAI()` bootstrap
+
+Depends on: `KRN-09`, `CFG-04`
+
+Acceptance criteria:
+
+- `createGenericAI()` materializes the starter preset into a composed plugin host
+- bootstrap surfaces a typed runtime handle that downstream transport can invoke
+- bootstrap failures are actionable and preserve plugin diagnostics
+
+### `RT-02` Bridge capability plugins into `pi` `AgentSession` as tools and prompt fragments
+
+Depends on: `RT-01`, `CAP-01` through `CAP-09`
+
+Acceptance criteria:
+
+- capability plugins expose tools that appear in the `pi` agent session
+- prompt fragments declared by plugins are composed deterministically
+- the bridge stays runtime-agnostic so provider swaps do not require plugin changes
+
+### `RT-03` Connect `plugin-config-yaml` to bootstrap so YAML drives model, instructions, and plugin config
+
+Depends on: `RT-01`, `CFG-02`, `CFG-03`
+
+Acceptance criteria:
+
+- `.generic-ai/framework.yaml` plus agent YAMLs drive the starter runtime
+- model, instructions, and plugin config are all YAML-visible
+- missing or invalid YAML produces an actionable startup error
+
+### `RT-04` Runnable `examples/starter-hono` bin with a real-LLM execution path
+
+Depends on: `RT-01`, `RT-02`, `RT-03`, `TRN-03`
+
+Acceptance criteria:
+
+- `examples/starter-hono` exposes run and stream endpoints backed by the composed runtime
+- OpenAI Codex SDK is the first supported provider; `pi` remains a documented fallback
+- streaming surfaces canonical kernel events plus the run envelope
+
+### `RT-05` End-to-end smoke test against a real provider (gated on credentials)
+
+Depends on: `RT-04`
+
+Acceptance criteria:
+
+- a workflow-dispatch CI smoke test exercises the starter bin with a real provider
+- the test is skipped cleanly when provider credentials are absent
+- failures produce an actionable error, not a timeout
+
+### `RT-06` Node-version and install parity for the reference example
+
+Depends on: `RT-04`
+
+Acceptance criteria:
+
+- `preinstall`, `pretypecheck`, `pretest`, and `prelint` hooks enforce Node 24
+- `npm install` from a clean checkout resolves all runtime and example dependencies
+- contributors see a clear message when their Node version is unsupported
+
+## Epic 9: Sandboxed Code Execution
+
+Epic 9 turns `DEF-07`'s plan into a shipped sandboxed execution path. The scope stays additive: `plugin-tools-terminal` keeps its host-execution default, and `plugin-tools-terminal-sandbox` slots into the starter preset when operators opt in.
+
+### `SBX-02` Define `SandboxContract` in the SDK
+
+Depends on: `DEF-07`, `KRN-01`
+
+Acceptance criteria:
+
+- SDK exports policy, request/result, and runtime config shapes plus parse/merge helpers
+- contract tests validate schema and parser agreement
+- the contract is backend-neutral so Docker, Wasm, and microVM implementations can share it
+
+### `SBX-03` Implement `plugin-tools-terminal-sandbox` Docker backend
+
+Depends on: `SBX-02`, `CAP-01`
+
+Acceptance criteria:
+
+- Docker-backed per-session containers execute commands with structured stdout/stderr capture
+- the backend can be called with or without a caller-supplied `sessionId` and cleans up on destroy
+- live Docker integration tests skip gracefully when the daemon is unavailable
+
+### `SBX-04` Enforce resource limits and timeouts
+
+Depends on: `SBX-03`
+
+Acceptance criteria:
+
+- CPU, memory, and wall-clock limits are enforced via the Docker runtime
+- timeouts escalate SIGTERM→SIGKILL with configurable grace
+- `SandboxExecutionResult` reports peak memory, CPU time, wall-clock, and truncation metadata
+
+### `SBX-05` Network policy engine
+
+Depends on: `SBX-03`
+
+Acceptance criteria:
+
+- `isolated`, `allowlist`, and `open` modes are enforced by the Docker backend
+- `allowlist` mode uses a per-session internal network plus proxy sidecar
+- blocked outbound destinations are surfaced in sandbox stderr for debugging
+
+### `SBX-06` File I/O bridge
+
+Depends on: `SBX-03`, `INF-01`
+
+Acceptance criteria:
+
+- readonly, copy, and none file modes are enforced (none does not bind-mount the workspace)
+- copy-out refuses symlinks and rejects absolute or `..`-traversing paths
+- `policy.files.maxInputBytes` caps workspace snapshot size
+
+### `SBX-07` Output capture and artifact collection
+
+Depends on: `SBX-03`
+
+Acceptance criteria:
+
+- stdout/stderr capture independently with UTF-8-safe truncation
+- result metadata includes image, sandbox cwd, host cwd, and truncation flags
+- long-running commands can stream output through an optional callback
+
+### `SBX-08` Bootstrap integration and preset wiring
+
+Depends on: `SBX-03`, `CAP-01`, `TRN-02`
+
+Acceptance criteria:
+
+- `GENERIC_AI_SANDBOX=docker` selects the sandbox terminal via the starter preset
+- Docker availability is probed at bootstrap with actionable warn/fallback/fail behavior
+- explicit `terminalTools` slot overrides win over default sandbox selection
+
+### `SBX-09` Integration tests and security validation
+
+Depends on: `SBX-04`, `SBX-05`, `SBX-06`, `SBX-07`
+
+Acceptance criteria:
+
+- path-traversal, symlink escape, and workspace boundary tests cover the `normalizeRelativeSandboxPath` surface
+- concurrent sandbox sessions run without cross-contamination
+- resource-pressure tests assert clean termination and no orphaned containers/networks
+
+### `SBX-10` Documentation and migration guide
+
+Depends on: `SBX-08`, `SBX-09`
+
+Acceptance criteria:
+
+- operator guide covers enabling sandboxing, prerequisites, env vars, and troubleshooting
+- migration guide walks from `plugin-tools-terminal` to `plugin-tools-terminal-sandbox`
+- security-model doc enumerates protections and known limitations
+
 ## Linear Import Order
 
 When creating or resyncing this issue tree in Linear, import issues in this order:
@@ -532,10 +712,12 @@ When creating or resyncing this issue tree in Linear, import issues in this orde
 2. `KRN-01` through `KRN-09`
 3. `CFG-01` through `CFG-04`
 4. `INF-01` through `INF-06`
-5. `CAP-01` through `CAP-08`
+5. `CAP-01` through `CAP-09`
 6. `TRN-01` through `TRN-03`
 7. `CTL-01` through `CTL-07`
-8. `DEF-01` through `DEF-06`
+8. `DEF-01` through `DEF-07`
+9. `RT-01` through `RT-06`
+10. `SBX-02` through `SBX-10`
 
 Within each epic, preserve the written order so dependency links can be created cleanly as the issues are entered.
 
@@ -545,10 +727,12 @@ Within each epic, preserve the written order so dependency links can be created 
 2. `KRN-01` to `KRN-09`
 3. `CFG-01` to `CFG-04`
 4. `INF-01` to `INF-06`
-5. `CAP-01` to `CAP-08`
+5. `CAP-01` to `CAP-09`
 6. `TRN-01` to `TRN-03`
 7. `CTL-01` to `CTL-07`
-8. `DEF-01` to `DEF-06`
+8. `RT-01` to `RT-06`
+9. `SBX-02` to `SBX-10`
+10. `DEF-01` to `DEF-07` (planning tracks can be interleaved with the execution order above)
 
 ## Minimum "It Works" Milestone
 

@@ -65,12 +65,20 @@ The framework's first functional vertical slice is landed on `main`. The "Minimu
 | 1 — SDK & kernel (`KRN-01`..`KRN-09`) | Plugin contracts, host, `Scope`, session orchestration, canonical event stream, run envelope, bootstrap API | Done |
 | 2 — Config & presets (`CFG-01`..`CFG-04`) | Canonical YAML schemas, discovery/resolution, plugin schema composition, starter preset contract | Done |
 | 3 — Infrastructure base plugins (`INF-01`..`INF-06`) | Workspace FS, memory + SQLite storage, in-process queue, OTEL logging, default output | Done |
-| 4 — Local capability base plugins (`CAP-01`..`CAP-08`) | Terminal, file, and web tools; MCP; Agent Skills; delegation; messaging; file-backed memory | Done |
+| 4 — Local capability base plugins (`CAP-01`..`CAP-09`) | Terminal, file, and web tools; MCP; Agent Skills; delegation; messaging; file-backed memory; blocking user interaction | Done |
 | 5 — Transport, starter preset, reference example (`TRN-01`..`TRN-03`) | `plugin-hono`, assembled starter preset, runnable `examples/starter-hono` | Done |
+| 8 — Runtime integration (`RT-01`..`RT-06`) | Composed plugin-host startup, YAML-driven session construction, real provider inference, Hono routes calling the composed runtime, live provider smoke test, Node/install parity | Done |
+| 9 — Sandboxed code execution (`SBX-02`..`SBX-10`) | `SandboxContract` in SDK, Docker-backed `plugin-tools-terminal-sandbox` with resource/network/file policy, output capture, starter preset wiring, integration tests, operator docs | Done |
+
+### Planning-only tracks complete
+
+`DEF-04` (runtime governance roadmap), `DEF-05` (TUI / web UI tracks), and `DEF-07` (sandboxed execution research) landed as planning ADRs and roadmap docs.
 
 ### In flight
 
-Epic 6 (repo control plane, `CTL-01`..`CTL-07`) and Epic 7 (deferred tracks, `DEF-01`..`DEF-06`) are not yet merged to `main`. See [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) for the live list.
+Epic 6 (repo control plane, `CTL-01`..`CTL-07`) is marked Done in Linear, but the deliverables (CODEOWNERS, dependabot, issue/PR templates, security workflow, four-command CI gate, docs-as-code pipeline, control-plane ADRs) live only in unmerged `claude/*` worktree branches. Tracked in `NEI-382`. Until those branches land, `main` has only the `live-provider-smoke.yml` workflow and no PR-time CI.
+
+The remaining Epic 7 deferred tracks (`DEF-01` identity/auth, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability) are still in the backlog. Sandbox plugin P2 hardening follow-ups are tracked in `NEI-383`.
 
 ## Shipped Packages
 
@@ -93,8 +101,8 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 
 ### Capability plugins
 
-- [`@generic-ai/plugin-tools-terminal`](packages/plugin-tools-terminal) — local command execution as a shipped `pi` tool.
-- [`@generic-ai/plugin-tools-terminal-sandbox`](packages/plugin-tools-terminal-sandbox) — Docker-backed sandbox terminal execution with per-session containers, resource ceilings, timeout enforcement, and structured output capture.
+- [`@generic-ai/plugin-tools-terminal`](packages/plugin-tools-terminal) — local command execution as a shipped `pi` tool (host execution, no isolation).
+- [`@generic-ai/plugin-tools-terminal-sandbox`](packages/plugin-tools-terminal-sandbox) — Docker-backed terminal execution with per-session containers, resource ceilings, timeout enforcement, network policy modes, file bridge, and structured output capture. Opt-in via `GENERIC_AI_SANDBOX=docker` on the starter preset.
 - [`@generic-ai/plugin-tools-files`](packages/plugin-tools-files) — local file read/write/list/edit `pi` tools.
 - [`@generic-ai/plugin-tools-web`](packages/plugin-tools-web) — configurable web fetch/search tools with shared host allow/block policies.
 - [`@generic-ai/plugin-mcp`](packages/plugin-mcp) — Model Context Protocol support as a replaceable plugin.
@@ -128,7 +136,8 @@ The sandbox stack has its own operator and API docs pack:
 
 Remaining tracked work:
 
-- Epic 6 — Agent-ready and repo control plane: baseline docs, CI + branch control, ownership + templates, docs-as-code, advanced test discipline, supply-chain controls, code-quality governance.
-- Epic 7 — Deferred but planned tracks: identity/auth plugin, Postgres storage, external queueing, runtime security/governance (see [`docs/runtime-governance.md`](docs/runtime-governance.md)), TUI and web UI, advanced observability beyond the OTEL baseline.
+- **Epic 6 — Agent-ready and repo control plane (`NEI-382` gap tracker):** land the CODEOWNERS, dependabot, issue/PR templates, security workflow, four-command CI gate, docs-as-code pipeline, and control-plane ADRs currently stranded in `claude/*` worktree branches.
+- **Epic 7 — Deferred but planned tracks:** `DEF-01` identity/auth plugin, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability beyond the OTEL baseline. Runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md).
+- **Sandbox plugin P2 hardening (`NEI-383`):** DNS-rebinding defense in the allowlist proxy, proxy readiness probe, writable-rootfs tightening, and the rest of the deferred bot findings from the NEI-372 rollup.
 
 See [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) for full scope and dependency links.
