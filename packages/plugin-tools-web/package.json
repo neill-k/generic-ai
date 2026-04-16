@@ -1,0 +1,23 @@
+{
+  "name": "@generic-ai/plugin-tools-web",
+  "version": "0.0.0",
+  "description": "Configurable web fetch and search tools with shared host allow/block policies.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@generic-ai/plugin-workspace-fs": "0.0.0",
+    "@generic-ai/sdk": "0.0.0",
+    "@sinclair/typebox": "0.34.49"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
