@@ -15,6 +15,7 @@ import {
   type SandboxExecutionRequest,
   type SandboxExecutionResult,
   type SandboxExecutionStatus,
+  type SandboxOutputListener,
   type SandboxPolicy,
   type SandboxRuntime,
   type SandboxRuntimeConfig,
@@ -87,6 +88,7 @@ export interface SandboxRunRequest {
   readonly timeoutMs?: number;
   readonly policy?: SandboxPolicy;
   readonly runtimeConfig?: SandboxRuntimeConfig;
+  readonly onOutput?: SandboxOutputListener;
   readonly signal?: AbortSignal;
 }
 
@@ -132,6 +134,7 @@ export interface SandboxDockerExecRequest {
   readonly command: string;
   readonly cwd?: string;
   readonly env?: Readonly<Record<string, string>>;
+  readonly onOutput?: SandboxOutputListener;
   readonly signal?: AbortSignal;
 }
 
@@ -177,6 +180,7 @@ interface ActiveSandboxSession {
   readonly session: SandboxSession;
   readonly policy: SandboxPolicy;
   readonly defaultCwd: string;
+  readonly defaultHostCwd: string;
   readonly env: Readonly<Record<string, string>>;
 }
 
@@ -185,6 +189,11 @@ interface UsageSummary {
   readonly lastCpuTimeMs?: number;
   readonly peakMemoryMb?: number;
   readonly diskWrittenMb?: number;
+}
+
+interface TruncatedOutput {
+  readonly text: string;
+  readonly truncated: boolean;
 }
 
 const DEFAULT_CONFIG: SandboxTerminalPluginConfig = Object.freeze({
@@ -388,7 +397,7 @@ function resolveStatus(
     return "succeeded";
   }
   const stderr = result.stderr.toLowerCase();
-  if (stderr.includes("out of memory") || stderr.includes("oom")) {
+  if (stderr.includes("out of memory") || /(^|\W)oom($|\W)/u.test(stderr)) {
     return "oom";
   }
   if (result.exitCode === null) {
@@ -564,6 +573,37 @@ function decorateExecutionStderr(
   return messages.join(trimmed.length > 0 ? "\n" : "");
 }
 
+function truncateOutput(text: string, maxOutputBytes: number | undefined): TruncatedOutput {
+  if (maxOutputBytes === undefined) {
+    return {
+      text,
+      truncated: false,
+    };
+  }
+
+  const encoded = Buffer.from(text, "utf8");
+  if (encoded.length <= maxOutputBytes) {
+    return {
+      text,
+      truncated: false,
+    };
+  }
+
+  let boundary = Math.min(maxOutputBytes, encoded.length);
+  while (boundary > 0 && boundary < encoded.length) {
+    const byte = encoded[boundary];
+    if (byte === undefined || (byte & 0b1100_0000) !== 0b1000_0000) {
+      break;
+    }
+    boundary -= 1;
+  }
+
+  return {
+    text: encoded.subarray(0, boundary).toString("utf8"),
+    truncated: true,
+  };
+}
+
 async function runProcess(
   command: string,
   args: readonly string[],
@@ -626,8 +666,12 @@ function toContainerPath(root: string, hostPath: string): string {
   );
 }
 
+async function resolveHostCwd(root: string, cwd?: string): Promise<string> {
+  return resolveSafeWorkspacePath(root, cwd ?? ".");
+}
+
 async function resolveContainerCwd(root: string, cwd?: string): Promise<string> {
-  const hostPath = await resolveSafeWorkspacePath(root, cwd ?? ".");
+  const hostPath = await resolveHostCwd(root, cwd);
   return toContainerPath(root, hostPath);
 }
 
@@ -904,6 +948,7 @@ export function createSandboxTerminalPlugin(
 
     const sessionId = request.sessionId ?? sessionIdFactory();
     const outputDir = await resolveOutputDirectory(sessionId, policy);
+    const defaultHostCwd = await resolveHostCwd(layout.root, request.cwd);
     const defaultCwd = await resolveContainerCwd(layout.root, request.cwd);
     const env = mergeStringRecord(runtimeConfig.env, {
       [SANDBOX_OUTPUT_ENV_VAR]: SANDBOX_OUTPUT_MOUNT_PATH,
@@ -949,6 +994,7 @@ export function createSandboxTerminalPlugin(
       session,
       policy,
       defaultCwd,
+      defaultHostCwd,
       env: env ?? {},
     });
 
@@ -972,13 +1018,17 @@ export function createSandboxTerminalPlugin(
       throw new Error(`Unknown sandbox session "${request.sessionId}".`);
     }
 
-    const cwd = request.cwd
-      ? await resolveContainerCwd(layout.root, request.cwd)
+    const hostCwd = request.cwd
+      ? await resolveHostCwd(layout.root, request.cwd)
+      : active.defaultHostCwd;
+    const sandboxCwd = request.cwd
+      ? toContainerPath(layout.root, hostCwd)
       : active.defaultCwd;
     const env = mergeStringRecord(active.env, request.env);
     const startedAt = now();
     const timeoutMs = request.timeoutMs ?? active.policy.resources?.timeoutMs;
     const timeoutGraceMs = active.policy.resources?.timeoutGraceMs;
+    const maxOutputBytes = active.policy.resources?.maxOutputBytes;
     let timedOut = false;
     let callerAborted = false;
 
@@ -1007,8 +1057,9 @@ export function createSandboxTerminalPlugin(
       execResult = await docker.exec({
         containerId: active.session.containerId,
         command: request.command,
-        cwd,
+        cwd: sandboxCwd,
         ...(env === undefined ? {} : { env }),
+        ...(request.onOutput === undefined ? {} : { onOutput: request.onOutput }),
       });
     } catch (error) {
       if (error instanceof SandboxUnavailableError) {
@@ -1056,21 +1107,29 @@ export function createSandboxTerminalPlugin(
       oomKilled,
       memoryMb: active.policy.resources?.memoryMb,
     });
-    const output = formatCombinedOutput(execResult.stdout, stderr);
+    const stdoutResult = truncateOutput(execResult.stdout, maxOutputBytes);
+    const stderrResult = truncateOutput(stderr, maxOutputBytes);
+    const output = formatCombinedOutput(stdoutResult.text, stderrResult.text);
 
     return Object.freeze({
       command: request.command,
       runtime: active.session.runtime,
-      cwd,
+      image: active.session.image,
+      cwd: hostCwd,
+      sandboxCwd,
       exitCode: timedOut || callerAborted ? null : execResult.exitCode,
-      stdout: execResult.stdout,
-      stderr,
+      stdout: stdoutResult.text,
+      stderr: stderrResult.text,
       output,
       durationMs,
       timedOut,
+      truncated: stdoutResult.truncated || stderrResult.truncated,
+      stdoutTruncated: stdoutResult.truncated,
+      stderrTruncated: stderrResult.truncated,
       status: resolveStatus(execResult, timedOut, unavailable, oomKilled),
       artifacts,
       resourceUsage: buildResourceUsage(usage, durationMs),
+      unrestrictedLocal: false,
     });
   }
 
@@ -1082,6 +1141,7 @@ export function createSandboxTerminalPlugin(
         ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
         ...(request.env === undefined ? {} : { env: request.env }),
         ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+        ...(request.onOutput === undefined ? {} : { onOutput: request.onOutput }),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       });
     }
@@ -1101,6 +1161,7 @@ export function createSandboxTerminalPlugin(
         ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
         ...(request.env === undefined ? {} : { env: request.env }),
         ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+        ...(request.onOutput === undefined ? {} : { onOutput: request.onOutput }),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
       });
     } finally {

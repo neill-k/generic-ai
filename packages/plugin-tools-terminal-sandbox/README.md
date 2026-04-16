@@ -7,6 +7,7 @@ Docker-backed sandbox terminal execution for Generic AI agents.
 - creates one container per sandbox session
 - executes commands inside that container instead of on the host
 - captures structured `stdout`, `stderr`, exit codes, wall-clock timing, resource usage, and produced artifacts
+- preserves terminal-compatible fields like `output`, `timedOut`, and `unrestrictedLocal: false` while adding sandbox-specific `image`, `sandboxCwd`, artifact, and truncation metadata
 - mounts the workspace read-only and exposes a separate tmpfs-backed writable output directory
 - enforces Docker CPU and memory ceilings plus Docker-stop timeout escalation
 - degrades cleanly when the Docker daemon is unavailable
@@ -21,6 +22,7 @@ remains the explicit unrestricted local-development path.
 - Node image: `node:24-bookworm-slim`
 - Python image: `python:3.12-slim`
 - default resource ceilings: `1` CPU, `512MiB` memory, `30s` timeout, `5s` timeout grace, `100MiB` writable output
+- optional output cap: `policy.resources.maxOutputBytes` truncates `stdout` and `stderr` independently and marks the result when either stream is clipped
 - default network policy: `isolated`
 - default file policy: read-only workspace mount plus `workspace/shared/sandbox-results`
 

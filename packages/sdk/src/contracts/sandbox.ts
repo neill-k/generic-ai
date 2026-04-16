@@ -30,10 +30,33 @@ export const SANDBOX_EXECUTION_STATUSES = [
   "unavailable",
 ] as const;
 
+/**
+ * Output streams exposed by sandbox execution backends.
+ */
+export const SANDBOX_OUTPUT_STREAMS = ["stdout", "stderr"] as const;
+
 export type SandboxRuntime = (typeof SANDBOX_RUNTIMES)[number];
 export type SandboxNetworkMode = (typeof SANDBOX_NETWORK_MODES)[number];
 export type SandboxFileIOMode = (typeof SANDBOX_FILE_IO_MODES)[number];
 export type SandboxExecutionStatus = (typeof SANDBOX_EXECUTION_STATUSES)[number];
+export type SandboxOutputStream = (typeof SANDBOX_OUTPUT_STREAMS)[number];
+
+/**
+ * Structured output chunk emitted by sandbox backends that support streaming.
+ */
+export interface SandboxOutputChunk {
+  /** Target stream for this chunk. */
+  readonly stream: SandboxOutputStream;
+  /** UTF-8 text emitted by the sandbox. */
+  readonly text: string;
+}
+
+/**
+ * Optional streaming callback used by long-running sandbox commands.
+ */
+export type SandboxOutputListener = (
+  chunk: SandboxOutputChunk,
+) => void | Promise<void>;
 
 /**
  * Generated file metadata returned from a sandboxed run.
@@ -75,6 +98,8 @@ export interface SandboxResourceLimits {
   readonly timeoutMs?: number;
   /** Grace period between timeout SIGTERM and forced SIGKILL, in milliseconds. */
   readonly timeoutGraceMs?: number;
+  /** Maximum number of UTF-8 bytes preserved per output stream. */
+  readonly maxOutputBytes?: number;
 }
 
 /**
@@ -181,6 +206,8 @@ export interface SandboxExecutionRequest {
   readonly env?: Readonly<Record<string, string>>;
   /** Command-scoped timeout override, in milliseconds. */
   readonly timeoutMs?: number;
+  /** Optional streaming callback for output-aware backends. */
+  readonly onOutput?: SandboxOutputListener;
   /** Optional abort signal supplied by the caller. */
   readonly signal?: AbortSignal;
 }
@@ -194,8 +221,12 @@ export interface SandboxExecutionResult {
   readonly command: string;
   /** Runtime family selected for the session. */
   readonly runtime: SandboxRuntime;
-  /** Container working directory used for execution. */
+  /** Concrete image used by the sandbox backend. */
+  readonly image: string;
+  /** Host working directory used for execution. Preserves TerminalRunResult semantics. */
   readonly cwd: string;
+  /** Container working directory used for execution. */
+  readonly sandboxCwd: string;
   /** Exit code returned by the sandboxed command, or `null` on forced termination. */
   readonly exitCode: number | null;
   /** Captured standard output. */
@@ -208,12 +239,20 @@ export interface SandboxExecutionResult {
   readonly durationMs: number;
   /** Whether the command hit the configured timeout. */
   readonly timedOut: boolean;
+  /** Whether any output stream was truncated. */
+  readonly truncated: boolean;
+  /** Whether stdout hit the configured output cap. */
+  readonly stdoutTruncated: boolean;
+  /** Whether stderr hit the configured output cap. */
+  readonly stderrTruncated: boolean;
   /** Backend-neutral structured status. */
   readonly status: SandboxExecutionStatus;
   /** Files produced in the writable sandbox area. */
   readonly artifacts: readonly SandboxArtifact[];
   /** Best-effort runtime resource usage. */
   readonly resourceUsage?: SandboxResourceUsage;
+  /** Compatibility field matching the existing terminal-tool shape. */
+  readonly unrestrictedLocal: false;
 }
 
 /**
@@ -243,6 +282,7 @@ export const SANDBOX_RESOURCE_LIMITS_SCHEMA = {
     diskMb: { type: "integer", minimum: 1 },
     timeoutMs: { type: "integer", minimum: 1 },
     timeoutGraceMs: { type: "integer", minimum: 1 },
+    maxOutputBytes: { type: "integer", minimum: 1 },
   },
   additionalProperties: false,
 } as const satisfies JsonObject;
@@ -415,12 +455,18 @@ export function parseSandboxPolicy(input: unknown): SandboxPolicy {
       "sandbox policy.resources.timeoutGraceMs",
       true,
     );
+    const maxOutputBytes = parseNumber(
+      source["maxOutputBytes"],
+      "sandbox policy.resources.maxOutputBytes",
+      true,
+    );
     resources = {
       ...(cpuCores === undefined ? {} : { cpuCores }),
       ...(memoryMb === undefined ? {} : { memoryMb }),
       ...(diskMb === undefined ? {} : { diskMb }),
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
       ...(timeoutGraceMs === undefined ? {} : { timeoutGraceMs }),
+      ...(maxOutputBytes === undefined ? {} : { maxOutputBytes }),
     };
   }
 

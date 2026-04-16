@@ -27,6 +27,7 @@ describe("@generic-ai/sdk sandbox contract", () => {
         diskMb: 256,
         timeoutMs: 30_000,
         timeoutGraceMs: 5_000,
+        maxOutputBytes: 64_000,
       },
       network: {
         mode: "allowlist",
@@ -47,6 +48,7 @@ describe("@generic-ai/sdk sandbox contract", () => {
         diskMb: 256,
         timeoutMs: 30_000,
         timeoutGraceMs: 5_000,
+        maxOutputBytes: 64_000,
       },
       network: {
         mode: "allowlist",
@@ -76,6 +78,13 @@ describe("@generic-ai/sdk sandbox contract", () => {
         },
       }),
     ).toThrow(/timeoutGraceMs must be greater than zero/i);
+    expect(() =>
+      parseSandboxPolicy({
+        resources: {
+          maxOutputBytes: 0,
+        },
+      }),
+    ).toThrow(/maxOutputBytes must be greater than zero/i);
     expect(() =>
       parseSandboxPolicy({
         network: {

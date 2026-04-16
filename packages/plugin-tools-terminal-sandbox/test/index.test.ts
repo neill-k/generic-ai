@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -71,6 +71,11 @@ class FakeDockerOperations implements SandboxDockerOperations {
   };
   execHandler?: (request: SandboxDockerExecRequest) => Promise<SandboxDockerExecResult>;
   stopHandler?: (containerId: string, graceMs?: number) => Promise<void>;
+  copyHandler?: (
+    containerId: string,
+    sourcePath: string,
+    destinationPath: string,
+  ) => Promise<void>;
 
   async isAvailable(): Promise<boolean> {
     return this.available;
@@ -114,6 +119,9 @@ class FakeDockerOperations implements SandboxDockerOperations {
     destinationPath: string,
   ): Promise<void> {
     this.copied.push({ containerId, sourcePath, destinationPath });
+    if (this.copyHandler !== undefined) {
+      await this.copyHandler(containerId, sourcePath, destinationPath);
+    }
   }
 
   async inspectContainer(): Promise<SandboxContainerState | undefined> {
@@ -170,6 +178,11 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
   it("creates a reusable Docker-backed session and executes commands inside it", async () => {
     await withTempRoot(async (root) => {
       const docker = new FakeDockerOperations();
+      docker.copyHandler = async (_containerId, _sourcePath, destinationPath) => {
+        await mkdir(path.join(destinationPath, "logs"), { recursive: true });
+        await writeFile(path.join(destinationPath, "result.json"), "{\"ok\":true}\n", "utf8");
+        await writeFile(path.join(destinationPath, "logs", "stderr.txt"), "warn\n", "utf8");
+      };
       const plugin = createSandboxTerminalPlugin({
         root,
         dockerOperations: docker,
@@ -204,8 +217,24 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         ]),
       );
       expect(result.status).toBe("succeeded");
+      expect(result.image).toBe("node:24-bookworm-slim");
+      expect(result.cwd).toBe(root);
+      expect(result.sandboxCwd).toBe("/workspace");
       expect(result.stdout).toBe("ok\n");
       expect(result.output).toBe("ok\n");
+      expect(result.unrestrictedLocal).toBe(false);
+      expect(result.artifacts).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "result.json",
+            sizeBytes: 12,
+          }),
+          expect.objectContaining({
+            path: "logs/stderr.txt",
+            sizeBytes: 5,
+          }),
+        ]),
+      );
       expect(result.resourceUsage).toEqual({
         wallClockMs: expect.any(Number),
         cpuTimeMs: 40,
@@ -258,6 +287,36 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       );
       expect(docker.stopped).toEqual([{ containerId: "container-ephemeral-1", graceMs: undefined }]);
       expect(docker.removed).toEqual(["container-ephemeral-1"]);
+    });
+  });
+
+  it("reports non-timeout command failures without masking the exit code", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      docker.execResult = {
+        exitCode: 2,
+        stdout: "",
+        stderr: "boom\n",
+      };
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "failure-1",
+      });
+      const session = await plugin.createSession({
+        runtime: "bash",
+        workspaceRoot: root,
+      });
+
+      const result = await plugin.exec({
+        sessionId: session.sessionId,
+        command: "exit 2",
+      });
+
+      expect(result.status).toBe("failed");
+      expect(result.exitCode).toBe(2);
+      expect(result.timedOut).toBe(false);
+      expect(result.stderr).toBe("boom");
     });
   });
 
@@ -351,6 +410,42 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(result.status).toBe("oom");
       expect(result.stderr).toMatch(/256MiB memory limit/i);
       expect(result.stderr).toMatch(/memoryMb/i);
+    });
+  });
+
+  it("truncates stdout and stderr independently when maxOutputBytes is configured", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      docker.execResult = {
+        exitCode: 0,
+        stdout: "😀😀",
+        stderr: "abcdefghij",
+      };
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "truncate-1",
+      });
+      const session = await plugin.createSession({
+        runtime: "bash",
+        workspaceRoot: root,
+        policy: {
+          resources: {
+            maxOutputBytes: 5,
+          },
+        },
+      });
+
+      const result = await plugin.exec({
+        sessionId: session.sessionId,
+        command: "printf 'ignored'",
+      });
+
+      expect(result.truncated).toBe(true);
+      expect(result.stdoutTruncated).toBe(true);
+      expect(result.stderrTruncated).toBe(true);
+      expect(result.stdout).toBe("😀");
+      expect(Buffer.byteLength(result.stderr, "utf8")).toBeLessThanOrEqual(5);
     });
   });
 
