@@ -45,7 +45,7 @@ export async function runStarterExampleCli(options: StarterExampleCliOptions = {
   return result;
 }
 
-const isCli = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const isCli = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isCli) {
   runStarterExampleCli({ args: process.argv.slice(2) }).catch((error) => {

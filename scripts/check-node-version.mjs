@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export const requiredNodeMajor = 24;
@@ -59,7 +59,7 @@ export function assertSupportedNodeVersion(version = process.version) {
   }
 }
 
-const isCli = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const isCli = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 
 if (isCli) {
   try {
