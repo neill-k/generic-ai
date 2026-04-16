@@ -186,7 +186,7 @@ export async function runLiveProviderSmoke(
   const fileTools = createWorkspaceFileTools({ root: options.root });
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: false },
-    retry: { enabled: true, maxRetries: 1 },
+    retry: { enabled: false, maxRetries: 0 },
   });
   const { session } = await createAgentSession({
     cwd: options.root,

@@ -8,6 +8,7 @@ import {
   createLiveProviderSmokeTransport,
   LIVE_SMOKE_DONE_TEXT,
   LIVE_SMOKE_ENABLE_ENV,
+  type LiveProviderSmokeCompletedResult,
   runLiveProviderSmoke,
 } from "./live-smoke.js";
 
@@ -104,11 +105,31 @@ describe("@generic-ai/example-starter-hono live smoke", () => {
         return;
       }
 
+      // Parse the done event payload to get the full result
+      const doneMatch = text.match(/event: done\ndata: (.+)/);
+      expect(doneMatch).not.toBeNull();
+      const doneData = JSON.parse(doneMatch![1]) as LiveProviderSmokeCompletedResult;
+
+      // Verify agent_end was observed
+      expect(doneData.sawAgentEnd).toBe(true);
+
+      // Verify exactly 1 write and 1 read tool call
+      const writeCalls = doneData.toolCalls.filter((tc) => tc.toolName === "write");
+      const readCalls = doneData.toolCalls.filter((tc) => tc.toolName === "read");
+      expect(writeCalls).toHaveLength(1);
+      expect(readCalls).toHaveLength(1);
+
+      // Verify write comes before read
+      const writeIndex = doneData.toolCalls.findIndex((tc) => tc.toolName === "write");
+      const readIndex = doneData.toolCalls.findIndex((tc) => tc.toolName === "read");
+      expect(writeIndex).toBeLessThan(readIndex);
+
+      // Verify assistant text matches expected done marker
+      expect(doneData.assistantText).toBe(LIVE_SMOKE_DONE_TEXT);
+
+      // Verify SSE structure
       expect(text).toContain("event: tool");
-      expect(text).toContain('"toolName": "write"');
-      expect(text).toContain('"toolName": "read"');
       expect(text).toContain("event: done");
-      expect(text).toContain(`"assistantText": "${LIVE_SMOKE_DONE_TEXT}"`);
     });
   }, 120_000);
 });

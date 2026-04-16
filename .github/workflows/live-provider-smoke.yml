@@ -2,9 +2,6 @@ name: live-provider-smoke
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 jobs:
   live-smoke:
@@ -36,4 +33,4 @@ jobs:
           GENERIC_AI_ENABLE_LIVE_SMOKE: "1"
           GENERIC_AI_LIVE_PROVIDER: openai-codex
           GENERIC_AI_LIVE_PROVIDER_API_KEY: ${{ secrets.GENERIC_AI_LIVE_PROVIDER_API_KEY }}
-        run: npm run -w @generic-ai/example-starter-hono test:live
+        run: npx vitest run --passWithNoTests=false examples/starter-hono/src/live-smoke.test.ts
