@@ -23,6 +23,12 @@ Current bootstrap boundary:
 - plugin-host dependency ordering is the source of truth for startup order; each resolved plugin definition carries setup/start/stop lifecycle hooks
 - starter-path convenience wrappers live in preset packages such as `@generic-ai/preset-starter-hono`
 
+Current runtime bridge:
+
+- `resolveCapabilityPiToolRegistry(capabilities)` assembles the stable `pi` tool registry from capability plugins
+- `createCapabilityPiAgentSession(options)` wires capability tools plus Agent Skills into a real `pi` `AgentSession`
+- `runCapabilityPiAgentSession(options)` forwards `pi` session activity into the canonical event stream and run envelope
+
 Planning baseline:
 
 - `docs/planning/README.md`

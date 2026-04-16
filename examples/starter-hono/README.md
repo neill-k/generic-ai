@@ -8,7 +8,9 @@ What this example shows:
 - callers can still pass `createStarterHonoPreset()` explicitly when they want the composition to be visible in code
 - the example keeps the bootstrap layer and the preset package separate, which matches the repo boundary model
 
-The main source entrypoint is `examples/starter-hono/src/index.ts`. It is intentionally small for now so later runtime work can swap in the real kernel wiring without changing the example shape.
+The main source entrypoint is `examples/starter-hono/src/index.ts`. It stays small so the example can keep proving starter composition while later runtime work layers on a real provider-backed execution path.
+
+The core package now also exposes a capability-to-`pi` runtime bridge (`createCapabilityPiAgentSession` / `runCapabilityPiAgentSession`) so the same starter capability stack can be projected into a real `AgentSession` when provider-facing runtime work is needed.
 
 ## Fresh clone run path
 
