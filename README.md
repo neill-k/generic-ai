@@ -94,6 +94,7 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 ### Capability plugins
 
 - [`@generic-ai/plugin-tools-terminal`](packages/plugin-tools-terminal) — local command execution as a shipped `pi` tool.
+- [`@generic-ai/plugin-tools-terminal-sandbox`](packages/plugin-tools-terminal-sandbox) — Docker-backed sandbox terminal execution with per-session containers and structured output capture.
 - [`@generic-ai/plugin-tools-files`](packages/plugin-tools-files) — local file read/write/list/edit `pi` tools.
 - [`@generic-ai/plugin-tools-web`](packages/plugin-tools-web) — configurable web fetch/search tools with shared host allow/block policies.
 - [`@generic-ai/plugin-mcp`](packages/plugin-mcp) — Model Context Protocol support as a replaceable plugin.

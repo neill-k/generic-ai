@@ -1,0 +1,22 @@
+{
+  "name": "@generic-ai/plugin-tools-terminal-sandbox",
+  "version": "0.0.0",
+  "description": "Docker-backed sandbox terminal execution for Generic AI agents.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@generic-ai/plugin-workspace-fs": "0.0.0",
+    "@generic-ai/sdk": "0.0.0"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
