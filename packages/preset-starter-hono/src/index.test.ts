@@ -85,6 +85,34 @@ describe("@generic-ai/preset-starter-hono contract", () => {
     });
   });
 
+  it("supports swapping the terminal slot to the sandbox plugin", async () => {
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: sandbox migration
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          slotOverrides: [
+            {
+              slot: "terminalTools",
+              pluginId: "@generic-ai/plugin-tools-terminal-sandbox",
+              description: "Docker-backed sandbox terminal execution.",
+            },
+          ],
+        });
+
+        expect(
+          bootstrap.preset.plugins.find((plugin) => plugin.slot === "terminalTools"),
+        ).toMatchObject({
+          pluginId: "@generic-ai/plugin-tools-terminal-sandbox",
+          dependencies: ["@generic-ai/plugin-workspace-fs"],
+        });
+      },
+    );
+  });
+
   it("supports disabling optional Hono transport", () => {
     const resolved = resolveStarterPreset({
       slotOverrides: [{ slot: "transport", enabled: false }],
