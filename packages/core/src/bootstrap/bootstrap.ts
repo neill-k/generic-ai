@@ -176,7 +176,25 @@ async function resolveConfig<TSchemaSource, TRuntimeStart>(
   }
 
   const loadOptions = createLoaderOptions(source);
-  const result = await source.load(source.startDir, loadOptions);
+
+  let result: Awaited<ReturnType<typeof source.load>>;
+  try {
+    result = await source.load(source.startDir, loadOptions);
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Config loader threw an unexpected error.";
+    throw new GenericAIConfigError({
+      message: `Config loader failed: ${message}`,
+      failures: [
+        {
+          code: "CONFIG_LOADER_EXCEPTION",
+          message,
+          suggestion: "Check that the config source loader is correctly implemented.",
+        },
+      ],
+    });
+  }
+
   if (!result.ok) {
     const errorInput: {
       message: string;
@@ -194,6 +212,14 @@ async function resolveConfig<TSchemaSource, TRuntimeStart>(
     }
 
     throw new GenericAIConfigError(errorInput);
+  }
+
+  if (result.failures !== undefined && result.failures.length > 0) {
+    throw new GenericAIConfigError({
+      message: summarizeConfigLoadFailure(result.failures, result.diagnostics),
+      diagnostics: result.diagnostics,
+      failures: result.failures,
+    });
   }
 
   return freezeResolvedConfig(result.config);
@@ -266,23 +292,13 @@ function createPresetInputFromConfig(
   config: GenericAIResolvedConfig,
 ): BootstrapPresetInput | undefined {
   const framework = config.framework;
-  if (framework.preset === undefined && framework.name === undefined) {
+  if (framework.preset === undefined) {
     return undefined;
   }
 
-  const preset: {
-    id?: string;
-    name?: string;
-  } = {};
-
-  if (framework.preset !== undefined) {
-    preset.id = framework.preset;
-  }
-  if (framework.name !== undefined) {
-    preset.name = framework.name;
-  }
-
-  return preset;
+  return {
+    id: framework.preset,
+  };
 }
 
 function createRuntimePlan<TSchemaSource, TRuntimeStart>(
@@ -508,12 +524,61 @@ function extractPluginOwnedConfig(
   return Object.freeze(config);
 }
 
+/**
+ * Shallow-freezes the top-level resolved config and its `agents`/`plugins` maps.
+ * The `framework` and `sources` fields are deep-frozen via dedicated helpers so
+ * that nested runtime, storage, queue, and logging sub-objects are also immutable.
+ * Other nested objects (individual agent/plugin values) remain mutable references;
+ * callers that need full immutability should deep-freeze the entire tree.
+ */
 function freezeResolvedConfig(config: GenericAIResolvedConfig): GenericAIResolvedConfig {
   return Object.freeze({
     ...config,
+    framework: deepFreezeFramework(config.framework),
     agents: Object.freeze({ ...config.agents }),
     plugins: Object.freeze({ ...config.plugins }),
-    ...(config.sources === undefined ? {} : { sources: cloneSources(config.sources) }),
+    ...(config.sources === undefined
+      ? {}
+      : { sources: deepFreezeSources(config.sources) }),
+  });
+}
+
+function deepFreezeFramework(
+  framework: GenericAIResolvedConfig["framework"],
+): GenericAIResolvedConfig["framework"] {
+  const runtime = framework.runtime;
+  const frozenRuntime =
+    runtime === undefined
+      ? undefined
+      : Object.freeze({
+          ...runtime,
+          ...(runtime.storage === undefined ? {} : { storage: Object.freeze({ ...runtime.storage }) }),
+          ...(runtime.queue === undefined ? {} : { queue: Object.freeze({ ...runtime.queue }) }),
+          ...(runtime.logging === undefined
+            ? {}
+            : { logging: Object.freeze({ ...runtime.logging }) }),
+        });
+
+  return Object.freeze({
+    ...framework,
+    ...(frozenRuntime === undefined ? {} : { runtime: frozenRuntime }),
+    ...(framework.metadata === undefined
+      ? {}
+      : { metadata: Object.freeze({ ...framework.metadata }) }),
+    ...(framework.plugins === undefined
+      ? {}
+      : { plugins: Object.freeze([...framework.plugins]) }),
+  });
+}
+
+function deepFreezeSources(
+  sources: NonNullable<GenericAIResolvedConfig["sources"]>,
+): NonNullable<GenericAIResolvedConfig["sources"]> {
+  return Object.freeze({
+    ...sources,
+    ...(sources.agents === undefined ? {} : { agents: Object.freeze({ ...sources.agents }) }),
+    ...(sources.plugins === undefined ? {} : { plugins: Object.freeze({ ...sources.plugins }) }),
+    ...(sources.order === undefined ? {} : { order: Object.freeze([...sources.order]) }),
   });
 }
 
