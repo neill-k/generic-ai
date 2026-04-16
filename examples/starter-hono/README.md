@@ -10,6 +10,41 @@ What this example shows:
 
 The main source entrypoint is `examples/starter-hono/src/index.ts`. It is intentionally small for now so later runtime work can swap in the real kernel wiring without changing the example shape.
 
+## Fresh clone run path
+
+Use Node 24 LTS for the whole workspace. The root `.nvmrc`, root `package.json#engines.node`, this example package's `engines.node`, `.npmrc` `engine-strict=true`, and the `check:node` script all enforce the same floor so installs and CI fail before doing real work on an unsupported runtime.
+
+From a fresh clone:
+
+```bash
+git clone <repo-url> generic-ai
+cd generic-ai
+nvm use
+corepack enable
+npm install
+npm run build
+export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
+npm run -w @generic-ai/example-starter-hono start -- "the Generic AI starter stack"
+```
+
+On Windows PowerShell, set the key with:
+
+```powershell
+$env:GENERIC_AI_PROVIDER_API_KEY = "<provider-key>"
+```
+
+The current starter harness runs the local plugin composition and validates that the provider key is present. The later RT-04 runtime work will use the same run path for live provider execution.
+
+Useful verification commands:
+
+```bash
+npm run check:node
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+```
+
 ## Starter preset extension points
 
 When the example needs customization, use programmatic contract extension points:

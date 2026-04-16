@@ -3,6 +3,15 @@
   "version": "0.0.0",
   "description": "Runnable reference example for the Generic AI starter preset. Intentionally private: this example is never published to npm. TRN-03 will build it out.",
   "type": "module",
+  "scripts": {
+    "check:node": "node ../../scripts/check-node-version.mjs",
+    "prestart": "node ../../scripts/check-node-version.mjs",
+    "start": "node dist/run.js",
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty",
+    "test": "vitest run src/index.test.ts",
+    "lint": "biome lint ."
+  },
   "dependencies": {
     "@generic-ai/plugin-agent-skills": "0.0.0",
     "@generic-ai/plugin-delegation": "0.0.0",
@@ -16,6 +25,9 @@
     "@generic-ai/plugin-workspace-fs": "0.0.0",
     "@generic-ai/core": "0.0.0",
     "@generic-ai/preset-starter-hono": "0.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   },
   "license": "MIT",
   "private": true

@@ -8,6 +8,7 @@ import {
   createReferenceExampleHarness,
   runReferenceExample,
 } from "./index.js";
+import { runStarterExampleCli } from "./run.js";
 
 const tempRoots: string[] = [];
 
@@ -59,5 +60,35 @@ describe("@generic-ai/example-starter-hono", () => {
       const convenienceRun = await runReferenceExample({ root }, "convenience");
       expect(convenienceRun.inboxSize).toBeGreaterThan(0);
     });
+  });
+
+  it("runs the fresh-clone CLI path when the provider key is present", async () => {
+    await withTempRoot(async (root) => {
+      const lines: string[] = [];
+      const run = await runStarterExampleCli({
+        args: ["fresh", "clone"],
+        env: {
+          ...process.env,
+          GENERIC_AI_PROVIDER_API_KEY: "test-key",
+          GENERIC_AI_WORKSPACE_ROOT: root,
+        },
+        log: (message) => lines.push(message),
+      });
+
+      expect(run.bootstrapDescription).toContain("Starter Hono preset");
+      expect(lines.join("\n")).toContain("Workspace:");
+      expect(lines.join("\n")).toContain("fresh clone");
+    });
+  });
+
+  it("fails the CLI path clearly when the provider key is missing", async () => {
+    await expect(
+      runStarterExampleCli({
+        env: {
+          GENERIC_AI_WORKSPACE_ROOT: "unused",
+        },
+        log: () => undefined,
+      }),
+    ).rejects.toThrow("GENERIC_AI_PROVIDER_API_KEY must be set");
   });
 });

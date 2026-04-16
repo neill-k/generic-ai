@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import type { BashOperations } from "@generic-ai/sdk";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -44,16 +45,24 @@ describe("@generic-ai/plugin-tools-terminal", () => {
     });
   });
 
-  it("runs local commands and captures streamed output", async () => {
+  it("runs configured commands and captures streamed output", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createTerminalToolPlugin({ root });
+      const operations: BashOperations = {
+        exec: async (command, cwd, options) => {
+          options.onData(Buffer.from(`${command}\n${cwd}`));
+          return { exitCode: 0 };
+        },
+      };
+      const plugin = createTerminalToolPlugin({ root, operations });
       const result = await plugin.run({
-        command: 'node -e "process.stdout.write(process.cwd())"',
+        command: "pwd",
       });
 
       expect(result.exitCode).toBe(0);
       expect(result.cwd).toBe(root);
-      expect(result.output.trim()).toBe(root);
+      expect(result.command).toBe("pwd");
+      expect(result.output).toContain("pwd");
+      expect(result.output).toContain(root);
     });
   });
 
