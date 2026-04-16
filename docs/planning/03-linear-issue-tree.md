@@ -498,6 +498,9 @@ Acceptance criteria:
 
 Depends on: `KRN-05`, `CAP-01`, `CAP-02`, `CAP-03`
 
+Implementation note: the concrete roadmap produced by this issue lives in
+`docs/runtime-governance.md`.
+
 Acceptance criteria:
 
 - policy/runtime-enforcement surfaces are mapped

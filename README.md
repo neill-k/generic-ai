@@ -129,6 +129,6 @@ The sandbox stack has its own operator and API docs pack:
 Remaining tracked work:
 
 - Epic 6 — Agent-ready and repo control plane: baseline docs, CI + branch control, ownership + templates, docs-as-code, advanced test discipline, supply-chain controls, code-quality governance.
-- Epic 7 — Deferred but planned tracks: identity/auth plugin, Postgres storage, external queueing, runtime security/governance, TUI and web UI, advanced observability beyond the OTEL baseline.
+- Epic 7 — Deferred but planned tracks: identity/auth plugin, Postgres storage, external queueing, runtime security/governance (see [`docs/runtime-governance.md`](docs/runtime-governance.md)), TUI and web UI, advanced observability beyond the OTEL baseline.
 
 See [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) for full scope and dependency links.

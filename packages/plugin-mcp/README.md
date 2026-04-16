@@ -9,6 +9,9 @@ Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin
 - Integrate with the session/tool surfaces exposed by `@generic-ai/sdk`
 - Document its wiring path so alternate transports can coexist
 
+The concrete governance and approval roadmap for this deferred track now lives
+in [`docs/runtime-governance.md`](../../docs/runtime-governance.md).
+
 Planning baseline:
 
 - `docs/planning/README.md`

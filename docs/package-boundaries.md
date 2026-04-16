@@ -118,7 +118,8 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 - Role: standard `pi` tool for local command execution.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs` where it needs workspace-aware paths.
-- Not responsible for: file operations (those belong to `@generic-ai/plugin-tools-files`) or governance/hardening (deferred).
+- Not responsible for: file operations (those belong to `@generic-ai/plugin-tools-files`) or cross-capability governance orchestration.
+- Notes: the deferred hardening plan for this package now lives in `docs/runtime-governance.md`.
 
 ### `@generic-ai/plugin-tools-terminal-sandbox`
 
@@ -130,19 +131,22 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 - Role: standard `pi` tools for reading, writing, listing, and editing local files.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
-- Not responsible for: terminal commands, storage, or search beyond the filesystem-level primitives file tools natively provide.
+- Not responsible for: terminal commands, storage, search beyond the filesystem-level primitives file tools natively provide, or cross-capability governance orchestration.
+- Notes: the deferred hardening plan for this package now lives in `docs/runtime-governance.md`.
 
 ### `@generic-ai/plugin-tools-web`
 
 - Role: configurable `pi`-compatible web fetch and search tools with shared hostname allow/block policy enforcement.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, and provider/client libraries needed to back the search interface.
 - Not responsible for: browser automation, site-specific scrapers, or binding the framework to a single hosted search vendor.
+- Notes: its host allow/block rules are the current precedent for shared policy vocabulary, but it is not the cross-capability policy engine.
 
 ### `@generic-ai/plugin-mcp`
 
 - Role: embedded MCP support exposed as a plugin so MCP is never a kernel hard requirement.
 - Allowed deps: `@generic-ai/sdk`, `pi`, MCP client libraries.
 - Not responsible for: replacing MCP as a protocol. The kernel and SDK must remain MCP-agnostic.
+- Notes: server trust, approval flow, and transport-specific governance are deferred to the roadmap in `docs/runtime-governance.md`.
 
 ### `@generic-ai/plugin-agent-skills`
 

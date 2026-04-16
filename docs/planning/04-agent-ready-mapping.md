@@ -112,7 +112,7 @@ Status legend:
 - `agent_config.claude_hooks`: `Later / External` depending on chosen local workflows
 - `agent_config.multi_agent_support`: `Phase 1` via `KRN-04`, `CAP-05`, and `TRN-03`
 - `agent_config.context_injection`: `Phase 1` via `KRN-03`, `CFG-02`, `CAP-04`, and `CAP-07`
-- `agent_config.agent_permissions`: `Later` via deferred governance/runtime hardening work
+- `agent_config.agent_permissions`: `Later` via deferred governance/runtime hardening work (see `docs/runtime-governance.md`)
 - `agent_config.autonomous_workflow`: `Later` via mature multi-agent workflow orchestration
 - `agent_config.self_improvement`: `Later` via roadmaped self-improvement/feedback-loop planning
 - `agent_config.speckit_commands`: `Later / External` unless the repo adopts spec-kit slash-command conventions
