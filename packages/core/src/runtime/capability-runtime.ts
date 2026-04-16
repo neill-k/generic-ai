@@ -829,7 +829,7 @@ export async function runCapabilityPiAgentSession(
   const sessionResult = await createCapabilityPiAgentSession(options, factories);
   const runId = options.runId ?? randomUUID();
   const scopeId = options.rootScopeId ?? "scope/root";
-  const eventStream = options.eventStream ?? createCanonicalEventStream({ historyLimit: 256 });
+  const eventStream = options.eventStream ?? createCanonicalEventStream({});
   const sessionId = sessionResult.session.sessionId;
   const createdAt = new Date().toISOString();
   const startedAt = new Date().toISOString();
