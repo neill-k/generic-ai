@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -133,6 +133,18 @@ class FakeDockerOperations implements SandboxDockerOperations {
   }
 }
 
+function getWorkspaceMount(docker: FakeDockerOperations) {
+  const mount = docker.created[0]?.mounts.find(
+    (candidate): candidate is Extract<SandboxDockerCreateContainerRequest["mounts"][number], { source: string }> =>
+      "source" in candidate && candidate.target === "/workspace",
+  );
+  expect(mount).toBeDefined();
+  if (mount === undefined) {
+    throw new Error("Expected a /workspace bind mount.");
+  }
+  return mount;
+}
+
 describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
   it("parses config with sensible defaults", () => {
     expect(sandboxTerminalConfigSchema.parse({})).toEqual({
@@ -152,6 +164,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         },
         files: {
           mode: "readonly-mount",
+          maxInputBytes: 256 * 1024 * 1024,
           outputDir: path.join("workspace", "shared", "sandbox-results"),
         },
       },
@@ -177,6 +190,9 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
 
   it("creates a reusable Docker-backed session and executes commands inside it", async () => {
     await withTempRoot(async (root) => {
+      await mkdir(path.join(root, "workspace", "shared"), { recursive: true });
+      await writeFile(path.join(root, "workspace", "shared", "input.txt"), "source\n", "utf8");
+
       const docker = new FakeDockerOperations();
       docker.copyHandler = async (_containerId, _sourcePath, destinationPath) => {
         await mkdir(path.join(destinationPath, "logs"), { recursive: true });
@@ -202,13 +218,13 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(plugin.listSessions()).toHaveLength(1);
       expect(docker.created[0]?.image).toBe("node:24-bookworm-slim");
       expect(docker.created[0]?.networkMode).toBe("none");
+      const workspaceMount = getWorkspaceMount(docker);
+      expect(await readFile(path.join(workspaceMount.source, "workspace", "shared", "input.txt"), "utf8")).toBe(
+        "source\n",
+      );
       expect(docker.created[0]?.mounts).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            source: root,
-            target: "/workspace",
-            readOnly: true,
-          }),
+          expect.objectContaining({ target: "/workspace", readOnly: true }),
           expect.objectContaining({
             type: "tmpfs",
             target: SANDBOX_OUTPUT_MOUNT_PATH,
@@ -247,6 +263,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
           sourcePath: `${SANDBOX_OUTPUT_MOUNT_PATH}/.`,
         }),
       );
+      expect(result.generatedFiles).toEqual(result.artifacts);
     });
   });
 
@@ -287,6 +304,140 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       );
       expect(docker.stopped).toEqual([{ containerId: "container-ephemeral-1", graceMs: undefined }]);
       expect(docker.removed).toEqual(["container-ephemeral-1"]);
+    });
+  });
+
+  it("stages only requested copy-mode inputs and mirrors requested outputs back to generatedFiles", async () => {
+    await withTempRoot(async (root) => {
+      await mkdir(path.join(root, "workspace", "shared"), { recursive: true });
+      await writeFile(path.join(root, "workspace", "shared", "source.txt"), "seed\n", "utf8");
+      await writeFile(path.join(root, "workspace", "shared", "ignored.txt"), "skip\n", "utf8");
+
+      const docker = new FakeDockerOperations();
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "copy-1",
+      });
+
+      const session = await plugin.createSession({
+        runtime: "bash",
+        workspaceRoot: root,
+        policy: {
+          files: {
+            mode: "copy",
+            maxInputBytes: 1_024,
+            copyInPaths: ["workspace/shared/source.txt"],
+            copyOutPaths: ["workspace/shared/derived.txt", "reports"],
+          },
+        },
+      });
+
+      const workspaceMount = getWorkspaceMount(docker);
+      expect(workspaceMount.readOnly).toBeUndefined();
+      expect(await readFile(path.join(workspaceMount.source, "workspace", "shared", "source.txt"), "utf8")).toBe(
+        "seed\n",
+      );
+      await expect(
+        readFile(path.join(workspaceMount.source, "workspace", "shared", "ignored.txt"), "utf8"),
+      ).rejects.toThrow();
+
+      docker.execHandler = async () => {
+        await mkdir(path.join(workspaceMount.source, "reports"), { recursive: true });
+        await writeFile(path.join(workspaceMount.source, "reports", "summary.txt"), "copied\n", "utf8");
+        await writeFile(
+          path.join(workspaceMount.source, "workspace", "shared", "derived.txt"),
+          "derived\n",
+          "utf8",
+        );
+        return {
+          exitCode: 0,
+          stdout: "copied\n",
+          stderr: "",
+        };
+      };
+
+      const result = await plugin.exec({
+        sessionId: session.sessionId,
+        command: "printf copied",
+      });
+
+      expect(result.status).toBe("succeeded");
+      expect(result.generatedFiles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "reports/summary.txt",
+            sizeBytes: 7,
+          }),
+          expect.objectContaining({
+            path: "workspace/shared/derived.txt",
+            sizeBytes: 8,
+          }),
+        ]),
+      );
+    });
+  });
+
+  it("rejects readonly workspace snapshots that exceed maxInputBytes", async () => {
+    await withTempRoot(async (root) => {
+      await writeFile(path.join(root, "oversized.txt"), "1234567890", "utf8");
+
+      const docker = new FakeDockerOperations();
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+      });
+
+      await expect(
+        plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+          policy: {
+            files: {
+              mode: "readonly-mount",
+              maxInputBytes: 4,
+            },
+          },
+        }),
+      ).rejects.toThrow(/maxInputBytes/i);
+      expect(docker.created).toHaveLength(0);
+    });
+  });
+
+  it("blocks copy-mode symlink traversal outside the workspace root", async () => {
+    await withTempRoot(async (root) => {
+      const outsideRoot = await mkdtemp(path.join(os.tmpdir(), "plugin-tools-terminal-sandbox-outside-"));
+      try {
+        await writeFile(path.join(outsideRoot, "secret.txt"), "secret\n", "utf8");
+        try {
+          await symlink(path.join(outsideRoot, "secret.txt"), path.join(root, "escape.txt"));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EPERM") {
+            return;
+          }
+          throw error;
+        }
+
+        const plugin = createSandboxTerminalPlugin({
+          root,
+          dockerOperations: new FakeDockerOperations(),
+        });
+
+        await expect(
+          plugin.createSession({
+            runtime: "bash",
+            workspaceRoot: root,
+            policy: {
+              files: {
+                mode: "copy",
+                copyInPaths: ["escape.txt"],
+              },
+            },
+          }),
+        ).rejects.toThrow(/escapes the workspace root/i);
+      } finally {
+        await rm(outsideRoot, { recursive: true, force: true });
+      }
     });
   });
 
@@ -500,6 +651,42 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       }
 
       expect(plugin.listSessions()).toHaveLength(0);
+    });
+  });
+
+  it("reads staged workspace files, extracts output artifacts, and rejects writes to the readonly mount in live Docker runs", async () => {
+    if (!(await isDockerDaemonReachable())) {
+      return;
+    }
+
+    await withTempRoot(async (root) => {
+      await mkdir(path.join(root, "workspace", "shared"), { recursive: true });
+      await writeFile(path.join(root, "workspace", "shared", "note.txt"), "sandbox-input\n", "utf8");
+
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        sessionIdFactory: () => "integration-readonly-1",
+      });
+
+      const result = await plugin.run({
+        runtime: "bash",
+        command: [
+          "cat /workspace/workspace/shared/note.txt",
+          "printf 'artifact\\n' > \"$GENERIC_AI_SANDBOX_OUTPUT_DIR/live.txt\"",
+          "printf 'mutate\\n' > /workspace/workspace/shared/note.txt",
+        ].join(" && "),
+      });
+
+      expect(result.stdout).toContain("sandbox-input");
+      expect(result.status).toBe("failed");
+      expect(result.stderr.toLowerCase()).toContain("read-only");
+      expect(result.generatedFiles).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "live.txt",
+          }),
+        ]),
+      );
     });
   });
 });

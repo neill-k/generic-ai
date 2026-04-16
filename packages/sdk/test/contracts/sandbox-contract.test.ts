@@ -35,6 +35,7 @@ describe("@generic-ai/sdk sandbox contract", () => {
       },
       files: {
         mode: "copy",
+        maxInputBytes: 1_024_000,
         copyInPaths: ["package.json"],
         copyOutPaths: ["workspace/shared/results"],
         outputDir: "workspace/shared/results",
@@ -56,6 +57,7 @@ describe("@generic-ai/sdk sandbox contract", () => {
       },
       files: {
         mode: "copy",
+        maxInputBytes: 1_024_000,
         copyInPaths: ["package.json"],
         copyOutPaths: ["workspace/shared/results"],
         outputDir: "workspace/shared/results",
@@ -85,6 +87,14 @@ describe("@generic-ai/sdk sandbox contract", () => {
         },
       }),
     ).toThrow(/maxOutputBytes must be greater than zero/i);
+    expect(() =>
+      parseSandboxPolicy({
+        files: {
+          mode: "copy",
+          maxInputBytes: 0,
+        },
+      }),
+    ).toThrow(/maxInputBytes must be greater than zero/i);
     expect(() =>
       parseSandboxPolicy({
         network: {
