@@ -30,8 +30,18 @@ These docs describe the shipped sandbox surface:
   artifact metadata, host `cwd`, and sandbox `sandboxCwd`
 - starter-preset migration through an explicit `terminalTools` slot override
 
-The current starter-preset integration is programmatic. Callers opt into the
-sandbox by overriding the `terminalTools` slot to
-`@generic-ai/plugin-tools-terminal-sandbox`. If later bootstrap helpers add
-environment-variable selection on top, they should layer on the same contract
-described here rather than replacing it.
+The starter-preset integration is programmatic, with environment-variable
+selection already available for bootstrap callers:
+
+- Set `GENERIC_AI_SANDBOX=docker` to opt into the sandbox terminal plugin.
+- Set `GENERIC_AI_SANDBOX=none` to keep the unrestricted local terminal.
+- In production (`NODE_ENV=production`) the sandbox terminal is the default;
+  callers that already override the `terminalTools` slot keep their override
+  (a WARN-level log records the downgrade), and callers that did not override
+  the slot get the sandbox plugin automatically.
+- Set `GENERIC_AI_SANDBOX_FALLBACK=fail` to fail hard when sandbox mode is
+  requested but Docker is unavailable, instead of the default `warn` fallback
+  that downgrades to the unrestricted local terminal.
+
+Programmatic callers can still override the `terminalTools` slot directly to
+pin a specific terminal plugin regardless of environment-variable selection.

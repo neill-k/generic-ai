@@ -141,8 +141,8 @@ Use it when the backend should surface output incrementally during a long run.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `runtime` | `SandboxRuntime` | Runtime/image family. |
-| `sessionId` | `string \| undefined` | Optional caller-supplied stable id. |
-| `workspaceRoot` | `string` | Host workspace root for the session. |
+| `sessionId` | `string \| undefined` | Optional caller-supplied stable id. Must match `/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/` (Docker-safe). |
+| `workspaceRoot` | `string` | Host workspace root for the session. The Docker backend requires this value to equal the plugin's configured `root`; a mismatch throws `SandboxConfigurationError`. |
 | `cwd` | `string \| undefined` | Optional workspace-relative working directory. |
 | `policy` | `SandboxPolicy \| undefined` | Session-level policy overrides. |
 | `runtimeConfig` | `SandboxRuntimeConfig \| undefined` | Backend/runtime overrides. |
@@ -263,8 +263,13 @@ partial sandbox policy/config objects.
 
 ### `SandboxRunRequest`
 
-`run()` is a one-shot helper that wraps `createSession()`, `exec()`, and
-`destroy()`.
+`run()` is a one-shot helper: when `sessionId` is omitted it creates an
+ephemeral session, execs the command, and destroys the session; when
+`sessionId` is provided it still creates a session with that id, execs, and
+destroys it (so the caller gets a deterministic id for artifact paths without
+managing the session lifecycle themselves). If the provided id collides with
+an active session, `run()` surfaces a `SandboxSessionConflictError`; destroy
+the previous session before reusing the id.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
