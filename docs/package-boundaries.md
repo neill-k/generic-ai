@@ -126,6 +126,12 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
 - Not responsible for: terminal commands, storage, or search beyond the filesystem-level primitives file tools natively provide.
 
+### `@generic-ai/plugin-tools-web`
+
+- Role: configurable `pi`-compatible web fetch and search tools with shared hostname allow/block policy enforcement.
+- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, and provider/client libraries needed to back the search interface.
+- Not responsible for: browser automation, site-specific scrapers, or binding the framework to a single hosted search vendor.
+
 ### `@generic-ai/plugin-mcp`
 
 - Role: embedded MCP support exposed as a plugin so MCP is never a kernel hard requirement.

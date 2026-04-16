@@ -349,6 +349,18 @@ Acceptance criteria:
 - memory supports persistent read/write/search
 - memory file layout and retrieval behavior are documented
 
+### `CAP-08` Build `plugin-tools-web`
+
+Depends on: `INF-01`, `KRN-08`
+
+Acceptance criteria:
+
+- `plugin-tools-web` exists under `packages/`
+- agents can fetch HTTP(S) content through a shipped tool with text normalization
+- agents can run provider-backed web search through a configurable interface
+- shared hostname allow/block rules apply to both fetches and search results
+- the plugin is documented and covered by unit tests
+
 ## Epic 5: Transport, Starter Preset, And Reference Example
 
 ### `TRN-01` Build `plugin-hono`
@@ -517,7 +529,7 @@ When creating or resyncing this issue tree in Linear, import issues in this orde
 2. `KRN-01` through `KRN-09`
 3. `CFG-01` through `CFG-04`
 4. `INF-01` through `INF-06`
-5. `CAP-01` through `CAP-07`
+5. `CAP-01` through `CAP-08`
 6. `TRN-01` through `TRN-03`
 7. `CTL-01` through `CTL-07`
 8. `DEF-01` through `DEF-06`
@@ -530,7 +542,7 @@ Within each epic, preserve the written order so dependency links can be created 
 2. `KRN-01` to `KRN-09`
 3. `CFG-01` to `CFG-04`
 4. `INF-01` to `INF-06`
-5. `CAP-01` to `CAP-07`
+5. `CAP-01` to `CAP-08`
 6. `TRN-01` to `TRN-03`
 7. `CTL-01` to `CTL-07`
 8. `DEF-01` to `DEF-06`

@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
-const versionCheck = await import("./check-node-version.mjs");
+let versionCheck: typeof import("./check-node-version.mjs");
+
+beforeAll(async () => {
+  versionCheck = await import("./check-node-version.mjs");
+});
 
 describe("check-node-version", () => {
   it("accepts Node 24 and newer releases", () => {

@@ -65,7 +65,7 @@ The framework's first functional vertical slice is landed on `main`. The "Minimu
 | 1 — SDK & kernel (`KRN-01`..`KRN-09`) | Plugin contracts, host, `Scope`, session orchestration, canonical event stream, run envelope, bootstrap API | Done |
 | 2 — Config & presets (`CFG-01`..`CFG-04`) | Canonical YAML schemas, discovery/resolution, plugin schema composition, starter preset contract | Done |
 | 3 — Infrastructure base plugins (`INF-01`..`INF-06`) | Workspace FS, memory + SQLite storage, in-process queue, OTEL logging, default output | Done |
-| 4 — Local capability base plugins (`CAP-01`..`CAP-07`) | Terminal and file tools, MCP, Agent Skills, delegation, messaging, file-backed memory | Done |
+| 4 — Local capability base plugins (`CAP-01`..`CAP-08`) | Terminal, file, and web tools; MCP; Agent Skills; delegation; messaging; file-backed memory | Done |
 | 5 — Transport, starter preset, reference example (`TRN-01`..`TRN-03`) | `plugin-hono`, assembled starter preset, runnable `examples/starter-hono` | Done |
 
 ### In flight
@@ -95,6 +95,7 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 
 - [`@generic-ai/plugin-tools-terminal`](packages/plugin-tools-terminal) — local command execution as a shipped `pi` tool.
 - [`@generic-ai/plugin-tools-files`](packages/plugin-tools-files) — local file read/write/list/edit `pi` tools.
+- [`@generic-ai/plugin-tools-web`](packages/plugin-tools-web) — configurable web fetch/search tools with shared host allow/block policies.
 - [`@generic-ai/plugin-mcp`](packages/plugin-mcp) — Model Context Protocol support as a replaceable plugin.
 - [`@generic-ai/plugin-agent-skills`](packages/plugin-agent-skills) — Agent Skills compatibility with progressive disclosure.
 - [`@generic-ai/plugin-delegation`](packages/plugin-delegation) — delegation business model; kernel retains child-session lifecycle.
