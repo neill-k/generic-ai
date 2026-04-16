@@ -918,22 +918,25 @@ function normalizeResponsePayload(body: unknown): InteractionResponseInput {
     throw new InteractionValidationError("Answer payload must be a JSON object.");
   }
 
+  const rawText = body["text"];
+  const rawChoiceId = body["choiceId"];
+  const rawChoiceIds = body["choiceIds"];
   const hasText = Object.hasOwn(body, "text");
   const hasChoiceId = Object.hasOwn(body, "choiceId");
   const hasChoiceIds = Object.hasOwn(body, "choiceIds");
 
-  if (hasText && typeof body.text !== "string") {
+  if (hasText && typeof rawText !== "string") {
     throw new InteractionValidationError('Answer payload field "text" must be a string.');
   }
 
-  if (hasChoiceId && typeof body.choiceId !== "string") {
+  if (hasChoiceId && typeof rawChoiceId !== "string") {
     throw new InteractionValidationError('Answer payload field "choiceId" must be a string.');
   }
 
   if (
     hasChoiceIds &&
-    (!Array.isArray(body.choiceIds) ||
-      !body.choiceIds.every((value): value is string => typeof value === "string"))
+    (!Array.isArray(rawChoiceIds) ||
+      !rawChoiceIds.every((value): value is string => typeof value === "string"))
   ) {
     throw new InteractionValidationError(
       'Answer payload field "choiceIds" must be an array of strings.',
@@ -947,9 +950,9 @@ function normalizeResponsePayload(body: unknown): InteractionResponseInput {
   }
 
   return {
-    ...(typeof body.text === "string" ? { text: body.text } : {}),
-    ...(typeof body.choiceId === "string" ? { choiceId: body.choiceId } : {}),
-    ...(Array.isArray(body.choiceIds) ? { choiceIds: body.choiceIds } : {}),
+    ...(typeof rawText === "string" ? { text: rawText } : {}),
+    ...(typeof rawChoiceId === "string" ? { choiceId: rawChoiceId } : {}),
+    ...(Array.isArray(rawChoiceIds) ? { choiceIds: rawChoiceIds } : {}),
   };
 }
 
@@ -958,8 +961,9 @@ function normalizeCancelReason(body: unknown): string | undefined {
     return undefined;
   }
 
-  return typeof body.reason === "string" && body.reason.trim().length > 0
-    ? body.reason.trim()
+  const rawReason = body["reason"];
+  return typeof rawReason === "string" && rawReason.trim().length > 0
+    ? rawReason.trim()
     : undefined;
 }
 
