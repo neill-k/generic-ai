@@ -1,6 +1,5 @@
 import type {
   BootstrapCapabilityId,
-  BootstrapPortDescriptor,
   BootstrapPortOverrides,
   BootstrapPorts,
   BootstrapPresetDefinition,
