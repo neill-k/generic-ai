@@ -47,7 +47,7 @@ Anything outside these rules needs an entry in `docs/decisions/` explaining the 
 
 Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and the repo root itself are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
-- **Public (18 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
+- **Public (19 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
 - **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. Any new workspace under `examples/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
@@ -143,6 +143,12 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: simple delegation capability that defines the delegation business model.
 - Allowed deps: `@generic-ai/sdk`, `pi`.
 - Not responsible for: child-session lifecycle or result collection. Those belong to the kernel.
+
+### `@generic-ai/plugin-interaction`
+
+- Role: structured user interaction capability for blocking questions and visible task tracking.
+- Allowed deps: `@generic-ai/sdk`, `pi`, and concrete transport libraries such as `hono` when the package ships an adapter.
+- Not responsible for: kernel turn orchestration, transport ownership in the core, or rendering a specific product UI.
 
 ### `@generic-ai/plugin-messaging`
 

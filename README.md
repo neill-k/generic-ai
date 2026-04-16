@@ -98,6 +98,7 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 - [`@generic-ai/plugin-mcp`](packages/plugin-mcp) — Model Context Protocol support as a replaceable plugin.
 - [`@generic-ai/plugin-agent-skills`](packages/plugin-agent-skills) — Agent Skills compatibility with progressive disclosure.
 - [`@generic-ai/plugin-delegation`](packages/plugin-delegation) — delegation business model; kernel retains child-session lifecycle.
+- [`@generic-ai/plugin-interaction`](packages/plugin-interaction) — blocking user questions plus visible task-list publishing through standard `pi` tools.
 - [`@generic-ai/plugin-messaging`](packages/plugin-messaging) — durable, storage-backed inter-agent messaging.
 - [`@generic-ai/plugin-memory-files`](packages/plugin-memory-files) — file-backed persistent agent memory with search.
 

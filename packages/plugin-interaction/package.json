@@ -1,0 +1,23 @@
+{
+  "name": "@generic-ai/plugin-interaction",
+  "version": "0.0.0",
+  "description": "Structured user-question and task-tracking interaction plugin for Generic AI, with pi tools and a Hono transport adapter.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@generic-ai/sdk": "0.0.0",
+    "@sinclair/typebox": "0.34.49",
+    "hono": "^4.10.4"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
