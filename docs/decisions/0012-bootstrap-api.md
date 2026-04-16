@@ -8,11 +8,16 @@ The planning tree requires a single obvious bootstrap entrypoint, with the start
 
 ## Decision
 
-We expose `createGenericAI()` in `packages/core/src/bootstrap/` as the top-level bootstrap composition API. It returns a frozen composition descriptor rather than trying to instantiate in-flight runtime modules directly.
+We expose `createGenericAI()` in `packages/core/src/bootstrap/` as the top-level bootstrap composition API. It returns a frozen runtime composition handle. The handle still preserves the descriptor fields (`preset`, `capabilities`, `ports`, and `describe()`), but now also owns a plugin-host-backed composition surface:
+
+- preset plugin specs are registered as concrete plugin definitions
+- dependency ordering is delegated to the plugin host
+- startup lifecycle hooks are attached to every resolved plugin definition
+- callers can inspect composed surfaces and invoke `run(task)` / `stream(task)`
 
 The default preset is the starter Hono preset. The core bootstrap layer ships a matching internal starter descriptor, and `@generic-ai/preset-starter-hono` exports the same shape for callers who want to make the default path explicit.
 
-Advanced callers can override the preset descriptor, capabilities, and port descriptors without changing the rest of the bootstrap shape.
+Advanced callers can override the preset descriptor, plugin specs, plugin config, capabilities, and port descriptors without changing the rest of the bootstrap shape.
 
 The bootstrap port descriptors are intentionally explicit about the expected upstream symbols:
 
@@ -25,6 +30,6 @@ The bootstrap port descriptors are intentionally explicit about the expected ups
 
 - New callers have one obvious entrypoint.
 - The starter preset remains the default path.
-- The bootstrap layer stays decoupled from in-flight kernel modules while still documenting the integration contract.
-- Later runtime work can replace the descriptors with concrete adapters without changing the public bootstrap shape.
+- The bootstrap layer stays decoupled from plugin packages while still composing the plugin host, lifecycle, run envelope, and streaming event primitives.
+- Later runtime work can replace the minimal task executor with real `pi` AgentSession and tool bridging without changing the public bootstrap shape.
 
