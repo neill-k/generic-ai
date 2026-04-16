@@ -120,6 +120,13 @@ describe("@generic-ai/preset-starter-hono contract", () => {
     expect(preset.capabilities).not.toContain("transport-hono");
     expect(preset.resolution.includesHono).toBe(false);
     expect(preset.packageName).toBe("@generic-ai/preset-starter-hono");
+    expect(preset.plugins.map((plugin) => plugin.pluginId)).not.toContain(
+      "@generic-ai/plugin-hono",
+    );
+    expect(
+      preset.plugins.find((plugin) => plugin.pluginId === "@generic-ai/plugin-tools-files")
+        ?.dependencies,
+    ).toEqual(["@generic-ai/plugin-workspace-fs"]);
   });
 
   it("loads canonical YAML through the config plugin before producing a runtime plan", async () => {

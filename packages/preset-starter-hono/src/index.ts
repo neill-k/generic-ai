@@ -1,5 +1,7 @@
 import {
   type BootstrapCapabilityId,
+  type BootstrapPluginSlot,
+  type BootstrapPluginSpec,
   type BootstrapPresetDefinition,
   type BootstrapPresetInput,
   createGenericAIFromConfig,
@@ -214,6 +216,22 @@ const slotToCapability = {
   output: "output",
 } as const satisfies Partial<Record<StarterPresetSlot, BootstrapCapabilityId>>;
 
+const dependencySlotsBySlot: Partial<Record<StarterPresetSlot, readonly StarterPresetSlot[]>> = {
+  workspace: ["config"],
+  storage: ["config"],
+  queue: ["config"],
+  logging: ["config"],
+  terminalTools: ["workspace"],
+  fileTools: ["workspace"],
+  mcp: ["config"],
+  skills: ["workspace"],
+  delegation: ["queue"],
+  messaging: ["storage"],
+  memory: ["workspace"],
+  output: ["config"],
+  transport: ["output"],
+};
+
 function assertNonEmpty(value: string, label: string): void {
   if (value.trim().length > 0) {
     return;
@@ -391,6 +409,46 @@ function resolveCapabilitiesFromContract(
   return [...capabilities];
 }
 
+function resolveBootstrapPluginSpecs(
+  resolution: StarterPresetResolvedContract,
+): readonly BootstrapPluginSpec[] {
+  const pluginIdBySlot = new Map<StarterPresetSlot, string>();
+
+  for (const plugin of resolution.plugins) {
+    if (plugin.slot !== undefined) {
+      pluginIdBySlot.set(plugin.slot, plugin.pluginId);
+    }
+  }
+
+  return Object.freeze(
+    resolution.plugins.map((plugin) => {
+      const dependencies =
+        plugin.slot === undefined
+          ? plugin.insert === "after" && plugin.anchorSlot !== undefined
+            ? [pluginIdBySlot.get(plugin.anchorSlot)].filter(
+                (pluginId): pluginId is string => pluginId !== undefined,
+              )
+            : plugin.anchorSlot === undefined
+              ? []
+              : (dependencySlotsBySlot[plugin.anchorSlot] ?? [])
+                  .map((slot) => pluginIdBySlot.get(slot))
+                  .filter((pluginId): pluginId is string => pluginId !== undefined)
+          : (dependencySlotsBySlot[plugin.slot] ?? [])
+              .map((slot) => pluginIdBySlot.get(slot))
+              .filter((pluginId): pluginId is string => pluginId !== undefined);
+
+      return Object.freeze({
+        pluginId: plugin.pluginId,
+        required: plugin.required,
+        source: plugin.source,
+        ...(plugin.slot === undefined ? {} : { slot: plugin.slot as BootstrapPluginSlot }),
+        ...(plugin.description === undefined ? {} : { description: plugin.description }),
+        ...(dependencies.length === 0 ? {} : { dependencies: Object.freeze(dependencies) }),
+      });
+    }),
+  );
+}
+
 export const starterPresetContract: StarterPresetContract = {
   id: STARTER_PRESET_ID,
   packageName: name,
@@ -409,10 +467,42 @@ export function resolveStarterPreset(
   return starterPresetContract.resolve(options);
 }
 
+function deriveCapabilitiesFromPluginSpecs(
+  plugins: readonly BootstrapPluginSpec[],
+): ReadonlyArray<BootstrapCapabilityId> {
+  const capabilities = new Set<BootstrapCapabilityId>();
+
+  for (const plugin of plugins) {
+    if (plugin.slot === undefined) {
+      continue;
+    }
+
+    const capability =
+      plugin.slot in slotToCapability
+        ? slotToCapability[plugin.slot as keyof typeof slotToCapability]
+        : undefined;
+    if (capability !== undefined) {
+      capabilities.add(capability);
+    }
+  }
+
+  if (plugins.some((p) => p.pluginId === "@generic-ai/plugin-hono")) {
+    capabilities.add("transport-hono");
+  }
+
+  return [...capabilities];
+}
+
 export function createStarterHonoPreset(
   options: StarterHonoPresetOptions = {},
 ): StarterHonoPresetDefinition {
   const resolution = resolveStarterPreset(options);
+  const hasExplicitPlugins = options.plugins !== undefined;
+  const effectivePlugins = options.plugins ?? resolveBootstrapPluginSpecs(resolution);
+  const effectiveIncludesHono = hasExplicitPlugins
+    ? effectivePlugins.some((p) => p.pluginId === "@generic-ai/plugin-hono")
+    : resolution.includesHono;
+
   // Default the bootstrap preset id to the package name so it stays aligned
   // with core's `createStarterPreset` (which uses the package name as its id).
   // STARTER_PRESET_ID remains the contract-level identifier used by tests and
@@ -421,8 +511,13 @@ export function createStarterHonoPreset(
     id: options.id ?? name,
     name: options.name ?? "Starter Hono preset",
     description: options.description ?? starterPresetContract.description,
-    transport: options.transport ?? (resolution.includesHono ? "hono" : "custom"),
-    capabilities: options.capabilities ?? resolveCapabilitiesFromContract(resolution),
+    transport: options.transport ?? (effectiveIncludesHono ? "hono" : "custom"),
+    capabilities:
+      options.capabilities ??
+      (hasExplicitPlugins
+        ? deriveCapabilitiesFromPluginSpecs(effectivePlugins)
+        : resolveCapabilitiesFromContract(resolution)),
+    plugins: effectivePlugins,
     ...(options.ports === undefined ? {} : { ports: options.ports }),
   });
 
