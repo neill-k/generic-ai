@@ -102,13 +102,24 @@ describe("@generic-ai/example-starter-hono live smoke", () => {
       const text = await response.text();
 
       if (text.includes('"skipped": true')) {
-        return;
+        throw new Error(
+          "Live smoke was skipped but LIVE_PROVIDER_SMOKE is enabled — check credentials/model config",
+        );
       }
 
-      // Parse the done event payload to get the full result
-      const doneMatch = text.match(/event: done\ndata: (.+)/);
-      expect(doneMatch).not.toBeNull();
-      const doneData = JSON.parse(doneMatch![1]) as LiveProviderSmokeCompletedResult;
+      // Parse the done event payload to get the full result.
+      // `createHonoPlugin` serialises with `JSON.stringify(..., 2)`, which
+      // spreads the payload across multiple `data:` lines.  Collect every
+      // consecutive `data:` line that follows `event: done`, strip the
+      // prefix, and join them so `JSON.parse` receives the complete object.
+      const doneSection = text.match(/event: done\n((?:data: .*\n?)+)/);
+      expect(doneSection).not.toBeNull();
+      const doneJson = doneSection![1]
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map((line) => line.slice("data: ".length))
+        .join("\n");
+      const doneData = JSON.parse(doneJson) as LiveProviderSmokeCompletedResult;
 
       // Verify agent_end was observed
       expect(doneData.sawAgentEnd).toBe(true);
