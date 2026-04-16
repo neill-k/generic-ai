@@ -4,6 +4,7 @@ export * from "./output.js";
 export * from "./plugin.js";
 export * from "./queue.js";
 export * from "./registry.js";
+export * from "./sandbox.js";
 export * from "./shared.js";
 export * from "./storage.js";
 export * from "./workspace.js";

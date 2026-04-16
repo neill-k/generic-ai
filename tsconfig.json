@@ -11,6 +11,7 @@
     { "path": "packages/plugin-queue-memory" },
     { "path": "packages/plugin-logging-otel" },
     { "path": "packages/plugin-tools-terminal" },
+    { "path": "packages/plugin-tools-terminal-sandbox" },
     { "path": "packages/plugin-tools-files" },
     { "path": "packages/plugin-tools-web" },
     { "path": "packages/plugin-mcp" },
