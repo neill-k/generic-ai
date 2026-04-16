@@ -15,6 +15,7 @@
     { "path": "packages/plugin-mcp" },
     { "path": "packages/plugin-agent-skills" },
     { "path": "packages/plugin-delegation" },
+    { "path": "packages/plugin-interaction" },
     { "path": "packages/plugin-messaging" },
     { "path": "packages/plugin-memory-files" },
     { "path": "packages/plugin-output-default" },
