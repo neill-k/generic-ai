@@ -1,20 +1,36 @@
 # examples/starter-hono
 
-Reference example for the Generic AI starter preset.
+Runnable Hono server example for the Generic AI starter preset.
 
-What this example shows:
+What this example does now:
 
-- `createGenericAI()` with no arguments resolves the starter preset by default
-- callers can still pass `createStarterHonoPreset()` explicitly when they want the composition to be visible in code
-- the example keeps the bootstrap layer and the preset package separate, which matches the repo boundary model
+- boots from canonical `.generic-ai/` config via `createStarterHonoBootstrapFromYaml()`
+- validates provider/runtime environment at startup
+- exposes `/starter/health`, `/starter/run`, and `/starter/run/stream`
+- uses a runtime adapter boundary in `@generic-ai/core`
+- defaults to the official OpenAI Responses client for `gpt-5.2-codex`
+- keeps `pi` available as an explicit compatibility adapter
 
-The main source entrypoint is `examples/starter-hono/src/index.ts`. It is intentionally small for now so later runtime work can swap in the real kernel wiring without changing the example shape.
+## Required environment
 
-## Fresh clone run path
+The server validates these values before it starts:
 
-Use Node 24 LTS for the whole workspace. The root `.nvmrc`, root `package.json#engines.node`, this example package's `engines.node`, `.npmrc` `engine-strict=true`, and the `check:node` script all enforce the same floor so installs and CI fail before doing real work on an unsupported runtime.
+- `GENERIC_AI_PROVIDER_API_KEY` required for both adapters
+- `GENERIC_AI_MODEL` optional model override
+- `GENERIC_AI_RUNTIME_ADAPTER` optional: `openai-codex` or `pi`
+- `GENERIC_AI_WORKSPACE_ROOT` optional workspace root override
+- `GENERIC_AI_HOST` or `HOST` optional host, default `127.0.0.1`
+- `GENERIC_AI_PORT` or `PORT` optional port, default `3000`
 
-From a fresh clone:
+Default model behavior:
+
+- adapter `openai-codex`: uses the official OpenAI Responses API
+- adapter `pi`: uses `pi` with the OpenAI provider as an explicit compatibility path
+- if `GENERIC_AI_MODEL` is unset, the example falls back to the primary agent model from `.generic-ai/agents/starter.yaml`
+
+## Fresh clone path
+
+Use Node 24 LTS for the whole workspace.
 
 ```bash
 git clone <repo-url> generic-ai
@@ -24,18 +40,50 @@ corepack enable
 npm install
 npm run build
 export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
-npm run -w @generic-ai/example-starter-hono start -- "the Generic AI starter stack"
+npm run -w @generic-ai/example-starter-hono start
 ```
 
-On Windows PowerShell, set the key with:
+PowerShell:
 
 ```powershell
 $env:GENERIC_AI_PROVIDER_API_KEY = "<provider-key>"
+npm run -w @generic-ai/example-starter-hono start
 ```
 
-The current starter harness runs the local plugin composition and validates that the provider key is present. The later RT-04 runtime work will use the same run path for live provider execution.
+For local iteration without a build:
 
-Useful verification commands:
+```bash
+export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
+npm run -w @generic-ai/example-starter-hono dev
+```
+
+## End-to-end requests
+
+Health:
+
+```bash
+curl http://127.0.0.1:3000/starter/health
+```
+
+Sync run:
+
+```bash
+curl -X POST http://127.0.0.1:3000/starter/run \
+  -H "content-type: application/json" \
+  -d '{"input":"Explain what the Generic AI starter stack is."}'
+```
+
+Stream run:
+
+```bash
+curl -N -X POST http://127.0.0.1:3000/starter/run/stream \
+  -H "content-type: application/json" \
+  -d '{"input":"Summarize the starter stack in three bullets."}'
+```
+
+The stream endpoint emits canonical run lifecycle events followed by a terminal `run.envelope` event that contains the real provider response payload.
+
+## Verification
 
 ```bash
 npm run check:node
@@ -45,16 +93,7 @@ npm run test
 npm run build
 ```
 
-## Starter preset extension points
-
-When the example needs customization, use programmatic contract extension points:
-
-- slot overrides (for replacing defaults like storage/transport)
-- addon plugins before/after a slot anchor
-
-There is no separate user-facing `preset.yaml` file in v1.
-
-## Planning baseline
+Planning baseline:
 
 - `docs/planning/README.md`
 - `docs/planning/02-architecture.md`

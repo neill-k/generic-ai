@@ -1,6 +1,12 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { createGenericAI, createStarterPreset, starterPreset } from "./index.js";
+import {
+  createGenericAI,
+  createGenericAIFromConfig,
+  createStarterPreset,
+  starterPreset,
+} from "./index.js";
 
 describe("createGenericAI", () => {
   it("defaults to the starter preset", () => {
@@ -188,5 +194,55 @@ describe("createGenericAI", () => {
     const bootstrap = createGenericAI({ preset: starterPreset });
     expect(bootstrap.preset).not.toBe(starterPreset);
     expect(bootstrap.preset).toEqual(starterPreset);
+  });
+
+  it("builds config-aware runtime plans on top of the current runtime bootstrap", async () => {
+    const bootstrap = await createGenericAIFromConfig({
+      config: {
+        rootDir: "C:/workspace",
+        configDir: "C:/workspace/.generic-ai",
+        framework: {
+          name: "Configured bootstrap",
+          preset: "@generic-ai/preset-starter-hono",
+          primaryAgent: "starter",
+          runtime: {
+            workspaceRoot: "apps/demo",
+          },
+        },
+        agents: {
+          starter: {
+            id: "starter",
+            model: "gpt-5.2-codex",
+            instructions: "Be concise.",
+            tools: ["read"],
+            plugins: [],
+          },
+        },
+        plugins: {
+          hono: {
+            plugin: "@generic-ai/plugin-hono",
+            config: {
+              routePrefix: "/starter",
+            },
+          },
+        },
+      },
+      startRuntime: async (input) => ({
+        status: "started" as const,
+        workspaceRoot: input.runtimePlan.runtime.workspaceRoot,
+      }),
+    });
+
+    expect(bootstrap.preset.name).toBe("Configured bootstrap");
+    expect(bootstrap.runtimePlan.runtime.workspaceRoot).toBe(path.resolve("C:/workspace", "apps/demo"));
+    expect(bootstrap.runtimePlan.primaryAgent.model).toBe("gpt-5.2-codex");
+    expect(bootstrap.surfaces.pluginConfigs["@generic-ai/plugin-hono"]).toMatchObject({
+      namespace: "hono",
+      routePrefix: "/starter",
+    });
+    await expect(bootstrap.startRuntime()).resolves.toEqual({
+      status: "started",
+      workspaceRoot: path.resolve("C:/workspace", "apps/demo"),
+    });
   });
 });

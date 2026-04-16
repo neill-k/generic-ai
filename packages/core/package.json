@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@generic-ai/sdk": "0.0.0",
-    "@mariozechner/pi-coding-agent": "0.67.1"
+    "@mariozechner/pi-coding-agent": "0.67.1",
+    "openai": "^6.26.0"
   }
 }

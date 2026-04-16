@@ -1,4 +1,4 @@
-export { createGenericAI } from "./bootstrap.js";
+export { createGenericAI, createGenericAIFromConfig, GenericAIConfigError } from "./bootstrap.js";
 export {
   createStarterPreset,
   resolveStarterCapabilities,
@@ -23,8 +23,24 @@ export type {
   GenericAIBootstrap,
   GenericAIComposedSurfaces,
   GenericAIComposition,
+  GenericAIAgentSessionPlan,
+  GenericAIConfiguredBootstrap,
+  GenericAIConfigLoader,
+  GenericAIConfigLoaderOptions,
+  GenericAIConfigLoaderResult,
+  GenericAIConfigLoadFailure,
+  GenericAIConfigSource,
+  GenericAIConfigValidationDiagnostic,
+  GenericAIFromConfigOptions,
   GenericAIOptions,
+  GenericAIPluginInitPlan,
+  GenericAIResolvedConfig,
   GenericAIRunContext,
   GenericAIRunTask,
+  GenericAIRuntimePlan,
+  GenericAIRuntimeSettingsPlan,
+  GenericAIRuntimeStarter,
+  GenericAIRuntimeStarterInput,
+  GenericAIRuntimeStartResult,
   GenericAIStreamChunk,
 } from "./types.js";

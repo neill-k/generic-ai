@@ -1,94 +1,152 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-
-import { afterEach, describe, expect, it } from "vitest";
-
-import {
-  createReferenceExampleHarness,
-  runReferenceExample,
-} from "./index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type {
+  CreateGenericAILlmRuntimeOptions,
+  GenericAILlmRuntime,
+  GenericAILlmRunResult,
+} from "@generic-ai/core";
+import { createStarterExampleServer, loadStarterExampleEnvironment } from "./index.js";
 import { runStarterExampleCli } from "./run.js";
 
-const tempRoots: string[] = [];
+const openServers: Array<() => Promise<void>> = [];
 
-async function withTempRoot<T>(run: (root: string) => Promise<T>): Promise<T> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "example-starter-hono-"));
-  tempRoots.push(root);
-
-  try {
-    return await run(root);
-  } finally {
-    tempRoots.splice(tempRoots.indexOf(root), 1);
-    await rm(root, { recursive: true, force: true });
-  }
+function createFakeRuntime(outputText: string): GenericAILlmRuntime {
+  return {
+    adapter: "openai-codex",
+    model: "gpt-5.2-codex",
+    run: async (input) =>
+      ({
+        adapter: "openai-codex",
+        model: "gpt-5.2-codex",
+        outputText: `${outputText}: ${input}`,
+      }) satisfies GenericAILlmRunResult,
+    stream: async function* () {
+      yield {
+        type: "response",
+        response: {
+          adapter: "openai-codex",
+          model: "gpt-5.2-codex",
+          outputText,
+        },
+      };
+    },
+  };
 }
 
 afterEach(async () => {
-  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(openServers.splice(0).map((close) => close()));
 });
 
 describe("@generic-ai/example-starter-hono", () => {
-  it("assembles the starter stack and proves the reference flow end to end", async () => {
-    await withTempRoot(async (root) => {
-      const harness = await createReferenceExampleHarness({ root });
-      const run = await harness.run("the demo stack");
+  it("creates a composed Hono app with real runtime wiring", async () => {
+    const createRuntime = vi.fn(
+      async (options: CreateGenericAILlmRuntimeOptions): Promise<GenericAILlmRuntime> => {
+        expect(options.adapter).toBe("openai-codex");
+        expect(options.apiKey).toBe("test-key");
+        expect(options.model).toBe("gpt-5.2-codex");
+        expect(options.cwd).toContain("examples\\starter-hono");
+        expect(options.instructions).toContain("Generic AI starter example agent");
+        return createFakeRuntime("runtime result");
+      },
+    );
 
-      expect(run.bootstrapDescription).toContain("Starter Hono preset");
-      expect(run.delegatedSummary).toContain("Implementer saw");
-      expect(run.skillNames).toContain("starter-summarizer");
-      expect(run.mcpServers).toEqual(["filesystem"]);
-      expect(run.transportHealth).toEqual({
-        transport: "@generic-ai/plugin-hono",
+    const starter = await createStarterExampleServer({
+      env: {
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+      },
+      createRuntime,
+    });
+
+    try {
+      const health = await starter.app.request("/starter/health");
+      expect(await health.json()).toMatchObject({
+        adapter: "openai-codex",
+        model: "gpt-5.2-codex",
         streaming: true,
+        transport: "@generic-ai/plugin-hono",
       });
 
-      const streamed = await harness.transport.app.request("/starter/run/stream", {
+      const run = await starter.app.request("/starter/run", {
         method: "POST",
         headers: {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          input: "streamed demo",
+          input: "hello runtime",
+        }),
+      });
+      const payload = (await run.json()) as {
+        result: {
+          status: string;
+          output?: {
+            payload?: {
+              outputText?: string;
+            };
+          };
+        };
+      };
+
+      expect(payload.result.status).toBe("succeeded");
+      expect(payload.result.output?.payload?.outputText).toBe("runtime result: hello runtime");
+      expect(createRuntime).toHaveBeenCalledOnce();
+    } finally {
+      await starter.stop();
+    }
+  });
+
+  it("streams lifecycle events and a terminal run envelope", async () => {
+    const starter = await createStarterExampleServer({
+      env: {
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+      },
+      createRuntime: async () => createFakeRuntime("streamed result"),
+    });
+
+    try {
+      const streamed = await starter.app.request("/starter/run/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          input: "stream me",
         }),
       });
       const streamedText = await streamed.text();
 
-      expect(streamedText).toContain("event: status");
-      expect(streamedText).toContain("event: done");
+      expect(streamedText).toContain("event: run.created");
+      expect(streamedText).toContain("event: run.started");
+      expect(streamedText).toContain("event: run.completed");
+      expect(streamedText).toContain("event: run.envelope");
+      expect(streamedText).toContain("streamed result: stream me");
+    } finally {
+      await starter.stop();
+    }
+  });
 
-      const convenienceRun = await runReferenceExample({ root }, "convenience");
-      expect(convenienceRun.inboxSize).toBeGreaterThan(0);
+  it("starts the real node server entrypoint", async () => {
+    const started = await runStarterExampleCli({
+      env: {
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+        GENERIC_AI_PORT: "0",
+      },
+      log: () => undefined,
+      createRuntime: async () => createFakeRuntime("network result"),
+    });
+    openServers.push(started.close);
+
+    const health = await fetch(
+      `http://${started.server.host}:${started.server.port}/starter/health`,
+    );
+    expect(await health.json()).toMatchObject({
+      adapter: "openai-codex",
+      model: "gpt-5.2-codex",
+      streaming: true,
     });
   });
 
-  it("runs the fresh-clone CLI path when the provider key is present", async () => {
-    await withTempRoot(async (root) => {
-      const lines: string[] = [];
-      const run = await runStarterExampleCli({
-        args: ["fresh", "clone"],
-        env: {
-          ...process.env,
-          GENERIC_AI_PROVIDER_API_KEY: "test-key",
-          GENERIC_AI_WORKSPACE_ROOT: root,
-        },
-        log: (message) => lines.push(message),
-      });
-
-      expect(run.bootstrapDescription).toContain("Starter Hono preset");
-      expect(lines.join("\n")).toContain("Workspace:");
-      expect(lines.join("\n")).toContain("fresh clone");
-    });
-  });
-
-  it("fails the CLI path clearly when the provider key is missing", async () => {
-    await expect(
-      runStarterExampleCli({
-        env: {
-          GENERIC_AI_WORKSPACE_ROOT: "unused",
-        },
-        log: () => undefined,
-      }),
-    ).rejects.toThrow("GENERIC_AI_PROVIDER_API_KEY must be set");
+  it("fails fast when the provider key is missing", () => {
+    expect(() => loadStarterExampleEnvironment({})).toThrow(
+      "GENERIC_AI_PROVIDER_API_KEY must be set",
+    );
   });
 });

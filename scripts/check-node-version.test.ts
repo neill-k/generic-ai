@@ -1,6 +1,9 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
-const versionCheck = await import("./check-node-version.mjs");
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const versionCheck = await import(pathToFileURL(resolve(__dirname, "check-node-version.mjs")).href);
 
 describe("check-node-version", () => {
   it("accepts Node 24 and newer releases", () => {
