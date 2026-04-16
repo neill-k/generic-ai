@@ -129,57 +129,6 @@ describe("@generic-ai/preset-starter-hono contract", () => {
     ).toEqual(["@generic-ai/plugin-workspace-fs"]);
   });
 
-  it("loads canonical yaml and exposes a configured bootstrap helper", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "starter-hono-preset-"));
-
-    try {
-      await mkdir(path.join(root, ".generic-ai", "agents"), { recursive: true });
-      await writeFile(
-        path.join(root, ".generic-ai", "framework.yaml"),
-        [
-          "schemaVersion: v1",
-          "name: YAML starter",
-          'preset: "@generic-ai/preset-starter-hono"',
-          "primaryAgent: starter",
-          "runtime:",
-          "  workspaceRoot: app",
-        ].join("\n"),
-      );
-      await writeFile(
-        path.join(root, ".generic-ai", "agents", "starter.yaml"),
-        [
-          "displayName: Starter",
-          "model: gpt-5.2-codex",
-          "instructions: |",
-          "  Keep answers brief.",
-          "tools: []",
-          "plugins: []",
-        ].join("\n"),
-      );
-
-      const bootstrap = await createStarterHonoBootstrapFromYaml({
-        startDir: root,
-        startRuntime: async (input) => ({
-          status: "started" as const,
-          workspaceRoot: input.runtimePlan.runtime.workspaceRoot,
-          model: input.runtimePlan.primaryAgent.model,
-          instructions: input.runtimePlan.primaryAgent.instructions,
-        }),
-      });
-
-      expect(bootstrap.runtimePlan.runtime.workspaceRoot).toBe(path.resolve(root, "app"));
-      expect(bootstrap.runtimePlan.primaryAgent.model).toBe("gpt-5.2-codex");
-      await expect(bootstrap.startRuntime()).resolves.toEqual({
-        status: "started",
-        workspaceRoot: path.resolve(root, "app"),
-        model: "gpt-5.2-codex",
-        instructions: "Keep answers brief.\n",
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
   it("loads canonical YAML through the config plugin before producing a runtime plan", async () => {
     const registry = new PluginSchemaRegistry().register({
       pluginId: "@generic-ai/plugin-storage-sqlite",

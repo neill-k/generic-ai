@@ -20,6 +20,7 @@ export type {
   BootstrapPorts,
   BootstrapPresetDefinition,
   BootstrapPresetInput,
+  GenericAIAgentSessionPlan,
   GenericAIBootstrap,
   GenericAIComposedSurfaces,
   GenericAIComposition,

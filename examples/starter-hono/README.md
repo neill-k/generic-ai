@@ -11,10 +11,6 @@ What this example does now:
 - defaults to the official OpenAI Responses client for `gpt-5.2-codex`
 - keeps `pi` available as an explicit compatibility adapter
 
-The main source entrypoint is `examples/starter-hono/src/index.ts`. It stays small so the example can keep proving starter composition while later runtime work layers on a real provider-backed execution path.
-
-The core package now also exposes a capability-to-`pi` runtime bridge (`createCapabilityPiAgentSession` / `runCapabilityPiAgentSession`) so the same starter capability stack can be projected into a real `AgentSession` when provider-facing runtime work is needed.
-
 ## Required environment
 
 The server validates these values before it starts:
