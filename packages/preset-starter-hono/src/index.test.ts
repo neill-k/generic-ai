@@ -424,6 +424,57 @@ kind: 42
     expect(warnings[0]).toContain(STARTER_TERMINAL_PLUGIN_ID);
   });
 
+  it("honors a caller terminalTools override when sandbox mode came from production default", async () => {
+    const warnings: string[] = [];
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: default sandbox with override
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: root,
+          slotOverrides: [
+            {
+              slot: "terminalTools",
+              pluginId: "@acme/custom-terminal",
+              description: "Custom terminal plugin pinned by config.",
+            },
+          ],
+          sandbox: {
+            env: {
+              NODE_ENV: "production",
+            },
+            dockerProbe: async () => true,
+            warn: (message) => warnings.push(message),
+          },
+        });
+
+        const terminalPlugin = bootstrap.preset.plugins.find(
+          (plugin) => plugin.slot === "terminalTools",
+        );
+        expect(terminalPlugin?.pluginId).toBe("@acme/custom-terminal");
+      },
+    );
+
+    expect(warnings.some((warning) => warning.includes("caller-overridden"))).toBe(true);
+  });
+
+  it("throws when caller explicitly opts into sandbox AND sets a terminalTools override", () => {
+    expect(() =>
+      resolveStarterPreset({
+        sandboxMode: "docker",
+        sandboxSource: "explicit",
+        slotOverrides: [
+          {
+            slot: "terminalTools",
+            pluginId: "@acme/custom-terminal",
+          },
+        ],
+      }),
+    ).toThrow(/sandboxMode cannot be combined with a "terminalTools" slot override/);
+  });
+
   it("fails hard when Docker is unavailable and fail-hard fallback is requested", async () => {
     await withConfigRoot(
       {

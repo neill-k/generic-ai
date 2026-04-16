@@ -90,6 +90,16 @@ export interface StarterPresetResolutionOptions {
   readonly slotOverrides?: readonly StarterPresetSlotOverride[];
   readonly addons?: readonly StarterPresetAddonPlugin[];
   readonly sandboxMode?: StarterSandboxMode;
+  /**
+   * How `sandboxMode` was selected. When omitted, the preset assumes
+   * `"explicit"` to preserve programmatic callers' behavior. Callers derived
+   * from `resolveStarterSandboxSelection()` should pass the matching source so
+   * the preset can honor prior `terminalTools` slot overrides when the sandbox
+   * only became active through a production default.
+   */
+  readonly sandboxSource?: StarterSandboxSelectionSource;
+  /** Optional structured logger used to report mode downgrades. */
+  readonly warn?: (message: string) => void;
 }
 
 export interface StarterPresetResolvedPlugin {
@@ -457,13 +467,27 @@ export async function resolveStarterSandboxSelection(
 function withSandboxSlotOverrides(
   overrides: readonly StarterPresetSlotOverride[],
   sandboxMode: StarterSandboxMode | undefined,
+  sandboxSource: StarterSandboxSelectionSource | undefined,
+  warn: ((message: string) => void) | undefined,
 ): readonly StarterPresetSlotOverride[] {
   if (sandboxMode === undefined || sandboxMode === "none") {
     return overrides;
   }
 
-  if (overrides.some((override) => override.slot === "terminalTools")) {
-    throw new Error('sandboxMode cannot be combined with a "terminalTools" slot override.');
+  const hasTerminalOverride = overrides.some((override) => override.slot === "terminalTools");
+  if (hasTerminalOverride) {
+    // Only treat the terminalTools override as a hard error when the caller
+    // actively opted into sandbox mode. When the sandbox was derived from the
+    // production default behavior, honor the caller's explicit override to
+    // avoid breaking existing configs and emit a WARN-level downgrade log.
+    const callerOptedIn = sandboxSource === undefined || sandboxSource !== "default";
+    if (callerOptedIn) {
+      throw new Error('sandboxMode cannot be combined with a "terminalTools" slot override.');
+    }
+    (warn ?? console.warn)(
+      'Starter Hono preset: defaulting sandboxMode="docker" was overridden by an existing "terminalTools" slot binding; sandbox resolution downgraded to "caller-overridden".',
+    );
+    return overrides;
   }
 
   return [
@@ -580,6 +604,8 @@ function createResolvedStarterPreset(
   const slotOverrides = withSandboxSlotOverrides(
     options?.slotOverrides ?? [],
     options?.sandboxMode,
+    options?.sandboxSource,
+    options?.warn,
   );
   const addons = options?.addons ?? [];
   const resolvedSlots = resolveSlotBindings(slotBindings, slotOverrides);
@@ -795,6 +821,8 @@ export async function createStarterHonoBootstrapFromYaml<
   const preset = createStarterHonoPreset({
     ...presetOptions,
     sandboxMode: sandboxSelection.mode,
+    sandboxSource: sandboxSelection.source,
+    ...(sandbox?.warn === undefined ? {} : { warn: sandbox.warn }),
   });
   const configSource: {
     startDir: string;
