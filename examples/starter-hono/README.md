@@ -61,6 +61,22 @@ export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
 npm run -w @generic-ai/example-starter-hono dev
 ```
 
+To exercise the sandbox-aware preset wiring, set the starter bootstrap env vars before launch:
+
+```bash
+export GENERIC_AI_SANDBOX=docker
+export GENERIC_AI_SANDBOX_FALLBACK=fail
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:GENERIC_AI_SANDBOX = "docker"
+$env:GENERIC_AI_SANDBOX_FALLBACK = "fail"
+```
+
+When `GENERIC_AI_SANDBOX` is omitted, development defaults to unrestricted terminal mode and production defaults to the sandbox terminal slot. If Docker is unavailable, bootstrap warns and falls back unless `GENERIC_AI_SANDBOX_FALLBACK=fail` is set.
+
 ## End-to-end requests
 
 Health:
@@ -110,7 +126,6 @@ Safety and teardown notes:
 - Every live run incurs real provider cost. Keep it for trusted local runs and trusted CI only.
 
 Trusted CI can inject an auth directory by writing a secret JSON payload to `${RUNNER_TEMP}/pi-agent/auth.json` and exporting `GENERIC_AI_LIVE_AGENT_DIR=${RUNNER_TEMP}/pi-agent` before calling `npm run -w @generic-ai/example-starter-hono test:live`.
-
 ## Verification
 
 ```bash

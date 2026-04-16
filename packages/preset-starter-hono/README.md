@@ -9,6 +9,7 @@ Default starter preset contract for Generic AI. This package exports a first-cla
 - `createStarterHonoPreset(options?)`: creates a bootstrap-ready preset definition with resolved plugin specs
 - `starterHonoPreset`: the default bootstrap-ready starter preset definition
 - `createStarterHonoBootstrapFromYaml(options)`: starter convenience that injects `loadCanonicalConfig()` into `createGenericAIFromConfig()` so canonical YAML drives runtime/session/plugin init planning
+- `resolveStarterSandboxSelection(mode?, options?)`: resolves `GENERIC_AI_SANDBOX` / environment defaults, probes Docker reachability, and returns the terminal plugin choice that bootstrap should use
 - `STARTER_PRESET_DEFAULT_SLOTS`: documented slot-to-plugin defaults for the starter stack
 
 The preset keeps Hono in the default path, and callers can pass it straight into `createGenericAI()` when they want to make the composition explicit. The returned preset includes plugin specs that core registers into the plugin host, so dependency ordering remains host-owned during bootstrap.
@@ -43,6 +44,28 @@ const preset = resolveStarterPreset({
   addons: [{ pluginId: "@acme/plugin-policy", anchorSlot: "output", insert: "before" }],
 });
 ```
+
+The starter preset also exposes a first-class `terminalTools` slot, so callers can switch the terminal implementation without forking the preset definition:
+
+```ts
+import { createStarterHonoPreset } from "@generic-ai/preset-starter-hono";
+
+const preset = createStarterHonoPreset({
+  sandboxMode: "docker",
+});
+```
+
+## Sandbox mode at bootstrap
+
+`createStarterHonoBootstrapFromYaml()` now understands starter sandbox selection for the terminal slot:
+
+- `GENERIC_AI_SANDBOX=docker` switches `terminalTools` to `@generic-ai/plugin-tools-terminal-sandbox`
+- `GENERIC_AI_SANDBOX=none` keeps the default unrestricted `@generic-ai/plugin-tools-terminal`
+- when `GENERIC_AI_SANDBOX` is unset, development defaults to `none` and production defaults to `docker`
+- Docker reachability is checked during bootstrap; if Docker is unavailable, bootstrap warns and falls back to the unrestricted terminal by default
+- set `GENERIC_AI_SANDBOX_FALLBACK=fail` to turn that fallback into a hard bootstrap error
+
+This package only resolves the preset composition and bootstrap warning/fallback behavior. The sandbox backend package still owns the actual container execution implementation.
 
 ## No `preset.yaml` in v1
 
