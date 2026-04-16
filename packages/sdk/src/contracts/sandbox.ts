@@ -54,9 +54,7 @@ export interface SandboxOutputChunk {
 /**
  * Optional streaming callback used by long-running sandbox commands.
  */
-export type SandboxOutputListener = (
-  chunk: SandboxOutputChunk,
-) => void | Promise<void>;
+export type SandboxOutputListener = (chunk: SandboxOutputChunk) => void | Promise<void>;
 
 /**
  * Generated file metadata returned from a sandboxed run.
@@ -76,6 +74,12 @@ export interface SandboxArtifact {
 export interface SandboxResourceUsage {
   /** Maximum observed resident memory, in MiB. */
   readonly peakMemoryMb?: number;
+  /**
+   * Deprecated alias for {@link SandboxResourceUsage.peakMemoryMb}.
+   * @deprecated Use `peakMemoryMb`. This field is populated alongside
+   * `peakMemoryMb` on every result but will be removed in the next SDK major.
+   */
+  readonly maxMemoryMb?: number;
   /** Approximate CPU time spent by the sandboxed command, in milliseconds. */
   readonly cpuTimeMs?: number;
   /** Total wall-clock time spent by the sandboxed command, in milliseconds. */
@@ -277,11 +281,15 @@ export interface SandboxContract {
 
 /**
  * JSON Schema fragment describing {@link SandboxResourceLimits}.
+ *
+ * `cpuCores` uses `exclusiveMinimum: 0` to match {@link parseSandboxPolicy},
+ * which rejects zero and negative values because a 0-core sandbox would be
+ * useless and Docker rejects the limit.
  */
 export const SANDBOX_RESOURCE_LIMITS_SCHEMA = {
   type: "object",
   properties: {
-    cpuCores: { type: "number", minimum: 0 },
+    cpuCores: { type: "number", exclusiveMinimum: 0 },
     memoryMb: { type: "integer", minimum: 1 },
     diskMb: { type: "integer", minimum: 1 },
     timeoutMs: { type: "integer", minimum: 1 },
@@ -406,11 +414,7 @@ function parseOptionalStringArray(input: unknown, label: string): readonly strin
   return Object.freeze(parsed);
 }
 
-function parseNumber(
-  input: unknown,
-  label: string,
-  integer: boolean,
-): number | undefined {
+function parseNumber(input: unknown, label: string, integer: boolean): number | undefined {
   if (input === undefined) {
     return undefined;
   }
@@ -482,8 +486,24 @@ export function parseSandboxPolicy(input: unknown): SandboxPolicy {
       source["allowlist"],
       "sandbox policy.network.allowlist",
     );
+    const mode = parseEnumValue(
+      source["mode"],
+      "sandbox policy.network.mode",
+      SANDBOX_NETWORK_MODES,
+    );
+    if (mode === "allowlist") {
+      if (allowlist === undefined || allowlist.length === 0) {
+        throw new Error(
+          'sandbox policy.network.allowlist must contain at least one entry when mode is "allowlist".',
+        );
+      }
+    } else if (allowlist !== undefined) {
+      throw new Error(
+        `sandbox policy.network.allowlist is only allowed when mode is "allowlist" (received mode "${mode}").`,
+      );
+    }
     network = {
-      mode: parseEnumValue(source["mode"], "sandbox policy.network.mode", SANDBOX_NETWORK_MODES),
+      mode,
       ...(allowlist === undefined ? {} : { allowlist }),
     };
   }
@@ -505,7 +525,10 @@ export function parseSandboxPolicy(input: unknown): SandboxPolicy {
       source["copyOutPaths"],
       "sandbox policy.files.copyOutPaths",
     );
-    if (outputDir !== undefined && (typeof outputDir !== "string" || outputDir.trim().length === 0)) {
+    if (
+      outputDir !== undefined &&
+      (typeof outputDir !== "string" || outputDir.trim().length === 0)
+    ) {
       throw new Error("sandbox policy.files.outputDir must be a non-empty string.");
     }
 

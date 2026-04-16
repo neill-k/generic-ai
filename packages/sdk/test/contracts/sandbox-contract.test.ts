@@ -4,6 +4,7 @@ import {
   SANDBOX_EXECUTION_STATUSES,
   SANDBOX_FILE_IO_MODES,
   SANDBOX_NETWORK_MODES,
+  SANDBOX_RESOURCE_LIMITS_SCHEMA,
   SANDBOX_RUNTIMES,
   mergeSandboxPolicy,
   parseSandboxPolicy,
@@ -122,6 +123,74 @@ describe("@generic-ai/sdk sandbox contract", () => {
       },
       volumes: ["/cache/npm:/cache/npm"],
     });
+  });
+
+  it("rejects cpuCores at or below zero in both parser and schema", () => {
+    expect(() =>
+      parseSandboxPolicy({
+        resources: {
+          cpuCores: 0,
+        },
+      }),
+    ).toThrow(/cpuCores must be greater than zero/i);
+
+    // Schema-level invariant: cpuCores uses exclusiveMinimum: 0 so bare JSON
+    // Schema validators reject 0 as well.
+    expect(SANDBOX_RESOURCE_LIMITS_SCHEMA.properties.cpuCores).toEqual({
+      type: "number",
+      exclusiveMinimum: 0,
+    });
+  });
+
+  it("accepts fractional cpuCores above zero", () => {
+    expect(
+      parseSandboxPolicy({
+        resources: {
+          cpuCores: 0.25,
+        },
+      }),
+    ).toEqual({
+      resources: { cpuCores: 0.25 },
+    });
+  });
+
+  it("requires a non-empty allowlist when network mode is allowlist", () => {
+    expect(() =>
+      parseSandboxPolicy({
+        network: {
+          mode: "allowlist",
+        },
+      }),
+    ).toThrow(/allowlist must contain at least one entry/i);
+
+    expect(() =>
+      parseSandboxPolicy({
+        network: {
+          mode: "allowlist",
+          allowlist: [],
+        },
+      }),
+    ).toThrow(/allowlist must contain at least one entry/i);
+  });
+
+  it("rejects stray allowlist on non-allowlist network modes", () => {
+    expect(() =>
+      parseSandboxPolicy({
+        network: {
+          mode: "isolated",
+          allowlist: ["example.com"],
+        },
+      }),
+    ).toThrow(/only allowed when mode is "allowlist"/i);
+
+    expect(() =>
+      parseSandboxPolicy({
+        network: {
+          mode: "open",
+          allowlist: ["example.com"],
+        },
+      }),
+    ).toThrow(/only allowed when mode is "allowlist"/i);
   });
 
   it("merges policy overrides without discarding sibling sections", () => {
