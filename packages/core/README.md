@@ -21,6 +21,12 @@ Current bootstrap boundary:
 - callers provide a preset contract rather than the kernel importing preset packages directly
 - starter-path convenience wrappers live in preset packages such as `@generic-ai/preset-starter-hono`
 
+Current runtime bridge:
+
+- `resolveCapabilityPiToolRegistry(capabilities)` assembles the stable `pi` tool registry from capability plugins
+- `createCapabilityPiAgentSession(options)` wires capability tools plus Agent Skills into a real `pi` `AgentSession`
+- `runCapabilityPiAgentSession(options)` forwards `pi` session activity into the canonical event stream and run envelope
+
 Planning baseline:
 
 - `docs/planning/README.md`
