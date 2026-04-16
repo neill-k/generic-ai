@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -194,7 +204,11 @@ export interface SandboxDockerOperations {
   stopContainer(containerId: string, graceMs?: number): Promise<void>;
   removeContainer(containerId: string): Promise<void>;
   removeNetwork(networkName: string): Promise<void>;
-  copyFromContainer(containerId: string, sourcePath: string, destinationPath: string): Promise<void>;
+  copyFromContainer(
+    containerId: string,
+    sourcePath: string,
+    destinationPath: string,
+  ): Promise<void>;
   inspectContainer(containerId: string): Promise<SandboxContainerState | undefined>;
   readUsageSnapshot(containerId: string): Promise<SandboxContainerUsageSnapshot | undefined>;
 }
@@ -340,8 +354,10 @@ function parseConfig(input: unknown): SandboxTerminalPluginConfig {
   const defaultPolicy =
     candidate["defaultPolicy"] === undefined
       ? DEFAULT_CONFIG.defaultPolicy
-      : mergeSandboxPolicy(DEFAULT_CONFIG.defaultPolicy, parseSandboxPolicy(candidate["defaultPolicy"])) ??
-        DEFAULT_CONFIG.defaultPolicy;
+      : (mergeSandboxPolicy(
+          DEFAULT_CONFIG.defaultPolicy,
+          parseSandboxPolicy(candidate["defaultPolicy"]),
+        ) ?? DEFAULT_CONFIG.defaultPolicy);
 
   return {
     backend: "docker",
@@ -386,7 +402,8 @@ export const sandboxTerminalConfigSchema: ConfigSchemaContract<SandboxTerminalPl
           ...base.images,
           ...(next.images ?? {}),
         },
-        defaultPolicy: mergeSandboxPolicy(base.defaultPolicy, next.defaultPolicy) ?? base.defaultPolicy,
+        defaultPolicy:
+          mergeSandboxPolicy(base.defaultPolicy, next.defaultPolicy) ?? base.defaultPolicy,
       });
     },
   });
@@ -519,9 +536,7 @@ function parseContainerState(output: string): SandboxContainerState | undefined 
   const candidate = JSON.parse(trimmed) as Record<string, unknown>;
   return {
     ...(typeof candidate["Running"] === "boolean" ? { running: candidate["Running"] } : {}),
-    ...(typeof candidate["OOMKilled"] === "boolean"
-      ? { oomKilled: candidate["OOMKilled"] }
-      : {}),
+    ...(typeof candidate["OOMKilled"] === "boolean" ? { oomKilled: candidate["OOMKilled"] } : {}),
   };
 }
 
@@ -727,9 +742,22 @@ async function resolveContainerCwd(root: string, cwd?: string): Promise<string> 
 }
 
 function normalizeRelativeSandboxPath(relativePath: string): string {
-  const normalized = path.normalize(relativePath);
+  const trimmed = relativePath.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  if (path.isAbsolute(trimmed)) {
+    throw new Error(
+      `Sandbox relative path "${relativePath}" must be workspace-relative, not absolute.`,
+    );
+  }
+
+  const normalized = path.normalize(trimmed);
   if (normalized === "." || normalized.length === 0) {
     return "";
+  }
+  if (normalized === ".." || normalized.startsWith(`..${path.sep}`)) {
+    throw new Error(`Sandbox relative path "${relativePath}" escapes the workspace root.`);
   }
 
   return normalized.replace(/^[\\/]+/u, "");
@@ -753,7 +781,11 @@ function dedupeRelativeSandboxPaths(paths: readonly string[] | undefined): reado
   const pruned: string[] = [];
 
   for (const candidate of sorted) {
-    if (pruned.some((existing) => candidate === existing || candidate.startsWith(`${existing}${path.sep}`))) {
+    if (
+      pruned.some(
+        (existing) => candidate === existing || candidate.startsWith(`${existing}${path.sep}`),
+      )
+    ) {
       continue;
     }
     pruned.push(candidate);
@@ -770,9 +802,7 @@ function normalizeNetworkAllowlist(allowlist: readonly string[] | undefined): re
   return Object.freeze(
     Array.from(
       new Set(
-        allowlist
-          .map((entry) => entry.trim().toLowerCase())
-          .filter((entry) => entry.length > 0),
+        allowlist.map((entry) => entry.trim().toLowerCase()).filter((entry) => entry.length > 0),
       ),
     ),
   );
@@ -800,14 +830,14 @@ function buildAllowlistProxyScript(): string {
     'import https from "node:https";',
     'import net from "node:net";',
     "",
-    'const configPath = process.env.GENERIC_AI_PROXY_CONFIG;',
-    'if (!configPath) {',
+    "const configPath = process.env.GENERIC_AI_PROXY_CONFIG;",
+    "if (!configPath) {",
     '  throw new Error("GENERIC_AI_PROXY_CONFIG is required.");',
     "}",
     "",
     'const config = JSON.parse(await fs.readFile(configPath, "utf8"));',
-    'const allowlist = Array.isArray(config.allowlist) ? config.allowlist : [];',
-    'const listenPort = Number(config.port ?? 3128);',
+    "const allowlist = Array.isArray(config.allowlist) ? config.allowlist : [];",
+    "const listenPort = Number(config.port ?? 3128);",
     'const blockedLogPath = String(config.blockedLogPath ?? "/tmp/generic-ai-blocked.log");',
     "",
     "function parseAllowlistEntry(entry) {",
@@ -818,7 +848,7 @@ function buildAllowlistProxyScript(): string {
     '  if (trimmed.startsWith("[")) {',
     '    const closing = trimmed.indexOf("]");',
     "    if (closing === -1) {",
-    '      return { host: trimmed, port: undefined };',
+    "      return { host: trimmed, port: undefined };",
     "    }",
     "    const host = trimmed.slice(1, closing);",
     "    const portText = trimmed.slice(closing + 1).replace(/^:/, '');",
@@ -832,7 +862,7 @@ function buildAllowlistProxyScript(): string {
     "    const port = Number(trimmed.slice(firstColon + 1));",
     "    return Number.isInteger(port) ? { host, port } : { host: trimmed, port: undefined };",
     "  }",
-    '  return { host: trimmed, port: undefined };',
+    "  return { host: trimmed, port: undefined };",
     "}",
     "",
     "const normalizedAllowlist = allowlist.map(parseAllowlistEntry).filter(Boolean);",
@@ -984,7 +1014,13 @@ async function stageWorkspacePath(
     for (const entry of entries) {
       const childRelativePath =
         normalizedPath.length === 0 ? entry.name : path.join(normalizedPath, entry.name);
-      await stageWorkspacePath(workspaceRoot, destinationRoot, childRelativePath, tracker, maxInputBytes);
+      await stageWorkspacePath(
+        workspaceRoot,
+        destinationRoot,
+        childRelativePath,
+        tracker,
+        maxInputBytes,
+      );
     }
     return;
   }
@@ -1083,9 +1119,7 @@ async function prepareAllowlistProxyFiles(
   };
 }
 
-async function readAllowlistBlockLog(
-  active: ActiveSandboxSession,
-): Promise<string | undefined> {
+async function readAllowlistBlockLog(active: ActiveSandboxSession): Promise<string | undefined> {
   if (active.allowlistBlockedLogPath === undefined) {
     return undefined;
   }
@@ -1210,7 +1244,8 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
         return;
       }
 
-      const message = pullResult.stderr.trim() || inspectResult.stderr.trim() || "unknown Docker error";
+      const message =
+        pullResult.stderr.trim() || inspectResult.stderr.trim() || "unknown Docker error";
       throw new SandboxUnavailableError(`Failed to ensure Docker image "${image}": ${message}`);
     },
     async createNetwork(request) {
@@ -1218,16 +1253,14 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       if (request.internal) {
         args.push("--internal");
       }
-      args.push(
-        "--label",
-        "generic-ai.sandbox=true",
-        request.name,
-      );
+      args.push("--label", "generic-ai.sandbox=true", request.name);
 
       const result = await runProcess(binary, args);
       if (result.exitCode !== 0) {
         const message = result.stderr.trim() || result.error?.message || "unknown Docker error";
-        throw new SandboxUnavailableError(`Failed to create sandbox network "${request.name}": ${message}`);
+        throw new SandboxUnavailableError(
+          `Failed to create sandbox network "${request.name}": ${message}`,
+        );
       }
 
       return result.stdout.trim() || request.name;
@@ -1293,7 +1326,9 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       const result = await runProcess(binary, ["start", containerId]);
       if (result.exitCode !== 0) {
         const message = result.stderr.trim() || result.error?.message || "unknown Docker error";
-        throw new SandboxUnavailableError(`Failed to start sandbox container "${containerId}": ${message}`);
+        throw new SandboxUnavailableError(
+          `Failed to start sandbox container "${containerId}": ${message}`,
+        );
       }
     },
     async exec(request) {
@@ -1311,14 +1346,20 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
         const message = result.stderr.trim() || result.error?.message || "Docker is unavailable.";
         throw new SandboxUnavailableError(`Failed to execute sandbox command: ${message}`);
       }
-      if (result.error !== undefined && !isDockerUnavailable(result) && result.error.name !== "AbortError") {
+      if (
+        result.error !== undefined &&
+        !isDockerUnavailable(result) &&
+        result.error.name !== "AbortError"
+      ) {
         throw result.error;
       }
 
       return {
         exitCode: result.error?.name === "AbortError" ? null : result.exitCode,
         stdout: result.stdout,
-        stderr: result.stderr || (result.error?.name === "AbortError" ? "Sandbox execution aborted." : ""),
+        stderr:
+          result.stderr ||
+          (result.error?.name === "AbortError" ? "Sandbox execution aborted." : ""),
       };
     },
     async stopContainer(containerId, graceMs) {
@@ -1331,7 +1372,11 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       await runProcess(binary, ["network", "rm", networkName]);
     },
     async copyFromContainer(containerId, sourcePath, destinationPath) {
-      const result = await runProcess(binary, ["cp", `${containerId}:${sourcePath}`, destinationPath]);
+      const result = await runProcess(binary, [
+        "cp",
+        `${containerId}:${sourcePath}`,
+        destinationPath,
+      ]);
       if (result.exitCode !== 0) {
         const message = result.stderr.trim() || result.error?.message || "unknown Docker error";
         throw new SandboxUnavailableError(
@@ -1359,27 +1404,27 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
         "sh",
         "-lc",
         [
-          "cpu_ms=\"\"",
+          'cpu_ms=""',
           "if [ -f /sys/fs/cgroup/cpu.stat ]; then",
           "  cpu_ms=$(awk '/usage_usec/ { printf \"%d\", $2 / 1000 }' /sys/fs/cgroup/cpu.stat 2>/dev/null)",
           "elif [ -f /sys/fs/cgroup/cpuacct/cpuacct.usage ]; then",
           "  cpu_ms=$(awk '{ printf \"%d\", $1 / 1000000 }' /sys/fs/cgroup/cpuacct/cpuacct.usage 2>/dev/null)",
           "fi",
-          "mem_cur=\"\"",
+          'mem_cur=""',
           "if [ -f /sys/fs/cgroup/memory.current ]; then",
           "  mem_cur=$(awk '{ printf \"%d\", $1 / 1048576 }' /sys/fs/cgroup/memory.current 2>/dev/null)",
           "elif [ -f /sys/fs/cgroup/memory/memory.usage_in_bytes ]; then",
           "  mem_cur=$(awk '{ printf \"%d\", $1 / 1048576 }' /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null)",
           "fi",
-          "mem_peak=\"\"",
+          'mem_peak=""',
           "if [ -f /sys/fs/cgroup/memory.peak ]; then",
           "  mem_peak=$(awk '{ printf \"%d\", $1 / 1048576 }' /sys/fs/cgroup/memory.peak 2>/dev/null)",
           "elif [ -f /sys/fs/cgroup/memory/memory.max_usage_in_bytes ]; then",
           "  mem_peak=$(awk '{ printf \"%d\", $1 / 1048576 }' /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null)",
           "fi",
-          "disk_mb=\"\"",
-          "if command -v du >/dev/null 2>&1 && [ -d \"$GENERIC_AI_SANDBOX_OUTPUT_DIR\" ]; then",
-          "  disk_mb=$(du -sk \"$GENERIC_AI_SANDBOX_OUTPUT_DIR\" 2>/dev/null | awk '{ printf \"%d\", ($1 + 1023) / 1024 }')",
+          'disk_mb=""',
+          'if command -v du >/dev/null 2>&1 && [ -d "$GENERIC_AI_SANDBOX_OUTPUT_DIR" ]; then',
+          '  disk_mb=$(du -sk "$GENERIC_AI_SANDBOX_OUTPUT_DIR" 2>/dev/null | awk \'{ printf "%d", ($1 + 1023) / 1024 }\')',
           "fi",
           `printf 'cpuTimeMs=%s\\nmemoryCurrentMb=%s\\npeakMemoryMb=%s\\ndiskWrittenMb=%s\\n' "\${cpu_ms:-}" "\${mem_cur:-}" "\${mem_peak:-}" "\${disk_mb:-}"`,
         ].join("\n"),
@@ -1421,7 +1466,8 @@ export function createSandboxTerminalPlugin(
     readonly cleanupRoot: string;
   }> {
     const fileMode = policy.files?.mode ?? SANDBOX_DEFAULT_POLICY.files?.mode ?? "readonly-mount";
-    const maxInputBytes = policy.files?.maxInputBytes ?? SANDBOX_DEFAULT_POLICY.files?.maxInputBytes;
+    const maxInputBytes =
+      policy.files?.maxInputBytes ?? SANDBOX_DEFAULT_POLICY.files?.maxInputBytes;
     const cleanupRoot = await mkdtemp(path.join(os.tmpdir(), `generic-ai-sandbox-${sessionId}-`));
     const workspaceMountRoot = path.join(cleanupRoot, "workspace");
     const tracker: SizeLimitedCopyTracker = { totalBytes: 0 };
@@ -1433,11 +1479,19 @@ export function createSandboxTerminalPlugin(
     } else if (fileMode === "copy") {
       const copyInPaths = dedupeRelativeSandboxPaths(policy.files?.copyInPaths);
       if (copyInPaths.length === 0) {
-        throw new Error('Sandbox file mode "copy" requires at least one policy.files.copyInPaths entry.');
+        throw new Error(
+          'Sandbox file mode "copy" requires at least one policy.files.copyInPaths entry.',
+        );
       }
 
       for (const relativePath of copyInPaths) {
-        await stageWorkspacePath(layout.root, workspaceMountRoot, relativePath, tracker, maxInputBytes);
+        await stageWorkspacePath(
+          layout.root,
+          workspaceMountRoot,
+          relativePath,
+          tracker,
+          maxInputBytes,
+        );
       }
     }
 
@@ -1447,14 +1501,20 @@ export function createSandboxTerminalPlugin(
       fileMode,
       workspaceMountRoot,
       workspaceMountReadOnly: fileMode !== "copy",
-      copyOutPaths: fileMode === "copy" ? dedupeRelativeSandboxPaths(policy.files?.copyOutPaths) : Object.freeze([]),
+      copyOutPaths:
+        fileMode === "copy"
+          ? dedupeRelativeSandboxPaths(policy.files?.copyOutPaths)
+          : Object.freeze([]),
       cleanupRoot,
     };
   }
 
   async function resolveOutputDirectory(sessionId: string, policy: SandboxPolicy): Promise<string> {
     const outputDir = policy.files?.outputDir ?? SANDBOX_DEFAULT_POLICY.files?.outputDir;
-    const hostPath = await resolveSafeWorkspacePath(layout.root, outputDir ?? path.join("workspace", "shared"));
+    const hostPath = await resolveSafeWorkspacePath(
+      layout.root,
+      outputDir ?? path.join("workspace", "shared"),
+    );
     const sessionPath = path.join(hostPath, sessionId);
     await mkdir(sessionPath, { recursive: true });
     return sessionPath;
@@ -1496,7 +1556,10 @@ export function createSandboxTerminalPlugin(
     }
 
     const networkName = `${SANDBOX_ALLOWLIST_NETWORK_NAME_PREFIX}-${sessionId}`;
-    const { blockedLogPath, mounts } = await prepareAllowlistProxyFiles(cleanupRoot, normalizedAllowlist);
+    const { blockedLogPath, mounts } = await prepareAllowlistProxyFiles(
+      cleanupRoot,
+      normalizedAllowlist,
+    );
     let proxyContainerId: string | undefined;
     let networkCreated = false;
 
@@ -1519,7 +1582,10 @@ export function createSandboxTerminalPlugin(
         },
         networkName,
         networkAliases: [SANDBOX_ALLOWLIST_PROXY_ALIAS],
-        command: ["node", path.posix.join(SANDBOX_ALLOWLIST_PROXY_MOUNT_PATH, SANDBOX_ALLOWLIST_PROXY_SCRIPT_NAME)],
+        command: [
+          "node",
+          path.posix.join(SANDBOX_ALLOWLIST_PROXY_MOUNT_PATH, SANDBOX_ALLOWLIST_PROXY_SCRIPT_NAME),
+        ],
       });
       await docker.connectContainerToNetwork(proxyContainerId, "bridge");
       await docker.startContainer(proxyContainerId);
@@ -1692,9 +1758,7 @@ export function createSandboxTerminalPlugin(
     const hostCwd = request.cwd
       ? await resolveHostCwd(layout.root, request.cwd)
       : active.defaultHostCwd;
-    const sandboxCwd = request.cwd
-      ? toContainerPath(layout.root, hostCwd)
-      : active.defaultCwd;
+    const sandboxCwd = request.cwd ? toContainerPath(layout.root, hostCwd) : active.defaultCwd;
     if (active.fileMode !== "readonly-mount") {
       await ensureStagedWorkingDirectory(layout.root, active.workspaceMountRoot, hostCwd);
     }
