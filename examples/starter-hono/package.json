@@ -11,7 +11,8 @@
     "start": "node dist/run.js",
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty",
-    "test": "vitest run src/index.test.ts",
+    "test": "vitest run src/index.test.ts src/live-smoke.test.ts",
+    "test:live": "vitest run src/live-smoke.test.ts",
     "lint": "biome lint ."
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "@generic-ai/plugin-tools-terminal": "0.0.0",
     "@generic-ai/plugin-workspace-fs": "0.0.0",
     "@generic-ai/core": "0.0.0",
+    "@generic-ai/sdk": "0.0.0",
     "@generic-ai/preset-starter-hono": "0.0.0"
   },
   "engines": {

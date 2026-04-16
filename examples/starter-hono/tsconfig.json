@@ -7,6 +7,7 @@
   "include": ["src"],
   "references": [
     { "path": "../../packages/core" },
+    { "path": "../../packages/sdk" },
     { "path": "../../packages/preset-starter-hono" },
     { "path": "../../packages/plugin-workspace-fs" },
     { "path": "../../packages/plugin-tools-terminal" },
