@@ -1,11 +1,17 @@
 import {
-  createStarterPreset,
   type BootstrapCapabilityId,
   type BootstrapPluginSlot,
   type BootstrapPluginSpec,
   type BootstrapPresetDefinition,
   type BootstrapPresetInput,
+  createGenericAIFromConfig,
+  createStarterPreset,
+  type GenericAIConfiguredBootstrap,
+  type GenericAIFromConfigOptions,
+  type GenericAIRuntimeStarter,
+  type GenericAIRuntimeStartResult,
 } from "@generic-ai/core";
+import { loadCanonicalConfig, type ValidationSchemaSource } from "@generic-ai/plugin-config-yaml";
 import type { PresetContract } from "@generic-ai/sdk";
 
 export const name = "@generic-ai/preset-starter-hono" as const;
@@ -87,6 +93,16 @@ export interface StarterPresetContract
 export interface StarterHonoPresetOptions
   extends BootstrapPresetInput,
     StarterPresetResolutionOptions {}
+
+export interface StarterHonoYamlBootstrapOptions<TRuntimeStart = GenericAIRuntimeStartResult>
+  extends StarterHonoPresetOptions {
+  readonly startDir: string;
+  readonly schemaSource?: ValidationSchemaSource;
+  readonly rejectUnknownPluginNamespaces?: boolean;
+  readonly requireFramework?: boolean;
+  readonly primaryAgentId?: string;
+  readonly startRuntime?: GenericAIRuntimeStarter<TRuntimeStart>;
+}
 
 export interface StarterHonoPresetDefinition extends BootstrapPresetDefinition {
   readonly packageName: string;
@@ -514,3 +530,60 @@ export function createStarterHonoPreset(
 }
 
 export const starterHonoPreset = createStarterHonoPreset();
+
+export async function createStarterHonoBootstrapFromYaml<
+  TRuntimeStart = GenericAIRuntimeStartResult,
+>(
+  options: StarterHonoYamlBootstrapOptions<TRuntimeStart>,
+): Promise<GenericAIConfiguredBootstrap<TRuntimeStart>> {
+  const {
+    startDir,
+    schemaSource,
+    rejectUnknownPluginNamespaces,
+    requireFramework,
+    primaryAgentId,
+    startRuntime,
+    ...presetOptions
+  } = options;
+  const preset = createStarterHonoPreset(presetOptions);
+  const configSource: {
+    startDir: string;
+    load: NonNullable<
+      GenericAIFromConfigOptions<ValidationSchemaSource, TRuntimeStart>["configSource"]
+    >["load"];
+    schemaSource?: ValidationSchemaSource;
+    rejectUnknownPluginNamespaces?: boolean;
+    requireFramework?: boolean;
+  } = {
+    startDir,
+    load: async (loadStartDir, loadOptions) => loadCanonicalConfig(loadStartDir, loadOptions),
+  };
+
+  if (schemaSource !== undefined) {
+    configSource.schemaSource = schemaSource;
+  }
+  if (rejectUnknownPluginNamespaces !== undefined) {
+    configSource.rejectUnknownPluginNamespaces = rejectUnknownPluginNamespaces;
+  }
+  if (requireFramework !== undefined) {
+    configSource.requireFramework = requireFramework;
+  }
+
+  const bootstrapOptions: {
+    preset: StarterHonoPresetDefinition;
+    configSource: typeof configSource;
+    primaryAgentId?: string;
+    startRuntime?: GenericAIRuntimeStarter<TRuntimeStart>;
+  } = {
+    preset,
+    configSource,
+  };
+  if (primaryAgentId !== undefined) {
+    bootstrapOptions.primaryAgentId = primaryAgentId;
+  }
+  if (startRuntime !== undefined) {
+    bootstrapOptions.startRuntime = startRuntime;
+  }
+
+  return createGenericAIFromConfig(bootstrapOptions);
+}

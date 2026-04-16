@@ -1,11 +1,39 @@
-import { describe, expect, it } from "vitest";
-
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { GenericAIConfigError } from "@generic-ai/core";
 import {
+  PluginSchemaRegistry,
+  type ZodIssueLike,
+  type ZodSchemaLike,
+} from "@generic-ai/plugin-config-yaml";
+import { describe, expect, it } from "vitest";
+import {
+  createStarterHonoBootstrapFromYaml,
   createStarterHonoPreset,
   resolveStarterPreset,
   starterHonoPreset,
   starterPresetContract,
 } from "./index.js";
+
+async function withConfigRoot<T>(
+  files: Readonly<Record<string, string>>,
+  run: (root: string) => Promise<T>,
+): Promise<T> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "preset-starter-hono-config-"));
+
+  try {
+    for (const [relativePath, contents] of Object.entries(files)) {
+      const filePath = path.join(root, relativePath);
+      await mkdir(path.dirname(filePath), { recursive: true });
+      await writeFile(filePath, contents, "utf8");
+    }
+
+    return await run(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
 
 describe("@generic-ai/preset-starter-hono contract", () => {
   it("resolves the default plugin stack in canonical order", () => {
@@ -100,4 +128,163 @@ describe("@generic-ai/preset-starter-hono contract", () => {
         ?.dependencies,
     ).toEqual(["@generic-ai/plugin-workspace-fs"]);
   });
+
+  it("loads canonical YAML through the config plugin before producing a runtime plan", async () => {
+    const registry = new PluginSchemaRegistry().register({
+      pluginId: "@generic-ai/plugin-storage-sqlite",
+      namespace: "storage",
+      schema: objectSchema({
+        kind: "string",
+        path: "string",
+      }),
+      source: "storage-config",
+    });
+
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: yaml starter
+primaryAgent: primary
+runtime:
+  workspaceRoot: workspace
+  storage:
+    provider: "@generic-ai/plugin-storage-sqlite"
+  queue:
+    provider: "@generic-ai/plugin-queue-memory"
+  logging:
+    level: info
+`,
+        ".generic-ai/agents/primary.yaml": `model: gpt-5
+instructions: "Use the configured starter stack."
+tools:
+  - files.read
+plugins:
+  - storage
+memory:
+  provider: "@generic-ai/plugin-memory-files"
+  path: ".generic-ai/memory"
+`,
+        ".generic-ai/plugins/storage.yaml": `plugin: "@generic-ai/plugin-storage-sqlite"
+kind: sqlite
+path: ".generic-ai/storage.db"
+`,
+      },
+      async (root) => {
+        const bootstrap = await createStarterHonoBootstrapFromYaml({
+          startDir: path.join(root, "workspace"),
+          schemaSource: registry,
+        });
+
+        expect(bootstrap.preset.id).toBe("@generic-ai/preset-starter-hono");
+        expect(bootstrap.runtimePlan.runtime).toMatchObject({
+          workspaceRoot: path.join(root, "workspace"),
+          storageProvider: "@generic-ai/plugin-storage-sqlite",
+          queueProvider: "@generic-ai/plugin-queue-memory",
+          loggingLevel: "info",
+        });
+        expect(bootstrap.runtimePlan.primaryAgent).toMatchObject({
+          id: "primary",
+          model: "gpt-5",
+          instructions: "Use the configured starter stack.",
+          tools: ["files.read"],
+          plugins: ["storage"],
+        });
+        expect(
+          bootstrap.runtimePlan.plugins.find((plugin) => plugin.namespace === "storage"),
+        ).toMatchObject({
+          pluginId: "@generic-ai/plugin-storage-sqlite",
+          config: {
+            kind: "sqlite",
+            path: ".generic-ai/storage.db",
+          },
+        });
+      },
+    );
+  });
+
+  it("surfaces plugin schema violations before runtime start", async () => {
+    const registry = new PluginSchemaRegistry().register({
+      pluginId: "@generic-ai/plugin-storage-sqlite",
+      namespace: "storage",
+      schema: objectSchema({
+        kind: "string",
+      }),
+    });
+    const startCalls: unknown[] = [];
+
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: invalid storage
+`,
+        ".generic-ai/plugins/storage.yaml": `plugin: "@generic-ai/plugin-storage-sqlite"
+kind: 42
+`,
+      },
+      async (root) => {
+        await expect(
+          createStarterHonoBootstrapFromYaml({
+            startDir: root,
+            schemaSource: registry,
+            startRuntime: (input) => {
+              startCalls.push(input);
+              return {
+                status: "started" as const,
+              };
+            },
+          }),
+        ).rejects.toThrow(GenericAIConfigError);
+      },
+    );
+
+    expect(startCalls).toEqual([]);
+  });
 });
+
+function objectSchema(spec: Record<string, "boolean" | "string">): ZodSchemaLike<unknown> {
+  return {
+    safeParse(input: unknown) {
+      if (!isRecord(input)) {
+        return {
+          success: false,
+          error: {
+            issues: [
+              {
+                code: "invalid_type",
+                message: "Expected object.",
+                path: [],
+              },
+            ],
+          },
+        };
+      }
+
+      const issues: ZodIssueLike[] = [];
+      for (const [fieldName, expectedType] of Object.entries(spec)) {
+        if (typeof input[fieldName] !== expectedType) {
+          issues.push({
+            code: "invalid_type",
+            message: `Expected "${fieldName}" to be ${expectedType}.`,
+            path: [fieldName],
+          });
+        }
+      }
+
+      if (issues.length > 0) {
+        return {
+          success: false,
+          error: {
+            issues,
+          },
+        };
+      }
+
+      return {
+        success: true,
+        data: input,
+      };
+    },
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
