@@ -113,10 +113,10 @@ function freezePluginConfig(
 ): BootstrapPluginConfig {
   return Object.freeze({
     ...(spec.config ?? {}),
+    ...(override ?? {}),
     ...(spec.slot === undefined ? {} : { slot: spec.slot }),
     required: spec.required ?? false,
     source: normalizePluginSource(spec.source),
-    ...(override ?? {}),
   });
 }
 
@@ -354,6 +354,19 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
   let startupPromise: Promise<void> | undefined;
   let runtime: GenericAIBootstrap;
 
+  async function stopRuntime(): Promise<void> {
+    if (startupState !== "started") {
+      return;
+    }
+
+    await composition.host.runLifecycle("stop", {
+      presetId: preset.id,
+      transport: preset.transport,
+    });
+    startupState = "idle";
+    startupPromise = undefined;
+  }
+
   async function ensureStarted(): Promise<void> {
     if (startupState === "started") {
       return;
@@ -448,7 +461,14 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       );
 
       return finalizeRunEnvelope({
-        envelope: runningEnvelope,
+        envelope: {
+          ...runningEnvelope,
+          eventStream: {
+            kind: "event-stream-reference" as const,
+            streamId,
+            sequence: eventStream.snapshot().length,
+          },
+        },
         outputPlugin: outputPlugin as OutputPluginContract<TOutput, TOutput>,
         run: result,
         status: "succeeded",
@@ -469,7 +489,14 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       );
 
       return finalizeRunEnvelope({
-        envelope: runningEnvelope,
+        envelope: {
+          ...runningEnvelope,
+          eventStream: {
+            kind: "event-stream-reference" as const,
+            streamId,
+            sequence: eventStream.snapshot().length,
+          },
+        },
         outputPlugin: outputPlugin as OutputPluginContract<Record<string, unknown>, TOutput>,
         run: failure,
         status: "failed",
@@ -549,7 +576,14 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       yield { type: "event", event: completed };
 
       const envelope = await finalizeRunEnvelope({
-        envelope: runningEnvelope,
+        envelope: {
+          ...runningEnvelope,
+          eventStream: {
+            kind: "event-stream-reference" as const,
+            streamId,
+            sequence: eventStream.snapshot().length,
+          },
+        },
         outputPlugin: outputPlugin as OutputPluginContract<TOutput, TOutput>,
         run: result,
         status: "succeeded",
@@ -572,7 +606,14 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       yield { type: "event", event: failed };
 
       const envelope = await finalizeRunEnvelope({
-        envelope: runningEnvelope,
+        envelope: {
+          ...runningEnvelope,
+          eventStream: {
+            kind: "event-stream-reference" as const,
+            streamId,
+            sequence: eventStream.snapshot().length,
+          },
+        },
         outputPlugin: outputPlugin as OutputPluginContract<Record<string, unknown>, TOutput>,
         run: failure,
         status: "failed",
@@ -596,6 +637,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       `${preset.name} [${preset.id}] with ${preset.capabilities.length} capabilities via ${preset.transport}`,
     run: executeRun,
     stream: streamRun,
+    stop: stopRuntime,
   });
 
   return runtime;

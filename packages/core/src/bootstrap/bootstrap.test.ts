@@ -161,6 +161,27 @@ describe("createGenericAI", () => {
     );
   });
 
+  it("stops the runtime lifecycle via stop()", async () => {
+    const bootstrap = createGenericAI({
+      preset: createStarterPreset({
+        id: "@acme/preset",
+        name: "Stoppable preset",
+        transport: "custom",
+        capabilities: [],
+        plugins: [{ pluginId: "provider" }, { pluginId: "consumer", dependencies: ["provider"] }],
+      }),
+      now: () => "2026-01-01T00:00:00.000Z",
+    });
+
+    await bootstrap.run("hello");
+    await bootstrap.stop();
+
+    const events = bootstrap.surfaces.lifecycle.events();
+    const stopEvents = events.filter((e) => e.phase === "stop");
+    expect(stopEvents).toHaveLength(2);
+    expect(stopEvents.map((e) => e.pluginId)).toEqual(["consumer", "provider"]);
+  });
+
   it("keeps the default starter preset frozen and reusable", () => {
     expect(Object.isFrozen(starterPreset)).toBe(true);
 

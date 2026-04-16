@@ -160,4 +160,5 @@ export interface GenericAIBootstrap extends GenericAIComposition {
   readonly stream: <TOutput = unknown>(
     task: GenericAIRunTask<TOutput>,
   ) => AsyncIterable<GenericAIStreamChunk<TOutput>>;
+  readonly stop: () => Promise<void>;
 }

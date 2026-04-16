@@ -146,9 +146,9 @@ const starterPorts: BootstrapPorts = Object.freeze({
   }),
   runMode: Object.freeze({
     module: "@generic-ai/core",
-    symbol: "createSyncRunMode",
+    symbol: "createAsyncRunMode",
     status: "provided",
-    note: "The bootstrap runtime exposes run(task) and stream(task) for the composed stack.",
+    note: "The bootstrap runtime evaluates tasks asynchronously via run(task) and stream(task).",
   }),
   runEnvelope: Object.freeze({
     module: "@generic-ai/core",

@@ -451,10 +451,42 @@ export function resolveStarterPreset(
   return starterPresetContract.resolve(options);
 }
 
+function deriveCapabilitiesFromPluginSpecs(
+  plugins: readonly BootstrapPluginSpec[],
+): ReadonlyArray<BootstrapCapabilityId> {
+  const capabilities = new Set<BootstrapCapabilityId>();
+
+  for (const plugin of plugins) {
+    if (plugin.slot === undefined) {
+      continue;
+    }
+
+    const capability =
+      plugin.slot in slotToCapability
+        ? slotToCapability[plugin.slot as keyof typeof slotToCapability]
+        : undefined;
+    if (capability !== undefined) {
+      capabilities.add(capability);
+    }
+  }
+
+  if (plugins.some((p) => p.pluginId === "@generic-ai/plugin-hono")) {
+    capabilities.add("transport-hono");
+  }
+
+  return [...capabilities];
+}
+
 export function createStarterHonoPreset(
   options: StarterHonoPresetOptions = {},
 ): StarterHonoPresetDefinition {
   const resolution = resolveStarterPreset(options);
+  const hasExplicitPlugins = options.plugins !== undefined;
+  const effectivePlugins = options.plugins ?? resolveBootstrapPluginSpecs(resolution);
+  const effectiveIncludesHono = hasExplicitPlugins
+    ? effectivePlugins.some((p) => p.pluginId === "@generic-ai/plugin-hono")
+    : resolution.includesHono;
+
   // Default the bootstrap preset id to the package name so it stays aligned
   // with core's `createStarterPreset` (which uses the package name as its id).
   // STARTER_PRESET_ID remains the contract-level identifier used by tests and
@@ -463,9 +495,13 @@ export function createStarterHonoPreset(
     id: options.id ?? name,
     name: options.name ?? "Starter Hono preset",
     description: options.description ?? starterPresetContract.description,
-    transport: options.transport ?? (resolution.includesHono ? "hono" : "custom"),
-    capabilities: options.capabilities ?? resolveCapabilitiesFromContract(resolution),
-    plugins: options.plugins ?? resolveBootstrapPluginSpecs(resolution),
+    transport: options.transport ?? (effectiveIncludesHono ? "hono" : "custom"),
+    capabilities:
+      options.capabilities ??
+      (hasExplicitPlugins
+        ? deriveCapabilitiesFromPluginSpecs(effectivePlugins)
+        : resolveCapabilitiesFromContract(resolution)),
+    plugins: effectivePlugins,
     ...(options.ports === undefined ? {} : { ports: options.ports }),
   });
 
