@@ -1,5 +1,18 @@
 # 0013: Sandboxed Execution
 
+Status: accepted
+Supersedes: docs/decisions/0013-sandboxed-code-execution.md (NEI-371 planning stub)
+
+## Relationship to prior ADR
+
+This record consolidates the planning stub originally filed under NEI-371
+(`docs/decisions/0013-sandboxed-code-execution.md`) and replaces it with the
+concrete implementation decision produced by NEI-372. The planning stub framed
+the question ("which sandbox boundary fits Generic AI?") and proposed Docker as
+the v1 backend; this ADR now records the shipped answer, including the SDK
+contract, plugin package shape, and default policy posture. The planning stub
+is removed to keep a single 0013 entry pointing at the delivered design.
+
 ## Context
 
 `@generic-ai/plugin-tools-terminal` executes agent-generated commands directly on
