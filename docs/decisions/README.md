@@ -26,7 +26,17 @@ ADRs must be written when:
 - [`0002-base-toolchain.md`](0002-base-toolchain.md) — base toolchain for the monorepo: Node LTS, TypeScript project references, Biome, Vitest, workspace scripts, and the four-command quality gate.
 - [`0003-release-and-publishing.md`](0003-release-and-publishing.md) — release tool (changesets), independent versioning, public-vs-internal classification, `publishConfig` with npm provenance, changelog policy, and the CI/release-ownership handoff to `CTL-02` and `CTL-03`.
 - [`0004-config-contracts-and-discovery.md`](0004-config-contracts-and-discovery.md) — Zod-backed config contracts, JSON Schema artifacts in `contracts/`, deterministic `.generic-ai/` discovery, and startup-time validation/composition.
+- [`0004-sdk-contracts.md`](0004-sdk-contracts.md) — SDK-owned plugin, lifecycle, registry, storage, queue, workspace, output, and scope contracts plus the typed helper surface plugin authors build against.
+- [`0005-plugin-host.md`](0005-plugin-host.md) — deterministic plugin-host ordering, lifecycle execution, and actionable host diagnostics inside `@generic-ai/core`.
 - [`0005-starter-preset-contract.md`](0005-starter-preset-contract.md) — SDK-owned preset contracts, starter preset composition rules, and the kernel/preset boundary.
+- [`0006-scope-primitive.md`](0006-scope-primitive.md) — the framework-wide `Scope` primitive and how it flows through bootstrap, runtime, and plugin execution.
+- [`0007-session-orchestration.md`](0007-session-orchestration.md) — kernel-owned root/child session lifecycle and observability model.
+- [`0008-canonical-event-stream.md`](0008-canonical-event-stream.md) — the canonical event taxonomy and streaming surface emitted by the kernel.
+- [`0009-shared-run-modes.md`](0009-shared-run-modes.md) — shared session machinery for sync and async execution modes.
+- [`0010-run-envelope.md`](0010-run-envelope.md) — the minimal stable run envelope the kernel returns before output plugins finalize payloads.
+- [`0011-pi-direct-boundary.md`](0011-pi-direct-boundary.md) — direct `pi` exposure and the thin boundary Generic AI keeps around runtime/tool primitives.
+- [`0012-bootstrap-api.md`](0012-bootstrap-api.md) — `createGenericAI()`, starter-preset defaulting, and config-aware bootstrap composition.
+- [`0013-sandboxed-code-execution.md`](0013-sandboxed-code-execution.md) — Docker-first sandbox planning for terminal tools, the migration path from host execution, and the backend-neutral contract boundary.
 
 ## Planning Baseline
 
