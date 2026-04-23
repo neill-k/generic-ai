@@ -1,3 +1,4 @@
+export * from "./delegation.js";
 export * from "./config-schema.js";
 export * from "./lifecycle.js";
 export * from "./output.js";

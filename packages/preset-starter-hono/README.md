@@ -14,6 +14,8 @@ Default starter preset contract for Generic AI. This package exports a first-cla
 
 The preset keeps Hono in the default path, and callers can pass it straight into `createGenericAI()` when they want to make the composition explicit. The returned preset includes plugin specs that core registers into the plugin host, so dependency ordering remains host-owned during bootstrap.
 
+`@generic-ai/core` also keeps a mirrored starter descriptor so bare `createGenericAI()` calls can stay on the starter path without importing preset packages directly. That mirrored descriptor is a documented bootstrap-only exception; this package remains the public starter contract and convenience-wrapper owner.
+
 The default composition is local-first and includes:
 
 - canonical config plugin

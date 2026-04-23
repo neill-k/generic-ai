@@ -119,7 +119,7 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 
 ### Reference example
 
-- [`examples/starter-hono`](examples/starter-hono) — runnable example that proves the whole stack: `createGenericAI()` with no arguments resolves the starter preset, and callers can also pass `createStarterHonoPreset()` explicitly.
+- [`examples/starter-hono`](examples/starter-hono) — runnable example that proves the whole stack: `createGenericAI()` with no arguments resolves the built-in starter descriptor, and callers can also pass `createStarterHonoPreset()` explicitly.
 
 ## Sandbox Execution Docs
 

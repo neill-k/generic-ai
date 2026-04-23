@@ -38,7 +38,7 @@ The layering rules:
 - The kernel may depend on `pi` and on `@generic-ai/sdk` where that helps it expose its own contracts cleanly. It must not depend on any plugin or preset package.
 - The SDK may depend on `pi`. It must not depend on the kernel or any plugin.
 - Plugins may depend on `@generic-ai/sdk` and on `pi`. They must not import from `@generic-ai/core`. Plugins may depend on other plugins only when the dependency is part of the documented intent for that plugin (for example, `plugin-memory-files` and `plugin-tools-files` depending on `plugin-workspace-fs`, or `plugin-messaging` depending on a storage plugin through the storage contract rather than through a specific implementation whenever possible).
-- Presets may depend on `@generic-ai/core`, `@generic-ai/sdk`, and any plugins they wire up. Presets are the only package type that is allowed to compose kernel and plugins together.
+- Presets may depend on `@generic-ai/core`, `@generic-ai/sdk`, and any plugins they wire up. Presets are the normal package type that composes kernel and plugins together. Approved exception: `@generic-ai/core` may keep the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls, but that exception is limited to bootstrap metadata and must not introduce plugin or preset package imports into the kernel.
 - Examples may depend on any public package they need to demonstrate framework usage. Examples must not be depended on by any package inside `packages/`.
 
 Anything outside these rules needs an entry in `docs/decisions/` explaining the trade-off.
@@ -61,6 +61,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: framework kernel. Owns bootstrap, plugin host, registries, scope, sessions, streaming events, and the canonical run envelope.
 - Allowed deps: `pi`, `@generic-ai/sdk`.
 - Not responsible for: MCP, Agent Skills, delegation, messaging, memory, storage implementations, transport, output shaping, or any business capability.
+- Notes: the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls is the only approved kernel/preset composition exception. See `docs/decisions/0012-bootstrap-api.md`.
 - Publishes as: `@generic-ai/core` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/sdk`
@@ -72,10 +73,10 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/preset-starter-hono`
 
-- Role: default starter preset. Composes the local-first working stack and is the path `createGenericAI()` loads by default.
+- Role: default starter preset contract. Composes the local-first working stack and is the package-owned public contract for the starter path.
 - Allowed deps: `@generic-ai/core`, `@generic-ai/sdk`, all plugins it bundles (`plugin-config-yaml`, `plugin-workspace-fs`, storage, queue, logging, tool, MCP, skill, delegation, messaging, memory, output, and Hono plugins), and `pi`.
 - Not responsible for: defining new plugin-owned business models. The preset only wires existing plugins together.
-- Notes: the starter package owns the default preset contract and may expose a convenience bootstrap wrapper around the generic core bootstrap. The kernel stays preset-agnostic.
+- Notes: the starter package owns the public starter contract and may expose a convenience bootstrap wrapper around the generic core bootstrap. `@generic-ai/core` keeps a mirrored starter descriptor only as the approved `createGenericAI()` default-path exception documented in `docs/decisions/0012-bootstrap-api.md`.
 
 ### `@generic-ai/plugin-config-yaml`
 
@@ -159,6 +160,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: simple delegation capability that defines the delegation business model.
 - Allowed deps: `@generic-ai/sdk`, `pi`.
 - Not responsible for: child-session lifecycle or result collection. Those belong to the kernel.
+- Notes: the package exports delegation capability markers and shared contract types. Kernel session helpers own child-session lifecycle plumbing.
 
 ### `@generic-ai/plugin-interaction`
 

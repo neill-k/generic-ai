@@ -1,7 +1,7 @@
 {
   "name": "@generic-ai/plugin-delegation",
   "version": "0.0.0",
-  "description": "Delegation plugin for Generic AI. Defines the delegation business model while the kernel owns child-session lifecycle.",
+  "description": "Delegation capability contract markers for Generic AI. The kernel owns child-session lifecycle and result collection.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,7 +10,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@generic-ai/core": "0.0.0"
+    "@generic-ai/sdk": "0.0.0"
   },
   "license": "MIT",
   "private": false,

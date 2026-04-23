@@ -23,6 +23,11 @@ const starterCapabilities: ReadonlyArray<BootstrapCapabilityId> = Object.freeze(
   "transport-hono",
 ]);
 
+/**
+ * Approved bootstrap exception: core keeps a mirrored starter descriptor so
+ * bare `createGenericAI()` calls can resolve the starter path without
+ * importing preset or plugin packages directly.
+ */
 const starterPluginSpecs: readonly BootstrapPluginSpec[] = Object.freeze([
   Object.freeze({
     slot: "config",

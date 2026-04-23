@@ -1,6 +1,8 @@
 # @generic-ai/plugin-delegation
 
-Delegation plugin for Generic AI. Provides a simple delegation capability on top of kernel child-session orchestration.
+Delegation capability contract markers for Generic AI. This package exports the
+delegation capability identity plus the shared request/result types while the
+kernel owns child-session lifecycle and result collection.
 
 Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin Intent"):
 
@@ -9,7 +11,13 @@ Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin
 - Rely on kernel child-session orchestration under the hood
 - Emit delegation events that logging and observability plugins can consume
 
-The kernel owns child session lifecycle and result collection. This plugin only owns the business shape of delegation itself.
+Current boundary:
+
+- `@generic-ai/core` exposes `createDelegationCoordinator()` for child-session
+  lifecycle plumbing
+- `@generic-ai/plugin-delegation` exports the delegation capability markers and
+  shared contract types
+- the package must not depend on `@generic-ai/core`
 
 Planning baseline:
 
