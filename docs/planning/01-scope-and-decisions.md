@@ -200,6 +200,9 @@ These areas should exist in the roadmap, but not in the first detailed implement
 The concrete resumption plan for the deferred runtime-governance/security track
 now lives in [`docs/runtime-governance.md`](../runtime-governance.md).
 
+The concrete resumption plan for the deferred identity/auth track now lives in
+[`docs/identity-auth.md`](../identity-auth.md).
+
 ## Planning Rule For Linear Issues
 
 Every implementation issue should explicitly tell the assignee to:

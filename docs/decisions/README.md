@@ -38,10 +38,11 @@ ADRs must be written when:
 - [`0012-bootstrap-api.md`](0012-bootstrap-api.md) — `createGenericAI()`, starter-preset defaulting, and config-aware bootstrap composition.
 - [`0013-sandboxed-execution.md`](0013-sandboxed-execution.md) — Docker-backed sandbox execution, migration posture, and trade-offs.
 - [`0014-runtime-governance-and-security-controls.md`](0014-runtime-governance-and-security-controls.md) — deferred runtime governance architecture: plugin-owned enforcement, a future shared SDK policy contract, and the least-privilege roadmap for terminal, file, and MCP capabilities.
-- [`0015-ci-and-branch-control.md`](0015-ci-and-branch-control.md) — PR-time quality gate, docs-as-code check, and branch-protection expectations.
-- [`0016-security-and-supply-chain-baseline.md`](0016-security-and-supply-chain-baseline.md) — security policy, CODEOWNERS, Dependabot, dependency audit posture, and deferred supply-chain controls.
-- [`0017-agent-boundaries-ownership-task-discovery.md`](0017-agent-boundaries-ownership-task-discovery.md) — root agent instructions, ownership docs, issue forms, and PR template.
-- [`0018-docs-as-code-baseline.md`](0018-docs-as-code-baseline.md) — deterministic generated package index and docs check workflow.
+- [`0015-ci-and-branch-control.md`](0015-ci-and-branch-control.md) - PR-time quality gate, docs-as-code check, and branch-protection expectations.
+- [`0016-security-and-supply-chain-baseline.md`](0016-security-and-supply-chain-baseline.md) - security policy, CODEOWNERS, Dependabot, dependency audit posture, and deferred supply-chain controls.
+- [`0017-agent-boundaries-ownership-task-discovery.md`](0017-agent-boundaries-ownership-task-discovery.md) - root agent instructions, ownership docs, issue forms, and PR template.
+- [`0018-docs-as-code-baseline.md`](0018-docs-as-code-baseline.md) - deterministic generated package index and docs check workflow.
+- [`0019-identity-auth-plugin-boundary.md`](0019-identity-auth-plugin-boundary.md) - deferred identity/auth architecture: plugin-owned auth, SDK-visible identity context, Hono adapter implications, and hosted-vs-local preset posture.
 
 ## Planning Baseline
 

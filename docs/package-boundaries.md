@@ -192,6 +192,27 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Allowed deps: `@generic-ai/sdk`, `pi`, `hono`.
 - Not responsible for: being part of the kernel or making Hono mandatory at the core layer.
 
+## Planned Deferred Package Boundaries
+
+Deferred packages do not exist in `packages/` yet. These notes are planning
+boundaries for future implementation issues so new code lands in the right
+layer when the roadmap resumes.
+
+### Future `@generic-ai/plugin-auth-identity`
+
+- Role: authentication and normalized identity context. Owns token/session
+  validation, provider integration, principal normalization, and propagation of
+  redaction-safe auth metadata into framework execution.
+- Allowed deps: `@generic-ai/sdk`, `pi`, identity-provider or token-validation
+  libraries, and transport adapters where needed. The Hono adapter may depend on
+  `hono` but should stay adapter-local.
+- Not responsible for: kernel session orchestration, product account UI,
+  billing/org models, provider-specific business policy, or making Hono
+  mandatory.
+- Notes: the deferred roadmap and Hono integration implications live in
+  `docs/identity-auth.md`; the framework-level decision record is
+  `docs/decisions/0019-identity-auth-plugin-boundary.md`.
+
 ## Examples, Contracts, And Specs
 
 ### `examples/starter-hono/`

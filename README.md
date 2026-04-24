@@ -73,11 +73,11 @@ The framework's first functional vertical slice is landed on `main`. The "Minimu
 
 ### Planning-only tracks complete
 
-`DEF-04` (runtime governance roadmap), `DEF-05` (TUI / web UI tracks), and `DEF-07` (sandboxed execution research) landed as planning ADRs and roadmap docs.
+`DEF-01` (identity/auth plugin boundary), `DEF-04` (runtime governance roadmap), `DEF-05` (TUI / web UI tracks), and `DEF-07` (sandboxed execution research) landed as planning ADRs and roadmap docs.
 
 ### In flight
 
-The remaining Epic 7 deferred tracks (`DEF-01` identity/auth, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability) are still in the backlog. Sandbox plugin P2 hardening follow-ups are tracked in `NEI-383`.
+The remaining Epic 7 deferred tracks (`DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability) are still in the backlog. Sandbox plugin P2 hardening follow-ups are tracked in `NEI-383`.
 
 ## Shipped Packages
 
@@ -135,7 +135,7 @@ The sandbox stack has its own operator and API docs pack:
 
 Remaining tracked work:
 
-- **Epic 7 - Deferred but planned tracks:** `DEF-01` identity/auth plugin, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability beyond the OTEL baseline. Runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md).
+- **Epic 7 - Deferred but planned tracks:** `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability beyond the OTEL baseline. Identity/auth posture is captured in [`docs/identity-auth.md`](docs/identity-auth.md), and runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md).
 - **Sandbox plugin P2 hardening (`NEI-383`):** DNS-rebinding defense in the allowlist proxy, proxy readiness probe, writable-rootfs tightening, and the rest of the deferred bot findings from the NEI-372 rollup.
 
 See [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) for full scope and dependency links.
