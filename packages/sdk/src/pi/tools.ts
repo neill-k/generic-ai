@@ -1,7 +1,4 @@
 export {
-  bashTool,
-  bashToolDefinition,
-  codingTools,
   createBashTool,
   createBashToolDefinition,
   createCodingTools,
@@ -19,14 +16,35 @@ export {
   createReadOnlyTools,
   createWriteTool,
   createWriteToolDefinition,
-  editTool,
-  findTool,
-  grepTool,
-  lsTool,
-  readOnlyTools,
-  readTool,
-  writeTool,
 } from "@mariozechner/pi-coding-agent";
+
+import {
+  createBashTool,
+  createBashToolDefinition,
+  createCodingTools,
+  createEditTool,
+  createFindTool,
+  createGrepTool,
+  createLsTool,
+  createReadOnlyTools,
+  createReadTool,
+  createWriteTool,
+} from "@mariozechner/pi-coding-agent";
+
+const defaultToolCwd = process.cwd();
+
+export const readTool = createReadTool(defaultToolCwd);
+export const writeTool = createWriteTool(defaultToolCwd);
+export const editTool = createEditTool(defaultToolCwd);
+export const bashTool = createBashTool(defaultToolCwd);
+export const grepTool = createGrepTool(defaultToolCwd);
+export const findTool = createFindTool(defaultToolCwd);
+export const lsTool = createLsTool(defaultToolCwd);
+export const bashToolDefinition = createBashToolDefinition(defaultToolCwd);
+export const codingTools: ReturnType<typeof createCodingTools> =
+  createCodingTools(defaultToolCwd);
+export const readOnlyTools: ReturnType<typeof createReadOnlyTools> =
+  createReadOnlyTools(defaultToolCwd);
 
 export type {
   BashOperations,

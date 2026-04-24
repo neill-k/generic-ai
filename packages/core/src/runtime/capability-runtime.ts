@@ -9,7 +9,7 @@ import {
   type PromptOptions,
   type ToolDefinition,
 } from "@generic-ai/sdk";
-import type { ResourceDiagnostic, Skill } from "@mariozechner/pi-coding-agent";
+import { getAgentDir, type ResourceDiagnostic, type Skill } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 import {
@@ -23,7 +23,13 @@ import { createPiAgentSession, type PiRuntimeFactories } from "./pi.js";
 
 const PI_RUNTIME_EVENT_PLUGIN_ID = "generic-ai-runtime";
 
-type PiRuntimeTool = NonNullable<CreateAgentSessionOptions["tools"]>[number];
+type PiRuntimeTool = ToolDefinition | {
+  readonly name: string;
+  readonly label?: string;
+  readonly description: string;
+  readonly parameters?: unknown;
+  readonly execute: (...args: never[]) => unknown;
+};
 
 export interface PiCapabilityFileTools {
   readonly piTools: readonly PiRuntimeTool[];
@@ -637,10 +643,12 @@ async function createCapabilityResourceLoader(
 ): Promise<DefaultResourceLoader> {
   const resourceLoaderOptions = options.resourceLoaderOptions ?? {};
   const skillsOverride = createSkillsOverride(skillSnapshot, resourceLoaderOptions.skillsOverride);
+  const cwd = options.cwd ?? options.sessionManager?.getCwd() ?? process.cwd();
+  const agentDir = options.agentDir ?? getAgentDir();
   const loader = new DefaultResourceLoader({
     ...resourceLoaderOptions,
-    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
-    ...(options.agentDir === undefined ? {} : { agentDir: options.agentDir }),
+    cwd,
+    agentDir,
     ...(options.settingsManager === undefined ? {} : { settingsManager: options.settingsManager }),
     ...(skillsOverride === undefined ? {} : { skillsOverride }),
   });
@@ -809,8 +817,10 @@ export async function createCapabilityPiAgentSession(
   const sessionResult = await createPiAgentSession(
     {
       ...options,
-      tools: [...toolRegistry.tools],
-      customTools: [...toolRegistry.customTools],
+      tools: [...toolRegistry.toolNames],
+      customTools: [...toolRegistry.tools, ...toolRegistry.customTools] as NonNullable<
+        CreateAgentSessionOptions["customTools"]
+      >,
       resourceLoader,
     },
     factories,

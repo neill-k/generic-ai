@@ -1,17 +1,17 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  type SessionCancelOptions,
-  type SessionCompleteOptions,
-  type SessionErrorSnapshot,
-  type SessionFailOptions,
-  type SessionId,
-  type SessionKind,
-  type SessionMetadata,
-  type SessionSnapshot,
-  type SessionStartOptions,
-  type SessionStatus,
-  type SessionTerminalState,
+import type {
+  SessionCancelOptions,
+  SessionCompleteOptions,
+  SessionErrorSnapshot,
+  SessionFailOptions,
+  SessionId,
+  SessionKind,
+  SessionMetadata,
+  SessionSnapshot,
+  SessionStartOptions,
+  SessionStatus,
+  SessionTerminalState,
 } from "./types.js";
 
 interface SessionRecord {

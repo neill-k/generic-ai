@@ -196,7 +196,8 @@ export async function runLiveProviderSmoke(
     authStorage,
     modelRegistry,
     resourceLoader,
-    tools: [...fileTools.piTools],
+    tools: fileTools.piTools.map((tool) => tool.name),
+    customTools: [...fileTools.piTools] as never,
     sessionManager: SessionManager.inMemory(),
     settingsManager,
   });

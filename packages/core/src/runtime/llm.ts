@@ -2,6 +2,7 @@ import { join } from "node:path";
 import {
   AuthStorage,
   DefaultResourceLoader,
+  getAgentDir,
   ModelRegistry,
   SessionManager,
   SettingsManager,
@@ -114,6 +115,8 @@ async function createPiCompatibilityRuntime(
   const createAgentSession = dependencies.createAgentSession ?? createPiAgentSession;
 
   async function createSession(): Promise<PiSession> {
+    const cwd = input.cwd ?? process.cwd();
+    const agentDir = input.agentDir ?? getAgentDir();
     const authStorage =
       dependencies.authStorageFactory?.(input.agentDir) ??
       AuthStorage.create(input.agentDir === undefined ? undefined : join(input.agentDir, "auth.json"));
@@ -140,8 +143,8 @@ async function createPiCompatibilityRuntime(
         ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
       }) ??
       new DefaultResourceLoader({
-        ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-        ...(input.agentDir === undefined ? {} : { agentDir: input.agentDir }),
+        cwd,
+        agentDir,
         noExtensions: true,
         noThemes: true,
         noPromptTemplates: true,
@@ -150,8 +153,8 @@ async function createPiCompatibilityRuntime(
     await resourceLoader.reload?.();
 
     const result = await createAgentSession({
-      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-      ...(input.agentDir === undefined ? {} : { agentDir: input.agentDir }),
+      cwd,
+      agentDir,
       authStorage: authStorage as never,
       modelRegistry: modelRegistry as never,
       model: model as never,

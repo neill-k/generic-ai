@@ -204,7 +204,7 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
         },
       );
 
-      expect((capturedOptions?.tools as { name: string }[]).map((tool) => tool.name)).toEqual([
+      expect(capturedOptions?.tools).toEqual([
         "bash",
         "read",
         "write",
@@ -212,10 +212,22 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
         "find",
         "grep",
         "ls",
+        "mcp_registry",
+        "agent_messages",
+        "agent_memory",
       ]);
-      expect((capturedOptions?.customTools as { name: string }[]).map((tool) => tool.name)).toEqual(
-        ["mcp_registry", "agent_messages", "agent_memory"],
-      );
+      expect((capturedOptions?.customTools as { name: string }[]).map((tool) => tool.name)).toEqual([
+        "bash",
+        "read",
+        "write",
+        "edit",
+        "find",
+        "grep",
+        "ls",
+        "mcp_registry",
+        "agent_messages",
+        "agent_memory",
+      ]);
       expect(
         capturedOptions?.resourceLoader?.getSkills().skills.map((skill) => skill.name),
       ).toEqual(["starter-skill"]);
