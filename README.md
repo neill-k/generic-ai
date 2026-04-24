@@ -4,6 +4,18 @@ Pluggable, extensible multi-agent framework.
 
 Generic AI is a plugin-first framework reimplementation. The goal is a clean public framework with a minimal kernel and replaceable capability plugins.
 
+## How Generic AI Relates To `pi`
+
+Generic AI is not a replacement for `pi`; it is a framework layer built on top of `pi`.
+
+`pi` provides the low-level agent and tool runtime mechanics: model/provider access, tool calling, agent state, streaming, terminal coding-agent UX, and UI/toolkit packages such as `pi-ai` and `pi-tui`. Generic AI uses those primitives where practical instead of rewrapping them.
+
+Generic AI adds the reusable multi-agent application shell around those primitives: a small kernel, plugin host, package-level SDK contracts, canonical config, starter presets, sync and async run orchestration, child-session lifecycle, durable messaging, persistent memory, MCP and Agent Skills plugins, Hono transport, output finalization, and operational boundaries such as docs, CI, package ownership, and sandboxed execution.
+
+Use `pi` directly when you want a lean coding agent, provider/runtime toolkit, or terminal UI foundation. Use Generic AI when you want a plugin-first framework for embedding a composed multi-agent runtime in an app, service, or product surface.
+
+See [`docs/generic-ai-and-pi.md`](docs/generic-ai-and-pi.md) for the fuller comparison.
+
 ## Current Planning Baseline
 
 The authoritative planning baseline for this repository is:

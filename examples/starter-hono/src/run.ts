@@ -27,7 +27,7 @@ export async function runStarterExampleCli(
 
   let server: StartedFetchServer;
   try {
-    server = await startFetchServer(starter.transport.fetch, {
+    server = await startFetchServer(starter.fetch, {
       host: starter.environment.host,
       port: starter.environment.port,
     });
@@ -39,6 +39,7 @@ export async function runStarterExampleCli(
   log(
     [
       `Starter example listening on http://${server.host}:${server.port}${starter.transport.routePrefix}/health`,
+      `Playground UI: http://${server.host}:${server.port}/`,
       `Adapter: ${starter.runtime.adapter}`,
       `Model: ${starter.runtime.model}`,
       `Exposure: ${starter.environment.exposure}`,

@@ -7,11 +7,12 @@ What this example does now:
 - boots from canonical `.generic-ai/` config via `createStarterHonoBootstrapFromYaml()`
 - validates provider/runtime environment at startup
 - exposes `/starter/health`, `/starter/run`, and `/starter/run/stream`
+- serves a production-built prompt playground at `/`
 - uses a runtime adapter boundary in `@generic-ai/core`
 - defaults to the official OpenAI Responses client for `gpt-5.2-codex`
 - keeps `pi` available as an explicit compatibility adapter
 
-The main source entrypoint is `examples/starter-hono/src/index.ts`. It stays small so the example can keep proving starter composition while later runtime work layers on a real provider-backed execution path.
+The main server entrypoint is `examples/starter-hono/src/index.ts`. The playground source lives under `examples/starter-hono/ui/` and builds into `examples/starter-hono/dist/public/`, which the same Hono process serves at `/`.
 
 The core package now also exposes a capability-to-`pi` runtime bridge (`createCapabilityPiAgentSession` / `runCapabilityPiAgentSession`) so the same starter capability stack can be projected into a real `AgentSession` when provider-facing runtime work is needed.
 
@@ -52,7 +53,7 @@ cd generic-ai
 nvm use
 corepack enable
 npm install
-npm run build
+npm run -w @generic-ai/example-starter-hono build
 export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
 npm run -w @generic-ai/example-starter-hono start
 ```
@@ -63,6 +64,13 @@ PowerShell:
 $env:GENERIC_AI_PROVIDER_API_KEY = "<provider-key>"
 npm run -w @generic-ai/example-starter-hono start
 ```
+
+Open `http://127.0.0.1:3000/` for the playground UI. It includes:
+
+- a prompt input seeded for a real single-file Three.js game generation workflow
+- sync and streaming run modes
+- optional bearer-token entry for protected remote runs
+- a sandboxed HTML preview, raw HTML view, downloadable artifact, and run-event log
 
 Remote exposure with a token:
 
@@ -95,6 +103,23 @@ For local iteration without a build:
 export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
 npm run -w @generic-ai/example-starter-hono dev
 ```
+
+For frontend iteration, run the API server and Vite UI in two terminals:
+
+Terminal 1:
+
+```bash
+export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
+npm run -w @generic-ai/example-starter-hono dev
+```
+
+Terminal 2:
+
+```bash
+npm run -w @generic-ai/example-starter-hono dev:ui
+```
+
+The Vite UI runs on `http://127.0.0.1:3001/` and proxies `/starter/*` to the Hono server on port `3000`.
 
 To exercise the sandbox-aware preset wiring, set the starter bootstrap env vars before launch:
 
@@ -168,7 +193,7 @@ npm run check:node
 npm run typecheck
 npm run lint
 npm run test
-npm run build
+npm run -w @generic-ai/example-starter-hono build
 ```
 
 Planning baseline:

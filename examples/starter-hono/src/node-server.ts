@@ -64,7 +64,16 @@ export async function startFetchServer(
 ): Promise<StartedFetchServer> {
   const server = createServer(async (req, res) => {
     const abortController = new AbortController();
-    req.on("close", () => abortController.abort());
+    let responseFinished = false;
+    req.on("aborted", () => abortController.abort());
+    res.on("finish", () => {
+      responseFinished = true;
+    });
+    res.on("close", () => {
+      if (!responseFinished) {
+        abortController.abort();
+      }
+    });
 
     try {
       const method = req.method ?? "GET";

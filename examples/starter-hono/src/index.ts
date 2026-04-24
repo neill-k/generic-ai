@@ -1,5 +1,6 @@
+import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
-import { dirname, resolve } from "node:path";
+import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   createGenericAILlmRuntime,
@@ -31,9 +32,26 @@ const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3000;
 const SUPPORTED_ADAPTERS = new Set<GenericAILlmRuntimeAdapter>(["openai-codex", "pi"]);
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const DEFAULT_UI_PUBLIC_DIR = resolve(PACKAGE_ROOT, "dist", "public");
 const UNAUTHORIZED_RESPONSE_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "www-authenticate": 'Bearer realm="generic-ai-starter"',
+} as const;
+const STATIC_SECURITY_HEADERS = {
+  "cross-origin-opener-policy": "same-origin",
+  "referrer-policy": "no-referrer",
+  "x-content-type-options": "nosniff",
+} as const;
+const STATIC_MIME_TYPES: Readonly<Record<string, string>> = {
+  ".css": "text/css; charset=utf-8",
+  ".html": "text/html; charset=utf-8",
+  ".ico": "image/x-icon",
+  ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".txt": "text/plain; charset=utf-8",
+  ".wasm": "application/wasm",
 } as const;
 
 export const STARTER_ROUTE_PREFIX = "/starter" as const;
@@ -61,6 +79,7 @@ export interface StarterExampleEnvironment {
 export interface StarterExampleServer {
   readonly app: HonoPlugin["app"];
   readonly transport: HonoPlugin;
+  readonly fetch: (request: Request) => Promise<Response> | Response;
   readonly bootstrap: GenericAIConfiguredBootstrap<GenericAILlmRuntime>;
   readonly runtime: GenericAILlmRuntime;
   readonly environment: StarterExampleEnvironment;
@@ -71,6 +90,7 @@ export interface StarterExampleServer {
 export interface StarterExampleServerOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly startDir?: string;
+  readonly uiPublicDir?: string;
   readonly createRuntime?: (
     options: CreateGenericAILlmRuntimeOptions,
   ) => Promise<GenericAILlmRuntime> | GenericAILlmRuntime;
@@ -244,6 +264,107 @@ function normalizePrompt(input: unknown): string {
   return JSON.stringify(input, null, 2);
 }
 
+function isInsideDirectory(root: string, target: string): boolean {
+  const pathFromRoot = relative(root, target);
+  return pathFromRoot === "" || (!pathFromRoot.startsWith("..") && !isAbsolute(pathFromRoot));
+}
+
+function contentTypeForPath(filePath: string): string {
+  return STATIC_MIME_TYPES[extname(filePath).toLowerCase()] ?? "application/octet-stream";
+}
+
+function staticHeaders(filePath: string, publicDir: string): Headers {
+  const headers = new Headers(STATIC_SECURITY_HEADERS);
+  headers.set("content-type", contentTypeForPath(filePath));
+
+  if (isInsideDirectory(resolve(publicDir, "assets"), filePath)) {
+    headers.set("cache-control", "public, max-age=31536000, immutable");
+  } else {
+    headers.set("cache-control", "no-cache");
+  }
+
+  return headers;
+}
+
+async function readStaticFile(
+  filePath: string,
+  requestMethod: string,
+  publicDir: string,
+): Promise<Response | undefined> {
+  try {
+    const body = requestMethod === "HEAD" ? undefined : await readFile(filePath);
+    return new Response(body, {
+      headers: staticHeaders(filePath, publicDir),
+      status: 200,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "EISDIR" || error.code === "ENOTDIR")
+    ) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+function acceptsHtml(request: Request): boolean {
+  const accept = request.headers.get("accept");
+  return accept === null || accept.includes("text/html") || accept.includes("*/*");
+}
+
+function staticAssetPath(publicDir: string, pathname: string): string | undefined {
+  let decodedPathname: string;
+  try {
+    decodedPathname = decodeURIComponent(pathname);
+  } catch {
+    return undefined;
+  }
+
+  const routePath = decodedPathname === "/" ? "/index.html" : decodedPathname;
+  const targetPath = resolve(publicDir, `.${routePath}`);
+  return isInsideDirectory(publicDir, targetPath) ? targetPath : undefined;
+}
+
+export function createStarterExampleFetch(
+  transportFetch: HonoPlugin["fetch"],
+  options: { readonly publicDir?: string } = {},
+): (request: Request) => Promise<Response> {
+  const publicDir = resolve(options.publicDir ?? DEFAULT_UI_PUBLIC_DIR);
+  const indexPath = resolve(publicDir, "index.html");
+
+  return async (request) => {
+    const url = new URL(request.url);
+
+    if (url.pathname.startsWith(`${STARTER_ROUTE_PREFIX}/`)) {
+      return transportFetch(request);
+    }
+
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return transportFetch(request);
+    }
+
+    const targetPath = staticAssetPath(publicDir, url.pathname);
+    if (targetPath !== undefined) {
+      const staticResponse = await readStaticFile(targetPath, request.method, publicDir);
+      if (staticResponse !== undefined) {
+        return staticResponse;
+      }
+    }
+
+    if (acceptsHtml(request)) {
+      const indexResponse = await readStaticFile(indexPath, request.method, publicDir);
+      if (indexResponse !== undefined) {
+        return indexResponse;
+      }
+    }
+
+    return transportFetch(request);
+  };
+}
+
 export function loadStarterExampleEnvironment(
   env: NodeJS.ProcessEnv = process.env,
   startDir: string = STARTER_DEFAULT_START_DIR,
@@ -353,9 +474,13 @@ export async function createStarterExampleServer(
       }
     },
   });
+  const fetch = createStarterExampleFetch(transport.fetch, {
+    ...(options.uiPublicDir === undefined ? {} : { publicDir: options.uiPublicDir }),
+  });
 
   return Object.freeze({
     app: transport.app,
+    fetch,
     transport,
     bootstrap,
     runtime,

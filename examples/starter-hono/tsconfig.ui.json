@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "jsx": "react-jsx",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "outDir": "dist/ui-typecheck",
+    "paths": {
+      "@/*": ["./ui/src/*"]
+    },
+    "rootDir": "ui/src",
+    "sourceMap": false,
+    "types": ["vite/client"]
+  },
+  "include": ["ui/src"]
+}

@@ -1,3 +1,5 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -5,7 +7,11 @@ import type {
   GenericAILlmRuntime,
   GenericAILlmRunResult,
 } from "@generic-ai/core";
-import { createStarterExampleServer, loadStarterExampleEnvironment } from "./index.js";
+import {
+  createStarterExampleFetch,
+  createStarterExampleServer,
+  loadStarterExampleEnvironment,
+} from "./index.js";
 import { runStarterExampleCli } from "./run.js";
 
 const openServers: Array<() => Promise<void>> = [];
@@ -147,6 +153,55 @@ describe("@generic-ai/example-starter-hono", () => {
       model: "gpt-5.2-codex",
       streaming: true,
     });
+
+    const streamed = await fetch(
+      `http://${started.server.host}:${started.server.port}/starter/run/stream`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ input: "from browser" }),
+      },
+    );
+    const streamedText = await streamed.text();
+
+    expect(streamed.status).toBe(200);
+    expect(streamed.headers.get("content-type")).toContain("text/event-stream");
+    expect(streamedText).toContain("event: run.envelope");
+    expect(streamedText).toContain("network result: from browser");
+  });
+
+  it("serves the built playground shell before falling back to starter routes", async () => {
+    const publicDir = await mkdtemp(path.join(tmpdir(), "generic-ai-starter-ui-"));
+
+    try {
+      await mkdir(path.join(publicDir, "assets"));
+      await writeFile(path.join(publicDir, "index.html"), "<!doctype html><title>Playground</title>");
+      await writeFile(path.join(publicDir, "assets", "app.js"), "console.log('ok');");
+
+      const transportFetch = vi.fn(async (request: Request) => {
+        const url = new URL(request.url);
+        return new Response(`transport:${url.pathname}`, { status: 404 });
+      });
+      const fetchHandler = createStarterExampleFetch(transportFetch, { publicDir });
+
+      const root = await fetchHandler(new Request("http://starter.test/"));
+      expect(root.status).toBe(200);
+      expect(root.headers.get("content-type")).toContain("text/html");
+      expect(await root.text()).toContain("Playground");
+
+      const asset = await fetchHandler(new Request("http://starter.test/assets/app.js"));
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get("cache-control")).toContain("immutable");
+
+      const api = await fetchHandler(new Request("http://starter.test/starter/health"));
+      expect(api.status).toBe(404);
+      expect(await api.text()).toBe("transport:/starter/health");
+      expect(transportFetch).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(publicDir, { force: true, recursive: true });
+    }
   });
 
   it("fails fast when the provider key is missing", () => {
