@@ -185,12 +185,15 @@ function getOutputMount(docker: FakeDockerOperations) {
       candidate,
     ): candidate is Extract<
       SandboxDockerCreateContainerRequest["mounts"][number],
-      { source: string }
-    > => "source" in candidate && candidate.target === SANDBOX_OUTPUT_MOUNT_PATH,
+      { type: "tmpfs" }
+    > =>
+      "type" in candidate &&
+      candidate.type === "tmpfs" &&
+      candidate.target === SANDBOX_OUTPUT_MOUNT_PATH,
   );
   expect(mount).toBeDefined();
   if (mount === undefined) {
-    throw new Error("Expected a /workspace-output bind mount.");
+    throw new Error("Expected a /workspace-output tmpfs mount.");
   }
   return mount;
 }
@@ -358,8 +361,9 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         expect.arrayContaining([
           expect.objectContaining({ target: "/workspace", readOnly: true }),
           expect.objectContaining({
-            source: path.join(root, "workspace", "shared", "sandbox-results", "session-123"),
             target: SANDBOX_OUTPUT_MOUNT_PATH,
+            type: "tmpfs",
+            sizeMb: 100,
           }),
         ]),
       );
@@ -462,9 +466,14 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(plugin.listSessions()).toHaveLength(0);
       expect(docker.created[0]?.cpus).toBe(0.5);
       expect(docker.created[0]?.memoryMb).toBe(256);
-      expect(getOutputMount(docker).source).toBe(
-        path.join(root, "workspace", "shared", "sandbox-results", "ephemeral-1"),
-      );
+      expect(getOutputMount(docker).sizeMb).toBe(32);
+      expect(docker.copied).toEqual([
+        {
+          containerId: "container-ephemeral-1",
+          sourcePath: `${SANDBOX_OUTPUT_MOUNT_PATH}/.`,
+          destinationPath: path.join(root, "workspace", "shared", "sandbox-results", "ephemeral-1"),
+        },
+      ]);
       expect(docker.stopped).toEqual([
         { containerId: "container-ephemeral-1", graceMs: undefined },
       ]);

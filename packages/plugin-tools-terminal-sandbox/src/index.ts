@@ -1851,8 +1851,9 @@ export function createSandboxTerminalPlugin(
         });
       }
       mounts.push({
-        source: outputDir,
+        type: "tmpfs",
         target: SANDBOX_OUTPUT_MOUNT_PATH,
+        ...(policy.resources?.diskMb === undefined ? {} : { sizeMb: policy.resources.diskMb }),
       });
 
       containerId = await docker.createContainer({
