@@ -1,6 +1,6 @@
 ## Summary
 
-- 
+- Describe the change.
 
 ## Verification
 

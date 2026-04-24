@@ -113,7 +113,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 - Role: structured logging plus OTEL tracing plugin. Consumes the kernel event stream.
 - Allowed deps: `@generic-ai/sdk`, `pi`, OTEL client libraries.
-- Not responsible for: richer observability dashboards, metrics, or analytics surfaces (see `DEF-06`).
+- Not responsible for: richer observability dashboards, metrics, or analytics surfaces. The deferred resume plan for those surfaces lives in `docs/advanced-observability.md` (`DEF-06`).
 
 ### `@generic-ai/plugin-tools-terminal`
 

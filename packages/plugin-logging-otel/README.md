@@ -18,6 +18,7 @@ Structured logging plus OTEL-shaped trace capture for Generic AI. This package t
 - Start/complete/fail lifecycle events with matching run, session, or delegation ids are folded into completed spans.
 - The plugin can mirror log and span records to caller-provided sinks.
 - This stays replaceable: future host code can map these records into a real exporter pipeline without changing kernel behavior.
+- Richer metrics, dashboards, and product analytics are intentionally deferred outside this baseline package; see [`../../docs/advanced-observability.md`](../../docs/advanced-observability.md).
 
 ## Example
 

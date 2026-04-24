@@ -64,7 +64,6 @@ const lines = [
     (pkg) =>
       `| \`${pkg.name}\` | \`${pkg.path}\` | ${pkg.publishStatus} | ${pkg.description} | ${pkg.readmeLink} |`,
   ),
-  "",
 ];
 
 const next = `${lines.join("\n")}\n`;

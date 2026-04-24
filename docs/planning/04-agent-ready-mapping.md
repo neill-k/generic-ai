@@ -75,7 +75,7 @@ Status legend:
 
 - `observability.logging`: `Phase 1` via `INF-05`
 - `observability.tracing`: `Phase 1` via `INF-05`
-- `observability.metrics`: `Later` via `DEF-06`
+- `observability.metrics`: `Later` via `DEF-06`; the resume plan lives in `docs/advanced-observability.md`
 
 ## Environment
 
@@ -92,7 +92,7 @@ Status legend:
 ## Product
 
 - `product.feature_flags`: `Later` as framework-consumer or optional plugin work
-- `product.analytics`: `Later` as framework-consumer or optional plugin work
+- `product.analytics`: `Later` as framework-consumer or optional plugin work; `docs/advanced-observability.md` keeps it separate from baseline telemetry
 - `product.ab_testing`: `Later` as framework-consumer or optional plugin work
 
 ## Agent Config
