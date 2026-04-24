@@ -1,16 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import {
-  cp,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, open, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -36,6 +26,7 @@ import {
 } from "@generic-ai/sdk";
 import {
   createWorkspaceLayout,
+  resolveWorkspacePath,
   resolveSafeWorkspacePath,
   type WorkspaceRootInput,
 } from "@generic-ai/plugin-workspace-fs";
@@ -57,6 +48,8 @@ export const SANDBOX_KEEPALIVE_COMMAND = Object.freeze([
 export const SANDBOX_ALLOWLIST_PROXY_ALIAS = "sandbox-egress-proxy";
 export const SANDBOX_ALLOWLIST_PROXY_PORT = 3128;
 export const SANDBOX_ALLOWLIST_NETWORK_NAME_PREFIX = "generic-ai-sandbox";
+export const SANDBOX_ALLOWLIST_PROXY_READY_TIMEOUT_MS = 5_000;
+export const SANDBOX_WRITABLE_TMPFS_MB = 16;
 
 const SANDBOX_ALLOWLIST_PROXY_MOUNT_PATH = "/generic-ai-network-proxy";
 const SANDBOX_ALLOWLIST_PROXY_LOGS_MOUNT_PATH = "/generic-ai-network-logs";
@@ -96,6 +89,14 @@ export interface SandboxTerminalPluginConfig {
   readonly defaultPolicy: SandboxPolicy;
   readonly ensureImages: boolean;
 }
+
+type SandboxTerminalConfigRecord = Record<string, unknown> & {
+  backend?: unknown;
+  defaultPolicy?: unknown;
+  defaultRuntime?: unknown;
+  ensureImages?: unknown;
+  images?: unknown;
+};
 
 export interface SandboxTerminalPluginOptions {
   readonly root: WorkspaceRootInput;
@@ -154,6 +155,7 @@ export interface SandboxDockerCreateContainerRequest {
   readonly networkAliases?: readonly string[];
   readonly cpus?: number;
   readonly memoryMb?: number;
+  readonly readOnlyRootfs?: boolean;
   readonly command?: readonly string[];
 }
 
@@ -297,8 +299,18 @@ export class SandboxSessionConflictError extends Error {
   }
 }
 
+export class SandboxArtifactSyncError extends Error {
+  readonly code = "sandbox-artifact-sync";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "SandboxArtifactSyncError";
+  }
+}
+
 const SANDBOX_SESSION_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,62}$/u;
 const WINDOWS_DRIVE_LETTER_PATTERN = /^[A-Za-z]:[\\/]|^[A-Za-z]:$/u;
+const WINDOWS_UNC_PATH_PATTERN = /^[\\/]{2}[^\\/]+[\\/][^\\/]+/u;
 
 export function validateSessionId(sessionId: string): string {
   if (typeof sessionId !== "string") {
@@ -367,13 +379,13 @@ function parseConfig(input: unknown): SandboxTerminalPluginConfig {
     return DEFAULT_CONFIG;
   }
 
-  const candidate = assertRecord(input, "sandbox terminal config");
-  const backend = candidate["backend"];
+  const candidate = assertRecord(input, "sandbox terminal config") as SandboxTerminalConfigRecord;
+  const backend = candidate.backend;
   if (backend !== undefined && backend !== "docker") {
     throw new Error('sandbox terminal config.backend must be "docker".');
   }
 
-  const defaultRuntime = candidate["defaultRuntime"];
+  const defaultRuntime = candidate.defaultRuntime;
   if (
     defaultRuntime !== undefined &&
     defaultRuntime !== "bash" &&
@@ -383,23 +395,23 @@ function parseConfig(input: unknown): SandboxTerminalPluginConfig {
     throw new Error('sandbox terminal config.defaultRuntime must be "bash", "node", or "python".');
   }
 
-  const ensureImages = candidate["ensureImages"];
+  const ensureImages = candidate.ensureImages;
   if (ensureImages !== undefined && typeof ensureImages !== "boolean") {
     throw new Error("sandbox terminal config.ensureImages must be a boolean.");
   }
 
   const defaultPolicy =
-    candidate["defaultPolicy"] === undefined
+    candidate.defaultPolicy === undefined
       ? DEFAULT_CONFIG.defaultPolicy
       : (mergeSandboxPolicy(
           DEFAULT_CONFIG.defaultPolicy,
-          parseSandboxPolicy(candidate["defaultPolicy"]),
+          parseSandboxPolicy(candidate.defaultPolicy),
         ) ?? DEFAULT_CONFIG.defaultPolicy);
 
   return {
     backend: "docker",
     defaultRuntime: (defaultRuntime as SandboxRuntime | undefined) ?? DEFAULT_CONFIG.defaultRuntime,
-    images: parseRuntimeImages(candidate["images"]),
+    images: parseRuntimeImages(candidate.images),
     defaultPolicy,
     ensureImages: ensureImages ?? DEFAULT_CONFIG.ensureImages,
   };
@@ -516,6 +528,10 @@ function toDockerStopSeconds(graceMs: number | undefined): string {
     return "0";
   }
 
+  if (graceMs <= 0) {
+    return "0";
+  }
+
   return String(Math.max(1, Math.ceil(graceMs / 1000)));
 }
 
@@ -570,10 +586,21 @@ function parseContainerState(output: string): SandboxContainerState | undefined 
     return undefined;
   }
 
-  const candidate = JSON.parse(trimmed) as Record<string, unknown>;
+  let candidate: {
+    OOMKilled?: unknown;
+    Running?: unknown;
+  };
+  try {
+    candidate = JSON.parse(trimmed) as typeof candidate;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new SandboxUnavailableError(
+      `Docker inspect returned invalid container state JSON: ${message}`,
+    );
+  }
   return {
-    ...(typeof candidate["Running"] === "boolean" ? { running: candidate["Running"] } : {}),
-    ...(typeof candidate["OOMKilled"] === "boolean" ? { oomKilled: candidate["OOMKilled"] } : {}),
+    ...(typeof candidate.Running === "boolean" ? { running: candidate.Running } : {}),
+    ...(typeof candidate.OOMKilled === "boolean" ? { oomKilled: candidate.OOMKilled } : {}),
   };
 }
 
@@ -654,6 +681,9 @@ function decorateExecutionStderr(
     readonly timeoutGraceMs: number | undefined;
     readonly oomKilled: boolean;
     readonly memoryMb: number | undefined;
+    readonly diskMb: number | undefined;
+    readonly diskWrittenMb: number | undefined;
+    readonly diskExceeded: boolean;
   },
 ): string {
   const messages: string[] = [];
@@ -678,6 +708,18 @@ function decorateExecutionStderr(
         ? "Sandbox exceeded its memory limit."
         : `Sandbox exceeded its ${options.memoryMb}MiB memory limit.`;
     messages.push(`${limitLabel} Reduce memory use or raise sandbox policy.resources.memoryMb.`);
+  } else if (options.diskExceeded) {
+    const limitLabel =
+      options.diskMb === undefined
+        ? "Sandbox exceeded its disk limit."
+        : `Sandbox exceeded its ${options.diskMb}MiB disk limit.`;
+    const usageLabel =
+      options.diskWrittenMb === undefined
+        ? ""
+        : ` Measured output usage was ${options.diskWrittenMb}MiB.`;
+    messages.push(
+      `${limitLabel}${usageLabel} No space left in sandbox output directory; reduce generated artifacts or raise sandbox policy.resources.diskMb.`,
+    );
   }
 
   return messages.join(trimmed.length > 0 ? "\n" : "");
@@ -866,6 +908,11 @@ function normalizeRelativeSandboxPath(relativePath: string): string {
       `Sandbox relative path "${relativePath}" must not include a Windows drive letter.`,
     );
   }
+  if (WINDOWS_UNC_PATH_PATTERN.test(trimmed)) {
+    throw new SandboxConfigurationError(
+      `Sandbox relative path "${relativePath}" must not include a Windows UNC path.`,
+    );
+  }
 
   const normalized = path.normalize(trimmed);
   if (normalized === "." || normalized.length === 0) {
@@ -879,6 +926,11 @@ function normalizeRelativeSandboxPath(relativePath: string): string {
   if (WINDOWS_DRIVE_LETTER_PATTERN.test(normalized)) {
     throw new SandboxConfigurationError(
       `Sandbox relative path "${relativePath}" must not include a Windows drive letter.`,
+    );
+  }
+  if (WINDOWS_UNC_PATH_PATTERN.test(normalized)) {
+    throw new SandboxConfigurationError(
+      `Sandbox relative path "${relativePath}" must not include a Windows UNC path.`,
     );
   }
 
@@ -954,6 +1006,7 @@ function buildAllowlistProxyEnv(): Readonly<Record<string, string>> {
 
 function buildAllowlistProxyScript(): string {
   return [
+    'import dns from "node:dns/promises";',
     'import fs from "node:fs/promises";',
     'import http from "node:http";',
     'import https from "node:https";',
@@ -968,6 +1021,7 @@ function buildAllowlistProxyScript(): string {
     "const allowlist = Array.isArray(config.allowlist) ? config.allowlist : [];",
     "const listenPort = Number(config.port ?? 3128);",
     'const blockedLogPath = String(config.blockedLogPath ?? "/tmp/generic-ai-blocked.log");',
+    "const upstreamSocketTimeoutMs = Number(config.upstreamSocketTimeoutMs ?? 30000);",
     "",
     "function parseAllowlistEntry(entry) {",
     '  const trimmed = String(entry ?? "").trim().toLowerCase();',
@@ -995,6 +1049,79 @@ function buildAllowlistProxyScript(): string {
     "}",
     "",
     "const normalizedAllowlist = allowlist.map(parseAllowlistEntry).filter(Boolean);",
+    "",
+    "function normalizeIpHost(hostname) {",
+    '  return String(hostname ?? "").toLowerCase().replace(/^\\[/u, "").replace(/\\]$/u, "");',
+    "}",
+    "",
+    "function isRestrictedIpv4(address) {",
+    "  const parts = address.split('.').map((part) => Number(part));",
+    "  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {",
+    "    return true;",
+    "  }",
+    "  const [a, b, c] = parts;",
+    "  return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127 || a === 192 && b === 0 && (c === 0 || c === 2) || a === 192 && b === 88 && c === 99 || a === 198 && (b === 18 || b === 19) || a === 198 && b === 51 && c === 100 || a === 203 && b === 0 && c === 113 || a >= 224;",
+    "}",
+    "",
+    "function isRestrictedIpv6(address) {",
+    "  const normalized = address.toLowerCase();",
+    "  if (normalized.startsWith('::ffff:')) {",
+    "    return isRestrictedIpv4(normalized.slice('::ffff:'.length));",
+    "  }",
+    "  const firstHextet = Number.parseInt(normalized.split(':', 1)[0] || '0', 16);",
+    "  const isLinkLocal = Number.isInteger(firstHextet) && firstHextet >= 0xfe80 && firstHextet <= 0xfebf;",
+    "  return normalized === '::' || normalized === '::1' || isLinkLocal || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('ff') || normalized.startsWith('2001:db8:');",
+    "}",
+    "",
+    "function isRestrictedIpAddress(address) {",
+    "  const family = net.isIP(address);",
+    "  if (family === 4) {",
+    "    return isRestrictedIpv4(address);",
+    "  }",
+    "  if (family === 6) {",
+    "    return isRestrictedIpv6(address);",
+    "  }",
+    "  return true;",
+    "}",
+    "",
+    "function isExplicitlyAllowedIp(address, port) {",
+    "  const normalizedAddress = normalizeIpHost(address);",
+    "  return normalizedAllowlist.some((entry) => {",
+    "    if (!entry || net.isIP(normalizeIpHost(entry.host)) === 0) {",
+    "      return false;",
+    "    }",
+    "    return normalizeIpHost(entry.host) === normalizedAddress && (entry.port === undefined || entry.port === port);",
+    "  });",
+    "}",
+    "",
+    "async function resolveAllowedHost(hostname, port) {",
+    "  const normalizedHost = normalizeIpHost(hostname);",
+    "  if (net.isIP(normalizedHost) !== 0) {",
+    "    if (isRestrictedIpAddress(normalizedHost) && !isExplicitlyAllowedIp(normalizedHost, port)) {",
+    "      throw new Error('restricted-ip:' + normalizedHost);",
+    "    }",
+    "    return normalizedHost;",
+    "  }",
+    "  const records = await dns.lookup(normalizedHost, { all: true, verbatim: false });",
+    "  if (records.length === 0) {",
+    "    throw new Error('dns-empty:' + normalizedHost);",
+    "  }",
+    "  const blocked = records.find((record) => isRestrictedIpAddress(record.address) && !isExplicitlyAllowedIp(record.address, port));",
+    "  if (blocked) {",
+    "    throw new Error('restricted-ip:' + blocked.address);",
+    "  }",
+    "  return records[0].address;",
+    "}",
+    "",
+    "function installSocketTimeout(socket, destination, phase) {",
+    "  if (!Number.isFinite(upstreamSocketTimeoutMs) || upstreamSocketTimeoutMs <= 0) {",
+    "    return;",
+    "  }",
+    "  socket.setTimeout(upstreamSocketTimeoutMs, () => {",
+    "    void logBlocked(destination, phase + '-timeout');",
+    "    socket.destroy(new Error('Sandbox allowlist proxy socket timeout for ' + destination));",
+    "  });",
+    "}",
     "",
     "function matchesHost(hostname, pattern) {",
     '  if (pattern.startsWith("*.")) {',
@@ -1045,14 +1172,29 @@ function buildAllowlistProxyScript(): string {
     "    return;",
     "  }",
     "",
+    "  let resolvedAddress;",
+    "  try {",
+    "    resolvedAddress = await resolveAllowedHost(target.hostname, port);",
+    "  } catch (error) {",
+    "    const reason = error instanceof Error ? error.message : String(error);",
+    "    await logBlocked(destination, 'blocked-resolution:' + reason);",
+    '    res.writeHead(403, { "content-type": "text/plain" });',
+    '    res.end("Blocked by Generic AI sandbox allowlist after DNS resolution: " + destination + "\\n");',
+    "    return;",
+    "  }",
+    "",
     '  const transport = target.protocol === "https:" ? https : http;',
     "  const upstream = transport.request(target, {",
     "    method: req.method,",
     "    headers: filterProxyHeaders(req.headers),",
+    "    lookup(_hostname, _options, callback) {",
+    "      callback(null, resolvedAddress, net.isIP(resolvedAddress));",
+    "    },",
     "  }, (upstreamRes) => {",
     "    res.writeHead(upstreamRes.statusCode ?? 502, upstreamRes.statusMessage, upstreamRes.headers);",
     "    upstreamRes.pipe(res);",
     "  });",
+    "  installSocketTimeout(upstream, destination, 'http-upstream');",
     "  upstream.on('error', async (error) => {",
     "    await logBlocked(destination, 'error:' + error.message);",
     '    res.writeHead(502, { "content-type": "text/plain" });',
@@ -1075,7 +1217,18 @@ function buildAllowlistProxyScript(): string {
     "    return;",
     "  }",
     "",
-    "  const upstream = net.connect(port, normalizedHost, () => {",
+    "  let resolvedAddress;",
+    "  try {",
+    "    resolvedAddress = await resolveAllowedHost(normalizedHost, port);",
+    "  } catch (error) {",
+    "    const reason = error instanceof Error ? error.message : String(error);",
+    "    await logBlocked(destination, 'blocked-connect-resolution:' + reason);",
+    '    clientSocket.write("HTTP/1.1 403 Forbidden\\r\\nContent-Type: text/plain\\r\\nConnection: close\\r\\n\\r\\n");',
+    '    clientSocket.end("Blocked by Generic AI sandbox allowlist after DNS resolution: " + destination + "\\n");',
+    "    return;",
+    "  }",
+    "",
+    "  const upstream = net.connect({ host: resolvedAddress, port }, () => {",
     '    clientSocket.write("HTTP/1.1 200 Connection Established\\r\\n\\r\\n");',
     "    if (head.length > 0) {",
     "      upstream.write(head);",
@@ -1084,6 +1237,8 @@ function buildAllowlistProxyScript(): string {
     "    clientSocket.pipe(upstream);",
     "  });",
     "",
+    "  installSocketTimeout(upstream, destination, 'connect-upstream');",
+    "  installSocketTimeout(clientSocket, destination, 'connect-client');",
     "  upstream.on('error', async (error) => {",
     "    await logBlocked(destination, 'connect-error:' + error.message);",
     '    clientSocket.write("HTTP/1.1 502 Bad Gateway\\r\\nContent-Type: text/plain\\r\\nConnection: close\\r\\n\\r\\n");',
@@ -1097,6 +1252,63 @@ function buildAllowlistProxyScript(): string {
     "process.on('SIGTERM', () => server.close(() => process.exit(0)));",
     "process.on('SIGINT', () => server.close(() => process.exit(0)));",
   ].join("\n");
+}
+
+function buildAllowlistProxyReadinessCommand(): string {
+  return [
+    "node -e",
+    JSON.stringify(
+      [
+        "const net = require('node:net');",
+        `const socket = net.connect(${SANDBOX_ALLOWLIST_PROXY_PORT}, '127.0.0.1');`,
+        "socket.setTimeout(250);",
+        "socket.once('connect', () => { socket.end(); process.exit(0); });",
+        "socket.once('timeout', () => { socket.destroy(); process.exit(1); });",
+        "socket.once('error', () => process.exit(1));",
+      ].join(" "),
+    ),
+  ].join(" ");
+}
+
+async function waitForAllowlistProxyReady(
+  docker: SandboxDockerOperations,
+  proxyContainerId: string,
+): Promise<void> {
+  const deadline = Date.now() + SANDBOX_ALLOWLIST_PROXY_READY_TIMEOUT_MS;
+  const command = buildAllowlistProxyReadinessCommand();
+  let lastError = "";
+
+  while (Date.now() <= deadline) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      break;
+    }
+
+    const probeTimeoutMs = Math.max(1, Math.min(500, remainingMs));
+
+    try {
+      const result = await docker.exec({
+        containerId: proxyContainerId,
+        command,
+        signal: AbortSignal.timeout(probeTimeoutMs),
+      });
+      if (result.exitCode === 0) {
+        return;
+      }
+      lastError = result.stderr.trim() || result.stdout.trim();
+    } catch (error) {
+      const message = error instanceof Error ? error.message.trim() : "";
+      lastError =
+        message.length === 0
+          ? `allowlist proxy readiness probe timed out after ${probeTimeoutMs}ms`
+          : message;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+
+  throw new SandboxUnavailableError(
+    `Sandbox allowlist proxy "${proxyContainerId}" did not become ready on port ${SANDBOX_ALLOWLIST_PROXY_PORT} within ${SANDBOX_ALLOWLIST_PROXY_READY_TIMEOUT_MS}ms${lastError.length === 0 ? "." : `: ${lastError}`}`,
+  );
 }
 
 function enforceStagedInputLimit(
@@ -1129,11 +1341,22 @@ async function stageWorkspacePath(
   maxInputBytes: number | undefined,
 ): Promise<void> {
   const normalizedPath = normalizeRelativeSandboxPath(relativePath);
+  const lexicalSourcePath =
+    normalizedPath.length === 0
+      ? resolveWorkspacePath(workspaceRoot)
+      : resolveWorkspacePath(workspaceRoot, normalizedPath);
+  const sourceInfo = await lstat(lexicalSourcePath);
+
+  if (sourceInfo.isSymbolicLink()) {
+    throw new SandboxConfigurationError(
+      `Refusing to stage symbolic link "${normalizedPath || "."}" into the sandbox workspace.`,
+    );
+  }
+
   const sourcePath =
     normalizedPath.length === 0
       ? await resolveSafeWorkspacePath(workspaceRoot)
       : await resolveSafeWorkspacePath(workspaceRoot, normalizedPath);
-  const sourceInfo = await stat(sourcePath);
   const destinationPath =
     normalizedPath.length === 0 ? destinationRoot : path.join(destinationRoot, normalizedPath);
 
@@ -1256,13 +1479,28 @@ async function readAllowlistBlockLog(active: ActiveSandboxSession): Promise<stri
     return undefined;
   }
 
-  const contents = await readFile(active.allowlistBlockedLogPath, "utf8");
-  if (contents.length <= active.allowlistBlockedLogOffset) {
+  const fileInfo = await stat(active.allowlistBlockedLogPath);
+  if (fileInfo.size < active.allowlistBlockedLogOffset) {
+    active.allowlistBlockedLogOffset = 0;
+  }
+  if (fileInfo.size <= active.allowlistBlockedLogOffset) {
     return undefined;
   }
 
-  const nextChunk = contents.slice(active.allowlistBlockedLogOffset).trim();
-  active.allowlistBlockedLogOffset = contents.length;
+  const startOffset = active.allowlistBlockedLogOffset;
+  const byteLength = fileInfo.size - startOffset;
+  const buffer = Buffer.alloc(byteLength);
+  const handle = await open(active.allowlistBlockedLogPath, "r");
+  let bytesRead = 0;
+  try {
+    const result = await handle.read(buffer, 0, byteLength, startOffset);
+    bytesRead = result.bytesRead;
+  } finally {
+    await handle.close();
+  }
+
+  active.allowlistBlockedLogOffset = startOffset + bytesRead;
+  const nextChunk = buffer.subarray(0, bytesRead).toString("utf8").trim();
   if (nextChunk.length === 0) {
     return undefined;
   }
@@ -1367,21 +1605,25 @@ async function syncArtifactsFromContainer(
   try {
     await docker.copyFromContainer(containerId, `${SANDBOX_OUTPUT_MOUNT_PATH}/.`, outputDir);
   } catch (error) {
-    if (error instanceof SandboxUnavailableError) {
+    if (error instanceof SandboxUnavailableError && isDockerUnavailableMessage(error.message)) {
       return;
     }
     throw error;
   }
 }
 
-function isDockerUnavailable(result: ProcessResult): boolean {
-  const message = `${result.stderr}\n${result.error?.message ?? ""}`.toLowerCase();
+function isDockerUnavailableMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
   return (
-    message.includes("failed to connect to the docker api") ||
-    message.includes("docker daemon") ||
-    message.includes("cannot find the file specified") ||
-    message.includes("is the docker daemon running")
+    normalized.includes("failed to connect to the docker api") ||
+    normalized.includes("docker daemon") ||
+    normalized.includes("cannot find the file specified") ||
+    normalized.includes("is the docker daemon running")
   );
+}
+
+function isDockerUnavailable(result: ProcessResult): boolean {
+  return isDockerUnavailableMessage(`${result.stderr}\n${result.error?.message ?? ""}`);
 }
 
 export function createDockerCliSandboxOperations(binary = "docker"): SandboxDockerOperations {
@@ -1449,7 +1691,6 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       const args = [
         "create",
         "--init",
-        "--detach",
         "--label",
         "generic-ai.sandbox=true",
         "--label",
@@ -1469,6 +1710,9 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       }
       if (request.memoryMb !== undefined) {
         args.push("--memory", `${request.memoryMb}m`);
+      }
+      if (request.readOnlyRootfs === true) {
+        args.push("--read-only");
       }
       for (const mount of request.mounts) {
         args.push("--mount", buildMountArg(mount));
@@ -1544,7 +1788,12 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       ]);
       if (result.exitCode !== 0) {
         const message = result.stderr.trim() || result.error?.message || "unknown Docker error";
-        throw new SandboxUnavailableError(
+        if (isDockerUnavailable(result)) {
+          throw new SandboxUnavailableError(
+            `Failed to copy sandbox artifacts from "${containerId}": ${message}`,
+          );
+        }
+        throw new SandboxArtifactSyncError(
           `Failed to copy sandbox artifacts from "${containerId}": ${message}`,
         );
       }
@@ -1742,13 +1991,18 @@ export function createSandboxTerminalPlugin(
       proxyContainerId = await docker.createContainer({
         image: SANDBOX_ALLOWLIST_PROXY_IMAGE,
         sessionId: `${sessionId}-allowlist-proxy`,
-        mounts,
+        mounts: [
+          ...mounts,
+          { type: "tmpfs", target: "/tmp", sizeMb: SANDBOX_WRITABLE_TMPFS_MB },
+          { type: "tmpfs", target: "/run", sizeMb: SANDBOX_WRITABLE_TMPFS_MB },
+        ],
         env: {
           [SANDBOX_ALLOWLIST_PROXY_CONFIG_ENV_VAR]: path.posix.join(
             SANDBOX_ALLOWLIST_PROXY_MOUNT_PATH,
             SANDBOX_ALLOWLIST_PROXY_CONFIG_NAME,
           ),
         },
+        readOnlyRootfs: true,
         networkName,
         networkAliases: [SANDBOX_ALLOWLIST_PROXY_ALIAS],
         command: [
@@ -1758,6 +2012,7 @@ export function createSandboxTerminalPlugin(
       });
       await docker.connectContainerToNetwork(proxyContainerId, "bridge");
       await docker.startContainer(proxyContainerId);
+      await waitForAllowlistProxyReady(docker, proxyContainerId);
 
       return {
         networkName,
@@ -1841,6 +2096,11 @@ export function createSandboxTerminalPlugin(
         target: SANDBOX_OUTPUT_MOUNT_PATH,
         ...(policy.resources?.diskMb === undefined ? {} : { sizeMb: policy.resources.diskMb }),
       });
+      mounts.push(
+        { type: "tmpfs", target: "/tmp", sizeMb: SANDBOX_WRITABLE_TMPFS_MB },
+        { type: "tmpfs", target: "/var/tmp", sizeMb: SANDBOX_WRITABLE_TMPFS_MB },
+        { type: "tmpfs", target: "/run", sizeMb: SANDBOX_WRITABLE_TMPFS_MB },
+      );
 
       containerId = await docker.createContainer({
         image,
@@ -1854,6 +2114,7 @@ export function createSandboxTerminalPlugin(
         ...(policy.resources?.memoryMb === undefined
           ? {}
           : { memoryMb: policy.resources.memoryMb }),
+        readOnlyRootfs: true,
       });
       await docker.startContainer(containerId);
 
@@ -1974,6 +2235,9 @@ export function createSandboxTerminalPlugin(
           timeoutGraceMs,
           oomKilled: false,
           memoryMb: active.policy.resources?.memoryMb,
+          diskMb: active.policy.resources?.diskMb,
+          diskWrittenMb: undefined,
+          diskExceeded: false,
         }),
         maxOutputBytes,
       );
@@ -2098,12 +2362,24 @@ export function createSandboxTerminalPlugin(
         (snapshot): snapshot is SandboxContainerUsageSnapshot => snapshot !== undefined,
       ),
     );
+    const diskMb = active.policy.resources?.diskMb;
+    const diskExceeded =
+      !timedOut &&
+      !callerAborted &&
+      !oomKilled &&
+      execResult.exitCode === 0 &&
+      diskMb !== undefined &&
+      usage?.diskWrittenMb !== undefined &&
+      usage.diskWrittenMb > diskMb;
     const stderr = decorateExecutionStderr(appendStderr(execResult.stderr, networkBlockLog), {
       timedOut,
       timeoutMs,
       timeoutGraceMs,
       oomKilled,
       memoryMb: active.policy.resources?.memoryMb,
+      diskMb,
+      diskWrittenMb: usage?.diskWrittenMb,
+      diskExceeded,
     });
     const stdoutResult = truncateOutput(execResult.stdout, maxOutputBytes);
     const stderrResult = truncateOutput(stderr, maxOutputBytes);
@@ -2124,7 +2400,7 @@ export function createSandboxTerminalPlugin(
       truncated: stdoutResult.truncated || stderrResult.truncated,
       stdoutTruncated: stdoutResult.truncated,
       stderrTruncated: stderrResult.truncated,
-      status: resolveStatus(execResult, timedOut, unavailable, oomKilled),
+      status: diskExceeded ? "failed" : resolveStatus(execResult, timedOut, unavailable, oomKilled),
       artifacts,
       generatedFiles: artifacts,
       resourceUsage: buildResourceUsage(usage, durationMs),

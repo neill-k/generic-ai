@@ -1,0 +1,20 @@
+# Repo ownership map for GitHub code-owner review requests.
+#
+# GitHub branch protection should require review from code owners on `main`.
+# See docs/ownership.md for the human-readable ownership model.
+
+* @neill-k
+
+/docs/ @neill-k
+/contracts/ @neill-k
+/specs/ @neill-k
+
+/.github/ @neill-k
+/scripts/ @neill-k
+
+/packages/core/ @neill-k
+/packages/sdk/ @neill-k
+/packages/preset-starter-hono/ @neill-k
+/packages/plugin-*/ @neill-k
+
+/examples/ @neill-k

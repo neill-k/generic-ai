@@ -369,7 +369,7 @@ These should remain explicit roadmap items, but not phase-1 blockers:
 
 - Postgres storage plugin
 - BullMQ/external queue plugin
-- identity/auth plugin
+- identity/auth plugin (roadmap in [`docs/identity-auth.md`](../identity-auth.md))
 - governance/security runtime
 - TUI
 - web UI

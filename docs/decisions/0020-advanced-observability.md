@@ -1,4 +1,4 @@
-# 0015. Advanced Observability Beyond OTEL Baseline
+# 0020. Advanced Observability Beyond OTEL Baseline
 
 Status: accepted
 
