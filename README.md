@@ -72,13 +72,13 @@ The framework's first functional vertical slice is landed on `main`. The "Minimu
 
 ### Planning-only tracks complete
 
-`DEF-04` (runtime governance roadmap), `DEF-05` (TUI / web UI tracks), and `DEF-07` (sandboxed execution research) landed as planning ADRs and roadmap docs.
+`DEF-04` (runtime governance roadmap), `DEF-05` (TUI / web UI tracks), `DEF-06` (advanced observability beyond the OTEL baseline), and `DEF-07` (sandboxed execution research) landed as planning ADRs and roadmap docs.
 
 ### In flight
 
 Epic 6 (repo control plane, `CTL-01`..`CTL-07`) is marked Done in Linear, but the deliverables (CODEOWNERS, dependabot, issue/PR templates, security workflow, four-command CI gate, docs-as-code pipeline, control-plane ADRs) live only in unmerged `claude/*` worktree branches. Tracked in `NEI-382`. Until those branches land, `main` has only the `live-provider-smoke.yml` workflow and no PR-time CI.
 
-The remaining Epic 7 deferred tracks (`DEF-01` identity/auth, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability) are still in the backlog. Sandbox plugin P2 hardening follow-ups are tracked in `NEI-383`.
+The remaining Epic 7 deferred tracks (`DEF-01` identity/auth, `DEF-02` Postgres storage, `DEF-03` external queueing) are still in the backlog. Sandbox plugin P2 hardening follow-ups are tracked in `NEI-383`.
 
 ## Shipped Packages
 
@@ -137,7 +137,7 @@ The sandbox stack has its own operator and API docs pack:
 Remaining tracked work:
 
 - **Epic 6 — Agent-ready and repo control plane (`NEI-382` gap tracker):** land the CODEOWNERS, dependabot, issue/PR templates, security workflow, four-command CI gate, docs-as-code pipeline, and control-plane ADRs currently stranded in `claude/*` worktree branches.
-- **Epic 7 — Deferred but planned tracks:** `DEF-01` identity/auth plugin, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability beyond the OTEL baseline. Runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md).
+- **Epic 7 — Deferred but planned tracks:** `DEF-01` identity/auth plugin, `DEF-02` Postgres storage, and `DEF-03` external queueing remain open. Runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md), and advanced observability is captured in [`docs/advanced-observability.md`](docs/advanced-observability.md).
 - **Sandbox plugin P2 hardening (`NEI-383`):** DNS-rebinding defense in the allowlist proxy, proxy readiness probe, writable-rootfs tightening, and the rest of the deferred bot findings from the NEI-372 rollup.
 
 See [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) for full scope and dependency links.

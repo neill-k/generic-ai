@@ -38,6 +38,7 @@ ADRs must be written when:
 - [`0012-bootstrap-api.md`](0012-bootstrap-api.md) — `createGenericAI()`, starter-preset defaulting, and config-aware bootstrap composition.
 - [`0013-sandboxed-execution.md`](0013-sandboxed-execution.md) — Docker-backed sandbox execution, migration posture, and trade-offs.
 - [`0014-runtime-governance-and-security-controls.md`](0014-runtime-governance-and-security-controls.md) — deferred runtime governance architecture: plugin-owned enforcement, a future shared SDK policy contract, and the least-privilege roadmap for terminal, file, and MCP capabilities.
+- [`0015-advanced-observability.md`](0015-advanced-observability.md) — deferred advanced observability architecture: baseline OTEL logs/traces stay separate from future metrics, dashboards, and product analytics.
 
 ## Planning Baseline
 

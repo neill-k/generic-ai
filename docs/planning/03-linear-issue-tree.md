@@ -531,6 +531,9 @@ Acceptance criteria:
 
 Depends on: `INF-05`
 
+Implementation note: the concrete roadmap produced by this issue lives in
+`docs/advanced-observability.md`.
+
 Acceptance criteria:
 
 - richer dashboards/analytics remain in roadmap

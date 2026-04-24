@@ -199,6 +199,8 @@ These areas should exist in the roadmap, but not in the first detailed implement
 
 The concrete resumption plan for the deferred runtime-governance/security track
 now lives in [`docs/runtime-governance.md`](../runtime-governance.md).
+The concrete resumption plan for the deferred advanced-observability track now
+lives in [`docs/advanced-observability.md`](../advanced-observability.md).
 
 ## Planning Rule For Linear Issues
 
