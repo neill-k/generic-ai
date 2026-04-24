@@ -427,8 +427,16 @@ async function resolveWithAbort(
     signal.addEventListener("abort", abortListener, { once: true });
   });
 
+  const resolverPromise = resolver(hostname, signal);
+
   try {
-    return await Promise.race([resolver(hostname, signal), abortPromise]);
+    return await Promise.race([resolverPromise, abortPromise]);
+  } catch (error) {
+    if (signal.aborted) {
+      void resolverPromise.catch(() => {});
+    }
+
+    throw error;
   } finally {
     if (abortListener !== undefined) {
       signal.removeEventListener("abort", abortListener);
@@ -460,7 +468,8 @@ function assertAllowedUrl(
 
   if (!allowPrivateNetwork && isImplicitlyBlockedHost(hostname)) {
     throw new Error(
-      `${label} targets internal host "${hostname}", which requires allowPrivateNetwork.`,
+      `${label} targets internal host "${hostname}", which requires setting ` +
+        "allowPrivateNetwork: true in createWebToolsPlugin options.",
     );
   }
 

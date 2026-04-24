@@ -191,7 +191,7 @@ describe("@generic-ai/plugin-tools-web", () => {
         plugin.fetch({
           url: "http://127.0.0.1/admin",
         }),
-      ).rejects.toThrow(/requires allowPrivateNetwork/i);
+      ).rejects.toThrow(/allowPrivateNetwork: true in createWebToolsPlugin options/i);
     });
   });
 
