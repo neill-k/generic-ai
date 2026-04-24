@@ -1,3 +1,4 @@
+import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
 import { createWorkspaceLayout, type WorkspaceRootInput } from "@generic-ai/plugin-workspace-fs";
@@ -147,6 +148,16 @@ export interface WebSearchProvider {
   search(request: WebSearchProviderRequest): Promise<readonly WebSearchResult[]>;
 }
 
+export interface WebResolvedAddress {
+  readonly address: string;
+  readonly family: 4 | 6;
+}
+
+export type WebAddressResolver = (
+  hostname: string,
+  signal?: AbortSignal,
+) => Promise<readonly WebResolvedAddress[]>;
+
 export interface WebSearchResponse {
   readonly query: string;
   readonly provider: string;
@@ -155,18 +166,17 @@ export interface WebSearchResponse {
   readonly searchedAt: string;
 }
 
-export type WebFetcher = (
-  input: string | URL | Request,
-  init?: RequestInit,
-) => Promise<Response>;
+export type WebFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export interface WebToolsOptions {
   readonly root: WorkspaceRootInput;
   readonly searchProvider: WebSearchProvider;
   readonly fetcher?: WebFetcher;
+  readonly resolver?: WebAddressResolver;
   readonly headers?: WebHeadersInit;
   readonly allowedHosts?: readonly string[];
   readonly blockedHosts?: readonly string[];
+  readonly allowPrivateNetwork?: boolean;
   readonly defaultTimeoutMs?: number;
   readonly maxContentChars?: number;
   readonly now?: () => string | number | Date;
@@ -266,55 +276,172 @@ function matchesHostPattern(hostname: string, pattern: string): boolean {
   return hostname === pattern;
 }
 
+function normalizeUrlHostname(hostname: string): string {
+  const normalized = hostname.trim().toLowerCase();
+  if (normalized.startsWith("[") && normalized.endsWith("]")) {
+    return normalized.slice(1, -1);
+  }
+
+  return normalized;
+}
+
 function isPrivateIpv4(hostname: string): boolean {
-  const octets = hostname.split(".").map((part) => Number.parseInt(part, 10));
-  if (octets.length !== 4 || octets.some((octet) => Number.isNaN(octet) || octet < 0 || octet > 255)) {
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(hostname)) {
     return false;
   }
 
-  const [firstOctet = -1, secondOctet = -1] = octets;
+  const octets = hostname.split(".").map((part) => Number.parseInt(part, 10));
+  if (octets.some((octet) => octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  const [firstOctet = -1, secondOctet = -1, thirdOctet = -1] = octets;
   return (
     firstOctet === 0 ||
     firstOctet === 10 ||
+    (firstOctet === 100 && secondOctet >= 64 && secondOctet <= 127) ||
     firstOctet === 127 ||
     (firstOctet === 169 && secondOctet === 254) ||
     (firstOctet === 172 && secondOctet >= 16 && secondOctet <= 31) ||
-    (firstOctet === 192 && secondOctet === 168)
+    (firstOctet === 192 && secondOctet === 0 && (thirdOctet === 0 || thirdOctet === 2)) ||
+    (firstOctet === 192 && secondOctet === 88 && thirdOctet === 99) ||
+    (firstOctet === 192 && secondOctet === 168) ||
+    (firstOctet === 198 && (secondOctet === 18 || secondOctet === 19)) ||
+    (firstOctet === 198 && secondOctet === 51 && thirdOctet === 100) ||
+    (firstOctet === 203 && secondOctet === 0 && thirdOctet === 113) ||
+    firstOctet >= 224
   );
 }
 
+function parseIpv4MappedIpv6(hostname: string): string | undefined {
+  const normalized = normalizeUrlHostname(hostname);
+  if (!normalized.startsWith("::ffff:")) {
+    return undefined;
+  }
+
+  const suffix = normalized.slice("::ffff:".length);
+  if (isIP(suffix) === 4) {
+    return suffix;
+  }
+
+  const hextets = suffix.split(":");
+  if (hextets.length !== 2) {
+    return undefined;
+  }
+
+  const [highText = "", lowText = ""] = hextets;
+  if (!/^[0-9a-f]{1,4}$/i.test(highText) || !/^[0-9a-f]{1,4}$/i.test(lowText)) {
+    return undefined;
+  }
+
+  const high = Number.parseInt(highText, 16);
+  const low = Number.parseInt(lowText, 16);
+  return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+}
+
 function isPrivateIpv6(hostname: string): boolean {
-  const normalized = hostname.toLowerCase();
+  const normalized = normalizeUrlHostname(hostname);
+  const mappedIpv4 = parseIpv4MappedIpv6(normalized);
+  if (mappedIpv4 !== undefined) {
+    return isPrivateIpv4(mappedIpv4);
+  }
+
   if (normalized === "::" || normalized === "::1") {
     return true;
   }
 
-  if (normalized.startsWith("::ffff:")) {
-    return isPrivateIpv4(normalized.slice("::ffff:".length));
-  }
-
-  const firstHextet = normalized.split(":", 1)[0] ?? "";
-  return /^(fc|fd)/i.test(firstHextet) || /^fe[89ab]/i.test(firstHextet);
-}
-
-function isImplicitlyBlockedHost(hostname: string): boolean {
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) {
+  if (normalized.startsWith("::")) {
     return true;
   }
 
-  const ipVersion = isIP(hostname);
+  const firstHextet = normalized.split(":", 1)[0] ?? "";
+  return (
+    /^(fc|fd)/i.test(firstHextet) ||
+    /^fe[89ab]/i.test(firstHextet) ||
+    /^ff/i.test(firstHextet) ||
+    normalized.startsWith("2001:db8:")
+  );
+}
+
+function isImplicitlyBlockedHost(hostname: string): boolean {
+  const normalized = normalizeUrlHostname(hostname);
+  if (normalized === "localhost" || normalized.endsWith(".localhost")) {
+    return true;
+  }
+
+  const ipVersion = isIP(normalized);
   if (ipVersion === 4) {
-    return isPrivateIpv4(hostname);
+    return isPrivateIpv4(normalized);
   }
 
   if (ipVersion === 6) {
-    return isPrivateIpv6(hostname);
+    return isPrivateIpv6(normalized);
   }
 
   return false;
 }
 
-function assertAllowedUrl(input: string, policy: UrlPolicySnapshot, label: string): URL {
+async function defaultResolveHostAddresses(
+  hostname: string,
+): Promise<readonly WebResolvedAddress[]> {
+  const normalized = normalizeUrlHostname(hostname);
+  const ipVersion = isIP(normalized);
+  if (ipVersion === 4 || ipVersion === 6) {
+    return Object.freeze([
+      Object.freeze({
+        address: normalized,
+        family: ipVersion,
+      }),
+    ]);
+  }
+
+  const records = await lookup(normalized, {
+    all: true,
+    verbatim: true,
+  });
+
+  return Object.freeze(
+    records.map((record) =>
+      Object.freeze({
+        address: normalizeUrlHostname(record.address),
+        family: record.family === 6 ? 6 : 4,
+      }),
+    ),
+  );
+}
+
+async function resolveWithAbort(
+  resolver: WebAddressResolver,
+  hostname: string,
+  signal: AbortSignal,
+): Promise<readonly WebResolvedAddress[]> {
+  if (signal.aborted) {
+    throw signal.reason ?? new DOMException("Aborted", "AbortError");
+  }
+
+  let abortListener: (() => void) | undefined;
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    abortListener = () => {
+      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
+    };
+    signal.addEventListener("abort", abortListener, { once: true });
+  });
+
+  try {
+    return await Promise.race([resolver(hostname, signal), abortPromise]);
+  } finally {
+    if (abortListener !== undefined) {
+      signal.removeEventListener("abort", abortListener);
+    }
+  }
+}
+
+function assertAllowedUrl(
+  input: string,
+  policy: UrlPolicySnapshot,
+  allowPrivateNetwork: boolean,
+  label: string,
+): URL {
   let parsed: URL;
   try {
     parsed = new URL(input);
@@ -326,14 +453,14 @@ function assertAllowedUrl(input: string, policy: UrlPolicySnapshot, label: strin
     throw new Error(`${label} must use http or https.`);
   }
 
-  const hostname = parsed.hostname.toLowerCase();
+  const hostname = normalizeUrlHostname(parsed.hostname);
   if (policy.blockedHosts.some((pattern) => matchesHostPattern(hostname, pattern))) {
     throw new Error(`${label} targets blocked host "${hostname}".`);
   }
 
-  if (policy.allowedHosts.length === 0 && isImplicitlyBlockedHost(hostname)) {
+  if (!allowPrivateNetwork && isImplicitlyBlockedHost(hostname)) {
     throw new Error(
-      `${label} targets internal host "${hostname}", which requires an explicit allow list.`,
+      `${label} targets internal host "${hostname}", which requires allowPrivateNetwork.`,
     );
   }
 
@@ -345,6 +472,49 @@ function assertAllowedUrl(input: string, policy: UrlPolicySnapshot, label: strin
   }
 
   return parsed;
+}
+
+async function assertResolvedUrlAllowed(
+  parsed: URL,
+  resolver: WebAddressResolver,
+  allowPrivateNetwork: boolean,
+  signal: AbortSignal,
+  label: string,
+): Promise<void> {
+  if (allowPrivateNetwork) {
+    return;
+  }
+
+  const hostname = normalizeUrlHostname(parsed.hostname);
+  if (isIP(hostname) !== 0) {
+    return;
+  }
+
+  let addresses: readonly WebResolvedAddress[];
+  try {
+    addresses = await resolveWithAbort(resolver, hostname, signal);
+  } catch (error) {
+    if (signal.aborted) {
+      throw error;
+    }
+
+    throw new Error(`${label} host "${hostname}" could not be resolved safely.`);
+  }
+
+  if (addresses.length === 0) {
+    throw new Error(`${label} host "${hostname}" did not resolve to any addresses.`);
+  }
+
+  for (const resolved of addresses) {
+    const address = normalizeUrlHostname(resolved.address);
+    if (isIP(address) === 0) {
+      throw new Error(`${label} host "${hostname}" resolved to non-IP address "${address}".`);
+    }
+
+    if (isImplicitlyBlockedHost(address)) {
+      throw new Error(`${label} host "${hostname}" resolved to internal address "${address}".`);
+    }
+  }
 }
 
 function createAbortSignal(
@@ -423,11 +593,21 @@ async function fetchWithRedirects(
   headers: Headers,
   signal: AbortSignal,
   policy: UrlPolicySnapshot,
+  resolver: WebAddressResolver,
+  allowPrivateNetwork: boolean,
 ): Promise<RedirectedResponse> {
   let currentUrl = requestUrl;
   let redirected = false;
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+    await assertResolvedUrlAllowed(
+      currentUrl,
+      resolver,
+      allowPrivateNetwork,
+      signal,
+      redirectCount === 0 ? "web_fetch url" : "Redirect target",
+    );
+
     const response = await fetcher(currentUrl, {
       headers,
       redirect: "manual",
@@ -454,7 +634,12 @@ async function fetchWithRedirects(
     }
 
     await response.body?.cancel().catch(() => undefined);
-    currentUrl = assertAllowedUrl(new URL(location, currentUrl).toString(), policy, "Redirect target");
+    currentUrl = assertAllowedUrl(
+      new URL(location, currentUrl).toString(),
+      policy,
+      allowPrivateNetwork,
+      "Redirect target",
+    );
     redirected = true;
   }
 
@@ -463,9 +648,7 @@ async function fetchWithRedirects(
 
 function detectContentType(response: Response): string {
   const header = response.headers.get("content-type");
-  return (
-    header?.split(";")[0]?.trim().toLowerCase() ?? "application/octet-stream"
-  );
+  return header?.split(";")[0]?.trim().toLowerCase() ?? "application/octet-stream";
 }
 
 function isTextLikeContentType(contentType: string): boolean {
@@ -521,7 +704,10 @@ function htmlToText(html: string): string {
   const withLineBreaks = withLinks
     .replace(/<(br|hr)\s*\/?>/gi, "\n")
     .replace(/<li\b[^>]*>/gi, "\n- ")
-    .replace(/<\/(li|p|div|section|article|main|aside|header|footer|nav|h[1-6]|tr|table|ul|ol)>/gi, "\n")
+    .replace(
+      /<\/(li|p|div|section|article|main|aside|header|footer|nav|h[1-6]|tr|table|ul|ol)>/gi,
+      "\n",
+    )
     .replace(/<(td|th)\b[^>]*>/gi, " ");
   const stripped = withLineBreaks.replace(/<[^>]+>/g, " ");
   const decoded = decodeHtmlEntities(stripped).replace(/\r/g, "");
@@ -753,6 +939,8 @@ function textContent(text: string): TextContent {
 export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
   const layout = createWorkspaceLayout(options.root);
   const fetcher = options.fetcher ?? globalThis.fetch.bind(globalThis);
+  const resolver = options.resolver ?? defaultResolveHostAddresses;
+  const allowPrivateNetwork = options.allowPrivateNetwork ?? false;
   const policy: UrlPolicySnapshot = Object.freeze({
     allowedHosts: normalizeHostPatterns(options.allowedHosts),
     blockedHosts: normalizeHostPatterns(options.blockedHosts),
@@ -771,7 +959,12 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
     request: WebFetchRequest,
     signal?: AbortSignal,
   ): Promise<WebFetchResult> => {
-    const requestedUrl = assertAllowedUrl(request.url, policy, "web_fetch url");
+    const requestedUrl = assertAllowedUrl(
+      request.url,
+      policy,
+      allowPrivateNetwork,
+      "web_fetch url",
+    );
     const timeoutMs =
       request.timeoutMs === undefined
         ? defaultTimeoutMs
@@ -789,6 +982,8 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
         sharedHeaders,
         execution.signal,
         policy,
+        resolver,
+        allowPrivateNetwork,
       );
 
       if (!redirected.response.ok) {
@@ -801,7 +996,11 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
         );
       }
 
-      const normalized = await normalizeResponseBody(redirected.response, maxChars, execution.signal);
+      const normalized = await normalizeResponseBody(
+        redirected.response,
+        maxChars,
+        execution.signal,
+      );
 
       return Object.freeze({
         requestedUrl: requestedUrl.toString(),
@@ -854,14 +1053,30 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
       for (const rawResult of rawResults) {
         const frozen = freezeSearchResult(rawResult);
         try {
-          const parsed = assertAllowedUrl(frozen.url, policy, `search result "${frozen.title}"`);
+          const parsed = assertAllowedUrl(
+            frozen.url,
+            policy,
+            allowPrivateNetwork,
+            `search result "${frozen.title}"`,
+          );
+          await assertResolvedUrlAllowed(
+            parsed,
+            resolver,
+            allowPrivateNetwork,
+            execution.signal,
+            `search result "${frozen.title}"`,
+          );
           filteredResults.push(
             Object.freeze({
               ...frozen,
               url: parsed.toString(),
             }),
           );
-        } catch {
+        } catch (error) {
+          if (execution.signal.aborted) {
+            throw error;
+          }
+
           filteredCount += 1;
         }
 

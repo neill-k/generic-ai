@@ -4,9 +4,35 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createWebToolsPlugin } from "../src/index.js";
+import {
+  createWebToolsPlugin,
+  type WebAddressResolver,
+  type WebResolvedAddress,
+  type WebToolsOptions,
+} from "../src/index.js";
 
 const tempRoots: string[] = [];
+const PUBLIC_ADDRESS: WebResolvedAddress = Object.freeze({
+  address: "93.184.216.34",
+  family: 4,
+});
+const PRIVATE_ADDRESS: WebResolvedAddress = Object.freeze({
+  address: "10.0.0.9",
+  family: 4,
+});
+
+function createResolver(
+  records: Readonly<Record<string, readonly WebResolvedAddress[]>> = {},
+): WebAddressResolver {
+  return async (hostname) => records[hostname] ?? [PUBLIC_ADDRESS];
+}
+
+function createTestWebToolsPlugin(options: WebToolsOptions) {
+  return createWebToolsPlugin({
+    resolver: createResolver(),
+    ...options,
+  });
+}
 
 async function withTempRoot<T>(run: (root: string) => Promise<T>): Promise<T> {
   const root = await mkdtemp(path.join(os.tmpdir(), "plugin-tools-web-"));
@@ -27,7 +53,7 @@ afterEach(async () => {
 describe("@generic-ai/plugin-tools-web", () => {
   it("creates web fetch and search tools anchored to the workspace root", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         searchProvider: {
           name: "test-provider",
@@ -44,7 +70,7 @@ describe("@generic-ai/plugin-tools-web", () => {
 
   it("fetches html and converts it into readable text", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         allowedHosts: ["docs.example.com"],
         searchProvider: {
@@ -53,7 +79,7 @@ describe("@generic-ai/plugin-tools-web", () => {
         },
         fetcher: async () =>
           new Response(
-            "<html><head><title>Example Docs</title></head><body><h1>Getting Started</h1><p>Hello <strong>world</strong>.</p><a href=\"https://docs.example.com/setup\">Setup</a></body></html>",
+            '<html><head><title>Example Docs</title></head><body><h1>Getting Started</h1><p>Hello <strong>world</strong>.</p><a href="https://docs.example.com/setup">Setup</a></body></html>',
             {
               status: 200,
               headers: { "content-type": "text/html; charset=utf-8" },
@@ -82,7 +108,7 @@ describe("@generic-ai/plugin-tools-web", () => {
 
   it("filters search results through the configured host policy", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         allowedHosts: ["docs.example.com", "*.example.dev"],
         blockedHosts: ["blocked.example.dev"],
@@ -135,7 +161,7 @@ describe("@generic-ai/plugin-tools-web", () => {
 
   it("rejects invalid urls before fetching", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         searchProvider: {
           name: "test-provider",
@@ -153,7 +179,7 @@ describe("@generic-ai/plugin-tools-web", () => {
 
   it("blocks obvious internal hosts when no allow list is configured", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         searchProvider: {
           name: "test-provider",
@@ -165,13 +191,141 @@ describe("@generic-ai/plugin-tools-web", () => {
         plugin.fetch({
           url: "http://127.0.0.1/admin",
         }),
-      ).rejects.toThrow(/requires an explicit allow list/i);
+      ).rejects.toThrow(/requires allowPrivateNetwork/i);
+    });
+  });
+
+  it("rejects alternate private IP encodings before fetching", async () => {
+    await withTempRoot(async (root) => {
+      const plugin = createTestWebToolsPlugin({
+        root,
+        searchProvider: {
+          name: "test-provider",
+          search: async () => [],
+        },
+        fetcher: async () =>
+          new Response("should not fetch", {
+            status: 200,
+            headers: { "content-type": "text/plain" },
+          }),
+      });
+
+      await expect(
+        plugin.fetch({
+          url: "http://2130706433/admin",
+        }),
+      ).rejects.toThrow(/internal host "127\.0\.0\.1"/i);
+    });
+  });
+
+  it("rejects public hostnames that resolve to private addresses before fetching", async () => {
+    await withTempRoot(async (root) => {
+      let fetchCalled = false;
+      const plugin = createTestWebToolsPlugin({
+        root,
+        allowedHosts: ["public.example.com"],
+        resolver: createResolver({
+          "public.example.com": [PRIVATE_ADDRESS],
+        }),
+        searchProvider: {
+          name: "test-provider",
+          search: async () => [],
+        },
+        fetcher: async () => {
+          fetchCalled = true;
+          return new Response("should not fetch", {
+            status: 200,
+            headers: { "content-type": "text/plain" },
+          });
+        },
+      });
+
+      await expect(
+        plugin.fetch({
+          url: "https://public.example.com/admin",
+        }),
+      ).rejects.toThrow(/resolved to internal address "10\.0\.0\.9"/i);
+      expect(fetchCalled).toBe(false);
+    });
+  });
+
+  it("revalidates redirect target DNS before following redirects", async () => {
+    await withTempRoot(async (root) => {
+      const fetchedUrls: string[] = [];
+      const plugin = createTestWebToolsPlugin({
+        root,
+        allowedHosts: ["docs.example.com", "redirect.example.com"],
+        resolver: createResolver({
+          "docs.example.com": [PUBLIC_ADDRESS],
+          "redirect.example.com": [PRIVATE_ADDRESS],
+        }),
+        searchProvider: {
+          name: "test-provider",
+          search: async () => [],
+        },
+        fetcher: async (input) => {
+          const url = input instanceof URL ? input.toString() : String(input);
+          fetchedUrls.push(url);
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://redirect.example.com/private" },
+          });
+        },
+      });
+
+      await expect(
+        plugin.fetch({
+          url: "https://docs.example.com/start",
+        }),
+      ).rejects.toThrow(
+        /redirect target host "redirect\.example\.com" resolved to internal address/i,
+      );
+      expect(fetchedUrls).toEqual(["https://docs.example.com/start"]);
+    });
+  });
+
+  it("filters search results that resolve to private addresses", async () => {
+    await withTempRoot(async (root) => {
+      const plugin = createTestWebToolsPlugin({
+        root,
+        allowedHosts: ["*.example.com"],
+        resolver: createResolver({
+          "docs.example.com": [PUBLIC_ADDRESS],
+          "rebound.example.com": [PRIVATE_ADDRESS],
+        }),
+        searchProvider: {
+          name: "stub-search",
+          search: async () => [
+            {
+              title: "Docs",
+              url: "https://docs.example.com/start",
+            },
+            {
+              title: "Rebound",
+              url: "https://rebound.example.com/admin",
+            },
+          ],
+        },
+      });
+
+      const result = await plugin.search({
+        query: "generic ai",
+        limit: 5,
+      });
+
+      expect(result.filteredCount).toBe(1);
+      expect(result.results).toEqual([
+        {
+          title: "Docs",
+          url: "https://docs.example.com/start",
+        },
+      ]);
     });
   });
 
   it("surfaces http failures", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         searchProvider: {
           name: "test-provider",
@@ -197,7 +351,7 @@ describe("@generic-ai/plugin-tools-web", () => {
     await withTempRoot(async (root) => {
       let redirectedBodyCancelled = false;
 
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         allowedHosts: ["docs.example.com"],
         searchProvider: {
@@ -239,7 +393,7 @@ describe("@generic-ai/plugin-tools-web", () => {
 
   it("rejects malformed runtime limits passed to the public helpers", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         searchProvider: {
           name: "test-provider",
@@ -265,7 +419,7 @@ describe("@generic-ai/plugin-tools-web", () => {
 
   it("times out slow fetch requests", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         searchProvider: {
           name: "test-provider",
@@ -294,7 +448,7 @@ describe("@generic-ai/plugin-tools-web", () => {
 
   it("keeps the timeout active while reading a stalled response body", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         searchProvider: {
           name: "test-provider",
@@ -307,7 +461,9 @@ describe("@generic-ai/plugin-tools-web", () => {
                 init?.signal?.addEventListener(
                   "abort",
                   () => {
-                    controller.error(init.signal?.reason ?? new DOMException("Aborted", "AbortError"));
+                    controller.error(
+                      init.signal?.reason ?? new DOMException("Aborted", "AbortError"),
+                    );
                   },
                   { once: true },
                 );
@@ -331,7 +487,7 @@ describe("@generic-ai/plugin-tools-web", () => {
 
   it("leaves invalid numeric HTML entities untouched instead of throwing", async () => {
     await withTempRoot(async (root) => {
-      const plugin = createWebToolsPlugin({
+      const plugin = createTestWebToolsPlugin({
         root,
         allowedHosts: ["docs.example.com"],
         searchProvider: {

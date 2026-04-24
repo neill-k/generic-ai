@@ -8,7 +8,7 @@ This package follows the same package-level shape as the other tool plugins: it 
 
 - `web_fetch` for HTTP(S) retrieval with timeout handling, manual redirect handling, content-type detection, and HTML-to-text conversion
 - `web_search` for provider-backed search with a vendor-neutral provider interface
-- shared hostname allow/block rules applied to both direct fetches and provider search results
+- shared URL policy rules applied to direct fetches, redirect targets, and provider search results
 
 ## Example
 
@@ -42,6 +42,12 @@ const searched = await webTools.search({ query: "generic ai", limit: 5 });
 - `blockedHosts` always wins
 - `allowedHosts` is optional; when omitted, any public HTTP(S) host is allowed unless blocked
 - patterns are hostname-based and support exact matches (`docs.example.com`) plus wildcard subdomains (`*.example.com`)
+- hostnames are resolved before each fetch hop and before search results are returned
+- public hostnames that resolve to loopback, private, link-local, carrier-grade NAT, multicast, documentation, or otherwise reserved addresses are rejected by default
+- redirects are revalidated before the next request is sent, so a public starting URL cannot silently cross into a private target
+- set `allowPrivateNetwork: true` only for trusted local-development use cases where private-network access is intentional
+
+The policy is a fetch/search guardrail, not a process sandbox. A custom `fetcher` should use the same resolver semantics as the plugin or perform equivalent network controls itself.
 
 ## Planning baseline
 
