@@ -116,4 +116,48 @@ describe("@generic-ai/plugin-hono", () => {
     expect(authorizedStream.status).toBe(200);
     expect(await authorizedStream.text()).toContain("event: done");
   });
+
+  it("passes a cloned request to authorization handlers", async () => {
+    const authorizedBodies: unknown[] = [];
+    const transport = createHonoPlugin({
+      routePrefix: "/starter",
+      authorize: async ({ request }) => {
+        authorizedBodies.push(await request.json());
+        return undefined;
+      },
+      run: async (payload) => ({ echo: payload.input }),
+      stream: async function* (payload) {
+        yield {
+          event: "done",
+          data: payload.input,
+        };
+      },
+      createRequestId: () => "request-1",
+    });
+
+    const run = await transport.app.request("/starter/run", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ input: "sync-body" }),
+    });
+    expect(run.status).toBe(200);
+    expect(await run.json()).toMatchObject({
+      result: {
+        echo: "sync-body",
+      },
+    });
+
+    const stream = await transport.app.request("/starter/run/stream", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ input: "stream-body" }),
+    });
+    expect(stream.status).toBe(200);
+    expect(await stream.text()).toContain("stream-body");
+    expect(authorizedBodies).toEqual([{ input: "sync-body" }, { input: "stream-body" }]);
+  });
 });

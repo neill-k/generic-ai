@@ -129,9 +129,39 @@ function normalizeBindHost(host: string): string {
   return trimmed.startsWith("[") && trimmed.endsWith("]") ? trimmed.slice(1, -1) : trimmed;
 }
 
+function isIpv6Loopback(host: string): boolean {
+  const normalized = host.split("%", 1)[0]?.toLowerCase();
+  if (normalized === undefined || isIP(normalized) !== 6) {
+    return false;
+  }
+
+  const compressedParts = normalized.split("::");
+  if (compressedParts.length > 2) {
+    return false;
+  }
+
+  const head = compressedParts[0]?.length === 0 ? [] : (compressedParts[0]?.split(":") ?? []);
+  const tail =
+    compressedParts.length === 1 || compressedParts[1]?.length === 0
+      ? []
+      : (compressedParts[1]?.split(":") ?? []);
+  const zeroFill =
+    compressedParts.length === 1 ? [] : Array(8 - head.length - tail.length).fill("0");
+  const groups = [...head, ...zeroFill, ...tail];
+
+  if (groups.length !== 8) {
+    return false;
+  }
+
+  return (
+    groups.slice(0, 7).every((group) => Number.parseInt(group || "0", 16) === 0) &&
+    Number.parseInt(groups[7] || "0", 16) === 1
+  );
+}
+
 function isLoopbackBindHost(host: string): boolean {
   const normalized = normalizeBindHost(host).toLowerCase();
-  if (normalized === "localhost" || normalized === "::1") {
+  if (normalized === "localhost" || isIpv6Loopback(normalized)) {
     return true;
   }
 
@@ -237,7 +267,7 @@ export function loadStarterExampleEnvironment(
   const workspaceRootValue = readTrimmedEnv(env, workspaceRootName);
   const workspaceRoot =
     workspaceRootValue === undefined ? undefined : resolve(startDir, workspaceRootValue);
-  const host = readTrimmedEnv(env, hostName, fallbackHostName) ?? DEFAULT_HOST;
+  const host = normalizeBindHost(readTrimmedEnv(env, hostName, fallbackHostName) ?? DEFAULT_HOST);
   const unsafeExpose = parseBooleanFlag(readTrimmedEnv(env, unsafeExposeName), unsafeExposeName);
   const authToken = readTrimmedEnv(env, authTokenName);
   const exposure = resolveExposure(host, unsafeExpose, authToken);

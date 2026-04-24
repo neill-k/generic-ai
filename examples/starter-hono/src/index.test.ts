@@ -178,6 +178,28 @@ describe("@generic-ai/example-starter-hono", () => {
     });
   });
 
+  it("normalizes IPv6 loopback bind hosts before exposure checks", () => {
+    expect(
+      loadStarterExampleEnvironment({
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+        GENERIC_AI_HOST: "[::1]",
+      }),
+    ).toMatchObject({
+      exposure: "loopback",
+      host: "::1",
+    });
+
+    expect(
+      loadStarterExampleEnvironment({
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+        GENERIC_AI_HOST: "0:0:0:0:0:0:0:1",
+      }),
+    ).toMatchObject({
+      exposure: "loopback",
+      host: "0:0:0:0:0:0:0:1",
+    });
+  });
+
   it("requires the configured bearer token for run endpoints", async () => {
     const starter = await createStarterExampleServer({
       env: {

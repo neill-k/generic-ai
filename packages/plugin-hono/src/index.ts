@@ -217,8 +217,7 @@ async function authorizeRequest(
     return undefined;
   }
 
-  const result = await authorize(context);
-  return result instanceof Response ? result : undefined;
+  return await authorize(context);
 }
 
 export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
@@ -246,7 +245,7 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
   app.post(`${routePrefix}/run`, async (context) => {
     const requestId = createRequestId();
     const unauthorized = await authorizeRequest(options.authorize, {
-      request: context.req.raw,
+      request: context.req.raw.clone(),
       requestId,
       mode: "sync",
       signal: context.req.raw.signal,
@@ -290,7 +289,7 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
 
     const requestId = createRequestId();
     const unauthorized = await authorizeRequest(options.authorize, {
-      request: context.req.raw,
+      request: context.req.raw.clone(),
       requestId,
       mode: "stream",
       signal: context.req.raw.signal,
