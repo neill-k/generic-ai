@@ -64,7 +64,29 @@ function extractSpecifiers(contents) {
 }
 
 function isForbiddenByRule(specifier, rule) {
-  return rule.some((candidate) => specifier === candidate || specifier.startsWith(`${candidate}/`));
+  return rule.some((candidate) => {
+    if (specifier === candidate || specifier.startsWith(`${candidate}/`)) {
+      return true;
+    }
+
+    if (candidate.endsWith("-") && specifier.startsWith(candidate)) {
+      return true;
+    }
+
+    return false;
+  });
+}
+
+function collectPackageSourceFiles(packageDirectory) {
+  // Import enforcement is intentionally source-only. Package-local tests and
+  // scripts can exercise cross-package integration, but published/runtime
+  // sources under src/ must honor the documented package boundaries.
+  const scanDirectory = path.join(packageDirectory, "src");
+  try {
+    return collectFiles(scanDirectory);
+  } catch {
+    return [];
+  }
 }
 
 const workspacePackages = readdirSync(packagesDir, { withFileTypes: true })
@@ -119,14 +141,6 @@ for (const workspacePackage of workspacePackages) {
     }
   }
 
-  const srcDir = path.join(workspacePackage.directory, "src");
-  let sourceFiles = [];
-  try {
-    sourceFiles = collectFiles(srcDir);
-  } catch {
-    sourceFiles = [];
-  }
-
   const importRules =
     workspacePackage.kind === "core"
       ? ["@generic-ai/plugin-", "@generic-ai/preset-"]
@@ -136,6 +150,7 @@ for (const workspacePackage of workspacePackages) {
           ? ["@generic-ai/core", "@generic-ai/preset-"]
           : [];
 
+  const sourceFiles = collectPackageSourceFiles(workspacePackage.directory);
   for (const sourceFile of sourceFiles) {
     const contents = readFileSync(sourceFile, "utf8");
     for (const specifier of extractSpecifiers(contents)) {
