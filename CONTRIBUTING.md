@@ -39,7 +39,8 @@ Additional local scripts you will likely use:
 ```bash
 npm run format          # biome format --write .
 npm run format:check    # biome format . (fails if anything would change)
-npm run docs            # placeholder; CTL-04 will implement generated API docs
+npm run docs            # regenerate docs/generated/package-index.md
+npm run docs:check      # verify generated docs are current
 npm run clean           # remove dist, tsbuildinfo, and node_modules
 ```
 
