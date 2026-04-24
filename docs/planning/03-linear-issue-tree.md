@@ -483,6 +483,9 @@ Acceptance criteria:
 
 Depends on: `TRN-02`
 
+Implementation note: the concrete roadmap produced by this issue lives in
+`docs/identity-auth.md`.
+
 Acceptance criteria:
 
 - auth/plugin boundary is documented
