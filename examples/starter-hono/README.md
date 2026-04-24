@@ -25,12 +25,22 @@ The server validates these values before it starts:
 - `GENERIC_AI_WORKSPACE_ROOT` optional workspace root override
 - `GENERIC_AI_HOST` or `HOST` optional host, default `127.0.0.1`
 - `GENERIC_AI_PORT` or `PORT` optional port, default `3000`
+- `GENERIC_AI_AUTH_TOKEN` optional bearer token for `/starter/run` and `/starter/run/stream`
+- `GENERIC_AI_UNSAFE_EXPOSE` optional remote-exposure override; set to `1` only for deliberate unauthenticated exposure
 
 Default model behavior:
 
 - adapter `openai-codex`: uses the official OpenAI Responses API
 - adapter `pi`: uses `pi` with the OpenAI provider as an explicit compatibility path
 - if `GENERIC_AI_MODEL` is unset, the example falls back to the primary agent model from `.generic-ai/agents/starter.yaml`
+
+Security posture:
+
+- local development binds to `127.0.0.1` by default
+- non-loopback hosts such as `0.0.0.0`, LAN IPs, or public hostnames fail fast unless `GENERIC_AI_AUTH_TOKEN` is configured or `GENERIC_AI_UNSAFE_EXPOSE=1` is set
+- when `GENERIC_AI_AUTH_TOKEN` is set, call run endpoints with `Authorization: Bearer <token>` or `x-generic-ai-token: <token>`
+- unauthenticated health output is intentionally minimal and does not expose workspace paths or full bootstrap internals
+- `GENERIC_AI_UNSAFE_EXPOSE=1` leaves command/file/MCP-capable runtime endpoints reachable without example-level auth; use it only in isolated, trusted environments
 
 ## Fresh clone path
 
@@ -51,6 +61,31 @@ PowerShell:
 
 ```powershell
 $env:GENERIC_AI_PROVIDER_API_KEY = "<provider-key>"
+npm run -w @generic-ai/example-starter-hono start
+```
+
+Remote exposure with a token:
+
+```bash
+export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
+export GENERIC_AI_HOST="0.0.0.0"
+export GENERIC_AI_AUTH_TOKEN="<long-random-token>"
+npm run -w @generic-ai/example-starter-hono start
+```
+
+```bash
+curl -X POST http://<server-host>:3000/starter/run \
+  -H "authorization: Bearer <long-random-token>" \
+  -H "content-type: application/json" \
+  -d '{"input":"Explain what the Generic AI starter stack is."}'
+```
+
+Deliberate unauthenticated remote exposure:
+
+```bash
+export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
+export GENERIC_AI_HOST="0.0.0.0"
+export GENERIC_AI_UNSAFE_EXPOSE=1
 npm run -w @generic-ai/example-starter-hono start
 ```
 

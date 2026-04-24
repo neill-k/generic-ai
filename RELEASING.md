@@ -172,8 +172,9 @@ type. Zero pending is a valid steady state.
 
 ## How releases are cut
 
-Generic AI uses the two-phase changesets release flow. In the steady state,
-after release automation is wired, the flow is:
+Generic AI uses the two-phase changesets release flow. In the steady state
+(once release automation has been wired on top of the baseline CI gate), the
+flow is:
 
 1. Contributors merge PRs that include changesets. Each merge lands the
    changeset file in `main` alongside the code change.
@@ -190,11 +191,12 @@ after release automation is wired, the flow is:
    OIDC configured, the publish runs with npm provenance attached.
 5. The Action creates git tags for the published versions.
 
-The quality-gate CI is in place, but the release-publish workflow is still
-manual until a dedicated release-automation PR adds trusted publishing.
-Releases are manual, and the repo owner is responsible for every release.
+The repo has baseline pull-request CI, but it does not yet have an automated
+release workflow that versions packages, publishes with provenance, and opens
+or merges the generated changeset PR. Releases are manual, and the repo owner
+is responsible for every release.
 
-### Manual release path
+### Manual release path (until release automation lands)
 
 Only the repo owner runs releases. The manual path:
 
@@ -335,6 +337,7 @@ contracts land in Epic 1 (`KRN-*`). The first real publish will be a
   [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md)
 - Release and publishing conventions (this document's source of truth):
   [`docs/decisions/0003-release-and-publishing.md`](docs/decisions/0003-release-and-publishing.md)
-- CI wiring and branch-control gates: `docs/ci-and-branch-control.md`
+- Baseline CI and branch-control gates: [`docs/branch-protection.md`](docs/branch-protection.md) and [`docs/ci-and-branch-control.md`](docs/ci-and-branch-control.md)
+- Release automation (blocks full release automation): `CTL-02`
 - Release manager formalization and hotfix policy: `CTL-03`
 - Security and software-supply-chain controls: `CTL-06`

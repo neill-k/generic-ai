@@ -47,7 +47,7 @@ npm run test
 npm run build
 ```
 
-Every contributor runs the same four commands locally before opening a pull request. The `Quality Gate` workflow runs the same four commands on pull requests and pushes to `main`. Full contributor setup, per-command reference, and how to add new packages live in [`CONTRIBUTING.md`](CONTRIBUTING.md). The toolchain decisions and trade-offs are recorded in [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md).
+Every contributor runs the same four commands locally before opening a pull request. The [`baseline-quality-gate`](.github/workflows/baseline-quality-gate.yml) workflow runs the same gate on pull requests and pushes to `main`; the required branch-protection settings live in [`docs/branch-protection.md`](docs/branch-protection.md). Full contributor setup, per-command reference, and how to add new packages live in [`CONTRIBUTING.md`](CONTRIBUTING.md). The toolchain decisions and trade-offs are recorded in [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md).
 
 ## Releases
 
@@ -135,7 +135,7 @@ The sandbox stack has its own operator and API docs pack:
 
 Remaining tracked work:
 
-- **Epic 7 — Deferred but planned tracks:** `DEF-01` identity/auth plugin, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability beyond the OTEL baseline. Runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md).
+- **Epic 7 - Deferred but planned tracks:** `DEF-01` identity/auth plugin, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability beyond the OTEL baseline. Runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md).
 - **Sandbox plugin P2 hardening (`NEI-383`):** DNS-rebinding defense in the allowlist proxy, proxy readiness probe, writable-rootfs tightening, and the rest of the deferred bot findings from the NEI-372 rollup.
 
 See [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) for full scope and dependency links.

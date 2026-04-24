@@ -25,11 +25,11 @@ npm install        # installs workspace devDependencies and links all packages
 
 ## The four-command quality gate
 
-Run these four commands before every pull request. They are the same commands run by the `Quality Gate` workflow:
+Run these four commands before every pull request. They are the same commands the [`baseline-quality-gate`](.github/workflows/baseline-quality-gate.yml) workflow runs for pull requests and pushes to `main`:
 
 ```bash
-npm run typecheck   # tsc -b --pretty across all project references, then remove build output
-npm run lint        # package-boundary check plus scoped Biome lint
+npm run typecheck   # tsc -b --pretty across all project references, then clean build artifacts
+npm run lint        # package boundaries, Biome helper-ignore regression, then scoped Biome lint
 npm run test        # vitest run (passWithNoTests, exits 0 when empty)
 npm run build       # tsc -b produces dist/ for every package
 ```
@@ -45,6 +45,12 @@ npm run clean           # remove dist, tsbuildinfo, and node_modules
 ```
 
 If one of the four quality-gate commands fails, fix the root cause before pushing. Never bypass a failing gate.
+
+## Lint scope and local helper directories
+
+`npm run lint` intentionally lints first-party roots only: the top-level docs/config files, `docs/`, `packages/`, `examples/`, and `scripts/`. It also runs `npm run check:biome-helper-ignores`, which creates temporary nested `biome.json` configs under ignored local-helper paths and runs Biome with VCS ignores disabled. That regression check proves the root `biome.json` excludes helper/worktree state directly instead of relying only on `.gitignore`.
+
+Keep local agent/helper worktrees such as `.claude/`, `.codex/`, `.agents/scratch/`, and `.agents/worktrees/` out of tracked source. If a new local helper directory becomes common, add it to both `.gitignore` and the negative `files.includes` patterns in `biome.json` so direct Biome runs do not load nested configs from ambient local state.
 
 ## Where code lives
 
@@ -75,7 +81,9 @@ Before opening a pull request, the four-command quality gate must pass locally. 
 - `npm run test` is green.
 - `npm run build` is green.
 
-At this phase the repo does not install any pre-commit hook framework (Husky, lefthook, lint-staged). CI enforces the quality gate; local hooks remain optional and should not become a hidden requirement.
+At this phase the repo does not install any pre-commit hook framework (Husky, lefthook, lint-staged). Local hook installation remains deferred under [`CTL-02`](docs/planning/03-linear-issue-tree.md), so honor the gate manually before pushing.
+
+Pull request enforcement is handled by GitHub Actions and the `main` branch-protection rule documented in [`docs/branch-protection.md`](docs/branch-protection.md). If a fork or temporary repository does not have that protection enabled, do not merge until the four baseline checks have run and passed in the PR UI.
 
 ## Changesets
 
