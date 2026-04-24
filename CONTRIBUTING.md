@@ -25,11 +25,11 @@ npm install        # installs workspace devDependencies and links all packages
 
 ## The four-command quality gate
 
-Run these four commands before every pull request. They are the same commands CI will run once [`CTL-02`](docs/planning/03-linear-issue-tree.md) wires CI:
+Run these four commands before every pull request. They are the same commands the [`baseline-quality-gate`](.github/workflows/baseline-quality-gate.yml) workflow runs for pull requests and pushes to `main`:
 
 ```bash
-npm run typecheck   # tsc -b --noEmit across all project references
-npm run lint        # biome lint .
+npm run typecheck   # tsc -b --pretty across all project references, then clean build artifacts
+npm run lint        # package-boundary check plus Biome over the tracked repo surfaces
 npm run test        # vitest run (passWithNoTests, exits 0 when empty)
 npm run build       # tsc -b produces dist/ for every package
 ```
@@ -74,7 +74,9 @@ Before opening a pull request, the four-command quality gate must pass locally. 
 - `npm run test` is green.
 - `npm run build` is green.
 
-At this phase the repo does not install any pre-commit hook framework (Husky, lefthook, lint-staged). The enforcement path — automated hooks plus CI required checks — is owned by [`CTL-02`](docs/planning/03-linear-issue-tree.md). Until `CTL-02` lands, honor the gate manually.
+At this phase the repo does not install any pre-commit hook framework (Husky, lefthook, lint-staged). Local hook installation remains deferred under [`CTL-02`](docs/planning/03-linear-issue-tree.md), so honor the gate manually before pushing.
+
+Pull request enforcement is handled by GitHub Actions and the `main` branch-protection rule documented in [`docs/branch-protection.md`](docs/branch-protection.md). If a fork or temporary repository does not have that protection enabled, do not merge until the four baseline checks have run and passed in the PR UI.
 
 ## Changesets
 

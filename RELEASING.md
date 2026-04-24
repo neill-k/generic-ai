@@ -170,7 +170,7 @@ type. Zero pending is a valid steady state.
 ## How releases are cut
 
 Generic AI uses the two-phase changesets release flow. In the steady state
-(once [`CTL-02`](docs/planning/03-linear-issue-tree.md) has wired CI), the
+(once release automation has been wired on top of the baseline CI gate), the
 flow is:
 
 1. Contributors merge PRs that include changesets. Each merge lands the
@@ -188,11 +188,12 @@ flow is:
    OIDC configured, the publish runs with npm provenance attached.
 5. The Action creates git tags for the published versions.
 
-**CTL-02 owns wiring the GitHub Action.** Until CTL-02 lands, the repo does
-not have CI and the workflow above does not run automatically. Releases are
-manual, and the repo owner is responsible for every release.
+The repo has baseline pull-request CI, but it does not yet have an automated
+release workflow that versions packages, publishes with provenance, and opens
+or merges the generated changeset PR. Releases are manual, and the repo owner
+is responsible for every release.
 
-### Manual release path (until CTL-02 lands)
+### Manual release path (until release automation lands)
 
 Only the repo owner runs releases. The manual path:
 
@@ -232,8 +233,8 @@ git tag -a "v$(date +%Y.%m.%d)" -m "Release $(date +%Y-%m-%d)"
 git push --tags
 ```
 
-The manual path is a stopgap. The intent is that CTL-02 wires CI quickly
-enough that nobody actually exercises it.
+The manual path is a stopgap. The intent is that release automation lands
+quickly enough that nobody actually exercises it.
 
 ## npm provenance
 
@@ -274,9 +275,10 @@ are never cut from laptops, only from CI.
 - secret rotation policy for any fallback `NPM_TOKEN` (ideally: none, because
   OIDC replaces it).
 
-Until CTL-02 lands, provenance is effectively "declared intent, not
-enforced." The `publishConfig` block is still worth committing because it
-fails fast and safely the moment someone tries to publish from a laptop.
+Until the trusted publish workflow lands, provenance is effectively "declared
+intent, not enforced." The `publishConfig` block is still worth committing
+because it fails fast and safely the moment someone tries to publish from a
+laptop.
 
 ## Changelog policy
 
@@ -333,6 +335,7 @@ contracts land in Epic 1 (`KRN-*`). The first real publish will be a
   [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md)
 - Release and publishing conventions (this document's source of truth):
   [`docs/decisions/0003-release-and-publishing.md`](docs/decisions/0003-release-and-publishing.md)
-- CI wiring and branch-control gates (blocks full automation): `CTL-02`
+- Baseline CI and branch-control gates: [`docs/branch-protection.md`](docs/branch-protection.md)
+- Release automation (blocks full release automation): `CTL-02`
 - Release manager formalization and hotfix policy: `CTL-03`
 - Security and software-supply-chain controls: `CTL-06`
