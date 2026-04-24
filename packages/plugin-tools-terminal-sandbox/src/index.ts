@@ -26,6 +26,7 @@ import {
 } from "@generic-ai/sdk";
 import {
   createWorkspaceLayout,
+  resolveWorkspacePath,
   resolveSafeWorkspacePath,
   type WorkspaceRootInput,
 } from "@generic-ai/plugin-workspace-fs";
@@ -527,7 +528,11 @@ function toDockerStopSeconds(graceMs: number | undefined): string {
     return "0";
   }
 
-  return String(Math.max(0, Math.floor(graceMs / 1000)));
+  if (graceMs <= 0) {
+    return "0";
+  }
+
+  return String(Math.max(1, Math.ceil(graceMs / 1000)));
 }
 
 function parseOptionalMetric(value: string | undefined): number | undefined {
@@ -1039,8 +1044,8 @@ function buildAllowlistProxyScript(): string {
     "  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {",
     "    return true;",
     "  }",
-    "  const [a, b] = parts;",
-    "  return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127 || a === 192 && b === 0 || a === 192 && b === 2 || a === 198 && (b === 18 || b === 19 || b === 51) || a === 203 && b === 0 || a >= 224;",
+    "  const [a, b, c] = parts;",
+    "  return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a === 100 && b >= 64 && b <= 127 || a === 192 && b === 0 && (c === 0 || c === 2) || a === 192 && b === 88 && c === 99 || a === 198 && (b === 18 || b === 19) || a === 198 && b === 51 && c === 100 || a === 203 && b === 0 && c === 113 || a >= 224;",
     "}",
     "",
     "function isRestrictedIpv6(address) {",
@@ -1048,7 +1053,9 @@ function buildAllowlistProxyScript(): string {
     "  if (normalized.startsWith('::ffff:')) {",
     "    return isRestrictedIpv4(normalized.slice('::ffff:'.length));",
     "  }",
-    "  return normalized === '::' || normalized === '::1' || normalized.startsWith('fe80:') || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('ff') || normalized.startsWith('2001:db8:');",
+    "  const firstHextet = Number.parseInt(normalized.split(':', 1)[0] || '0', 16);",
+    "  const isLinkLocal = Number.isInteger(firstHextet) && firstHextet >= 0xfe80 && firstHextet <= 0xfebf;",
+    "  return normalized === '::' || normalized === '::1' || isLinkLocal || normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('ff') || normalized.startsWith('2001:db8:');",
     "}",
     "",
     "function isRestrictedIpAddress(address) {",
@@ -1257,14 +1264,30 @@ async function waitForAllowlistProxyReady(
   let lastError = "";
 
   while (Date.now() <= deadline) {
-    const result = await docker.exec({
-      containerId: proxyContainerId,
-      command,
-    });
-    if (result.exitCode === 0) {
-      return;
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      break;
     }
-    lastError = result.stderr.trim() || result.stdout.trim();
+
+    const probeTimeoutMs = Math.max(1, Math.min(500, remainingMs));
+
+    try {
+      const result = await docker.exec({
+        containerId: proxyContainerId,
+        command,
+        signal: AbortSignal.timeout(probeTimeoutMs),
+      });
+      if (result.exitCode === 0) {
+        return;
+      }
+      lastError = result.stderr.trim() || result.stdout.trim();
+    } catch (error) {
+      const message = error instanceof Error ? error.message.trim() : "";
+      lastError =
+        message.length === 0
+          ? `allowlist proxy readiness probe timed out after ${probeTimeoutMs}ms`
+          : message;
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
 
@@ -1303,19 +1326,24 @@ async function stageWorkspacePath(
   maxInputBytes: number | undefined,
 ): Promise<void> {
   const normalizedPath = normalizeRelativeSandboxPath(relativePath);
-  const sourcePath =
+  const lexicalSourcePath =
     normalizedPath.length === 0
-      ? await resolveSafeWorkspacePath(workspaceRoot)
-      : await resolveSafeWorkspacePath(workspaceRoot, normalizedPath);
-  const sourceInfo = await lstat(sourcePath);
-  const destinationPath =
-    normalizedPath.length === 0 ? destinationRoot : path.join(destinationRoot, normalizedPath);
+      ? resolveWorkspacePath(workspaceRoot)
+      : resolveWorkspacePath(workspaceRoot, normalizedPath);
+  const sourceInfo = await lstat(lexicalSourcePath);
 
   if (sourceInfo.isSymbolicLink()) {
     throw new SandboxConfigurationError(
       `Refusing to stage symbolic link "${normalizedPath || "."}" into the sandbox workspace.`,
     );
   }
+
+  const sourcePath =
+    normalizedPath.length === 0
+      ? await resolveSafeWorkspacePath(workspaceRoot)
+      : await resolveSafeWorkspacePath(workspaceRoot, normalizedPath);
+  const destinationPath =
+    normalizedPath.length === 0 ? destinationRoot : path.join(destinationRoot, normalizedPath);
 
   if (sourceInfo.isDirectory()) {
     await mkdir(destinationPath, { recursive: true });

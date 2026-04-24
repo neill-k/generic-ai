@@ -516,6 +516,13 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
           }),
         }),
       );
+      expect(
+        docker.execCalls.some(
+          (call) =>
+            call.containerId === "container-allowlist-1-allowlist-proxy" &&
+            call.signal !== undefined,
+        ),
+      ).toBe(true);
 
       await plugin.destroy(session.sessionId);
 
@@ -742,6 +749,39 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       } finally {
         await rm(outsideRoot, { recursive: true, force: true });
       }
+    });
+  });
+
+  it("blocks copy-mode symlinks even when they target inside the workspace root", async () => {
+    await withTempRoot(async (root) => {
+      await mkdir(path.join(root, "target"), { recursive: true });
+      await writeFile(path.join(root, "target", "source.txt"), "safe\n", "utf8");
+      try {
+        await symlink(path.join(root, "target", "source.txt"), path.join(root, "alias.txt"));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EPERM") {
+          return;
+        }
+        throw error;
+      }
+
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: new FakeDockerOperations(),
+      });
+
+      await expect(
+        plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+          policy: {
+            files: {
+              mode: "copy",
+              copyInPaths: ["alias.txt"],
+            },
+          },
+        }),
+      ).rejects.toThrow(/symbolic link/i);
     });
   });
 
