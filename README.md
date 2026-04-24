@@ -47,7 +47,7 @@ npm run test
 npm run build
 ```
 
-Every contributor runs the same four commands locally before opening a pull request. CI will run the same four commands once [`CTL-02`](docs/planning/03-linear-issue-tree.md) wires it. Full contributor setup, per-command reference, and how to add new packages live in [`CONTRIBUTING.md`](CONTRIBUTING.md). The toolchain decisions and trade-offs are recorded in [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md).
+Every contributor runs the same four commands locally before opening a pull request. The [`baseline-quality-gate`](.github/workflows/baseline-quality-gate.yml) workflow runs the same gate on pull requests and pushes to `main`; the required branch-protection settings live in [`docs/branch-protection.md`](docs/branch-protection.md). Full contributor setup, per-command reference, and how to add new packages live in [`CONTRIBUTING.md`](CONTRIBUTING.md). The toolchain decisions and trade-offs are recorded in [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md).
 
 ## Releases
 
@@ -76,7 +76,7 @@ The framework's first functional vertical slice is landed on `main`. The "Minimu
 
 ### In flight
 
-Epic 6 (repo control plane, `CTL-01`..`CTL-07`) is marked Done in Linear, but the deliverables (CODEOWNERS, dependabot, issue/PR templates, security workflow, four-command CI gate, docs-as-code pipeline, control-plane ADRs) live only in unmerged `claude/*` worktree branches. Tracked in `NEI-382`. Until those branches land, `main` has only the `live-provider-smoke.yml` workflow and no PR-time CI.
+Epic 6 (repo control plane, `CTL-01`..`CTL-07`) is marked Done in Linear, but several deliverables (CODEOWNERS, dependabot, issue/PR templates, security workflow, docs-as-code pipeline, and control-plane ADRs) still live only in unmerged `claude/*` worktree branches. Tracked in `NEI-382`. The PR-time four-command baseline gate is now represented on `main` by `.github/workflows/baseline-quality-gate.yml`, while trusted live-provider verification stays in the manual `live-provider-smoke.yml` workflow.
 
 The remaining Epic 7 deferred tracks (`DEF-01` identity/auth, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability) are still in the backlog. Sandbox plugin P2 hardening follow-ups are tracked in `NEI-383`.
 
@@ -136,7 +136,7 @@ The sandbox stack has its own operator and API docs pack:
 
 Remaining tracked work:
 
-- **Epic 6 — Agent-ready and repo control plane (`NEI-382` gap tracker):** land the CODEOWNERS, dependabot, issue/PR templates, security workflow, four-command CI gate, docs-as-code pipeline, and control-plane ADRs currently stranded in `claude/*` worktree branches.
+- **Epic 6 — Agent-ready and repo control plane (`NEI-382` gap tracker):** land the remaining CODEOWNERS, dependabot, issue/PR templates, security workflow, docs-as-code pipeline, and control-plane ADRs currently stranded in `claude/*` worktree branches.
 - **Epic 7 — Deferred but planned tracks:** `DEF-01` identity/auth plugin, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability beyond the OTEL baseline. Runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md).
 - **Sandbox plugin P2 hardening (`NEI-383`):** DNS-rebinding defense in the allowlist proxy, proxy readiness probe, writable-rootfs tightening, and the rest of the deferred bot findings from the NEI-372 rollup.
 

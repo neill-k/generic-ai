@@ -179,6 +179,25 @@ function getWorkspaceMount(docker: FakeDockerOperations) {
   return mount;
 }
 
+function getOutputMount(docker: FakeDockerOperations) {
+  const mount = docker.created[0]?.mounts.find(
+    (
+      candidate,
+    ): candidate is Extract<
+      SandboxDockerCreateContainerRequest["mounts"][number],
+      { type: "tmpfs" }
+    > =>
+      "type" in candidate &&
+      candidate.type === "tmpfs" &&
+      candidate.target === SANDBOX_OUTPUT_MOUNT_PATH,
+  );
+  expect(mount).toBeDefined();
+  if (mount === undefined) {
+    throw new Error("Expected a /workspace-output tmpfs mount.");
+  }
+  return mount;
+}
+
 interface ExternalCommandResult {
   readonly exitCode: number | null;
   readonly stdout: string;
@@ -342,8 +361,8 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         expect.arrayContaining([
           expect.objectContaining({ target: "/workspace", readOnly: true }),
           expect.objectContaining({
-            type: "tmpfs",
             target: SANDBOX_OUTPUT_MOUNT_PATH,
+            type: "tmpfs",
             sizeMb: 100,
           }),
         ]),
@@ -384,6 +403,43 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
     });
   });
 
+  it("fails successful executions that exceed the sandbox disk policy", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      docker.usageSnapshots = [
+        {
+          diskWrittenMb: 0,
+        },
+        {
+          diskWrittenMb: 8,
+        },
+      ];
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "disk-limit-1",
+      });
+
+      const result = await plugin.run({
+        runtime: "bash",
+        command: "printf oversized",
+        policy: {
+          resources: {
+            diskMb: 4,
+          },
+        },
+      });
+
+      expect(result.status).toBe("failed");
+      expect(result.stderr.toLowerCase()).toContain("no space");
+      expect(result.resourceUsage).toEqual(
+        expect.objectContaining({
+          diskWrittenMb: 8,
+        }),
+      );
+    });
+  });
+
   it("destroys ephemeral sessions created through run()", async () => {
     await withTempRoot(async (root) => {
       const docker = new FakeDockerOperations();
@@ -410,15 +466,14 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(plugin.listSessions()).toHaveLength(0);
       expect(docker.created[0]?.cpus).toBe(0.5);
       expect(docker.created[0]?.memoryMb).toBe(256);
-      expect(docker.created[0]?.mounts).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: "tmpfs",
-            target: SANDBOX_OUTPUT_MOUNT_PATH,
-            sizeMb: 32,
-          }),
-        ]),
-      );
+      expect(getOutputMount(docker).sizeMb).toBe(32);
+      expect(docker.copied).toEqual([
+        {
+          containerId: "container-ephemeral-1",
+          sourcePath: `${SANDBOX_OUTPUT_MOUNT_PATH}/.`,
+          destinationPath: path.join(root, "workspace", "shared", "sandbox-results", "ephemeral-1"),
+        },
+      ]);
       expect(docker.stopped).toEqual([
         { containerId: "container-ephemeral-1", graceMs: undefined },
       ]);

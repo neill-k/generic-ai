@@ -117,7 +117,7 @@ Every devDependency is pinned to an exact version rather than a floating range. 
 
 ### Positive
 
-- Every contributor and every agent has exactly one way to build, typecheck, lint, format, and test the entire workspace. The four-command quality gate (`typecheck`, `lint`, `test`, `build`) is the same locally and, once `CTL-02` lands CI, in GitHub Actions.
+- Every contributor and every agent has exactly one way to build, typecheck, lint, format, and test the entire workspace. The four-command quality gate (`typecheck`, `lint`, `test`, `build`) is the same locally and in the `baseline-quality-gate` GitHub Actions workflow.
 - New packages added during KRN/CFG/INF/CAP/TRN only need to copy an existing `packages/<name>/tsconfig.json`, add themselves to the root `tsconfig.json` references, and they immediately participate in every quality gate.
 - Strict TypeScript flags are on from day one, before any real source code exists. Turning these on later would mean a noisy migration sweep across every plugin.
 - Biome gives us a single tool, single config file, single binary surface. CI time stays small and pre-commit hook wiring (owned by `CTL-02`) will be trivial because there is nothing to stitch together.
@@ -135,7 +135,7 @@ Every devDependency is pinned to an exact version rather than a floating range. 
 
 ### What FND-03 does NOT do
 
-- **CI, branch protection, required checks** — owned by `CTL-02`. The workspace scripts exist so CTL-02 can invoke them directly.
+- **CI, branch protection, required checks** — owned by `CTL-02`. The workspace scripts exist so CTL-02 can invoke them directly; the current baseline enforcement path is documented in [`../branch-protection.md`](../branch-protection.md).
 - **Pre-commit hook framework (Husky, lefthook, lint-staged)** — owned by `CTL-02`.
 - **Generated API documentation** — owned by `CTL-04`. The `docs` script is a placeholder.
 - **Release automation, changesets, semver policy, public-vs-internal package decisions** — owned by `NEI-307` (FND-04).
