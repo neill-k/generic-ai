@@ -59,12 +59,16 @@ describe("@generic-ai/example-starter-hono", () => {
 
     try {
       const health = await starter.app.request("/starter/health");
-      expect(await health.json()).toMatchObject({
+      const healthPayload = (await health.json()) as Record<string, unknown>;
+      expect(healthPayload).toMatchObject({
         adapter: "openai-codex",
+        exposure: "loopback",
         model: "gpt-5.2-codex",
         streaming: true,
         transport: "@generic-ai/plugin-hono",
       });
+      expect(healthPayload).not.toHaveProperty("workspaceRoot");
+      expect(healthPayload).not.toHaveProperty("bootstrap");
 
       const run = await starter.app.request("/starter/run", {
         method: "POST",
@@ -149,5 +153,89 @@ describe("@generic-ai/example-starter-hono", () => {
     expect(() => loadStarterExampleEnvironment({})).toThrow(
       "GENERIC_AI_PROVIDER_API_KEY must be set",
     );
+  });
+
+  it("fails fast when configured for unauthenticated non-loopback exposure", () => {
+    expect(() =>
+      loadStarterExampleEnvironment({
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+        GENERIC_AI_HOST: "0.0.0.0",
+      }),
+    ).toThrow("GENERIC_AI_UNSAFE_EXPOSE=1");
+  });
+
+  it("loads a deliberate unsafe non-loopback exposure", () => {
+    expect(
+      loadStarterExampleEnvironment({
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+        GENERIC_AI_HOST: "0.0.0.0",
+        GENERIC_AI_UNSAFE_EXPOSE: "1",
+      }),
+    ).toMatchObject({
+      exposure: "unsafe-remote",
+      host: "0.0.0.0",
+      unsafeExpose: true,
+    });
+  });
+
+  it("normalizes IPv6 loopback bind hosts before exposure checks", () => {
+    expect(
+      loadStarterExampleEnvironment({
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+        GENERIC_AI_HOST: "[::1]",
+      }),
+    ).toMatchObject({
+      exposure: "loopback",
+      host: "::1",
+    });
+
+    expect(
+      loadStarterExampleEnvironment({
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+        GENERIC_AI_HOST: "0:0:0:0:0:0:0:1",
+      }),
+    ).toMatchObject({
+      exposure: "loopback",
+      host: "0:0:0:0:0:0:0:1",
+    });
+  });
+
+  it("requires the configured bearer token for run endpoints", async () => {
+    const starter = await createStarterExampleServer({
+      env: {
+        GENERIC_AI_AUTH_TOKEN: "test-token",
+        GENERIC_AI_HOST: "0.0.0.0",
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+      },
+      createRuntime: async () => createFakeRuntime("secured result"),
+    });
+
+    try {
+      const health = await starter.app.request("/starter/health");
+      expect(await health.json()).toMatchObject({
+        exposure: "authenticated-remote",
+      });
+
+      const unauthorized = await starter.app.request("/starter/run", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ input: "hello" }),
+      });
+      expect(unauthorized.status).toBe(401);
+
+      const authorized = await starter.app.request("/starter/run", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-token",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ input: "hello" }),
+      });
+      expect(authorized.status).toBe(200);
+    } finally {
+      await starter.stop();
+    }
   });
 });

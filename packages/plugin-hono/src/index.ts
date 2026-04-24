@@ -16,6 +16,14 @@ export interface HonoRunContext {
   readonly signal: AbortSignal;
 }
 
+export interface HonoAuthorizeContext extends HonoRunContext {
+  readonly request: Request;
+}
+
+export type HonoAuthorizeHandler = (
+  context: HonoAuthorizeContext,
+) => Promise<Response | undefined> | Response | undefined;
+
 export interface HonoStreamChunk {
   readonly event?: string;
   readonly id?: string;
@@ -35,6 +43,7 @@ export type HonoStreamHandler = (
 export interface HonoPluginOptions {
   readonly routePrefix?: string;
   readonly health?: (context: HonoRunContext) => Promise<unknown> | unknown;
+  readonly authorize?: HonoAuthorizeHandler;
   readonly run: HonoRunHandler;
   readonly stream?: HonoStreamHandler;
   readonly createRequestId?: () => string;
@@ -200,6 +209,17 @@ function createSseResponse(
   );
 }
 
+async function authorizeRequest(
+  authorize: HonoAuthorizeHandler | undefined,
+  context: HonoAuthorizeContext,
+): Promise<Response | undefined> {
+  if (authorize === undefined) {
+    return undefined;
+  }
+
+  return await authorize(context);
+}
+
 export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
   const routePrefix = normalizeRoutePrefix(options.routePrefix);
   const createRequestId = options.createRequestId ?? randomUUID;
@@ -223,6 +243,17 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
   });
 
   app.post(`${routePrefix}/run`, async (context) => {
+    const requestId = createRequestId();
+    const unauthorized = await authorizeRequest(options.authorize, {
+      request: context.req.raw.clone(),
+      requestId,
+      mode: "sync",
+      signal: context.req.raw.signal,
+    });
+    if (unauthorized !== undefined) {
+      return unauthorized;
+    }
+
     let payload: HonoRunPayload;
     try {
       payload = await readPayload(context.req.raw);
@@ -233,7 +264,6 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
       throw error;
     }
 
-    const requestId = createRequestId();
     const result = await options.run(payload, {
       requestId,
       mode: "sync",
@@ -257,6 +287,17 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
       );
     }
 
+    const requestId = createRequestId();
+    const unauthorized = await authorizeRequest(options.authorize, {
+      request: context.req.raw.clone(),
+      requestId,
+      mode: "stream",
+      signal: context.req.raw.signal,
+    });
+    if (unauthorized !== undefined) {
+      return unauthorized;
+    }
+
     let payload: HonoRunPayload;
     try {
       payload = await readPayload(context.req.raw);
@@ -267,7 +308,6 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
       throw error;
     }
 
-    const requestId = createRequestId();
     const stream = await options.stream(payload, {
       requestId,
       mode: "stream",
