@@ -20,7 +20,11 @@
       "!**/coverage",
       "!**/*.tsbuildinfo",
       "!**/.turbo",
-      "!**/.cache"
+      "!**/.cache",
+      "!.claude",
+      "!.codex",
+      "!.agents/scratch",
+      "!.agents/worktrees"
     ]
   },
   "formatter": {
