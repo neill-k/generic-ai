@@ -13,42 +13,87 @@ const fixtureRoots = [
   [".agents", "worktrees", fixtureName],
 ].map((parts) => path.join(repoRoot, ...parts));
 
-function assertInsideRepo(candidatePath) {
+function assertLexicallyInsideRepo(candidatePath) {
   const relativePath = path.relative(repoRoot, candidatePath);
   if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
     throw new Error(`Refusing to clean path outside repo: ${candidatePath}`);
   }
 }
 
+async function assertInsideRepo(candidatePath) {
+  assertLexicallyInsideRepo(candidatePath);
+
+  const repoRealPath = await fs.realpath(repoRoot);
+  const relativeParts = path.relative(repoRoot, candidatePath).split(path.sep).filter(Boolean);
+  let currentPath = repoRoot;
+
+  for (const part of relativeParts) {
+    currentPath = path.join(currentPath, part);
+
+    let stat;
+    try {
+      stat = await fs.lstat(currentPath);
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        break;
+      }
+
+      throw error;
+    }
+
+    if (stat.isSymbolicLink()) {
+      throw new Error(`Refusing to follow symlinked helper path: ${currentPath}`);
+    }
+
+    const currentRealPath = await fs.realpath(currentPath);
+    const realRelativePath = path.relative(repoRealPath, currentRealPath);
+    if (realRelativePath.startsWith("..") || path.isAbsolute(realRelativePath)) {
+      throw new Error(`Refusing to clean real path outside repo: ${currentRealPath}`);
+    }
+  }
+}
+
 async function createFixtures() {
   for (const fixtureRoot of fixtureRoots) {
-    assertInsideRepo(fixtureRoot);
+    await assertInsideRepo(fixtureRoot);
     await fs.mkdir(fixtureRoot, { recursive: true });
     await fs.writeFile(
       path.join(fixtureRoot, "biome.json"),
       `${JSON.stringify(
         {
           $schema: "https://biomejs.dev/schemas/2.4.11/schema.json",
+          linter: {
+            enabled: true,
+            rules: {
+              recommended: false,
+              suspicious: {
+                noDebugger: "error",
+              },
+            },
+          },
           root: true,
         },
         null,
         2,
       )}\n`,
     );
-    await fs.writeFile(path.join(fixtureRoot, "ignored.ts"), "export const ignored = true;\n");
+    await fs.writeFile(
+      path.join(fixtureRoot, "ignored.ts"),
+      "debugger;\nexport const ignored = true;\n",
+    );
   }
 }
 
 async function cleanFixtures() {
   for (const fixtureRoot of fixtureRoots) {
-    assertInsideRepo(fixtureRoot);
+    await assertInsideRepo(fixtureRoot);
     await fs.rm(fixtureRoot, { force: true, recursive: true });
 
     let parent = path.dirname(fixtureRoot);
     while (parent !== repoRoot) {
-      assertInsideRepo(parent);
+      await assertInsideRepo(parent);
       try {
-        await fs.rmdir(parent);
+        await fs.rm(parent, { recursive: false });
       } catch {
         break;
       }
