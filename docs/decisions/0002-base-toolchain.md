@@ -63,6 +63,8 @@ Use Biome 2.4 as the single source of truth for linting and formatting across th
 
 The `biome.json` enables the recommended ruleset plus targeted complexity, correctness, and style rules (`noUnusedImports`, `noUnusedVariables`, `useNodejsImportProtocol`, `useConst`, `useTemplate`, `noParameterAssign`, `noUselessElse`). `noExplicitAny` is set to `warn` so the FND-03 placeholder sources lint cleanly while still nudging real code in the right direction. Formatter config matches `.editorconfig`: 2-space indent, LF line endings, double quotes, trailing commas, semicolons.
 
+The root Biome file also excludes local helper/worktree directories such as `.claude/`, `.codex/`, `.agents/scratch/`, and `.agents/worktrees/` directly in `files.includes`. The lint script runs a regression check with VCS ignores disabled so nested helper configs cannot break the quality gate and cannot be silently protected only by `.gitignore`.
+
 Rejected for the reasons captured in "Alternatives Considered": ESLint + Prettier + typescript-eslint, Oxlint, dprint standalone.
 
 ### Test runner: Vitest 4

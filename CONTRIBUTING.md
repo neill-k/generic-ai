@@ -28,8 +28,8 @@ npm install        # installs workspace devDependencies and links all packages
 Run these four commands before every pull request. They are the same commands CI will run once [`CTL-02`](docs/planning/03-linear-issue-tree.md) wires CI:
 
 ```bash
-npm run typecheck   # tsc -b --noEmit across all project references
-npm run lint        # biome lint .
+npm run typecheck   # tsc -b --pretty across all project references
+npm run lint        # package boundaries, Biome helper-ignore regression, then scoped Biome lint
 npm run test        # vitest run (passWithNoTests, exits 0 when empty)
 npm run build       # tsc -b produces dist/ for every package
 ```
@@ -44,6 +44,12 @@ npm run clean           # remove dist, tsbuildinfo, and node_modules
 ```
 
 If one of the four quality-gate commands fails, fix the root cause before pushing. Never bypass a failing gate.
+
+## Lint scope and local helper directories
+
+`npm run lint` intentionally lints first-party roots only: the top-level docs/config files, `docs/`, `packages/`, `examples/`, and `scripts/`. It also runs `npm run check:biome-helper-ignores`, which creates temporary nested `biome.json` configs under ignored local-helper paths and runs Biome with VCS ignores disabled. That regression check proves the root `biome.json` excludes helper/worktree state directly instead of relying only on `.gitignore`.
+
+Keep local agent/helper worktrees such as `.claude/`, `.codex/`, `.agents/scratch/`, and `.agents/worktrees/` out of tracked source. If a new local helper directory becomes common, add it to both `.gitignore` and the negative `files.includes` patterns in `biome.json` so direct Biome runs do not load nested configs from ambient local state.
 
 ## Where code lives
 
