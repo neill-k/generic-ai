@@ -681,6 +681,9 @@ function decorateExecutionStderr(
     readonly timeoutGraceMs: number | undefined;
     readonly oomKilled: boolean;
     readonly memoryMb: number | undefined;
+    readonly diskMb: number | undefined;
+    readonly diskWrittenMb: number | undefined;
+    readonly diskExceeded: boolean;
   },
 ): string {
   const messages: string[] = [];
@@ -705,6 +708,18 @@ function decorateExecutionStderr(
         ? "Sandbox exceeded its memory limit."
         : `Sandbox exceeded its ${options.memoryMb}MiB memory limit.`;
     messages.push(`${limitLabel} Reduce memory use or raise sandbox policy.resources.memoryMb.`);
+  } else if (options.diskExceeded) {
+    const limitLabel =
+      options.diskMb === undefined
+        ? "Sandbox exceeded its disk limit."
+        : `Sandbox exceeded its ${options.diskMb}MiB disk limit.`;
+    const usageLabel =
+      options.diskWrittenMb === undefined
+        ? ""
+        : ` Measured output usage was ${options.diskWrittenMb}MiB.`;
+    messages.push(
+      `${limitLabel}${usageLabel} No space left in sandbox output directory; reduce generated artifacts or raise sandbox policy.resources.diskMb.`,
+    );
   }
 
   return messages.join(trimmed.length > 0 ? "\n" : "");
@@ -1676,7 +1691,6 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       const args = [
         "create",
         "--init",
-        "--detach",
         "--label",
         "generic-ai.sandbox=true",
         "--label",
@@ -2221,6 +2235,9 @@ export function createSandboxTerminalPlugin(
           timeoutGraceMs,
           oomKilled: false,
           memoryMb: active.policy.resources?.memoryMb,
+          diskMb: active.policy.resources?.diskMb,
+          diskWrittenMb: undefined,
+          diskExceeded: false,
         }),
         maxOutputBytes,
       );
@@ -2345,12 +2362,24 @@ export function createSandboxTerminalPlugin(
         (snapshot): snapshot is SandboxContainerUsageSnapshot => snapshot !== undefined,
       ),
     );
+    const diskMb = active.policy.resources?.diskMb;
+    const diskExceeded =
+      !timedOut &&
+      !callerAborted &&
+      !oomKilled &&
+      execResult.exitCode === 0 &&
+      diskMb !== undefined &&
+      usage?.diskWrittenMb !== undefined &&
+      usage.diskWrittenMb > diskMb;
     const stderr = decorateExecutionStderr(appendStderr(execResult.stderr, networkBlockLog), {
       timedOut,
       timeoutMs,
       timeoutGraceMs,
       oomKilled,
       memoryMb: active.policy.resources?.memoryMb,
+      diskMb,
+      diskWrittenMb: usage?.diskWrittenMb,
+      diskExceeded,
     });
     const stdoutResult = truncateOutput(execResult.stdout, maxOutputBytes);
     const stderrResult = truncateOutput(stderr, maxOutputBytes);
@@ -2371,7 +2400,7 @@ export function createSandboxTerminalPlugin(
       truncated: stdoutResult.truncated || stderrResult.truncated,
       stdoutTruncated: stdoutResult.truncated,
       stderrTruncated: stderrResult.truncated,
-      status: resolveStatus(execResult, timedOut, unavailable, oomKilled),
+      status: diskExceeded ? "failed" : resolveStatus(execResult, timedOut, unavailable, oomKilled),
       artifacts,
       generatedFiles: artifacts,
       resourceUsage: buildResourceUsage(usage, durationMs),
