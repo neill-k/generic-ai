@@ -9,12 +9,30 @@ updates:
       timezone: "America/Chicago"
     open-pull-requests-limit: 10
     groups:
-      production-dependencies:
+      production-major-updates:
         dependency-type: "production"
+        update-types:
+          - "major"
         patterns:
           - "*"
-      development-dependencies:
+      production-non-major-updates:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+        patterns:
+          - "*"
+      development-major-updates:
         dependency-type: "development"
+        update-types:
+          - "major"
+        patterns:
+          - "*"
+      development-non-major-updates:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
         patterns:
           - "*"
 

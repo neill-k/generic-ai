@@ -26,7 +26,7 @@ npm run build
 npm run docs:check
 ```
 
-The repo targets Node 24 and npm 11. Use `tsc -b --pretty` through `npm run typecheck`; do not use `tsc -b --noEmit` in this project-reference layout.
+The repo targets Node 24 and npm 11. For full-workspace verification, use the root `npm run typecheck`, which runs `tsc -b --pretty` (emit + cleanup) for this project-reference layout. Individual package-level `typecheck` scripts may still use `--noEmit` for faster local iteration, but do not replace the root workspace check with `tsc -b --noEmit`.
 
 ## Documentation
 

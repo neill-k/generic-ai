@@ -69,6 +69,10 @@ const lines = [
 
 const next = `${lines.join("\n")}\n`;
 
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n?/g, "\n");
+}
+
 if (checkOnly) {
   if (!existsSync(generatedPath)) {
     console.error(`Generated docs are missing: ${relative(repoRoot, generatedPath)}`);
@@ -76,7 +80,7 @@ if (checkOnly) {
   }
 
   const current = readFileSync(generatedPath, "utf8");
-  if (current !== next) {
+  if (normalizeLineEndings(current) !== normalizeLineEndings(next)) {
     console.error("Generated docs are out of date. Run `npm run docs`.");
     process.exit(1);
   }
