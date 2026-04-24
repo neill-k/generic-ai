@@ -1,0 +1,169 @@
+name: baseline-quality-gate
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: baseline-quality-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+
+jobs:
+  baseline-typecheck:
+    name: baseline-typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Use pinned npm
+        run: npm install --global npm@11.12.1
+
+      - name: Install workspace dependencies
+        shell: bash
+        run: |
+          set +e
+          npm ci 2>&1 | tee npm-ci.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "npm ci failed with exit code $status. Last 80 lines:" >> "$GITHUB_STEP_SUMMARY"
+            tail -n 80 npm-ci.log >> "$GITHUB_STEP_SUMMARY"
+            message=$(tail -n 20 npm-ci.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=npm ci failed::$message"
+            exit "$status"
+          fi
+
+      - name: Typecheck project references
+        run: npm run typecheck
+
+  baseline-lint:
+    name: baseline-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Use pinned npm
+        run: npm install --global npm@11.12.1
+
+      - name: Install workspace dependencies
+        shell: bash
+        run: |
+          set +e
+          npm ci 2>&1 | tee npm-ci.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "npm ci failed with exit code $status. Last 80 lines:" >> "$GITHUB_STEP_SUMMARY"
+            tail -n 80 npm-ci.log >> "$GITHUB_STEP_SUMMARY"
+            message=$(tail -n 20 npm-ci.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=npm ci failed::$message"
+            exit "$status"
+          fi
+
+      - name: Lint workspace
+        run: npm run lint
+
+  baseline-test:
+    name: baseline-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Use pinned npm
+        run: npm install --global npm@11.12.1
+
+      - name: Install workspace dependencies
+        shell: bash
+        run: |
+          set +e
+          npm ci 2>&1 | tee npm-ci.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "npm ci failed with exit code $status. Last 80 lines:" >> "$GITHUB_STEP_SUMMARY"
+            tail -n 80 npm-ci.log >> "$GITHUB_STEP_SUMMARY"
+            message=$(tail -n 20 npm-ci.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=npm ci failed::$message"
+            exit "$status"
+          fi
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee npm-test.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "npm test failed with exit code $status. Last 120 lines:" >> "$GITHUB_STEP_SUMMARY"
+            tail -n 120 npm-test.log >> "$GITHUB_STEP_SUMMARY"
+            message=$(tail -n 40 npm-test.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=npm test failed::$message"
+            exit "$status"
+          fi
+
+  baseline-build:
+    name: baseline-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Use pinned npm
+        run: npm install --global npm@11.12.1
+
+      - name: Install workspace dependencies
+        shell: bash
+        run: |
+          set +e
+          npm ci 2>&1 | tee npm-ci.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "npm ci failed with exit code $status. Last 80 lines:" >> "$GITHUB_STEP_SUMMARY"
+            tail -n 80 npm-ci.log >> "$GITHUB_STEP_SUMMARY"
+            message=$(tail -n 20 npm-ci.log | sed ':a;N;$!ba;s/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')
+            echo "::error title=npm ci failed::$message"
+            exit "$status"
+          fi
+
+      - name: Build project references
+        run: npm run build

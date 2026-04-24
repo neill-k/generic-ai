@@ -41,6 +41,7 @@ export async function runStarterExampleCli(
       `Starter example listening on http://${server.host}:${server.port}${starter.transport.routePrefix}/health`,
       `Adapter: ${starter.runtime.adapter}`,
       `Model: ${starter.runtime.model}`,
+      `Exposure: ${starter.environment.exposure}`,
       `Workspace: ${starter.workspaceRoot}`,
     ].join("\n"),
   );

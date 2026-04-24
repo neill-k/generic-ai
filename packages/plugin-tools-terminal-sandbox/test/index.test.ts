@@ -23,6 +23,7 @@ import {
   sandboxTerminalConfigSchema,
   sandboxTerminalPluginContract,
   sandboxTerminalPluginDefinition,
+  SandboxArtifactSyncError,
   SandboxUnavailableError,
   validateSessionId,
   type SandboxContainerState,
@@ -179,6 +180,25 @@ function getWorkspaceMount(docker: FakeDockerOperations) {
   return mount;
 }
 
+function getOutputMount(docker: FakeDockerOperations) {
+  const mount = docker.created[0]?.mounts.find(
+    (
+      candidate,
+    ): candidate is Extract<
+      SandboxDockerCreateContainerRequest["mounts"][number],
+      { type: "tmpfs" }
+    > =>
+      "type" in candidate &&
+      candidate.type === "tmpfs" &&
+      candidate.target === SANDBOX_OUTPUT_MOUNT_PATH,
+  );
+  expect(mount).toBeDefined();
+  if (mount === undefined) {
+    throw new Error("Expected a /workspace-output tmpfs mount.");
+  }
+  return mount;
+}
+
 interface ExternalCommandResult {
   readonly exitCode: number | null;
   readonly stdout: string;
@@ -331,6 +351,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(plugin.listSessions()).toHaveLength(1);
       expect(docker.created[0]?.image).toBe("node:24-bookworm-slim");
       expect(docker.created[0]?.networkMode).toBe("none");
+      expect(docker.created[0]?.readOnlyRootfs).toBe(true);
       const workspaceMount = getWorkspaceMount(docker);
       expect(
         await readFile(
@@ -342,9 +363,17 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         expect.arrayContaining([
           expect.objectContaining({ target: "/workspace", readOnly: true }),
           expect.objectContaining({
-            type: "tmpfs",
             target: SANDBOX_OUTPUT_MOUNT_PATH,
+            type: "tmpfs",
             sizeMb: 100,
+          }),
+          expect.objectContaining({
+            type: "tmpfs",
+            target: "/tmp",
+          }),
+          expect.objectContaining({
+            type: "tmpfs",
+            target: "/var/tmp",
           }),
         ]),
       );
@@ -384,6 +413,43 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
     });
   });
 
+  it("fails successful executions that exceed the sandbox disk policy", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      docker.usageSnapshots = [
+        {
+          diskWrittenMb: 0,
+        },
+        {
+          diskWrittenMb: 8,
+        },
+      ];
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "disk-limit-1",
+      });
+
+      const result = await plugin.run({
+        runtime: "bash",
+        command: "printf oversized",
+        policy: {
+          resources: {
+            diskMb: 4,
+          },
+        },
+      });
+
+      expect(result.status).toBe("failed");
+      expect(result.stderr.toLowerCase()).toContain("no space");
+      expect(result.resourceUsage).toEqual(
+        expect.objectContaining({
+          diskWrittenMb: 8,
+        }),
+      );
+    });
+  });
+
   it("destroys ephemeral sessions created through run()", async () => {
     await withTempRoot(async (root) => {
       const docker = new FakeDockerOperations();
@@ -410,15 +476,14 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(plugin.listSessions()).toHaveLength(0);
       expect(docker.created[0]?.cpus).toBe(0.5);
       expect(docker.created[0]?.memoryMb).toBe(256);
-      expect(docker.created[0]?.mounts).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            type: "tmpfs",
-            target: SANDBOX_OUTPUT_MOUNT_PATH,
-            sizeMb: 32,
-          }),
-        ]),
-      );
+      expect(getOutputMount(docker).sizeMb).toBe(32);
+      expect(docker.copied).toEqual([
+        {
+          containerId: "container-ephemeral-1",
+          sourcePath: `${SANDBOX_OUTPUT_MOUNT_PATH}/.`,
+          destinationPath: path.join(root, "workspace", "shared", "sandbox-results", "ephemeral-1"),
+        },
+      ]);
       expect(docker.stopped).toEqual([
         { containerId: "container-ephemeral-1", graceMs: undefined },
       ]);
@@ -485,6 +550,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
               "/generic-ai-network-proxy/config.json",
             ),
           }),
+          readOnlyRootfs: true,
           command: ["node", "/generic-ai-network-proxy/proxy.mjs"],
         }),
       );
@@ -505,6 +571,13 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
           }),
         }),
       );
+      expect(
+        docker.execCalls.some(
+          (call) =>
+            call.containerId === "container-allowlist-1-allowlist-proxy" &&
+            call.signal !== undefined,
+        ),
+      ).toBe(true);
 
       await plugin.destroy(session.sessionId);
 
@@ -520,11 +593,6 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
   it("surfaces blocked allowlist destinations in stderr", async () => {
     await withTempRoot(async (root) => {
       const docker = new FakeDockerOperations();
-      docker.execResult = {
-        exitCode: 1,
-        stdout: "",
-        stderr: "proxy denied\n",
-      };
       const plugin = createSandboxTerminalPlugin({
         root,
         dockerOperations: docker,
@@ -541,6 +609,11 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
           },
         },
       });
+      docker.execResult = {
+        exitCode: 1,
+        stdout: "",
+        stderr: "proxy denied\n",
+      };
 
       const proxyCreate = docker.created[0];
       if (proxyCreate?.mounts === undefined) {
@@ -570,6 +643,24 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(result.status).toBe("failed");
       expect(result.stderr).toContain("Blocked outbound network attempts");
       expect(result.stderr).toContain("openai.com:443");
+
+      await writeFile(
+        path.join(logMount.source, "blocked.log"),
+        [
+          "2026-04-16T10:00:00.000Z openai.com:443 blocked-connect",
+          "2026-04-16T10:00:01.000Z example.org:443 blocked-connect",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const nextResult = await plugin.exec({
+        sessionId: session.sessionId,
+        command: "python -c \"print('still nope')\"",
+      });
+
+      expect(nextResult.stderr).not.toContain("openai.com:443");
+      expect(nextResult.stderr).toContain("example.org:443");
     });
   });
 
@@ -709,10 +800,43 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
               },
             },
           }),
-        ).rejects.toThrow(/escapes the workspace root/i);
+        ).rejects.toThrow(/symbolic link|escapes the workspace root/i);
       } finally {
         await rm(outsideRoot, { recursive: true, force: true });
       }
+    });
+  });
+
+  it("blocks copy-mode symlinks even when they target inside the workspace root", async () => {
+    await withTempRoot(async (root) => {
+      await mkdir(path.join(root, "target"), { recursive: true });
+      await writeFile(path.join(root, "target", "source.txt"), "safe\n", "utf8");
+      try {
+        await symlink(path.join(root, "target", "source.txt"), path.join(root, "alias.txt"));
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EPERM") {
+          return;
+        }
+        throw error;
+      }
+
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: new FakeDockerOperations(),
+      });
+
+      await expect(
+        plugin.createSession({
+          runtime: "bash",
+          workspaceRoot: root,
+          policy: {
+            files: {
+              mode: "copy",
+              copyInPaths: ["alias.txt"],
+            },
+          },
+        }),
+      ).rejects.toThrow(/symbolic link/i);
     });
   });
 
@@ -732,6 +856,24 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         files: {
           mode: "copy" as const,
           copyInPaths: [path.join(root, "workspace", "shared", "source.txt")],
+        },
+      }),
+    },
+    {
+      label: "copyIn Windows drive path",
+      buildPolicy: (_root: string) => ({
+        files: {
+          mode: "copy" as const,
+          copyInPaths: ["C:\\Users\\neill\\workspace\\secret.txt"],
+        },
+      }),
+    },
+    {
+      label: "copyIn Windows UNC path",
+      buildPolicy: (_root: string) => ({
+        files: {
+          mode: "copy" as const,
+          copyInPaths: ["\\\\server\\share\\secret.txt"],
         },
       }),
     },
@@ -780,7 +922,9 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
           workspaceRoot: root,
           policy: buildPolicy(root),
         }),
-      ).rejects.toThrow(/workspace-relative|escapes the workspace root|Workspace path/i);
+      ).rejects.toThrow(
+        /workspace-relative|escapes the workspace root|Windows drive|Windows UNC|Workspace path/i,
+      );
     });
   });
 
@@ -987,6 +1131,57 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(result.exitCode).toBeNull();
       expect(result.stderr).toContain("Docker daemon became unavailable");
       expect(result.unrestrictedLocal).toBe(false);
+    });
+  });
+
+  it("does not mask non-daemon artifact copy failures", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      docker.copyHandler = async () => {
+        throw new SandboxArtifactSyncError("docker cp failed because the output mount is missing.");
+      };
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "artifact-copy-fail-1",
+      });
+      const session = await plugin.createSession({
+        runtime: "bash",
+        workspaceRoot: root,
+      });
+
+      await expect(
+        plugin.exec({
+          sessionId: session.sessionId,
+          command: "true",
+        }),
+      ).rejects.toBeInstanceOf(SandboxArtifactSyncError);
+    });
+  });
+
+  it("continues without artifacts when Docker becomes unavailable during artifact sync", async () => {
+    await withTempRoot(async (root) => {
+      const docker = new FakeDockerOperations();
+      docker.copyHandler = async () => {
+        throw new SandboxUnavailableError("Docker daemon became unavailable during docker cp.");
+      };
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "artifact-unavailable-1",
+      });
+      const session = await plugin.createSession({
+        runtime: "bash",
+        workspaceRoot: root,
+      });
+
+      const result = await plugin.exec({
+        sessionId: session.sessionId,
+        command: "true",
+      });
+
+      expect(result.status).toBe("succeeded");
+      expect(result.artifacts).toEqual([]);
     });
   });
 

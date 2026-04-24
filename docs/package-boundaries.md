@@ -211,7 +211,7 @@ layer when the roadmap resumes.
   mandatory.
 - Notes: the deferred roadmap and Hono integration implications live in
   `docs/identity-auth.md`; the framework-level decision record is
-  `docs/decisions/0015-identity-auth-plugin-boundary.md`.
+  `docs/decisions/0019-identity-auth-plugin-boundary.md`.
 
 ## Examples, Contracts, And Specs
 

@@ -407,6 +407,8 @@ Acceptance criteria for `TRN-03`:
 
 ## Epic 6: Agent-Ready And Repo Control Plane
 
+Implementation note: the current source-controlled baseline for this epic was landed through `NEI-382`. Operational docs live in `AGENTS.md`, `docs/ci-and-branch-control.md`, `docs/ownership.md`, `docs/docs-as-code.md`, and `docs/security.md`. ADRs `0015` through `0018` capture the CI, supply-chain, task-discovery, and docs-as-code decisions.
+
 ### `CTL-01` Build the baseline repository docs
 
 Depends on: `FND-03`
@@ -446,6 +448,8 @@ Acceptance criteria:
 - generated API docs path exists
 - docs build/update flow is automated
 - docs publication/update expectations are documented
+
+Implementation note: `npm run docs` generates `docs/generated/package-index.md`, and `npm run docs:check` verifies it in CI. Full TypeScript API extraction remains deferred until the public API surface stabilizes.
 
 ### `CTL-05` Build advanced test discipline
 

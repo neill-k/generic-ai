@@ -63,6 +63,8 @@ Use Biome 2.4 as the single source of truth for linting and formatting across th
 
 The `biome.json` enables the recommended ruleset plus targeted complexity, correctness, and style rules (`noUnusedImports`, `noUnusedVariables`, `useNodejsImportProtocol`, `useConst`, `useTemplate`, `noParameterAssign`, `noUselessElse`). `noExplicitAny` is set to `warn` so the FND-03 placeholder sources lint cleanly while still nudging real code in the right direction. Formatter config matches `.editorconfig`: 2-space indent, LF line endings, double quotes, trailing commas, semicolons.
 
+The root Biome file also excludes local helper/worktree directories such as `.claude/`, `.codex/`, `.agents/scratch/`, and `.agents/worktrees/` directly in `files.includes`. The lint script runs a regression check with VCS ignores disabled so nested helper configs cannot break the quality gate and cannot be silently protected only by `.gitignore`.
+
 Rejected for the reasons captured in "Alternatives Considered": ESLint + Prettier + typescript-eslint, Oxlint, dprint standalone.
 
 ### Test runner: Vitest 4
@@ -115,7 +117,7 @@ Every devDependency is pinned to an exact version rather than a floating range. 
 
 ### Positive
 
-- Every contributor and every agent has exactly one way to build, typecheck, lint, format, and test the entire workspace. The four-command quality gate (`typecheck`, `lint`, `test`, `build`) is the same locally and, once `CTL-02` lands CI, in GitHub Actions.
+- Every contributor and every agent has exactly one way to build, typecheck, lint, format, and test the entire workspace. The four-command quality gate (`typecheck`, `lint`, `test`, `build`) is the same locally and in the `baseline-quality-gate` GitHub Actions workflow.
 - New packages added during KRN/CFG/INF/CAP/TRN only need to copy an existing `packages/<name>/tsconfig.json`, add themselves to the root `tsconfig.json` references, and they immediately participate in every quality gate.
 - Strict TypeScript flags are on from day one, before any real source code exists. Turning these on later would mean a noisy migration sweep across every plugin.
 - Biome gives us a single tool, single config file, single binary surface. CI time stays small and pre-commit hook wiring (owned by `CTL-02`) will be trivial because there is nothing to stitch together.
@@ -133,7 +135,7 @@ Every devDependency is pinned to an exact version rather than a floating range. 
 
 ### What FND-03 does NOT do
 
-- **CI, branch protection, required checks** — owned by `CTL-02`. The workspace scripts exist so CTL-02 can invoke them directly.
+- **CI, branch protection, required checks** — owned by `CTL-02`. The workspace scripts exist so CTL-02 can invoke them directly; the current baseline enforcement path is documented in [`../branch-protection.md`](../branch-protection.md).
 - **Pre-commit hook framework (Husky, lefthook, lint-staged)** — owned by `CTL-02`.
 - **Generated API documentation** — owned by `CTL-04`. The `docs` script is a placeholder.
 - **Release automation, changesets, semver policy, public-vs-internal package decisions** — owned by `NEI-307` (FND-04).
