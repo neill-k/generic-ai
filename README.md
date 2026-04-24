@@ -47,7 +47,7 @@ npm run test
 npm run build
 ```
 
-Every contributor runs the same four commands locally before opening a pull request. CI will run the same four commands once [`CTL-02`](docs/planning/03-linear-issue-tree.md) wires it. Full contributor setup, per-command reference, and how to add new packages live in [`CONTRIBUTING.md`](CONTRIBUTING.md). The toolchain decisions and trade-offs are recorded in [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md).
+Every contributor runs the same four commands locally before opening a pull request. The `Quality Gate` workflow runs the same four commands on pull requests and pushes to `main`. Full contributor setup, per-command reference, and how to add new packages live in [`CONTRIBUTING.md`](CONTRIBUTING.md). The toolchain decisions and trade-offs are recorded in [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md).
 
 ## Releases
 
@@ -67,6 +67,7 @@ The framework's first functional vertical slice is landed on `main`. The "Minimu
 | 3 — Infrastructure base plugins (`INF-01`..`INF-06`) | Workspace FS, memory + SQLite storage, in-process queue, OTEL logging, default output | Done |
 | 4 — Local capability base plugins (`CAP-01`..`CAP-09`) | Terminal, file, and web tools; MCP; Agent Skills; delegation; messaging; file-backed memory; blocking user interaction | Done |
 | 5 — Transport, starter preset, reference example (`TRN-01`..`TRN-03`) | `plugin-hono`, assembled starter preset, runnable `examples/starter-hono` | Done |
+| 6 — Agent-ready and repo control plane (`CTL-01`..`CTL-07`) | Contributor/agent docs, ownership, issue/PR templates, CI, docs-as-code, security baseline, quality-governance roadmap | Done |
 | 8 — Runtime integration (`RT-01`..`RT-06`) | Composed plugin-host startup, YAML-driven session construction, real provider inference, Hono routes calling the composed runtime, live provider smoke test, Node/install parity | Done |
 | 9 — Sandboxed code execution (`SBX-02`..`SBX-10`) | `SandboxContract` in SDK, Docker-backed `plugin-tools-terminal-sandbox` with resource/network/file policy, output capture, starter preset wiring, integration tests, operator docs | Done |
 
@@ -75,8 +76,6 @@ The framework's first functional vertical slice is landed on `main`. The "Minimu
 `DEF-04` (runtime governance roadmap), `DEF-05` (TUI / web UI tracks), and `DEF-07` (sandboxed execution research) landed as planning ADRs and roadmap docs.
 
 ### In flight
-
-Epic 6 (repo control plane, `CTL-01`..`CTL-07`) is marked Done in Linear, but the deliverables (CODEOWNERS, dependabot, issue/PR templates, security workflow, four-command CI gate, docs-as-code pipeline, control-plane ADRs) live only in unmerged `claude/*` worktree branches. Tracked in `NEI-382`. Until those branches land, `main` has only the `live-provider-smoke.yml` workflow and no PR-time CI.
 
 The remaining Epic 7 deferred tracks (`DEF-01` identity/auth, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability) are still in the backlog. Sandbox plugin P2 hardening follow-ups are tracked in `NEI-383`.
 
@@ -136,7 +135,6 @@ The sandbox stack has its own operator and API docs pack:
 
 Remaining tracked work:
 
-- **Epic 6 — Agent-ready and repo control plane (`NEI-382` gap tracker):** land the CODEOWNERS, dependabot, issue/PR templates, security workflow, four-command CI gate, docs-as-code pipeline, and control-plane ADRs currently stranded in `claude/*` worktree branches.
 - **Epic 7 — Deferred but planned tracks:** `DEF-01` identity/auth plugin, `DEF-02` Postgres storage, `DEF-03` external queueing, `DEF-06` advanced observability beyond the OTEL baseline. Runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md).
 - **Sandbox plugin P2 hardening (`NEI-383`):** DNS-rebinding defense in the allowlist proxy, proxy readiness probe, writable-rootfs tightening, and the rest of the deferred bot findings from the NEI-372 rollup.
 

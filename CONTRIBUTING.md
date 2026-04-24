@@ -25,11 +25,11 @@ npm install        # installs workspace devDependencies and links all packages
 
 ## The four-command quality gate
 
-Run these four commands before every pull request. They are the same commands CI will run once [`CTL-02`](docs/planning/03-linear-issue-tree.md) wires CI:
+Run these four commands before every pull request. They are the same commands run by the `Quality Gate` workflow:
 
 ```bash
-npm run typecheck   # tsc -b --noEmit across all project references
-npm run lint        # biome lint .
+npm run typecheck   # tsc -b --pretty across all project references, then remove build output
+npm run lint        # package-boundary check plus scoped Biome lint
 npm run test        # vitest run (passWithNoTests, exits 0 when empty)
 npm run build       # tsc -b produces dist/ for every package
 ```
@@ -39,7 +39,8 @@ Additional local scripts you will likely use:
 ```bash
 npm run format          # biome format --write .
 npm run format:check    # biome format . (fails if anything would change)
-npm run docs            # placeholder; CTL-04 will implement generated API docs
+npm run docs            # regenerate docs/generated/package-index.md
+npm run docs:check      # verify generated docs are current
 npm run clean           # remove dist, tsbuildinfo, and node_modules
 ```
 
@@ -74,7 +75,7 @@ Before opening a pull request, the four-command quality gate must pass locally. 
 - `npm run test` is green.
 - `npm run build` is green.
 
-At this phase the repo does not install any pre-commit hook framework (Husky, lefthook, lint-staged). The enforcement path — automated hooks plus CI required checks — is owned by [`CTL-02`](docs/planning/03-linear-issue-tree.md). Until `CTL-02` lands, honor the gate manually.
+At this phase the repo does not install any pre-commit hook framework (Husky, lefthook, lint-staged). CI enforces the quality gate; local hooks remain optional and should not become a hidden requirement.
 
 ## Changesets
 

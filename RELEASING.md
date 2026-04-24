@@ -82,7 +82,7 @@ Every package in this repo is explicitly classified.
 
 ### Public (published to npm)
 
-All 18 packages under `packages/*` are public, published to npm under the
+All packages under `packages/*` are public, published to npm under the
 `@generic-ai/` scope, and carry:
 
 - `"private": false` in their `package.json`,
@@ -104,10 +104,13 @@ The complete public list:
 | `@generic-ai/plugin-queue-memory`     | in-process queue                            |
 | `@generic-ai/plugin-logging-otel`     | logging and OTEL tracing                    |
 | `@generic-ai/plugin-tools-terminal`   | local terminal tool                         |
+| `@generic-ai/plugin-tools-terminal-sandbox` | sandboxed terminal tool                     |
 | `@generic-ai/plugin-tools-files`      | local file tools                            |
+| `@generic-ai/plugin-tools-web`        | web fetch and search tools                  |
 | `@generic-ai/plugin-mcp`              | embedded MCP plugin                         |
 | `@generic-ai/plugin-agent-skills`     | Agent Skills compatibility plugin           |
 | `@generic-ai/plugin-delegation`       | delegation business-model plugin            |
+| `@generic-ai/plugin-interaction`      | user-question and task-tracking tools       |
 | `@generic-ai/plugin-messaging`        | durable storage-backed messaging            |
 | `@generic-ai/plugin-memory-files`     | file-backed persistent memory               |
 | `@generic-ai/plugin-output-default`   | default output and finalization plugin      |
@@ -169,9 +172,8 @@ type. Zero pending is a valid steady state.
 
 ## How releases are cut
 
-Generic AI uses the two-phase changesets release flow. In the steady state
-(once [`CTL-02`](docs/planning/03-linear-issue-tree.md) has wired CI), the
-flow is:
+Generic AI uses the two-phase changesets release flow. In the steady state,
+after release automation is wired, the flow is:
 
 1. Contributors merge PRs that include changesets. Each merge lands the
    changeset file in `main` alongside the code change.
@@ -188,11 +190,11 @@ flow is:
    OIDC configured, the publish runs with npm provenance attached.
 5. The Action creates git tags for the published versions.
 
-**CTL-02 owns wiring the GitHub Action.** Until CTL-02 lands, the repo does
-not have CI and the workflow above does not run automatically. Releases are
-manual, and the repo owner is responsible for every release.
+The quality-gate CI is in place, but the release-publish workflow is still
+manual until a dedicated release-automation PR adds trusted publishing.
+Releases are manual, and the repo owner is responsible for every release.
 
-### Manual release path (until CTL-02 lands)
+### Manual release path
 
 Only the repo owner runs releases. The manual path:
 
@@ -232,8 +234,8 @@ git tag -a "v$(date +%Y.%m.%d)" -m "Release $(date +%Y-%m-%d)"
 git push --tags
 ```
 
-The manual path is a stopgap. The intent is that CTL-02 wires CI quickly
-enough that nobody actually exercises it.
+The manual path is a stopgap. The intent is that a dedicated release workflow
+eventually runs the publish step from trusted CI.
 
 ## npm provenance
 
@@ -265,7 +267,7 @@ laptop will hit "--provenance is not supported outside of a trusted CI
 environment" and the publish will fail loudly. That is the intent: releases
 are never cut from laptops, only from CI.
 
-**What CTL-02 owns.** CTL-02 configures:
+**What release automation owns.** A future release workflow configures:
 
 - the GitHub Actions workflow that runs `changeset publish` on merge to
   `main`,
@@ -274,9 +276,9 @@ are never cut from laptops, only from CI.
 - secret rotation policy for any fallback `NPM_TOKEN` (ideally: none, because
   OIDC replaces it).
 
-Until CTL-02 lands, provenance is effectively "declared intent, not
-enforced." The `publishConfig` block is still worth committing because it
-fails fast and safely the moment someone tries to publish from a laptop.
+Until release automation lands, provenance is effectively "declared intent,
+not enforced." The `publishConfig` block is still worth committing because
+it fails fast and safely the moment someone tries to publish from a laptop.
 
 ## Changelog policy
 
@@ -333,6 +335,6 @@ contracts land in Epic 1 (`KRN-*`). The first real publish will be a
   [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md)
 - Release and publishing conventions (this document's source of truth):
   [`docs/decisions/0003-release-and-publishing.md`](docs/decisions/0003-release-and-publishing.md)
-- CI wiring and branch-control gates (blocks full automation): `CTL-02`
+- CI wiring and branch-control gates: `docs/ci-and-branch-control.md`
 - Release manager formalization and hotfix policy: `CTL-03`
 - Security and software-supply-chain controls: `CTL-06`

@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a new framework capability, plugin, or control surface.
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user, plugin author, or operator need does this address?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the change, expected package ownership, and public API impact.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Core/kernel
+        - SDK contracts
+        - Preset
+        - Capability plugin
+        - Infrastructure plugin
+        - Transport/example
+        - Documentation/control plane
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include rejected approaches and why they are not enough.
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification plan
+      description: Which tests, docs, examples, or quality gates would prove this is done?
