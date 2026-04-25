@@ -1,61 +1,106 @@
-import OpenAI from "openai";
-import type {
-  Response,
-  ResponseCreateParamsNonStreaming,
-  ResponseCreateParamsStreaming,
-  ResponseStreamEvent,
-} from "openai/resources/responses/responses.js";
+import { join } from "node:path";
+import {
+  AuthStorage,
+  DefaultResourceLoader,
+  getAgentDir,
+  ModelRegistry,
+  SessionManager,
+  SettingsManager,
+} from "@mariozechner/pi-coding-agent";
+import { createPiAgentSession } from "./pi.js";
 import {
   DEFAULT_OPENAI_CODEX_MODEL,
   type GenericAILlmRunOptions,
   type GenericAILlmRunResult,
   type GenericAILlmRuntime,
-  type GenericAILlmStreamChunk,
 } from "./types.js";
 
-type OpenAIRequestOptions = {
-  readonly signal?: AbortSignal;
+const OPENAI_CODEX_PI_PROVIDER = "openai-codex";
+
+type PiAuthStorage = {
+  readonly setRuntimeApiKey: (provider: string, apiKey: string) => void;
 };
 
-interface OpenAIResponsesClient {
-  responses: {
-    create(
-      body: ResponseCreateParamsNonStreaming,
-      options?: OpenAIRequestOptions,
-    ): Promise<Response>;
-    create(
-      body: ResponseCreateParamsStreaming,
-      options?: OpenAIRequestOptions,
-    ): Promise<AsyncIterable<ResponseStreamEvent>>;
-  };
-}
+type PiModelRegistry = {
+  readonly find: (provider: string, modelId: string) => unknown;
+  readonly hasConfiguredAuth?: (model: unknown) => boolean;
+};
+
+type PiResourceLoader = {
+  readonly reload?: () => Promise<void>;
+};
+
+type PiSession = {
+  readonly messages: readonly unknown[];
+  readonly prompt: (text: string, options?: { readonly source?: string }) => Promise<void>;
+  readonly getLastAssistantText?: () => string | undefined;
+  readonly dispose?: () => void;
+};
 
 export interface OpenAICodexRuntimeDependencies {
-  readonly client?: OpenAIResponsesClient;
+  readonly createAgentSession?: typeof createPiAgentSession;
+  readonly authStorageFactory?: (agentDir?: string) => PiAuthStorage;
+  readonly modelRegistryFactory?: (
+    authStorage: PiAuthStorage,
+    agentDir?: string,
+  ) => PiModelRegistry;
+  readonly resourceLoaderFactory?: (options: {
+    readonly cwd?: string;
+    readonly agentDir?: string;
+    readonly instructions?: string;
+  }) => PiResourceLoader;
+  readonly sessionManagerFactory?: () => SessionManager;
+  readonly settingsManagerFactory?: () => SettingsManager;
 }
 
-function toRequestOptions(
-  options: GenericAILlmRunOptions | undefined,
-): OpenAIRequestOptions | undefined {
-  if (options?.signal === undefined) {
-    return undefined;
+function isTextPart(value: unknown): value is { readonly type: "text"; readonly text: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "text" &&
+    "text" in value &&
+    typeof value.text === "string"
+  );
+}
+
+function isAssistantLikeMessage(
+  value: unknown,
+): value is {
+  readonly role: "assistant";
+  readonly content: unknown;
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "role" in value &&
+    value.role === "assistant" &&
+    "content" in value
+  );
+}
+
+function extractLatestAssistantText(session: PiSession): string {
+  const direct = session.getLastAssistantText?.();
+  if (direct !== undefined) {
+    return direct;
   }
 
-  return {
-    signal: options.signal,
-  };
-}
+  for (let index = session.messages.length - 1; index >= 0; index -= 1) {
+    const message = session.messages[index];
+    if (!isAssistantLikeMessage(message)) {
+      continue;
+    }
 
-function toCreateParams(
-  input: string,
-  model: string,
-  instructions: string | undefined,
-): Omit<ResponseCreateParamsNonStreaming, "stream"> {
-  return {
-    model,
-    input,
-    ...(instructions === undefined ? {} : { instructions }),
-  };
+    if (typeof message.content === "string") {
+      return message.content;
+    }
+
+    if (Array.isArray(message.content)) {
+      return message.content.filter(isTextPart).map((part) => part.text).join("");
+    }
+  }
+
+  throw new Error("Pi OpenAI Codex runtime did not produce an assistant response.");
 }
 
 function toRunResult(
@@ -71,95 +116,124 @@ function toRunResult(
   });
 }
 
-function extractStreamFailure(event: ResponseStreamEvent): Error | undefined {
-  if (event.type === "error") {
-    return new Error(event.message);
+function setApiKey(authStorage: PiAuthStorage, apiKey: string | undefined): void {
+  const trimmed = apiKey?.trim();
+  if (trimmed !== undefined && trimmed.length > 0) {
+    authStorage.setRuntimeApiKey(OPENAI_CODEX_PI_PROVIDER, trimmed);
+  }
+}
+
+async function createSession(
+  input: {
+    readonly apiKey?: string;
+    readonly model?: string;
+    readonly instructions?: string;
+    readonly cwd?: string;
+    readonly agentDir?: string;
+  },
+  dependencies: OpenAICodexRuntimeDependencies,
+): Promise<{ readonly modelId: string; readonly session: PiSession }> {
+  const cwd = input.cwd ?? process.cwd();
+  const agentDir = input.agentDir ?? getAgentDir();
+  const modelId = input.model ?? DEFAULT_OPENAI_CODEX_MODEL;
+  const createAgentSession = dependencies.createAgentSession ?? createPiAgentSession;
+  const authStorage =
+    dependencies.authStorageFactory?.(input.agentDir) ??
+    AuthStorage.create(input.agentDir === undefined ? undefined : join(input.agentDir, "auth.json"));
+  setApiKey(authStorage, input.apiKey);
+
+  const modelRegistry =
+    dependencies.modelRegistryFactory?.(authStorage, input.agentDir) ??
+    ModelRegistry.create(
+      authStorage as AuthStorage,
+      input.agentDir === undefined ? undefined : join(input.agentDir, "models.json"),
+    );
+  const model = modelRegistry.find(OPENAI_CODEX_PI_PROVIDER, modelId);
+  if (model === undefined || model === null) {
+    throw new Error(
+      `Pi could not resolve model "${OPENAI_CODEX_PI_PROVIDER}/${modelId}". ` +
+        "Run `pi login` for the OpenAI Codex provider or set GENERIC_AI_MODEL to a Pi-known model.",
+    );
   }
 
-  if (event.type === "response.failed") {
-    return new Error(event.response.error?.message ?? "OpenAI response failed.");
+  if ((modelRegistry as PiModelRegistry).hasConfiguredAuth?.(model) === false) {
+    throw new Error(
+      `Pi has no configured auth for "${OPENAI_CODEX_PI_PROVIDER}/${modelId}". ` +
+        "Run `pi login` or provide GENERIC_AI_PROVIDER_API_KEY.",
+    );
   }
 
-  if (event.type === "response.incomplete") {
-    return new Error(`OpenAI response was incomplete: ${event.response.status}.`);
-  }
+  const resourceLoader =
+    dependencies.resourceLoaderFactory?.({
+      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+      ...(input.agentDir === undefined ? {} : { agentDir: input.agentDir }),
+      ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
+    }) ??
+    new DefaultResourceLoader({
+      cwd,
+      agentDir,
+      noExtensions: true,
+      noThemes: true,
+      noPromptTemplates: true,
+      systemPromptOverride: () => input.instructions,
+    });
+  await resourceLoader.reload?.();
 
-  return undefined;
+  const result = await createAgentSession({
+    cwd,
+    agentDir,
+    authStorage: authStorage as never,
+    modelRegistry: modelRegistry as never,
+    model: model as never,
+    tools: [],
+    resourceLoader: resourceLoader as never,
+    sessionManager: (dependencies.sessionManagerFactory?.() ?? SessionManager.inMemory()) as never,
+    settingsManager:
+      (dependencies.settingsManagerFactory?.() ?? SettingsManager.inMemory()) as never,
+  });
+
+  return {
+    modelId,
+    session: result.session as unknown as PiSession,
+  };
 }
 
 export function createOpenAICodexRuntime(
   input: {
-    readonly apiKey: string;
+    readonly apiKey?: string;
     readonly model?: string;
     readonly instructions?: string;
+    readonly cwd?: string;
+    readonly agentDir?: string;
   },
   dependencies: OpenAICodexRuntimeDependencies = {},
 ): GenericAILlmRuntime {
   const model = input.model ?? DEFAULT_OPENAI_CODEX_MODEL;
-  const client =
-    dependencies.client ??
-    (new OpenAI({
-      apiKey: input.apiKey,
-    }) as unknown as OpenAIResponsesClient);
 
   return Object.freeze({
     adapter: "openai-codex",
     model,
     ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
     async run(prompt: string, options?: GenericAILlmRunOptions) {
-      const response = await client.responses.create(
-        toCreateParams(prompt, model, input.instructions),
-        toRequestOptions(options),
-      );
-
-      return toRunResult(
-        model,
-        response.output_text,
-        (response as Response & { _request_id?: string })._request_id,
-      );
-    },
-    async *stream(prompt: string, options?: GenericAILlmRunOptions) {
-      const events = await client.responses.create(
-        {
-          ...toCreateParams(prompt, model, input.instructions),
-          stream: true,
-        },
-        toRequestOptions(options),
-      );
-
-      let outputText = "";
-      let requestId: string | undefined;
-
-      for await (const event of events) {
-        const failure = extractStreamFailure(event);
-        if (failure !== undefined) {
-          throw failure;
-        }
-
-        if (event.type === "response.output_text.delta") {
-          outputText += event.delta;
-          yield {
-            type: "text-delta",
-            delta: event.delta,
-          } satisfies GenericAILlmStreamChunk;
-          continue;
-        }
-
-        if (event.type === "response.output_text.done") {
-          outputText = event.text;
-          continue;
-        }
-
-        if (event.type === "response.completed") {
-          requestId = (event.response as Response & { _request_id?: string })._request_id;
-          outputText = event.response.output_text;
-        }
+      if (options?.signal?.aborted) {
+        throw new Error("Pi OpenAI Codex runtime aborted before prompt dispatch.");
       }
 
+      const { modelId, session } = await createSession(input, dependencies);
+      try {
+        await session.prompt(prompt, {
+          source: "extension",
+        });
+        return toRunResult(modelId, extractLatestAssistantText(session), undefined);
+      } finally {
+        session.dispose?.();
+      }
+    },
+    async *stream(prompt: string, options?: GenericAILlmRunOptions) {
       yield {
         type: "response",
-        response: toRunResult(model, outputText, requestId),
-      } satisfies GenericAILlmStreamChunk;
+        response: await this.run(prompt, options),
+      } as const;
     },
   });
 }

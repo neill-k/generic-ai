@@ -760,3 +760,23 @@ The first meaningful milestone should require:
 - file-backed memory with search
 - both sync and async execution paths
 - a runnable reference example
+
+## Public Launch Spine: Agents-As-Code And Evidence Harness
+
+The NEI-400 through NEI-435 launch spine reframes the next public milestone as:
+
+1. `PLAT` - Generic AI as package-extensible agents-as-code language, compiler, runtime, and evidence harness.
+2. `DSL` - Harness DSL v0.1 as the user-facing declaration language.
+3. `IR` - Generic Agent IR as the compiled runtime contract.
+4. `EVAL` - MissionSpec, BenchmarkSpec, deterministic graders, and validity gates.
+5. `PROTO` - protocol package ABI plus Pipeline, Verifier Loop, Hierarchy, and Squad protocols.
+6. `TRACE` - trace, artifact, and causality model for replay, reporting, and policy audit.
+7. `REPORT` - trace-backed reports with recommendation boundaries.
+8. `POLICY` - package permissions and run-scoped capability grants.
+9. `PATCH` - controlled harness evolution through reviewable, benchmark-gated patches.
+10. `DEMO` - package-composed harness shootout under `examples/harness-shootout`.
+
+The source-of-truth contract starts in `@generic-ai/sdk` and `specs/harness-v0.1`.
+Runtime benchmark execution consumes compiled harnesses through `@generic-ai/core`
+and the normal `GenericAILlmRuntime` path. Codex inference uses Pi's
+`openai-codex` provider method.

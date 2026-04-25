@@ -120,7 +120,10 @@ async function createPiCompatibilityRuntime(
     const authStorage =
       dependencies.authStorageFactory?.(input.agentDir) ??
       AuthStorage.create(input.agentDir === undefined ? undefined : join(input.agentDir, "auth.json"));
-    authStorage.setRuntimeApiKey("openai", input.apiKey);
+    const apiKey = input.apiKey?.trim();
+    if (apiKey !== undefined && apiKey.length > 0) {
+      authStorage.setRuntimeApiKey("openai", apiKey);
+    }
 
     const modelRegistry =
       dependencies.modelRegistryFactory?.(authStorage, input.agentDir) ??
@@ -199,9 +202,6 @@ export async function createGenericAILlmRuntime(
   dependencies: GenericAILlmRuntimeDependencies = {},
 ): Promise<GenericAILlmRuntime> {
   const adapter = input.adapter ?? DEFAULT_GENERIC_AI_RUNTIME_ADAPTER;
-  if (input.apiKey.trim().length === 0) {
-    throw new Error("Generic AI runtime adapter requires a non-empty provider API key.");
-  }
 
   switch (adapter) {
     case "openai-codex":

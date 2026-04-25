@@ -1,0 +1,71 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.squad",
+  "name": "Squad",
+  "packages": [
+    {
+      "id": "protocol.squad",
+      "package": "@generic-ai/protocol-squad",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.terminal",
+      "package": "@generic-ai/plugin-tools-terminal-sandbox",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.default",
+      "package": "@generic-ai/grader-default",
+      "version": "0.1.0"
+    }
+  ],
+  "spaces": [
+    {
+      "id": "shared-board",
+      "kind": "workspace",
+      "visibility": "shared"
+    }
+  ],
+  "agents": [
+    {
+      "id": "planner",
+      "role": "planner",
+      "instructions": "Claim planning work and keep the squad aligned.",
+      "packageRefs": ["protocol.squad"],
+      "readableSpaces": ["shared-board"],
+      "writableSpaces": ["shared-board"]
+    },
+    {
+      "id": "implementer",
+      "role": "implementer",
+      "instructions": "Claim implementation work and publish artifacts.",
+      "packageRefs": ["capability.files", "capability.terminal"],
+      "readableSpaces": ["shared-board"],
+      "writableSpaces": ["shared-board"]
+    },
+    {
+      "id": "reviewer",
+      "role": "reviewer",
+      "instructions": "Claim review work and record defects or acceptance.",
+      "packageRefs": ["grader.default"],
+      "readableSpaces": ["shared-board"],
+      "writableSpaces": ["shared-board"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "squad",
+      "protocol": "squad",
+      "packageRef": "protocol.squad",
+      "actorRefs": ["planner", "implementer", "reviewer"]
+    }
+  ],
+  "missionRefs": ["mission.oauth-login"],
+  "evalRefs": ["benchmark.package-composed-shootout.v0"]
+}

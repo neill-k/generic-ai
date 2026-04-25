@@ -1,0 +1,50 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.package-composed-shootout.v0",
+  "missionRef": "mission.oauth-login",
+  "hypothesis": "Different coordination protocols will trade off task success, trace completeness, handoff count, rework, latency, and cost under the same mission constraints.",
+  "candidates": [
+    {
+      "id": "pipeline",
+      "harnessRef": "harness.pipeline"
+    },
+    {
+      "id": "verifier-loop",
+      "harnessRef": "harness.verifier-loop"
+    },
+    {
+      "id": "hierarchy",
+      "harnessRef": "harness.hierarchy"
+    },
+    {
+      "id": "squad",
+      "harnessRef": "harness.squad"
+    }
+  ],
+  "primaryMetric": "task_success",
+  "guardrailMetrics": [
+    "tests_passed",
+    "artifact_completeness",
+    "cost_usd",
+    "wall_time",
+    "handoff_count",
+    "rework_rate",
+    "policy_violations",
+    "trace_completeness"
+  ],
+  "trials": {
+    "count": 3,
+    "pairing": "paired",
+    "seed": "shootout-v0"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 3,
+    "requireTraceCompleteness": true,
+    "allowSingleRunRecommendation": false
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

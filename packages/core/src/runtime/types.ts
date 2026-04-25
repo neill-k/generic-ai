@@ -41,7 +41,7 @@ export interface GenericAILlmRuntime {
 
 export interface CreateGenericAILlmRuntimeOptions {
   readonly adapter?: GenericAILlmRuntimeAdapter;
-  readonly apiKey: string;
+  readonly apiKey?: string;
   readonly model?: string;
   readonly instructions?: string;
   readonly cwd?: string;

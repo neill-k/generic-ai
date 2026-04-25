@@ -14,6 +14,9 @@ Current SDK contents:
 - `src/contracts/` for the typed contract surface
 - `src/helpers/` for ergonomic contract constructors
 - package-level docs and contract tests that keep the surface honest
+- Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI,
+  TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch contracts
+- Deterministic Harness DSL compiler and evidence report helpers
 
 ## Contract surface
 
@@ -30,6 +33,8 @@ The SDK defines the contract families planned in
 - queue contracts
 - output-plugin contracts
 - sandbox execution contracts for container-backed terminal backends, including policy ceilings, per-stream output truncation, and execution resource reporting
+- agents-as-code contracts for declaring, compiling, benchmarking, tracing, and
+  reporting on package-composed agent systems
 
 The contract modules are intentionally kernel-agnostic. They do not import
 `@generic-ai/core`, and they do not require private kernel knowledge to
@@ -59,4 +64,6 @@ staying faithful to the public contract shape.
 - `docs/decisions/0004-sdk-contracts.md`
 - `docs/planning/02-architecture.md`
 - `docs/package-boundaries.md`
+- `docs/harness-dsl.md`
+- `specs/harness-v0.1/README.md`
 

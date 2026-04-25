@@ -1,8 +1,11 @@
 # Generic AI Framework
 
-Pluggable, extensible multi-agent framework.
+Pluggable, extensible multi-agent framework and agents-as-code substrate.
 
-Generic AI is a plugin-first framework reimplementation. The goal is a clean public framework with a minimal kernel and replaceable capability plugins.
+Generic AI is a package-extensible agents-as-code language, compiler, runtime,
+and evidence harness. Developers describe an agent system once, install reusable
+capability packages, compile the harness into Generic Agent IR, run missions,
+trace behavior, evaluate outcomes, and publish evidence-backed reports.
 
 ## How Generic AI Relates To `pi`
 
@@ -10,7 +13,11 @@ Generic AI is not a replacement for `pi`; it is a framework layer built on top o
 
 `pi` provides the low-level agent and tool runtime mechanics: model/provider access, tool calling, agent state, streaming, terminal coding-agent UX, and UI/toolkit packages such as `pi-ai` and `pi-tui`. Generic AI uses those primitives where practical instead of rewrapping them.
 
-Generic AI adds the reusable multi-agent application shell around those primitives: a small kernel, plugin host, package-level SDK contracts, canonical config, starter presets, sync and async run orchestration, child-session lifecycle, durable messaging, persistent memory, MCP and Agent Skills plugins, Hono transport, output finalization, and operational boundaries such as docs, CI, package ownership, and sandboxed execution.
+Generic AI adds the reusable multi-agent application shell around those primitives: Harness DSL, Generic Agent IR, a small kernel, plugin host, package-level SDK contracts, canonical config, starter presets, sync and async run orchestration, child-session lifecycle, durable messaging, persistent memory, MCP and Agent Skills plugins, Hono transport, output finalization, trace/eval/report contracts, and operational boundaries such as docs, CI, package ownership, and sandboxed execution.
+
+OpenAI Codex inference goes through Pi's `openai-codex` provider path. The
+default `openai-codex` adapter uses Pi auth/model resolution and `AgentSession`
+execution rather than a parallel direct OpenAI client.
 
 Use `pi` directly when you want a lean coding agent, provider/runtime toolkit, or terminal UI foundation. Use Generic AI when you want a plugin-first framework for embedding a composed multi-agent runtime in an app, service, or product surface.
 
@@ -35,7 +42,7 @@ Notes elsewhere in the repo are not planning source-of-truth material unless the
 - `packages/` — framework source. Holds `@generic-ai/core`, `@generic-ai/sdk`, every base plugin, and the starter preset. One directory per package.
 - `examples/` — runnable reference usage of the framework. `examples/starter-hono/` is the `TRN-03` reference example that exercises the full starter stack.
 - `contracts/` — frozen interface contracts produced by kernel and config work (KRN-01, CFG-01, and later).
-- `specs/` — specifications consumed by docs-as-code and contract-testing workflows.
+- `specs/` - specifications consumed by docs-as-code and contract-testing workflows, including Harness DSL v0.1.
 - `docs/` — the planning pack, architecture decision records, and framework documentation.
 
 See [`docs/package-boundaries.md`](docs/package-boundaries.md) for the authoritative package ownership map, layering rules, and per-package responsibilities. The monorepo scaffold itself is captured in [`docs/decisions/0001-monorepo-scaffold.md`](docs/decisions/0001-monorepo-scaffold.md).
@@ -130,7 +137,17 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 
 ### Reference example
 
-- [`examples/starter-hono`](examples/starter-hono) — runnable example that proves the whole stack: `createGenericAI()` with no arguments resolves the built-in starter descriptor, and callers can also pass `createStarterHonoPreset()` explicitly.
+- [`examples/starter-hono`](examples/starter-hono) - runnable example that proves the whole stack: `createGenericAI()` with no arguments resolves the built-in starter descriptor, and callers can also pass `createStarterHonoPreset()` explicitly.
+- [`examples/harness-shootout`](examples/harness-shootout) - package-composed agents-as-code benchmark fixture with one mission, four candidate harnesses, and a sample evidence report.
+
+## Harness DSL And Benchmarking
+
+The public launch spine is documented in [`docs/harness-dsl.md`](docs/harness-dsl.md).
+The SDK exports Harness DSL, Generic Agent IR, protocol ABI, MissionSpec,
+BenchmarkSpec, TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch types.
+`compileHarnessDsl()` validates declarations before runtime execution, and
+`runHarnessBenchmark()` consumes compiled harnesses through the normal runtime
+path.
 
 ## Sandbox Execution Docs
 

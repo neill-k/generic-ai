@@ -66,7 +66,7 @@ export class StarterExampleConfigError extends Error {
 
 export interface StarterExampleEnvironment {
   readonly adapter: GenericAILlmRuntimeAdapter;
-  readonly apiKey: string;
+  readonly apiKey?: string;
   readonly model?: string;
   readonly workspaceRoot?: string;
   readonly host: string;
@@ -370,12 +370,6 @@ export function loadStarterExampleEnvironment(
   startDir: string = STARTER_DEFAULT_START_DIR,
 ): StarterExampleEnvironment {
   const apiKey = readTrimmedEnv(env, providerKeyName);
-  if (apiKey === undefined) {
-    throw new StarterExampleConfigError(
-      `${providerKeyName} must be set before starting the starter example server.`,
-    );
-  }
-
   const adapterValue =
     readTrimmedEnv(env, adapterName) ?? DEFAULT_GENERIC_AI_RUNTIME_ADAPTER;
   if (!SUPPORTED_ADAPTERS.has(adapterValue as GenericAILlmRuntimeAdapter)) {
@@ -395,7 +389,7 @@ export function loadStarterExampleEnvironment(
 
   return Object.freeze({
     adapter: adapterValue as GenericAILlmRuntimeAdapter,
-    apiKey,
+    ...(apiKey === undefined ? {} : { apiKey }),
     ...(model === undefined ? {} : { model }),
     ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
     host,
@@ -419,7 +413,7 @@ export async function createStarterExampleServer(
 
       return createRuntime({
         adapter: environment.adapter,
-        apiKey: environment.apiKey,
+        ...(environment.apiKey === undefined ? {} : { apiKey: environment.apiKey }),
         model:
           environment.model ?? input.runtimePlan.primaryAgent.model ?? DEFAULT_OPENAI_CODEX_MODEL,
         cwd: workspaceRoot,
