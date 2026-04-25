@@ -55,6 +55,11 @@ function aggregateMetric(
   });
 }
 
+function metricSampleCount(metricId: string, results: readonly BenchmarkTrialResult[]): number {
+  return results.filter((result) => result.metrics.some((metric) => metric.metricId === metricId))
+    .length;
+}
+
 function metricDirection(
   benchmark: BenchmarkSpec,
   metricId: string,
@@ -80,14 +85,12 @@ function bestMetricValue(
   return direction === "lower_is_better" ? Math.min(...values) : Math.max(...values);
 }
 
-function recommendationFor(input: {
+function hasSufficientRecommendationEvidence(input: {
   readonly benchmark: BenchmarkSpec;
   readonly trialCount: number;
+  readonly primaryMetricSampleCount?: number;
   readonly traceCompleteness: number;
-  readonly primaryMetric: MetricValue | undefined;
-  readonly primaryMetricDirection: MetricDefinition["direction"];
-  readonly bestPrimaryMetricValue: number | undefined;
-}): RecommendationBoundary {
+}): boolean {
   const minimumTrials = input.benchmark.validity?.minimumTrialsForRecommendation ?? 3;
   const singleRunOverride =
     input.benchmark.validity?.allowSingleRunRecommendation === true &&
@@ -95,10 +98,42 @@ function recommendationFor(input: {
     input.trialCount === 1;
 
   if (input.trialCount === 0 || (input.trialCount < minimumTrials && !singleRunOverride)) {
-    return "insufficient_evidence";
+    return false;
+  }
+
+  if (input.primaryMetricSampleCount !== undefined) {
+    const hasSufficientSamples =
+      input.primaryMetricSampleCount >= minimumTrials ||
+      (singleRunOverride && input.primaryMetricSampleCount === 1);
+    if (input.primaryMetricSampleCount === 0 || !hasSufficientSamples) {
+      return false;
+    }
   }
 
   if (input.benchmark.validity?.requireTraceCompleteness === true && input.traceCompleteness < 1) {
+    return false;
+  }
+
+  return true;
+}
+
+function recommendationFor(input: {
+  readonly benchmark: BenchmarkSpec;
+  readonly trialCount: number;
+  readonly primaryMetricSampleCount: number;
+  readonly traceCompleteness: number;
+  readonly primaryMetric: MetricValue | undefined;
+  readonly primaryMetricDirection: MetricDefinition["direction"];
+  readonly bestPrimaryMetricValue: number | undefined;
+}): RecommendationBoundary {
+  if (
+    !hasSufficientRecommendationEvidence({
+      benchmark: input.benchmark,
+      trialCount: input.trialCount,
+      primaryMetricSampleCount: input.primaryMetricSampleCount,
+      traceCompleteness: input.traceCompleteness,
+    })
+  ) {
     return "insufficient_evidence";
   }
 
@@ -132,6 +167,7 @@ function candidateReport(input: {
   readonly bestPrimaryMetricValue: number | undefined;
 }): BenchmarkReportCandidate {
   const primaryMetric = aggregateMetric(input.benchmark.primaryMetric, input.results);
+  const primaryMetricSampleCount = metricSampleCount(input.benchmark.primaryMetric, input.results);
   const guardrails = (input.benchmark.guardrailMetrics ?? [])
     .map((metricId) => aggregateMetric(metricId, input.results))
     .filter((metric): metric is MetricValue => metric !== undefined);
@@ -140,6 +176,7 @@ function candidateReport(input: {
   const recommendation = recommendationFor({
     benchmark: input.benchmark,
     trialCount: input.results.length,
+    primaryMetricSampleCount,
     traceCompleteness,
     primaryMetric,
     primaryMetricDirection: input.primaryMetricDirection,
@@ -149,6 +186,7 @@ function candidateReport(input: {
     primaryMetric === undefined
       ? `${input.benchmark.primaryMetric} average: missing`
       : `${input.benchmark.primaryMetric} average: ${primaryMetric.value}`,
+    `${input.benchmark.primaryMetric} samples: ${primaryMetricSampleCount}/${input.results.length}`,
     `trace completeness: ${traceCompleteness}`,
     `trials: ${input.results.length}`,
   ];
@@ -180,6 +218,14 @@ export function createBenchmarkReport(input: {
 
   const primaryMetricDirection = metricDirection(input.benchmark, input.benchmark.primaryMetric);
   const primaryValues = [...byCandidate.values()]
+    .filter((results) => {
+      return hasSufficientRecommendationEvidence({
+        benchmark: input.benchmark,
+        trialCount: results.length,
+        primaryMetricSampleCount: metricSampleCount(input.benchmark.primaryMetric, results),
+        traceCompleteness: average(results.map((result) => result.diagnostics.completeness)) ?? 0,
+      });
+    })
     .map((results) => aggregateMetric(input.benchmark.primaryMetric, results)?.value)
     .filter((value): value is number => value !== undefined);
   const bestPrimaryMetricValue =

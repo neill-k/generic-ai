@@ -115,6 +115,10 @@ function eventFactory(input: {
   };
 }
 
+function memoryArtifactUri(...segments: readonly string[]): string {
+  return `memory:///${segments.map((segment) => encodeURIComponent(segment)).join("/")}`;
+}
+
 function traceDiagnostics(events: readonly TraceEvent[]): TraceDiagnostics {
   const required: readonly TraceEventType[] = [
     "trial.started",
@@ -210,10 +214,12 @@ async function resolveRuntime(
   }
 
   if (options.runtimeOptions !== undefined) {
-    const instructions =
-      options.runtimeOptions.instructions ?? context.compiled.agents[0]?.instructions;
+    const primaryAgent = context.compiled.agents[0];
+    const instructions = options.runtimeOptions.instructions ?? primaryAgent?.instructions;
+    const model = options.runtimeOptions.model ?? primaryAgent?.model;
     return createGenericAILlmRuntime({
       ...options.runtimeOptions,
+      ...(model === undefined ? {} : { model }),
       ...(instructions === undefined ? {} : { instructions }),
     });
   }
@@ -270,7 +276,7 @@ async function runTrial(input: {
     const artifact: ArtifactReference = Object.freeze({
       id: `${input.trialId}:assistant-output`,
       kind: "message",
-      uri: `memory://${input.runId}/${input.trialId}/assistant-output`,
+      uri: memoryArtifactUri(input.runId, input.trialId, "assistant-output"),
       sha256: createStableFingerprint(response.outputText),
       redaction: "metadata_only",
       summary: "Assistant final output captured as benchmark evidence.",

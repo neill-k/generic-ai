@@ -6,6 +6,7 @@ import {
   type MissionSpec,
 } from "@generic-ai/sdk";
 import { runHarnessBenchmark } from "../../src/harness/index.js";
+import * as runtimeFactory from "../../src/runtime/llm.js";
 import type { GenericAILlmRuntime } from "../../src/runtime/index.js";
 
 const mission: MissionSpec = {
@@ -128,6 +129,16 @@ describe("runHarnessBenchmark", () => {
     expect(result.trialResults).toHaveLength(1);
     expect(result.report.candidates[0]?.recommendation).toBe("insufficient_evidence");
     expect(result.report.evidence.traceEventCount).toBeGreaterThan(0);
+    const artifactUri = result.trialResults[0]?.artifacts[0]?.uri;
+    expect(artifactUri).toBeDefined();
+    if (artifactUri === undefined) {
+      throw new Error("Expected benchmark runner to emit an assistant output artifact.");
+    }
+    const parsedArtifactUri = new URL(artifactUri);
+    expect(parsedArtifactUri.protocol).toBe("memory:");
+    expect(parsedArtifactUri.host).toBe("");
+    expect(artifactUri).toMatch(/^memory:\/\/\/benchmark\.shootout%3A/u);
+    expect(artifactUri).toContain("/pipeline%3Atrial%3A1/assistant-output");
   });
 
   it("fails before runtime execution when a harness cannot compile", async () => {
@@ -225,5 +236,54 @@ describe("runHarnessBenchmark", () => {
     expect(firstRunId).toBeDefined();
     expect(secondRunId).toBeDefined();
     expect(firstRunId).not.toBe(secondRunId);
+  });
+
+  it("inherits the compiled harness model when runtimeOptions omit a model", async () => {
+    const runtime = fakeRuntime("LOGIN_DONE README.md");
+    const createRuntime = vi
+      .spyOn(runtimeFactory, "createGenericAILlmRuntime")
+      .mockResolvedValue(runtime);
+    const primaryAgent = harness.agents[0];
+    if (primaryAgent === undefined) {
+      throw new Error("Expected test harness to include at least one agent.");
+    }
+    const harnessWithModel: HarnessDsl = {
+      ...harness,
+      agents: [
+        {
+          ...primaryAgent,
+          instructions: "Use the harness-specific model.",
+          model: "gpt-5.5",
+        },
+      ],
+    };
+
+    try {
+      await runHarnessBenchmark({
+        benchmark: {
+          ...benchmark,
+          validity: {
+            minimumTrialsForRecommendation: 1,
+          },
+        },
+        mission,
+        harnesses: {
+          [harnessWithModel.id]: harnessWithModel,
+        },
+        runtimeOptions: {
+          adapter: "openai-codex",
+        },
+      });
+
+      expect(createRuntime).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapter: "openai-codex",
+          instructions: "Use the harness-specific model.",
+          model: "gpt-5.5",
+        }),
+      );
+    } finally {
+      createRuntime.mockRestore();
+    }
   });
 });

@@ -327,6 +327,54 @@ describe("Benchmark reports", () => {
     expect(report.insufficientEvidence[0]).toContain("task_success average: missing");
   });
 
+  it("requires primary metric samples to satisfy the recommendation threshold", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        candidates: [
+          {
+            id: "partial",
+            harnessRef: "harness.partial",
+          },
+          {
+            id: "complete",
+            harnessRef: "harness.complete",
+          },
+        ],
+        validity: {
+          minimumTrialsForRecommendation: 3,
+        },
+      },
+      mission,
+      generatedAt: "2026-04-25T00:00:00.000Z",
+      results: [
+        trialResult("partial", "harness.partial:compiled", "task_success", 1),
+        {
+          ...trialResult("partial", "harness.partial:compiled", "task_success", 1),
+          trialId: "partial:trial-2",
+          metrics: [],
+        },
+        {
+          ...trialResult("partial", "harness.partial:compiled", "task_success", 1),
+          trialId: "partial:trial-3",
+          metrics: [],
+        },
+        ...Array.from({ length: 3 }, (_, index) => ({
+          ...trialResult("complete", "harness.complete:compiled", "task_success", 0.8),
+          trialId: `complete:trial-${index + 1}`,
+        })),
+      ],
+    });
+
+    expect(
+      report.candidates.find((candidate) => candidate.candidateId === "partial")?.recommendation,
+    ).toBe("insufficient_evidence");
+    expect(
+      report.candidates.find((candidate) => candidate.candidateId === "complete")?.recommendation,
+    ).toBe("recommended");
+    expect(report.insufficientEvidence[0]).toContain("task_success samples: 1/3");
+  });
+
   it("limits single-run recommendations to explicit single-run benchmarks", () => {
     const report = createBenchmarkReport({
       benchmark: {
@@ -352,6 +400,43 @@ describe("Benchmark reports", () => {
     });
 
     expect(report.candidates[0]?.recommendation).toBe("insufficient_evidence");
+  });
+
+  it("excludes insufficient candidates from the best-metric recommendation baseline", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        candidates: [
+          {
+            id: "outlier",
+            harnessRef: "harness.outlier",
+          },
+          {
+            id: "steady",
+            harnessRef: "harness.steady",
+          },
+        ],
+        validity: {
+          minimumTrialsForRecommendation: 5,
+        },
+      },
+      mission,
+      generatedAt: "2026-04-25T00:00:00.000Z",
+      results: [
+        trialResult("outlier", "harness.outlier:compiled", "task_success", 1),
+        ...Array.from({ length: 5 }, (_, index) => ({
+          ...trialResult("steady", "harness.steady:compiled", "task_success", 0.8),
+          trialId: `steady:trial-${index + 1}`,
+        })),
+      ],
+    });
+
+    expect(
+      report.candidates.find((candidate) => candidate.candidateId === "outlier")?.recommendation,
+    ).toBe("insufficient_evidence");
+    expect(
+      report.candidates.find((candidate) => candidate.candidateId === "steady")?.recommendation,
+    ).toBe("recommended");
   });
 });
 
