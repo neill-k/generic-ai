@@ -2,17 +2,33 @@
 
 ## Design Summary
 
-The planned system is a plugin-first multi-agent framework built on top of `pi`.
+The planned system is a package-extensible agents-as-code framework built on top
+of `pi`.
 
 `pi` provides the underlying agent/tool runtime mechanics. `Generic AI` provides the framework shell that aims to scale the composability to a large number of agents, while added useful, opinionated defaults.
 
-The framework should represent an easy-to-use, but hackable surface for multi-agent coordination and eperimentation.
+The framework should represent an easy-to-use, but hackable surface for
+multi-agent coordination, experimentation, and evidence-backed comparison.
 
 ## High-Level Shape
 
 ```text
 +--------------------------------------------------------------+
-| @generic-ai/core            |
+| Harness DSL                                                  |
+| ------------------------------------------------------------ |
+| agents | packages | spaces | protocols | policies | missions |
++--------------------------------------------------------------+
+                 | compiles to
+                 v
++--------------------------------------------------------------+
+| Generic Agent IR                                             |
+| ------------------------------------------------------------ |
+| compiled actors | contracts | fingerprints | static checks   |
++--------------------------------------------------------------+
+                 | consumed by
+                 v
++--------------------------------------------------------------+
+| @generic-ai/core                                             |
 | --------------------------- |
 | bootstrap                   | plugin host     | registries   | scope        |
 | sessions                    | child runs      | event stream | run envelope |
@@ -98,6 +114,12 @@ Recommended envelope shape:
 - output plugin id
 - plugin-defined output payload
 
+### Compiled Harness Runtime Consumption
+
+- consume typed compiled-harness contracts emitted by the SDK compiler
+- run benchmark trials through the same `GenericAILlmRuntime` path used by normal runs
+- emit trace-backed evidence without making report renderer or policy decisions kernel-owned
+
 ## Kernel Non-Responsibilities
 
 These should stay out of the kernel:
@@ -108,6 +130,9 @@ These should stay out of the kernel:
 - a canonical memory schema beyond the minimum interfaces needed by plugins
 - a canonical tool schema beyond what is inherited directly from `pi`
 - product-specific admin, governance, or enterprise workflows
+- Harness DSL syntax ownership
+- package-specific protocol, policy, grader, trace exporter, and report renderer semantics
+- confident benchmark recommendations when the configured evidence threshold is not met
 
 ## Package Layout
 
@@ -157,6 +182,8 @@ Recommended contents:
 - queue contract
 - output-plugin contract
 - typed helpers for writing plugins and presets
+- Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI,
+  TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch contracts
 
 `pi` primitives should be re-exported where that materially improves plugin developer ergonomics.
 
@@ -359,9 +386,11 @@ The queue plugin decides scheduling. The kernel decides how sessions are created
 These constraints should be preserved while implementing:
 
 - do not hide `pi` behind a heavy compatibility wrapper
+- use Pi's `openai-codex` provider path for Codex inference instead of a parallel direct OpenAI client
 - do not make Hono mandatory at the core layer
 - do not put business features in the kernel just because the starter preset needs them
 - do not make storage, messaging, memory, or MCP impossible to replace later
+- do not let loose DSL files bypass the compiler, policy checks, trace obligations, or artifact contracts
 
 ## Deferred Architecture Tracks
 

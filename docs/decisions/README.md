@@ -44,6 +44,7 @@ ADRs must be written when:
 - [`0018-docs-as-code-baseline.md`](0018-docs-as-code-baseline.md) - deterministic generated package index and docs check workflow.
 - [`0019-identity-auth-plugin-boundary.md`](0019-identity-auth-plugin-boundary.md) - deferred identity/auth architecture: plugin-owned auth, SDK-visible identity context, Hono adapter implications, and hosted-vs-local preset posture.
 - [`0020-advanced-observability.md`](0020-advanced-observability.md) - deferred advanced observability architecture: baseline OTEL logs/traces stay separate from future metrics, dashboards, and product analytics.
+- [`0021-agents-as-code-harness-spine.md`](0021-agents-as-code-harness-spine.md) - Harness DSL, Generic Agent IR, evidence-harness boundaries, Architecture Lab positioning, and Pi-backed OpenAI Codex inference.
 
 ## Planning Baseline
 

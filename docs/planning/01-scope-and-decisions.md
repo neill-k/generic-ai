@@ -25,9 +25,19 @@ Anything outside that baseline should be treated as non-authoritative for reimpl
 
 ## Core Product Decision
 
-This is a framework reimplementation, not a reimplementation of the full Generic Corp product.
+This is a package-extensible agents-as-code framework, not a reimplementation of
+the full Generic Corp product.
 
-The framework should preserve the useful architectural lessons from the old system, but it should not inherit the full product surface area by default.
+The framework should preserve the useful architectural lessons from the old
+system, but it should not inherit the full product surface area by default.
+Developers should be able to describe an agent system once, install reusable
+capability packages, compile that declaration into a stable runtime contract,
+run reproducible missions, trace behavior, evaluate outcomes, and publish
+evidence-backed reports.
+
+Architecture Lab is the flagship validation and demo application for this
+platform. Lab concepts must not become kernel concepts unless a later ADR makes
+that boundary explicit.
 
 ## Kernel Decision
 
@@ -48,6 +58,11 @@ The kernel owns:
 - config discovery, validation, and composition
 
 The kernel does not own most business capabilities directly.
+
+The kernel also does not own the Harness DSL syntax, package-specific policy
+interpretation, statistical validity claims, or report renderer semantics. Those
+live in SDK contracts, package-owned extensions, examples, and evidence-harness
+helpers.
 
 ## `pi` Decision
 
@@ -73,6 +88,8 @@ V1 counts as a working multi-agent framework when the standard path can do the f
 7. Agent memory is persistent, file-backed, and searchable.
 8. The run can complete synchronously or via a queue-backed asynchronous path.
 9. The framework returns a canonical run envelope plus plugin-defined output.
+10. A Harness DSL declaration can compile into typed Generic Agent IR before runtime execution.
+11. A MissionSpec and BenchmarkSpec can run through the normal runtime path and produce trace-backed reports with recommendation boundaries.
 
 ## Required Base Plugins For The First Planning Wave
 
@@ -204,6 +221,10 @@ lives in [`docs/advanced-observability.md`](../advanced-observability.md).
 
 The concrete resumption plan for the deferred identity/auth track now lives in
 [`docs/identity-auth.md`](../identity-auth.md).
+
+Hosted package registry, marketplace behavior, visual builders, autonomous
+self-mutation, and broad workflow-engine semantics are deferred beyond the v0.1
+agents-as-code launch spine.
 
 ## Planning Rule For Linear Issues
 

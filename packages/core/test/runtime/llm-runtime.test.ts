@@ -1,15 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  createGenericAILlmRuntime,
-  createOpenAICodexRuntime,
-} from "../../src/runtime/index.js";
+import { createGenericAILlmRuntime, createOpenAICodexRuntime } from "../../src/runtime/index.js";
 
 describe("@generic-ai/core llm runtime adapter", () => {
-  it("uses the OpenAI Codex adapter by default", async () => {
-    const create = vi.fn(async () => ({
-      output_text: "hello from openai",
-      _request_id: "req_123",
-    }));
+  it("uses Pi's OpenAI Codex provider path by default", async () => {
+    const setRuntimeApiKey = vi.fn();
+    const prompt = vi.fn(async () => undefined);
 
     const runtime = await createGenericAILlmRuntime(
       {
@@ -18,11 +13,29 @@ describe("@generic-ai/core llm runtime adapter", () => {
       },
       {
         openai: {
-          client: {
-            responses: {
-              create,
-            },
-          },
+          authStorageFactory: () => ({
+            setRuntimeApiKey,
+          }),
+          modelRegistryFactory: () => ({
+            find: () => ({ id: "gpt-5.2-codex" }),
+            hasConfiguredAuth: () => true,
+          }),
+          resourceLoaderFactory: () => ({
+            reload: async () => undefined,
+          }),
+          createAgentSession: async () =>
+            ({
+              session: {
+                messages: [
+                  {
+                    role: "assistant",
+                    content: [{ type: "text", text: "hello from pi codex" }],
+                  },
+                ],
+                prompt,
+                dispose: vi.fn(),
+              },
+            }) as never,
         },
       },
     );
@@ -30,67 +43,156 @@ describe("@generic-ai/core llm runtime adapter", () => {
     await expect(runtime.run("ping")).resolves.toEqual({
       adapter: "openai-codex",
       model: "gpt-5.2-codex",
-      outputText: "hello from openai",
-      requestId: "req_123",
+      outputText: "hello from pi codex",
     });
-    expect(create).toHaveBeenCalledWith(
-      {
-        model: "gpt-5.2-codex",
-        input: "ping",
-        instructions: "Be terse.",
-      },
-      undefined,
-    );
+    expect(setRuntimeApiKey).toHaveBeenCalledWith("openai-codex", "test-key");
+    expect(prompt).toHaveBeenCalledWith("ping", {
+      source: "extension",
+    });
   });
 
-  it("streams OpenAI delta events before the terminal response", async () => {
-    async function* events() {
-      yield {
-        type: "response.output_text.delta",
-        delta: "hello",
+  it("supports OpenAI Codex auth from Pi agent storage without an API key", async () => {
+    const setRuntimeApiKey = vi.fn();
+    const authStorageFactory = vi.fn((agentDir?: string) => {
+      expect(agentDir).toBeTypeOf("string");
+      return {
+        setRuntimeApiKey,
       };
-      yield {
-        type: "response.completed",
-        response: {
-          output_text: "hello",
-          _request_id: "req_456",
-        },
+    });
+    const modelRegistryFactory = vi.fn((_authStorage: unknown, agentDir?: string) => {
+      expect(agentDir).toBeTypeOf("string");
+      return {
+        find: () => ({ id: "gpt-5.2-codex" }),
+        hasConfiguredAuth: () => true,
       };
-    }
+    });
+    const resourceLoaderFactory = vi.fn(
+      (options: { readonly cwd?: string; readonly agentDir?: string }) => {
+        expect(options.cwd).toBeTypeOf("string");
+        expect(options.agentDir).toBeTypeOf("string");
+        return {
+          reload: async () => undefined,
+        };
+      },
+    );
 
+    const runtime = await createGenericAILlmRuntime(
+      {},
+      {
+        openai: {
+          authStorageFactory,
+          modelRegistryFactory,
+          resourceLoaderFactory,
+          createAgentSession: async () =>
+            ({
+              session: {
+                messages: [{ role: "assistant", content: "stored auth result" }],
+                prompt: vi.fn(async () => undefined),
+              },
+            }) as never,
+        },
+      },
+    );
+
+    await expect(runtime.run("ping")).resolves.toMatchObject({
+      adapter: "openai-codex",
+      outputText: "stored auth result",
+    });
+    expect(setRuntimeApiKey).not.toHaveBeenCalled();
+    expect(authStorageFactory).toHaveBeenCalled();
+    expect(modelRegistryFactory).toHaveBeenCalled();
+    expect(resourceLoaderFactory).toHaveBeenCalled();
+  });
+
+  it("streams a terminal response from the Pi OpenAI Codex path", async () => {
     const runtime = createOpenAICodexRuntime(
       {
         apiKey: "test-key",
       },
       {
-        client: {
-          responses: {
-            create: vi.fn(async () => events()),
-          },
-        },
+        authStorageFactory: () => ({
+          setRuntimeApiKey: vi.fn(),
+        }),
+        modelRegistryFactory: () => ({
+          find: () => ({ id: "gpt-5.2-codex" }),
+          hasConfiguredAuth: () => true,
+        }),
+        resourceLoaderFactory: () => ({
+          reload: async () => undefined,
+        }),
+        createAgentSession: async () =>
+          ({
+            session: {
+              messages: [{ role: "assistant", content: "streamed pi result" }],
+              prompt: vi.fn(async () => undefined),
+            },
+          }) as never,
       },
     );
 
     const chunks = [];
-    for await (const chunk of runtime.stream("stream please")) {
+    const stream = runtime.stream;
+    for await (const chunk of stream("stream please")) {
       chunks.push(chunk);
     }
 
     expect(chunks).toEqual([
       {
-        type: "text-delta",
-        delta: "hello",
-      },
-      {
         type: "response",
         response: {
           adapter: "openai-codex",
           model: "gpt-5.2-codex",
-          outputText: "hello",
-          requestId: "req_456",
+          outputText: "streamed pi result",
         },
       },
     ]);
+  });
+
+  it("passes abort signals into Pi prompts and disposes aborted sessions", async () => {
+    const controller = new AbortController();
+    const dispose = vi.fn();
+    let promptOptions: { readonly source?: string; readonly signal?: AbortSignal } | undefined;
+    const prompt = vi.fn(
+      async (_text: string, options?: { readonly source?: string; readonly signal?: AbortSignal }) => {
+        promptOptions = options;
+        queueMicrotask(() => controller.abort());
+        await new Promise(() => undefined);
+      },
+    );
+    const runtime = createOpenAICodexRuntime(
+      {
+        apiKey: "test-key",
+      },
+      {
+        authStorageFactory: () => ({
+          setRuntimeApiKey: vi.fn(),
+        }),
+        modelRegistryFactory: () => ({
+          find: () => ({ id: "gpt-5.2-codex" }),
+          hasConfiguredAuth: () => true,
+        }),
+        resourceLoaderFactory: () => ({
+          reload: async () => undefined,
+        }),
+        createAgentSession: async () =>
+          ({
+            session: {
+              messages: [{ role: "assistant", content: "unused" }],
+              prompt,
+              dispose,
+            },
+          }) as never,
+      },
+    );
+
+    await expect(runtime.run("abort please", { signal: controller.signal })).rejects.toThrow(
+      "aborted during prompt dispatch",
+    );
+    expect(promptOptions).toMatchObject({
+      source: "extension",
+      signal: controller.signal,
+    });
+    expect(dispose).toHaveBeenCalled();
   });
 
   it("supports the explicit pi compatibility adapter", async () => {

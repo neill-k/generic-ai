@@ -199,6 +199,24 @@ function getOutputMount(docker: FakeDockerOperations) {
   return mount;
 }
 
+function expectCopiedSandboxOutput(
+  docker: FakeDockerOperations,
+  containerId: string,
+): { readonly containerId: string; readonly sourcePath: string; readonly destinationPath: string } {
+  expect(docker.copied).toHaveLength(1);
+  const copyCall = docker.copied[0];
+  expect(copyCall).toBeDefined();
+  if (copyCall === undefined) {
+    throw new Error("Expected sandbox output to be copied from the container.");
+  }
+  expect(copyCall.containerId).toBe(containerId);
+  expect(copyCall.sourcePath).toBe(SANDBOX_OUTPUT_MOUNT_PATH);
+  expect(
+    copyCall.destinationPath.startsWith(path.join(os.tmpdir(), "generic-ai-sandbox-artifacts-")),
+  ).toBe(true);
+  return copyCall;
+}
+
 interface ExternalCommandResult {
   readonly exitCode: number | null;
   readonly stdout: string;
@@ -327,10 +345,15 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       await writeFile(path.join(root, "workspace", "shared", "input.txt"), "source\n", "utf8");
 
       const docker = new FakeDockerOperations();
-      docker.copyHandler = async (_containerId, _sourcePath, destinationPath) => {
-        await mkdir(path.join(destinationPath, "logs"), { recursive: true });
-        await writeFile(path.join(destinationPath, "result.json"), '{"ok":true}\n', "utf8");
-        await writeFile(path.join(destinationPath, "logs", "stderr.txt"), "warn\n", "utf8");
+      docker.copyHandler = async (_containerId, sourcePath, destinationPath) => {
+        expect(sourcePath).toBe(SANDBOX_OUTPUT_MOUNT_PATH);
+        const copiedOutputRoot = path.join(
+          destinationPath,
+          path.basename(SANDBOX_OUTPUT_MOUNT_PATH),
+        );
+        await mkdir(path.join(copiedOutputRoot, "logs"), { recursive: true });
+        await writeFile(path.join(copiedOutputRoot, "result.json"), '{"ok":true}\n', "utf8");
+        await writeFile(path.join(copiedOutputRoot, "logs", "stderr.txt"), "warn\n", "utf8");
       };
       const plugin = createSandboxTerminalPlugin({
         root,
@@ -377,6 +400,13 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
           }),
         ]),
       );
+      expect(docker.created[0]?.mounts).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            source: path.join(root, "workspace", "shared", "sandbox-results", "session-123"),
+          }),
+        ]),
+      );
       expect(result.status).toBe("succeeded");
       expect(result.image).toBe("node:24-bookworm-slim");
       expect(result.cwd).toBe(root);
@@ -403,13 +433,55 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         maxMemoryMb: 64,
         diskWrittenMb: 2,
       });
-      expect(docker.copied[0]).toEqual(
-        expect.objectContaining({
-          containerId: "container-session-123",
-          sourcePath: `${SANDBOX_OUTPUT_MOUNT_PATH}/.`,
-        }),
-      );
+      expectCopiedSandboxOutput(docker, "container-session-123");
       expect(result.generatedFiles).toEqual(result.artifacts);
+    });
+  });
+
+  it("omits previous sandbox outputs from readonly workspace snapshots", async () => {
+    await withTempRoot(async (root) => {
+      await mkdir(path.join(root, "workspace", "shared", "sandbox-results", "old-run"), {
+        recursive: true,
+      });
+      await writeFile(path.join(root, "workspace", "shared", "input.txt"), "source\n", "utf8");
+      await writeFile(
+        path.join(root, "workspace", "shared", "sandbox-results", "old-run", "artifact.txt"),
+        "old artifact\n",
+        "utf8",
+      );
+
+      const docker = new FakeDockerOperations();
+      const plugin = createSandboxTerminalPlugin({
+        root,
+        dockerOperations: docker,
+        sessionIdFactory: () => "session-with-old-output",
+      });
+
+      await plugin.createSession({
+        runtime: "bash",
+        workspaceRoot: root,
+      });
+
+      const workspaceMount = getWorkspaceMount(docker);
+      expect(
+        await readFile(
+          path.join(workspaceMount.source, "workspace", "shared", "input.txt"),
+          "utf8",
+        ),
+      ).toBe("source\n");
+      await expect(
+        readFile(
+          path.join(
+            workspaceMount.source,
+            "workspace",
+            "shared",
+            "sandbox-results",
+            "old-run",
+            "artifact.txt",
+          ),
+          "utf8",
+        ),
+      ).rejects.toThrow();
     });
   });
 
@@ -477,13 +549,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(docker.created[0]?.cpus).toBe(0.5);
       expect(docker.created[0]?.memoryMb).toBe(256);
       expect(getOutputMount(docker).sizeMb).toBe(32);
-      expect(docker.copied).toEqual([
-        {
-          containerId: "container-ephemeral-1",
-          sourcePath: `${SANDBOX_OUTPUT_MOUNT_PATH}/.`,
-          destinationPath: path.join(root, "workspace", "shared", "sandbox-results", "ephemeral-1"),
-        },
-      ]);
+      expectCopiedSandboxOutput(docker, "container-ephemeral-1");
       expect(docker.stopped).toEqual([
         { containerId: "container-ephemeral-1", graceMs: undefined },
       ]);
@@ -1134,11 +1200,13 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
     });
   });
 
-  it("does not mask non-daemon artifact copy failures", async () => {
+  it("does not mask non-daemon artifact sync failures", async () => {
     await withTempRoot(async (root) => {
       const docker = new FakeDockerOperations();
       docker.copyHandler = async () => {
-        throw new SandboxArtifactSyncError("docker cp failed because the output mount is missing.");
+        throw new SandboxArtifactSyncError(
+          "artifact sync failed because the output mount is missing.",
+        );
       };
       const plugin = createSandboxTerminalPlugin({
         root,
@@ -1163,7 +1231,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
     await withTempRoot(async (root) => {
       const docker = new FakeDockerOperations();
       docker.copyHandler = async () => {
-        throw new SandboxUnavailableError("Docker daemon became unavailable during docker cp.");
+        throw new SandboxUnavailableError("Docker daemon became unavailable during artifact sync.");
       };
       const plugin = createSandboxTerminalPlugin({
         root,
@@ -1312,11 +1380,13 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         const plugin = createSandboxTerminalPlugin({ root });
         const pythonFetch = (url: string) =>
           `python -c "import urllib.request; print(urllib.request.urlopen('${url}', timeout=10).status)"`;
+        const allowedUrl = "https://example.com";
+        const blockedUrl = "https://example.org";
 
         const isolatedResult = await plugin.run({
           sessionId: "network-isolated-live",
           runtime: "python",
-          command: pythonFetch("http://example.com"),
+          command: pythonFetch(allowedUrl),
           policy: {
             network: {
               mode: "isolated",
@@ -1329,7 +1399,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         const allowlistedResult = await plugin.run({
           sessionId: "network-allowlist-pass-live",
           runtime: "python",
-          command: pythonFetch("http://example.com"),
+          command: pythonFetch(allowedUrl),
           policy: {
             network: {
               mode: "allowlist",
@@ -1344,7 +1414,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
         const blockedAllowlistResult = await plugin.run({
           sessionId: "network-allowlist-block-live",
           runtime: "python",
-          command: pythonFetch("http://example.org"),
+          command: pythonFetch(blockedUrl),
           policy: {
             network: {
               mode: "allowlist",
@@ -1353,13 +1423,13 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
           },
         });
         expect(blockedAllowlistResult.status).toBe("failed");
-        expect(blockedAllowlistResult.stderr).toContain("example.org:80");
+        expect(blockedAllowlistResult.stderr).toContain("example.org:443");
         await expectNoSandboxDockerResources("network-allowlist-block-live", { allowlist: true });
 
         const openResult = await plugin.run({
           sessionId: "network-open-live",
           runtime: "python",
-          command: pythonFetch("http://example.com"),
+          command: pythonFetch(allowedUrl),
           policy: {
             network: {
               mode: "open",
@@ -1635,8 +1705,8 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
           signal: abortController.signal,
         });
 
-        expect(docker.execCalls).toHaveLength(1);
-        expect(docker.execCalls[0]?.signal).toBeDefined();
+        const userExecCall = docker.execCalls.find((call) => call.command === "true");
+        expect(userExecCall?.signal).toBeDefined();
       });
     });
 

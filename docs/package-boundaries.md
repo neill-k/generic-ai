@@ -29,7 +29,7 @@ Generic AI has a small number of layers. Dependency direction is strictly downwa
 
 1. **Kernel** — `@generic-ai/core`
 2. **SDK** — `@generic-ai/sdk`
-3. **Plugins** — everything matching `@generic-ai/plugin-*`
+3. **Plugins and package extensions** - everything matching `@generic-ai/plugin-*` plus future documented protocol/grader/report/policy package layers
 4. **Presets** — `@generic-ai/preset-*`
 5. **Examples** — `examples/*`
 
@@ -40,6 +40,7 @@ The layering rules:
 - Plugins may depend on `@generic-ai/sdk` and on `pi`. They must not import from `@generic-ai/core`. Plugins may depend on other plugins only when the dependency is part of the documented intent for that plugin (for example, `plugin-memory-files` and `plugin-tools-files` depending on `plugin-workspace-fs`, or `plugin-messaging` depending on a storage plugin through the storage contract rather than through a specific implementation whenever possible).
 - Presets may depend on `@generic-ai/core`, `@generic-ai/sdk`, and any plugins they wire up. Presets are the normal package type that composes kernel and plugins together. Approved exception: `@generic-ai/core` may keep the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls, but that exception is limited to bootstrap metadata and must not introduce plugin or preset package imports into the kernel.
 - Examples may depend on any public package they need to demonstrate framework usage. Examples must not be depended on by any package inside `packages/`.
+- Harness DSL and Generic Agent IR contracts belong in the SDK and specs. Runtime helpers in core may consume compiled harnesses, but loose DSL parsing and package-owned protocol/policy/grader semantics must not become kernel business logic.
 
 Anything outside these rules needs an entry in `docs/decisions/` explaining the trade-off.
 
@@ -60,15 +61,17 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 - Role: framework kernel. Owns bootstrap, plugin host, registries, scope, sessions, streaming events, and the canonical run envelope.
 - Allowed deps: `pi`, `@generic-ai/sdk`.
-- Not responsible for: MCP, Agent Skills, delegation, messaging, memory, storage implementations, transport, output shaping, or any business capability.
+- Not responsible for: MCP, Agent Skills, delegation, messaging, memory, storage implementations, transport, output shaping, Harness DSL syntax, package-specific protocol/policy/grader semantics, or any business capability.
 - Notes: the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls is the only approved kernel/preset composition exception. See `docs/decisions/0012-bootstrap-api.md`.
+- Harness note: core may expose compiled-harness benchmark runtime helpers that run through `GenericAILlmRuntime`; the public language and IR contracts remain SDK-owned.
 - Publishes as: `@generic-ai/core` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/sdk`
 
 - Role: public framework-facing SDK. Defines the contracts plugin authors and preset authors compile against.
 - Allowed deps: `pi`.
-- Not responsible for: plugin implementations, config discovery, kernel internals.
+- Not responsible for: plugin implementations, config discovery, kernel internals, live provider execution, or report hosting.
+- Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch contract types plus deterministic compile/report helpers.
 - Publishes as: `@generic-ai/sdk` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/preset-starter-hono`
@@ -221,6 +224,12 @@ layer when the roadmap resumes.
 - Allowed deps: the starter preset and any plugins it needs to demonstrate behavior.
 - Not responsible for: being imported by any package in `packages/`.
 
+### `examples/harness-shootout/`
+
+- Role: v0.1 package-composed harness shootout fixture. Demonstrates Harness DSL, MissionSpec, BenchmarkSpec, four candidate harnesses, and bounded report interpretation.
+- Allowed deps: public packages for demonstration code if a runnable script is added later.
+- Not responsible for: defining the SDK contract surface or being imported by any package inside `packages/`.
+
 ### `contracts/`
 
 - Role: frozen interface contracts surfaced to plugin authors and external consumers.
@@ -232,6 +241,9 @@ layer when the roadmap resumes.
 - Role: specifications used by docs-as-code and contract-testing workflows.
 - Allowed contents: specifications that describe framework behavior precisely enough to verify or generate from.
 - Not responsible for: scope and architecture planning (that lives in `docs/planning/`).
+
+Harness language behavior starts in `specs/harness-v0.1/` before any schema is
+frozen under `contracts/harness/`.
 
 ## Changing A Boundary
 

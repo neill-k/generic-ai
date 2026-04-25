@@ -1,0 +1,72 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.hierarchy",
+  "name": "Hierarchy",
+  "packages": [
+    {
+      "id": "protocol.hierarchy",
+      "package": "@generic-ai/protocol-hierarchy",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.terminal",
+      "package": "@generic-ai/plugin-tools-terminal-sandbox",
+      "version": "0.1.0"
+    },
+    {
+      "id": "policy.local-dev",
+      "package": "@generic-ai/policy-local-dev",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "manager",
+      "role": "manager",
+      "instructions": "Decompose work, assign scoped tasks, and review status.",
+      "packageRefs": ["protocol.hierarchy", "policy.local-dev"]
+    },
+    {
+      "id": "implementer",
+      "role": "implementer",
+      "instructions": "Complete assigned implementation tasks.",
+      "packageRefs": ["capability.files", "capability.terminal"]
+    },
+    {
+      "id": "tester",
+      "role": "tester",
+      "instructions": "Run deterministic checks and produce test evidence.",
+      "packageRefs": ["capability.terminal"]
+    }
+  ],
+  "relationships": [
+    {
+      "id": "manager-assigns-implementer",
+      "kind": "delegates_to",
+      "fromAgentRef": "manager",
+      "toAgentRef": "implementer"
+    },
+    {
+      "id": "manager-assigns-tester",
+      "kind": "delegates_to",
+      "fromAgentRef": "manager",
+      "toAgentRef": "tester"
+    }
+  ],
+  "protocols": [
+    {
+      "id": "hierarchy",
+      "protocol": "hierarchy",
+      "packageRef": "protocol.hierarchy",
+      "actorRefs": ["manager", "implementer", "tester"]
+    }
+  ],
+  "missionRefs": ["mission.oauth-login"],
+  "evalRefs": ["benchmark.package-composed-shootout.v0"]
+}

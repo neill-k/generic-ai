@@ -204,10 +204,11 @@ describe("@generic-ai/example-starter-hono", () => {
     }
   });
 
-  it("fails fast when the provider key is missing", () => {
-    expect(() => loadStarterExampleEnvironment({})).toThrow(
-      "GENERIC_AI_PROVIDER_API_KEY must be set",
-    );
+  it("allows missing provider keys so Pi-managed OpenAI Codex auth can be used", () => {
+    expect(loadStarterExampleEnvironment({})).toMatchObject({
+      adapter: "openai-codex",
+      exposure: "loopback",
+    });
   });
 
   it("fails fast when configured for unauthenticated non-loopback exposure", () => {

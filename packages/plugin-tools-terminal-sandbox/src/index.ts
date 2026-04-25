@@ -82,6 +82,15 @@ export const SANDBOX_DEFAULT_POLICY = Object.freeze({
   },
 } as const satisfies SandboxPolicy);
 
+function hasErrorCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { readonly code?: unknown }).code === code
+  );
+}
+
 export interface SandboxTerminalPluginConfig {
   readonly backend: "docker";
   readonly defaultRuntime: SandboxRuntime;
@@ -221,6 +230,65 @@ interface ProcessResult {
   readonly stderr: string;
   readonly error?: Error;
 }
+
+const TAR_BLOCK_SIZE = 512;
+const NODE_ARTIFACT_ARCHIVE_SCRIPT = `
+const fs = require("node:fs");
+const posixPath = require("node:path").posix;
+const root = process.argv[1];
+function emit(value) {
+  console.log(JSON.stringify(value));
+}
+function walk(absolutePath, relativePath) {
+  const info = fs.lstatSync(absolutePath);
+  if (info.isSymbolicLink()) {
+    emit({ type: "link", path: relativePath });
+    return;
+  }
+  if (info.isDirectory()) {
+    if (relativePath.length > 0) {
+      emit({ type: "dir", path: relativePath });
+    }
+    for (const entry of fs.readdirSync(absolutePath)) {
+      walk(posixPath.join(absolutePath, entry), relativePath.length === 0 ? entry : posixPath.join(relativePath, entry));
+    }
+    return;
+  }
+  if (info.isFile()) {
+    emit({ type: "file", path: relativePath, data: fs.readFileSync(absolutePath).toString("base64") });
+  }
+}
+if (root !== undefined && fs.existsSync(root)) {
+  const baseName = posixPath.basename(posixPath.normalize(root)) || "root";
+  walk(root, baseName);
+}
+`.trim();
+const PYTHON_ARTIFACT_ARCHIVE_SCRIPT = `
+import base64
+import json
+import os
+import sys
+root = sys.argv[1] if len(sys.argv) > 1 else None
+def emit(value):
+    print(json.dumps(value, separators=(",", ":")))
+def walk(absolute_path, relative_path):
+    if os.path.islink(absolute_path):
+        emit({"type": "link", "path": relative_path})
+        return
+    if os.path.isdir(absolute_path):
+        if relative_path:
+            emit({"type": "dir", "path": relative_path})
+        for entry in os.listdir(absolute_path):
+            walk(os.path.join(absolute_path, entry), entry if not relative_path else f"{relative_path}/{entry}")
+        return
+    if os.path.isfile(absolute_path):
+        with open(absolute_path, "rb") as handle:
+            data = base64.b64encode(handle.read()).decode("ascii")
+        emit({"type": "file", "path": relative_path, "data": data})
+if root and os.path.exists(root):
+    base_name = os.path.basename(os.path.normpath(root)) or "root"
+    walk(root, base_name)
+`.trim();
 
 interface ActiveSandboxSession {
   readonly session: SandboxSession;
@@ -860,6 +928,218 @@ async function runProcess(
   });
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/gu, "'\\''")}'`;
+}
+
+function buildBase64TarArchiveCommand(sourcePath: string): string {
+  const quotedSourcePath = shellQuote(sourcePath);
+  return [
+    `if [ -d ${quotedSourcePath} ]; then`,
+    `tar -C "$(dirname ${quotedSourcePath})" -cf - "$(basename ${quotedSourcePath})" | base64`,
+    `elif [ -e ${quotedSourcePath} ]; then`,
+    `tar -C "$(dirname ${quotedSourcePath})" -cf - "$(basename ${quotedSourcePath})" | base64`,
+    "fi",
+  ].join(" ");
+}
+
+function readTarString(input: Buffer): string {
+  const nullIndex = input.indexOf(0);
+  return input.subarray(0, nullIndex === -1 ? input.length : nullIndex).toString("utf8");
+}
+
+function isTarZeroBlock(input: Buffer): boolean {
+  return input.every((value) => value === 0);
+}
+
+function readTarOctal(input: Buffer): number {
+  const raw = readTarString(input).trim();
+  if (raw.length === 0) {
+    return 0;
+  }
+  const parsed = Number.parseInt(raw, 8);
+  if (!Number.isFinite(parsed)) {
+    throw new SandboxArtifactSyncError(`Docker produced an invalid tar archive size "${raw}".`);
+  }
+  return parsed;
+}
+
+function parsePaxAttributes(input: Buffer): Readonly<Record<string, string>> {
+  const attributes: Record<string, string> = {};
+  let offset = 0;
+  while (offset < input.length) {
+    const spaceIndex = input.indexOf(32, offset);
+    if (spaceIndex === -1) {
+      break;
+    }
+    const lengthText = input.subarray(offset, spaceIndex).toString("utf8");
+    const length = Number.parseInt(lengthText, 10);
+    if (!Number.isFinite(length) || length <= 0 || offset + length > input.length) {
+      break;
+    }
+    const record = input
+      .subarray(spaceIndex + 1, offset + length)
+      .toString("utf8")
+      .trimEnd();
+    const separatorIndex = record.indexOf("=");
+    if (separatorIndex > 0) {
+      attributes[record.slice(0, separatorIndex)] = record.slice(separatorIndex + 1);
+    }
+    offset += length;
+  }
+  return attributes;
+}
+
+function resolveTarEntryPath(destinationRoot: string, entryName: string): string | undefined {
+  const strippedName = entryName.replace(/^\.\/+/u, "");
+  const normalizedName = path.posix.normalize(strippedName);
+  if (normalizedName === ".") {
+    return undefined;
+  }
+  if (
+    path.posix.isAbsolute(entryName) ||
+    normalizedName === ".." ||
+    normalizedName.startsWith("../") ||
+    WINDOWS_DRIVE_LETTER_PATTERN.test(normalizedName)
+  ) {
+    throw new SandboxArtifactSyncError(
+      `Docker produced an unsafe sandbox artifact path "${entryName}".`,
+    );
+  }
+
+  const resolvedRoot = path.resolve(destinationRoot);
+  const resolvedPath = path.resolve(resolvedRoot, ...normalizedName.split("/"));
+  if (resolvedPath !== resolvedRoot && !resolvedPath.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new SandboxArtifactSyncError(
+      `Docker produced a sandbox artifact path outside the destination: "${entryName}".`,
+    );
+  }
+  return resolvedPath;
+}
+
+async function extractJsonArtifactArchiveToDirectory(
+  archive: string,
+  destinationRoot: string,
+): Promise<void> {
+  await mkdir(destinationRoot, { recursive: true });
+  for (const line of archive.split(/\r?\n/u)) {
+    const trimmedLine = line.trim();
+    if (trimmedLine.length === 0) {
+      continue;
+    }
+
+    const entry = JSON.parse(trimmedLine) as {
+      readonly data?: unknown;
+      readonly path?: unknown;
+      readonly type?: unknown;
+    };
+    if (typeof entry.path !== "string" || typeof entry.type !== "string") {
+      throw new SandboxArtifactSyncError("Docker produced an invalid sandbox artifact record.");
+    }
+
+    const destinationPath = resolveTarEntryPath(destinationRoot, entry.path);
+    if (destinationPath === undefined) {
+      continue;
+    }
+
+    if (entry.type === "dir") {
+      await mkdir(destinationPath, { recursive: true });
+    } else if (entry.type === "file") {
+      if (typeof entry.data !== "string") {
+        throw new SandboxArtifactSyncError("Docker produced a file artifact without data.");
+      }
+      await mkdir(path.dirname(destinationPath), { recursive: true });
+      await writeFile(destinationPath, Buffer.from(entry.data, "base64"));
+    } else if (entry.type === "link") {
+      throw new SandboxConfigurationError(
+        `Refusing to copy link "${entry.path}" out of the sandbox output archive.`,
+      );
+    } else {
+      throw new SandboxArtifactSyncError(
+        `Docker produced an unsupported sandbox artifact record type "${entry.type}".`,
+      );
+    }
+  }
+}
+
+async function extractTarArchiveToDirectory(
+  archive: Buffer,
+  destinationRoot: string,
+): Promise<void> {
+  await mkdir(destinationRoot, { recursive: true });
+  let offset = 0;
+  let pendingPath: string | undefined;
+
+  while (offset + TAR_BLOCK_SIZE <= archive.length) {
+    const header = archive.subarray(offset, offset + TAR_BLOCK_SIZE);
+    if (isTarZeroBlock(header)) {
+      return;
+    }
+
+    const size = readTarOctal(header.subarray(124, 136));
+    const typeFlagByte = header[156];
+    const typeFlag =
+      typeFlagByte === undefined || typeFlagByte === 0 ? "0" : String.fromCharCode(typeFlagByte);
+    const dataStart = offset + TAR_BLOCK_SIZE;
+    const dataEnd = dataStart + size;
+    if (dataEnd > archive.length) {
+      throw new SandboxArtifactSyncError("Docker produced a truncated sandbox artifact archive.");
+    }
+    const data = archive.subarray(dataStart, dataEnd);
+    const nextOffset = dataStart + Math.ceil(size / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE;
+
+    if (typeFlag === "L") {
+      pendingPath = readTarString(data);
+      offset = nextOffset;
+      continue;
+    }
+
+    if (typeFlag === "x") {
+      const paxPath = parsePaxAttributes(data)["path"];
+      if (paxPath !== undefined) {
+        pendingPath = paxPath;
+      }
+      offset = nextOffset;
+      continue;
+    }
+
+    const name = readTarString(header.subarray(0, 100));
+    const prefix = readTarString(header.subarray(345, 500));
+    const entryName = pendingPath ?? (prefix.length === 0 ? name : `${prefix}/${name}`);
+    pendingPath = undefined;
+    const destinationPath = resolveTarEntryPath(destinationRoot, entryName);
+
+    if (destinationPath !== undefined) {
+      if (typeFlag === "5") {
+        await mkdir(destinationPath, { recursive: true });
+      } else if (typeFlag === "0" || typeFlag === "") {
+        await mkdir(path.dirname(destinationPath), { recursive: true });
+        await writeFile(destinationPath, data);
+      } else if (typeFlag === "1" || typeFlag === "2") {
+        throw new SandboxConfigurationError(
+          `Refusing to copy link "${entryName}" out of the sandbox output archive.`,
+        );
+      }
+    }
+
+    offset = nextOffset;
+  }
+
+  throw new SandboxArtifactSyncError("Docker produced an unterminated sandbox artifact archive.");
+}
+
+async function extractBase64TarArchiveToDirectory(
+  encodedArchive: string,
+  destinationRoot: string,
+): Promise<void> {
+  const normalizedArchive = encodedArchive.replace(/\s+/gu, "");
+  if (normalizedArchive.length === 0) {
+    return;
+  }
+
+  await extractTarArchiveToDirectory(Buffer.from(normalizedArchive, "base64"), destinationRoot);
+}
+
 function buildMountArg(mount: SandboxDockerMount): string {
   if ("type" in mount && mount.type === "tmpfs") {
     return `type=tmpfs,target=${mount.target}${mount.sizeMb === undefined ? "" : `,tmpfs-size=${mount.sizeMb * 1024 * 1024}`}`;
@@ -973,6 +1253,22 @@ function dedupeRelativeSandboxPaths(paths: readonly string[] | undefined): reado
   }
 
   return Object.freeze(pruned);
+}
+
+function isRelativeSandboxPathWithin(candidate: string, ancestor: string): boolean {
+  if (ancestor.length === 0) {
+    return candidate.length === 0;
+  }
+
+  return candidate === ancestor || candidate.startsWith(`${ancestor}${path.sep}`);
+}
+
+function resolveOutputBaseRelativePath(policy: SandboxPolicy): string {
+  return normalizeRelativeSandboxPath(
+    policy.files?.outputDir ??
+      SANDBOX_DEFAULT_POLICY.files?.outputDir ??
+      path.join("workspace", "shared"),
+  );
 }
 
 function normalizeNetworkAllowlist(allowlist: readonly string[] | undefined): readonly string[] {
@@ -1110,7 +1406,8 @@ function buildAllowlistProxyScript(): string {
     "  if (blocked) {",
     "    throw new Error('restricted-ip:' + blocked.address);",
     "  }",
-    "  return records[0].address;",
+    "  const preferredRecord = records.find((record) => record.family === 4) ?? records[0];",
+    "  return preferredRecord.address;",
     "}",
     "",
     "function installSocketTimeout(socket, destination, phase) {",
@@ -1339,8 +1636,16 @@ async function stageWorkspacePath(
   relativePath: string,
   tracker: SizeLimitedCopyTracker,
   maxInputBytes: number | undefined,
+  excludedRelativePaths: readonly string[] = Object.freeze([]),
 ): Promise<void> {
   const normalizedPath = normalizeRelativeSandboxPath(relativePath);
+  if (
+    excludedRelativePaths.some((excludedPath) =>
+      isRelativeSandboxPathWithin(normalizedPath, excludedPath),
+    )
+  ) {
+    return;
+  }
   const lexicalSourcePath =
     normalizedPath.length === 0
       ? resolveWorkspacePath(workspaceRoot)
@@ -1372,6 +1677,7 @@ async function stageWorkspacePath(
         childRelativePath,
         tracker,
         maxInputBytes,
+        excludedRelativePaths,
       );
     }
     return;
@@ -1404,6 +1710,7 @@ async function stageReadonlyWorkspaceSnapshot(
   destinationRoot: string,
   tracker: SizeLimitedCopyTracker,
   maxInputBytes: number | undefined,
+  excludedRelativePaths: readonly string[],
 ): Promise<void> {
   const entries = await readdir(workspaceRoot, { withFileTypes: true });
   for (const entry of entries) {
@@ -1411,7 +1718,14 @@ async function stageReadonlyWorkspaceSnapshot(
       continue;
     }
 
-    await stageWorkspacePath(workspaceRoot, destinationRoot, entry.name, tracker, maxInputBytes);
+    await stageWorkspacePath(
+      workspaceRoot,
+      destinationRoot,
+      entry.name,
+      tracker,
+      maxInputBytes,
+      excludedRelativePaths,
+    );
   }
 }
 
@@ -1546,6 +1860,25 @@ async function copyStagedEntryToOutput(sourcePath: string, destinationPath: stri
   await cp(sourcePath, destinationPath, { dereference: false, force: true, recursive: false });
 }
 
+async function copyStagedDirectoryContentsToOutput(
+  sourceRoot: string,
+  destinationRoot: string,
+): Promise<void> {
+  const info = await lstat(sourceRoot);
+  if (!info.isDirectory()) {
+    return;
+  }
+
+  await mkdir(destinationRoot, { recursive: true });
+  const entries = await readdir(sourceRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    await copyStagedEntryToOutput(
+      path.join(sourceRoot, entry.name),
+      path.join(destinationRoot, entry.name),
+    );
+  }
+}
+
 async function copySelectedStagedPathsToOutput(
   stagingRoot: string,
   outputRoot: string,
@@ -1571,23 +1904,39 @@ async function copySelectedStagedPathsToOutput(
 async function collectArtifacts(root: string): Promise<readonly SandboxArtifact[]> {
   const artifacts: SandboxArtifact[] = [];
 
-  async function walk(current: string): Promise<void> {
-    const entries = await readdir(current, { withFileTypes: true });
-    for (const entry of entries) {
-      const entryPath = path.join(current, entry.name);
-      if (entry.isDirectory()) {
-        await walk(entryPath);
-        continue;
-      }
-      if (!entry.isFile()) {
-        continue;
-      }
+  function addArtifact(filePath: string, sizeBytes: number | bigint): void {
+    artifacts.push({
+      path: path.relative(root, filePath).split(path.sep).join("/"),
+      sizeBytes: Number(sizeBytes),
+    });
+  }
 
-      const info = await stat(entryPath);
-      artifacts.push({
-        path: path.relative(root, entryPath).split(path.sep).join("/"),
-        sizeBytes: info.size,
-      });
+  async function walk(current: string): Promise<void> {
+    const currentInfo = await lstat(current);
+    if (currentInfo.isFile()) {
+      addArtifact(current, currentInfo.size);
+      return;
+    }
+    if (!currentInfo.isDirectory()) {
+      return;
+    }
+
+    let entries: readonly { readonly name: string }[];
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch (error) {
+      if (!hasErrorCode(error, "ENOTDIR")) {
+        throw error;
+      }
+      const refreshedInfo = await lstat(current);
+      if (refreshedInfo.isFile()) {
+        addArtifact(current, refreshedInfo.size);
+      }
+      return;
+    }
+
+    for (const entry of entries) {
+      await walk(path.join(current, entry.name));
     }
   }
 
@@ -1596,19 +1945,40 @@ async function collectArtifacts(root: string): Promise<readonly SandboxArtifact[
   return artifacts;
 }
 
+async function resolveCopiedSandboxOutputRoot(stagingRoot: string): Promise<string> {
+  const copiedRoot = path.join(stagingRoot, path.basename(SANDBOX_OUTPUT_MOUNT_PATH));
+  try {
+    const copiedRootInfo = await lstat(copiedRoot);
+    if (copiedRootInfo.isDirectory()) {
+      return copiedRoot;
+    }
+    return stagingRoot;
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      return stagingRoot;
+    }
+    throw error;
+  }
+}
+
 async function syncArtifactsFromContainer(
   docker: SandboxDockerOperations,
   containerId: string,
   outputDir: string,
 ): Promise<void> {
   await mkdir(outputDir, { recursive: true });
+  const stagingRoot = await mkdtemp(path.join(os.tmpdir(), "generic-ai-sandbox-artifacts-"));
   try {
-    await docker.copyFromContainer(containerId, `${SANDBOX_OUTPUT_MOUNT_PATH}/.`, outputDir);
+    await docker.copyFromContainer(containerId, SANDBOX_OUTPUT_MOUNT_PATH, stagingRoot);
+    const copiedOutputRoot = await resolveCopiedSandboxOutputRoot(stagingRoot);
+    await copyStagedDirectoryContentsToOutput(copiedOutputRoot, outputDir);
   } catch (error) {
     if (error instanceof SandboxUnavailableError && isDockerUnavailableMessage(error.message)) {
       return;
     }
     throw error;
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true });
   }
 }
 
@@ -1781,6 +2151,70 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       await runProcess(binary, ["network", "rm", networkName]);
     },
     async copyFromContainer(containerId, sourcePath, destinationPath) {
+      await mkdir(destinationPath, { recursive: true });
+      const nodeArchiveResult = await runProcess(binary, [
+        "exec",
+        containerId,
+        "node",
+        "-e",
+        NODE_ARTIFACT_ARCHIVE_SCRIPT,
+        sourcePath,
+      ]);
+      if (nodeArchiveResult.exitCode === 0) {
+        await extractJsonArtifactArchiveToDirectory(nodeArchiveResult.stdout, destinationPath);
+        return;
+      }
+      if (isDockerUnavailable(nodeArchiveResult)) {
+        const message =
+          nodeArchiveResult.stderr.trim() ||
+          nodeArchiveResult.error?.message ||
+          "unknown Docker error";
+        throw new SandboxUnavailableError(
+          `Failed to copy sandbox artifacts from "${containerId}": ${message}`,
+        );
+      }
+
+      const pythonArchiveResult = await runProcess(binary, [
+        "exec",
+        containerId,
+        "python3",
+        "-c",
+        PYTHON_ARTIFACT_ARCHIVE_SCRIPT,
+        sourcePath,
+      ]);
+      if (pythonArchiveResult.exitCode === 0) {
+        await extractJsonArtifactArchiveToDirectory(pythonArchiveResult.stdout, destinationPath);
+        return;
+      }
+      if (isDockerUnavailable(pythonArchiveResult)) {
+        const message =
+          pythonArchiveResult.stderr.trim() ||
+          pythonArchiveResult.error?.message ||
+          "unknown Docker error";
+        throw new SandboxUnavailableError(
+          `Failed to copy sandbox artifacts from "${containerId}": ${message}`,
+        );
+      }
+
+      const archiveResult = await runProcess(binary, [
+        "exec",
+        containerId,
+        "sh",
+        "-lc",
+        buildBase64TarArchiveCommand(sourcePath),
+      ]);
+      if (archiveResult.exitCode === 0) {
+        await extractBase64TarArchiveToDirectory(archiveResult.stdout, destinationPath);
+        return;
+      }
+      if (isDockerUnavailable(archiveResult)) {
+        const message =
+          archiveResult.stderr.trim() || archiveResult.error?.message || "unknown Docker error";
+        throw new SandboxUnavailableError(
+          `Failed to copy sandbox artifacts from "${containerId}": ${message}`,
+        );
+      }
+
       const result = await runProcess(binary, [
         "cp",
         `${containerId}:${sourcePath}`,
@@ -1890,7 +2324,13 @@ export function createSandboxTerminalPlugin(
     await mkdir(workspaceMountRoot, { recursive: true });
 
     if (fileMode === "readonly-mount") {
-      await stageReadonlyWorkspaceSnapshot(layout.root, workspaceMountRoot, tracker, maxInputBytes);
+      await stageReadonlyWorkspaceSnapshot(
+        layout.root,
+        workspaceMountRoot,
+        tracker,
+        maxInputBytes,
+        Object.freeze([resolveOutputBaseRelativePath(policy)]),
+      );
     } else if (fileMode === "copy") {
       const copyInPaths = dedupeRelativeSandboxPaths(policy.files?.copyInPaths);
       if (copyInPaths.length === 0) {

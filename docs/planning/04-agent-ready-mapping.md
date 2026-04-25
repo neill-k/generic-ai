@@ -137,6 +137,21 @@ Important examples:
 - several `agent_config.*` checks are intentionally tool-specific for local AI clients. Those can be adopted later or documented as optional ecosystem integrations.
 - `docs.spec_contracts_openapi` is likely to become relevant once the Hono plugin exposes a stabilized API surface worth freezing as contracts.
 
+## Agents-As-Code Launch Spine
+
+The public launch spine strengthens the agent-ready story by making agent system
+structure explicit and testable:
+
+- Harness DSL declarations provide inspectable agent configuration and package
+  permissions.
+- Generic Agent IR supplies a compiled contract for runtime execution.
+- MissionSpec and BenchmarkSpec make task discovery, test inputs, reset
+  behavior, and validity gates reproducible.
+- TraceEvent and BenchmarkReport contracts keep load-bearing claims tied to
+  evidence.
+- HarnessPatch records controlled evolution rather than promising autonomous
+  self-mutation in v0.1.
+
 ## Recommended Linear Handling
 
 Use this mapping in Linear as follows:

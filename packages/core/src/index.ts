@@ -2,6 +2,7 @@ export const name = "@generic-ai/core";
 
 export * from "./bootstrap/index.js";
 export * from "./events/index.js";
+export * from "./harness/index.js";
 export * from "./plugin-host/index.js";
 export * from "./registries/index.js";
 export * from "./run-envelope/index.js";

@@ -1,0 +1,58 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.verifier-loop",
+  "name": "Verifier Loop",
+  "packages": [
+    {
+      "id": "protocol.verifier-loop",
+      "package": "@generic-ai/protocol-verifier-loop",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.terminal",
+      "package": "@generic-ai/plugin-tools-terminal-sandbox",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.default",
+      "package": "@generic-ai/grader-default",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "solver",
+      "role": "solver",
+      "instructions": "Produce the first implementation.",
+      "packageRefs": ["protocol.verifier-loop", "capability.files", "capability.terminal"]
+    },
+    {
+      "id": "critic",
+      "role": "critic",
+      "instructions": "Review defects and missing evidence.",
+      "packageRefs": ["protocol.verifier-loop", "grader.default"]
+    },
+    {
+      "id": "repairer",
+      "role": "repairer",
+      "instructions": "Repair reviewer findings within bounded passes.",
+      "packageRefs": ["protocol.verifier-loop", "capability.files", "capability.terminal"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "verifier-loop",
+      "protocol": "verifier-loop",
+      "packageRef": "protocol.verifier-loop",
+      "actorRefs": ["solver", "critic", "repairer"]
+    }
+  ],
+  "missionRefs": ["mission.oauth-login"],
+  "evalRefs": ["benchmark.package-composed-shootout.v0"]
+}

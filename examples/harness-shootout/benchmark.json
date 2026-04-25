@@ -1,0 +1,115 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.package-composed-shootout.v0",
+  "missionRef": "mission.oauth-login",
+  "hypothesis": "Different coordination protocols will trade off task success, trace completeness, handoff count, rework, latency, and cost under the same mission constraints.",
+  "candidates": [
+    {
+      "id": "pipeline",
+      "harnessRef": "harness.pipeline"
+    },
+    {
+      "id": "verifier-loop",
+      "harnessRef": "harness.verifier-loop"
+    },
+    {
+      "id": "hierarchy",
+      "harnessRef": "harness.hierarchy"
+    },
+    {
+      "id": "squad",
+      "harnessRef": "harness.squad"
+    }
+  ],
+  "primaryMetric": "task_success",
+  "metricDefinitions": [
+    {
+      "id": "task_success",
+      "name": "Task success",
+      "unit": "boolean",
+      "direction": "higher_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "tests_passed",
+      "name": "Tests passed",
+      "unit": "boolean",
+      "direction": "higher_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "artifact_completeness",
+      "name": "Artifact completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "cost_usd",
+      "name": "Cost",
+      "unit": "usd",
+      "direction": "lower_is_better",
+      "source": "runtime"
+    },
+    {
+      "id": "wall_time",
+      "name": "Wall time",
+      "unit": "seconds",
+      "direction": "lower_is_better",
+      "source": "runtime"
+    },
+    {
+      "id": "handoff_count",
+      "name": "Handoff count",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "trace"
+    },
+    {
+      "id": "rework_rate",
+      "name": "Rework rate",
+      "unit": "ratio",
+      "direction": "lower_is_better",
+      "source": "trace"
+    },
+    {
+      "id": "policy_violations",
+      "name": "Policy violations",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "trace"
+    },
+    {
+      "id": "trace_completeness",
+      "name": "Trace completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace"
+    }
+  ],
+  "guardrailMetrics": [
+    "tests_passed",
+    "artifact_completeness",
+    "cost_usd",
+    "wall_time",
+    "handoff_count",
+    "rework_rate",
+    "policy_violations",
+    "trace_completeness"
+  ],
+  "trials": {
+    "count": 3,
+    "pairing": "paired",
+    "seed": "shootout-v0"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 3,
+    "requireTraceCompleteness": true,
+    "allowSingleRunRecommendation": false
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

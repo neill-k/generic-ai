@@ -5,11 +5,11 @@ Runnable Hono server example for the Generic AI starter preset.
 What this example does now:
 
 - boots from canonical `.generic-ai/` config via `createStarterHonoBootstrapFromYaml()`
-- validates provider/runtime environment at startup
+- validates runtime environment at startup
 - exposes `/starter/health`, `/starter/run`, and `/starter/run/stream`
 - serves a production-built prompt playground at `/`
 - uses a runtime adapter boundary in `@generic-ai/core`
-- defaults to the official OpenAI Responses client for `gpt-5.2-codex`
+- defaults to Pi's OpenAI Codex provider path for `gpt-5.2-codex`
 - keeps `pi` available as an explicit compatibility adapter
 
 The main server entrypoint is `examples/starter-hono/src/index.ts`. The playground source lives under `examples/starter-hono/ui/` and builds into `examples/starter-hono/dist/public/`, which the same Hono process serves at `/`.
@@ -18,9 +18,10 @@ The core package now also exposes a capability-to-`pi` runtime bridge (`createCa
 
 ## Required environment
 
-The server validates these values before it starts:
+The server reads these values before it starts:
 
-- `GENERIC_AI_PROVIDER_API_KEY` required for both adapters
+- `GENERIC_AI_PROVIDER_API_KEY` optional runtime key override. If unset, the
+  server relies on Pi auth in the configured agent directory.
 - `GENERIC_AI_MODEL` optional model override
 - `GENERIC_AI_RUNTIME_ADAPTER` optional: `openai-codex` or `pi`
 - `GENERIC_AI_WORKSPACE_ROOT` optional workspace root override
@@ -31,7 +32,8 @@ The server validates these values before it starts:
 
 Default model behavior:
 
-- adapter `openai-codex`: uses the official OpenAI Responses API
+- adapter `openai-codex`: uses Pi's `openai-codex` provider through
+  `AuthStorage`, `ModelRegistry`, and `createAgentSession`
 - adapter `pi`: uses `pi` with the OpenAI provider as an explicit compatibility path
 - if `GENERIC_AI_MODEL` is unset, the example falls back to the primary agent model from `.generic-ai/agents/starter.yaml`
 

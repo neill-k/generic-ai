@@ -18,8 +18,10 @@ Use `pi` directly when you want:
 
 Use Generic AI when you want:
 
+- a package-extensible agents-as-code language,
 - a plugin-first multi-agent framework,
 - a stable SDK contract for plugin and preset authors,
+- compiled Generic Agent IR before runtime execution,
 - canonical config discovery and validation,
 - root and child session orchestration,
 - durable inter-agent messaging,
@@ -55,6 +57,9 @@ The added value is the framework control plane:
 - **Bootstrap and presets.** `createGenericAI()` and `@generic-ai/preset-starter-hono` give callers a default working stack while still allowing explicit custom composition.
 - **Plugin host.** The kernel registers plugins, validates manifests, orders dependencies, runs lifecycle hooks, and exposes registries.
 - **SDK contracts.** `@generic-ai/sdk` defines the framework-facing contracts plugin authors compile against, including scope, storage, workspace, queue, output, plugin lifecycle, and registry contracts.
+- **Agents-as-code contracts.** Harness DSL, Generic Agent IR, MissionSpec,
+  BenchmarkSpec, traces, reports, policies, and patches are public SDK
+  contracts for package-composed agent systems.
 - **Canonical config.** `@generic-ai/plugin-config-yaml` owns YAML discovery, validation, schema composition, and resolved config output.
 - **Session orchestration.** The kernel owns root sessions, child sessions, lifecycle events, sync runs, async runs, and canonical run envelopes.
 - **Replaceable capabilities.** Storage, queueing, logging, terminal tools, file tools, web tools, MCP, Agent Skills, delegation, interaction, messaging, memory, output, and Hono live in plugins rather than the kernel.
@@ -67,6 +72,10 @@ The added value is the framework control plane:
 Generic AI should stay honest about its boundary.
 
 It does not try to replace `pi`'s low-level model/provider and tool-call mechanics. It should expose `pi` primitives directly where that improves plugin ergonomics.
+
+For OpenAI Codex inference, Generic AI uses Pi's `openai-codex` provider method:
+Pi auth/model resolution plus `AgentSession` execution. The framework does not
+maintain a separate direct OpenAI client path for the default Codex adapter.
 
 It does not make TUI or web UI part of the kernel. Those are deferred framework tracks. A product can still build UI on top of Generic AI, and it can use `pi` UI packages where those fit.
 

@@ -1,0 +1,73 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.oauth-login",
+  "objective": "Add a minimal OAuth-style login route to the fixture app, include deterministic tests, and document the operator setup.",
+  "objectiveClass": "coding",
+  "fixtureRefs": ["fixtures/oauth-login-app"],
+  "reset": {
+    "workspace": "snapshot",
+    "storage": "clean",
+    "messages": "clean",
+    "memory": "clean"
+  },
+  "allowedPackages": [
+    "capability.files",
+    "capability.terminal",
+    "policy.local-dev",
+    "grader.default"
+  ],
+  "constraints": [
+    "No external network calls during tests.",
+    "No provider secrets in source, traces, artifacts, or reports.",
+    "All generated claims must reference trace, metric, or artifact evidence."
+  ],
+  "expectedArtifacts": [
+    {
+      "id": "artifact.patch",
+      "name": "implementation.patch",
+      "kind": "patch",
+      "producedBy": ["implementer"],
+      "reviewedBy": ["reviewer"]
+    },
+    {
+      "id": "artifact.tests",
+      "name": "test-results.json",
+      "kind": "metric",
+      "producedBy": ["tester"]
+    },
+    {
+      "id": "artifact.report",
+      "name": "mission-summary.md",
+      "kind": "report",
+      "producedBy": ["reporter"]
+    }
+  ],
+  "graders": [
+    {
+      "id": "grader.default-v0",
+      "metricRefs": [
+        "task_success",
+        "tests_passed",
+        "artifact_completeness",
+        "trace_completeness"
+      ],
+      "packageRef": "grader.default",
+      "deterministic": true
+    }
+  ],
+  "successCriteria": {
+    "requiredSubstrings": ["LOGIN_DONE"],
+    "requiredArtifacts": [
+      "implementation.patch",
+      "test-results.json",
+      "mission-summary.md"
+    ]
+  },
+  "providerPolicy": {
+    "adapter": "openai-codex",
+    "model": "gpt-5.4",
+    "cache": "deny",
+    "network": "isolated"
+  }
+}

@@ -1,6 +1,10 @@
 # Planning Pack
 
-This directory is the authoritative planning baseline for the `Generic AI Framework` reimplementation.
+This directory is the authoritative planning baseline for the `Generic AI Framework`.
+
+Generic AI is now planned as a package-extensible agents-as-code language,
+compiler, runtime, and evidence harness. Architecture Lab is the flagship proof
+surface built on that platform, not the platform boundary itself.
 
 Use this README plus the numbered planning docs below as the planning source of truth for scope, architecture, dependency order, and Linear synchronization.
 
@@ -41,3 +45,5 @@ Within each group, preserve the written issue order and dependency links from `0
 - Expose `pi` directly where practical instead of rewrapping every primitive.
 - Make the starter preset the default path to a working multi-agent system.
 - Map the roadmap to the `agent-ready` profile explicitly instead of claiming compliance abstractly.
+- Treat Harness DSL -> Generic Agent IR -> runtime/packages -> traces/evals/reports as the public launch spine.
+- Keep evidence-backed recommendations bounded; underpowered runs should report insufficient evidence.
