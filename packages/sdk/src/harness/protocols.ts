@@ -8,16 +8,14 @@ import type {
   TraceEvent,
 } from "./types.js";
 
-function firstActor(compiled: CompiledHarness): string | undefined {
-  return compiled.agents[0]?.id;
-}
-
 function actorByRole(compiled: CompiledHarness, role: string): string | undefined {
   return compiled.agents.find((agent) => agent.role === role)?.id;
 }
 
 function hasCompleted(events: readonly TraceEvent[]): boolean {
-  return events.some((event) => event.type === "trial.completed" || event.type === "benchmark.completed");
+  return events.some(
+    (event) => event.type === "trial.completed" || event.type === "benchmark.completed",
+  );
 }
 
 function action(input: {
@@ -35,7 +33,10 @@ function action(input: {
   });
 }
 
-function summary(status: ProtocolState["status"], actions: readonly ProtocolAction[]): ProtocolSummary {
+function summary(
+  status: ProtocolState["status"],
+  actions: readonly ProtocolAction[],
+): ProtocolSummary {
   return Object.freeze({
     status,
     actionCount: actions.length,
@@ -47,7 +48,10 @@ function state(status: ProtocolState["status"]): ProtocolState {
   return Object.freeze({ status });
 }
 
-function requireActors(compiled: CompiledHarness, roles: readonly string[]): readonly CompileDiagnostic[] {
+function requireActors(
+  compiled: CompiledHarness,
+  roles: readonly string[],
+): readonly CompileDiagnostic[] {
   const diagnostics: CompileDiagnostic[] = [];
   for (const role of roles) {
     if (actorByRole(compiled, role) === undefined) {
@@ -71,14 +75,14 @@ export function createPipelineProtocol(): ProtocolPlugin {
       protocol: "pipeline",
     },
     initialize: async () => state("ready"),
-    validate: async (compiled) => (firstActor(compiled) === undefined ? requireActors(compiled, ["implementer"]) : []),
+    validate: async (compiled) => requireActors(compiled, ["implementer"]),
     reduce: async ({ compiled, events }) => {
       if (hasCompleted(events)) {
         const nextState = state("done");
         return { state: nextState, actions: [], summary: summary(nextState.status, []) };
       }
 
-      const actorRef = firstActor(compiled);
+      const actorRef = actorByRole(compiled, "implementer");
       const actions =
         actorRef === undefined
           ? []
@@ -123,7 +127,9 @@ export function createVerifierLoopProtocol(): ProtocolPlugin {
           id: `${compiled.id}:verifier-loop:${index + 1}:${actorRef}`,
           kind: "invoke_actor",
           actorRef,
-          payload: { loopRole: compiled.agents.find((agent) => agent.id === actorRef)?.role ?? "actor" },
+          payload: {
+            loopRole: compiled.agents.find((agent) => agent.id === actorRef)?.role ?? "actor",
+          },
         }),
       );
       const nextState = state(actors.length < 3 ? "blocked" : "ready");
@@ -202,7 +208,9 @@ export function createSquadProtocol(): ProtocolPlugin {
           id: `${compiled.id}:squad:claim:${agent.id}`,
           kind: "claim_work",
           actorRef: agent.id,
-          payload: { space: compiled.spaces.find((space) => space.visibility === "shared")?.id ?? "shared" },
+          payload: {
+            space: compiled.spaces.find((space) => space.visibility === "shared")?.id ?? "shared",
+          },
         }),
       );
       const nextState = state(actions.length === 0 ? "blocked" : "ready");

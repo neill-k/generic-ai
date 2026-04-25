@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { HARNESS_SCHEMA_VERSION, type BenchmarkSpec, type HarnessDsl, type MissionSpec } from "@generic-ai/sdk";
+import {
+  HARNESS_SCHEMA_VERSION,
+  type BenchmarkSpec,
+  type HarnessDsl,
+  type MissionSpec,
+} from "@generic-ai/sdk";
 import { runHarnessBenchmark } from "../../src/harness/index.js";
 import type { GenericAILlmRuntime } from "../../src/runtime/index.js";
 
@@ -141,5 +146,58 @@ describe("runHarnessBenchmark", () => {
       }),
     ).rejects.toThrow("Harness DSL failed to compile");
     expect(createRuntime).not.toHaveBeenCalled();
+  });
+
+  it("scores required artifact success criteria", async () => {
+    const result = await runHarnessBenchmark({
+      benchmark: {
+        ...benchmark,
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+      },
+      mission: {
+        ...mission,
+        expectedArtifacts: [],
+        successCriteria: {
+          requiredSubstrings: ["LOGIN_DONE"],
+          requiredArtifacts: ["README.md", "setup.md"],
+        },
+      },
+      harnesses: {
+        [harness.id]: harness,
+      },
+      createRuntime: async () => fakeRuntime("LOGIN_DONE README.md"),
+    });
+
+    const metrics = result.trialResults[0]?.metrics ?? [];
+    expect(metrics.find((metric) => metric.metricId === "task_success")?.value).toBe(0);
+    expect(metrics.find((metric) => metric.metricId === "artifact_completeness")?.value).toBe(0);
+  });
+
+  it("emits unique trace event ids across repeated trials", async () => {
+    const result = await runHarnessBenchmark({
+      benchmark: {
+        ...benchmark,
+        trials: {
+          count: 2,
+          pairing: "paired",
+        },
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+      },
+      mission,
+      harnesses: {
+        [harness.id]: harness,
+      },
+      createRuntime: async () => fakeRuntime("LOGIN_DONE README.md"),
+    });
+
+    const eventIds = result.trialResults.flatMap((trial) =>
+      trial.traceEvents.map((event) => event.id),
+    );
+
+    expect(new Set(eventIds).size).toBe(eventIds.length);
   });
 });

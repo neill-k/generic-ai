@@ -58,7 +58,13 @@ export interface AgentSpec {
 
 export interface SpaceSpec {
   readonly id: string;
-  readonly kind: "workspace" | "message-thread" | "memory" | "artifact-store" | "scratch" | "custom";
+  readonly kind:
+    | "workspace"
+    | "message-thread"
+    | "memory"
+    | "artifact-store"
+    | "scratch"
+    | "custom";
   readonly description?: string;
   readonly visibility?: "private" | "shared" | "public";
   readonly ownerAgentRef?: string;
@@ -66,7 +72,13 @@ export interface SpaceSpec {
 
 export interface RelationshipSpec {
   readonly id: string;
-  readonly kind: "delegates_to" | "reviews" | "coordinates_with" | "reports_to" | "blocks" | "custom";
+  readonly kind:
+    | "delegates_to"
+    | "reviews"
+    | "coordinates_with"
+    | "reports_to"
+    | "blocks"
+    | "custom";
   readonly fromAgentRef: string;
   readonly toAgentRef: string;
   readonly description?: string;
@@ -284,6 +296,7 @@ export interface BenchmarkSpec {
   readonly hypothesis: string;
   readonly candidates: readonly BenchmarkCandidateSpec[];
   readonly primaryMetric: string;
+  readonly metricDefinitions?: readonly MetricDefinition[];
   readonly guardrailMetrics?: readonly string[];
   readonly trials: {
     readonly count: number;

@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  createGenericAILlmRuntime,
-  createOpenAICodexRuntime,
-} from "../../src/runtime/index.js";
+import { createGenericAILlmRuntime, createOpenAICodexRuntime } from "../../src/runtime/index.js";
 
 describe("@generic-ai/core llm runtime adapter", () => {
   it("uses Pi's OpenAI Codex provider path by default", async () => {
@@ -56,21 +53,36 @@ describe("@generic-ai/core llm runtime adapter", () => {
 
   it("supports OpenAI Codex auth from Pi agent storage without an API key", async () => {
     const setRuntimeApiKey = vi.fn();
+    const authStorageFactory = vi.fn((agentDir?: string) => {
+      expect(agentDir).toBeTypeOf("string");
+      return {
+        setRuntimeApiKey,
+      };
+    });
+    const modelRegistryFactory = vi.fn((_authStorage: unknown, agentDir?: string) => {
+      expect(agentDir).toBeTypeOf("string");
+      return {
+        find: () => ({ id: "gpt-5.2-codex" }),
+        hasConfiguredAuth: () => true,
+      };
+    });
+    const resourceLoaderFactory = vi.fn(
+      (options: { readonly cwd?: string; readonly agentDir?: string }) => {
+        expect(options.cwd).toBeTypeOf("string");
+        expect(options.agentDir).toBeTypeOf("string");
+        return {
+          reload: async () => undefined,
+        };
+      },
+    );
 
     const runtime = await createGenericAILlmRuntime(
       {},
       {
         openai: {
-          authStorageFactory: () => ({
-            setRuntimeApiKey,
-          }),
-          modelRegistryFactory: () => ({
-            find: () => ({ id: "gpt-5.2-codex" }),
-            hasConfiguredAuth: () => true,
-          }),
-          resourceLoaderFactory: () => ({
-            reload: async () => undefined,
-          }),
+          authStorageFactory,
+          modelRegistryFactory,
+          resourceLoaderFactory,
           createAgentSession: async () =>
             ({
               session: {
@@ -87,6 +99,9 @@ describe("@generic-ai/core llm runtime adapter", () => {
       outputText: "stored auth result",
     });
     expect(setRuntimeApiKey).not.toHaveBeenCalled();
+    expect(authStorageFactory).toHaveBeenCalled();
+    expect(modelRegistryFactory).toHaveBeenCalled();
+    expect(resourceLoaderFactory).toHaveBeenCalled();
   });
 
   it("streams a terminal response from the Pi OpenAI Codex path", async () => {
@@ -116,7 +131,8 @@ describe("@generic-ai/core llm runtime adapter", () => {
     );
 
     const chunks = [];
-    for await (const chunk of runtime.stream("stream please")) {
+    const stream = runtime.stream;
+    for await (const chunk of stream("stream please")) {
       chunks.push(chunk);
     }
 

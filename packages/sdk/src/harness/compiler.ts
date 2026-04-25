@@ -149,12 +149,14 @@ function validatePackageRefs(
 function validateAgentRefs(
   diagnostics: CompileDiagnostic[],
   agents: readonly AgentSpec[],
+  capabilities: readonly CapabilitySpec[],
   spaces: readonly SpaceSpec[],
   relationships: readonly RelationshipSpec[],
   protocols: readonly ProtocolBindingSpec[],
   artifacts: readonly ArtifactContract[],
 ): void {
   const agentIds = collectIds(agents);
+  const capabilityIds = collectIds(capabilities);
   const spaceIds = collectIds(spaces);
 
   for (const space of spaces) {
@@ -189,6 +191,16 @@ function validateAgentRefs(
         "missing_space",
         "Writable space reference",
         `agents.${agent.id}.writableSpaces`,
+      );
+    }
+    for (const capabilityRef of agent.capabilityRefs ?? []) {
+      requireRef(
+        diagnostics,
+        capabilityIds,
+        capabilityRef,
+        "missing_capability",
+        "Agent capability reference",
+        `agents.${agent.id}.capabilityRefs`,
       );
     }
   }
@@ -251,7 +263,13 @@ function validateAgentRefs(
 
 function validateTopology(diagnostics: CompileDiagnostic[], agents: readonly AgentSpec[]): void {
   if (agents.length === 0) {
-    addDiagnostic(diagnostics, "error", "no_agents", "A harness must declare at least one agent.", "agents");
+    addDiagnostic(
+      diagnostics,
+      "error",
+      "no_agents",
+      "A harness must declare at least one agent.",
+      "agents",
+    );
   }
 
   const roots = agents.filter((agent) => agent.role.trim().length > 0);
@@ -344,7 +362,15 @@ export function compileHarnessDsl(source: HarnessDsl): CompileHarnessResult {
 
   validateTopology(diagnostics, source.agents);
   validatePackageRefs(diagnostics, source.packages, capabilities, protocols, source.agents);
-  validateAgentRefs(diagnostics, source.agents, spaces, relationships, protocols, artifacts);
+  validateAgentRefs(
+    diagnostics,
+    source.agents,
+    capabilities,
+    spaces,
+    relationships,
+    protocols,
+    artifacts,
+  );
 
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return Object.freeze({ diagnostics: Object.freeze(diagnostics) });

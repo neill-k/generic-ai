@@ -16,10 +16,7 @@ import {
   type TraceEventType,
 } from "@generic-ai/sdk";
 import { createGenericAILlmRuntime } from "../runtime/llm.js";
-import type {
-  CreateGenericAILlmRuntimeOptions,
-  GenericAILlmRuntime,
-} from "../runtime/types.js";
+import type { CreateGenericAILlmRuntimeOptions, GenericAILlmRuntime } from "../runtime/types.js";
 
 export interface HarnessBenchmarkRuntimeContext {
   readonly benchmark: BenchmarkSpec;
@@ -104,7 +101,7 @@ function eventFactory(input: {
   return (event) => {
     sequence += 1;
     return Object.freeze({
-      id: `${input.runId}:event:${sequence}`,
+      id: `${input.runId}:${input.trialId}:event:${sequence}`,
       sequence,
       timestamp: input.now(),
       runId: input.runId,
@@ -149,17 +146,18 @@ function scoreMission(input: {
   readonly latencyMs: number;
 }): readonly MetricValue[] {
   const requiredSubstrings = input.mission.successCriteria?.requiredSubstrings ?? [];
-  const expectedArtifacts = input.mission.expectedArtifacts ?? [];
-  const taskSuccess =
+  const requiredArtifactNames = [
+    ...(input.mission.expectedArtifacts ?? []).map((artifact) => artifact.name),
+    ...(input.mission.successCriteria?.requiredArtifacts ?? []),
+  ].filter((name, index, names) => names.indexOf(name) === index);
+  const substringsPresent =
     requiredSubstrings.length === 0 ||
-    requiredSubstrings.every((substring) => input.outputText.includes(substring))
-      ? 1
-      : 0;
-  const artifactCompleteness =
-    expectedArtifacts.length === 0 ||
-    expectedArtifacts.every((artifact) => input.outputText.includes(artifact.name))
-      ? 1
-      : 0;
+    requiredSubstrings.every((substring) => input.outputText.includes(substring));
+  const artifactsPresent =
+    requiredArtifactNames.length === 0 ||
+    requiredArtifactNames.every((name) => input.outputText.includes(name));
+  const taskSuccess = substringsPresent && artifactsPresent ? 1 : 0;
+  const artifactCompleteness = artifactsPresent ? 1 : 0;
   const diagnostics = traceDiagnostics(input.traceEvents);
 
   return Object.freeze([

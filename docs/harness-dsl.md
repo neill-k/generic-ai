@@ -32,6 +32,11 @@ Reports are evidence-backed, not marketing claims. They separate:
 - recommendations: bounded suggestions,
 - insufficient evidence: cases where the data cannot support a confident claim.
 
+BenchmarkSpec can declare metric definitions with higher-is-better,
+lower-is-better, or informational direction. Report helpers use those directions
+when choosing bounded recommendations, and a missing primary metric sample stays
+`insufficient_evidence` rather than being treated as zero.
+
 Single-run smoke results are allowed for wiring checks, but they cannot produce a
 confident architecture recommendation unless the BenchmarkSpec explicitly opts
 into that behavior.

@@ -64,9 +64,7 @@ function isTextPart(value: unknown): value is { readonly type: "text"; readonly 
   );
 }
 
-function isAssistantLikeMessage(
-  value: unknown,
-): value is {
+function isAssistantLikeMessage(value: unknown): value is {
   readonly role: "assistant";
   readonly content: unknown;
 } {
@@ -96,7 +94,10 @@ function extractLatestAssistantText(session: PiSession): string {
     }
 
     if (Array.isArray(message.content)) {
-      return message.content.filter(isTextPart).map((part) => part.text).join("");
+      return message.content
+        .filter(isTextPart)
+        .map((part) => part.text)
+        .join("");
     }
   }
 
@@ -138,16 +139,12 @@ async function createSession(
   const modelId = input.model ?? DEFAULT_OPENAI_CODEX_MODEL;
   const createAgentSession = dependencies.createAgentSession ?? createPiAgentSession;
   const authStorage =
-    dependencies.authStorageFactory?.(input.agentDir) ??
-    AuthStorage.create(input.agentDir === undefined ? undefined : join(input.agentDir, "auth.json"));
+    dependencies.authStorageFactory?.(agentDir) ?? AuthStorage.create(join(agentDir, "auth.json"));
   setApiKey(authStorage, input.apiKey);
 
   const modelRegistry =
-    dependencies.modelRegistryFactory?.(authStorage, input.agentDir) ??
-    ModelRegistry.create(
-      authStorage as AuthStorage,
-      input.agentDir === undefined ? undefined : join(input.agentDir, "models.json"),
-    );
+    dependencies.modelRegistryFactory?.(authStorage, agentDir) ??
+    ModelRegistry.create(authStorage as AuthStorage, join(agentDir, "models.json"));
   const model = modelRegistry.find(OPENAI_CODEX_PI_PROVIDER, modelId);
   if (model === undefined || model === null) {
     throw new Error(
@@ -165,8 +162,8 @@ async function createSession(
 
   const resourceLoader =
     dependencies.resourceLoaderFactory?.({
-      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-      ...(input.agentDir === undefined ? {} : { agentDir: input.agentDir }),
+      cwd,
+      agentDir,
       ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
     }) ??
     new DefaultResourceLoader({
@@ -188,8 +185,8 @@ async function createSession(
     tools: [],
     resourceLoader: resourceLoader as never,
     sessionManager: (dependencies.sessionManagerFactory?.() ?? SessionManager.inMemory()) as never,
-    settingsManager:
-      (dependencies.settingsManagerFactory?.() ?? SettingsManager.inMemory()) as never,
+    settingsManager: (dependencies.settingsManagerFactory?.() ??
+      SettingsManager.inMemory()) as never,
   });
 
   return {
@@ -209,30 +206,31 @@ export function createOpenAICodexRuntime(
   dependencies: OpenAICodexRuntimeDependencies = {},
 ): GenericAILlmRuntime {
   const model = input.model ?? DEFAULT_OPENAI_CODEX_MODEL;
+  const run: GenericAILlmRuntime["run"] = async (prompt, options) => {
+    if (options?.signal?.aborted) {
+      throw new Error("Pi OpenAI Codex runtime aborted before prompt dispatch.");
+    }
+
+    const { modelId, session } = await createSession(input, dependencies);
+    try {
+      await session.prompt(prompt, {
+        source: "extension",
+      });
+      return toRunResult(modelId, extractLatestAssistantText(session), undefined);
+    } finally {
+      session.dispose?.();
+    }
+  };
 
   return Object.freeze({
     adapter: "openai-codex",
     model,
     ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
-    async run(prompt: string, options?: GenericAILlmRunOptions) {
-      if (options?.signal?.aborted) {
-        throw new Error("Pi OpenAI Codex runtime aborted before prompt dispatch.");
-      }
-
-      const { modelId, session } = await createSession(input, dependencies);
-      try {
-        await session.prompt(prompt, {
-          source: "extension",
-        });
-        return toRunResult(modelId, extractLatestAssistantText(session), undefined);
-      } finally {
-        session.dispose?.();
-      }
-    },
+    run,
     async *stream(prompt: string, options?: GenericAILlmRunOptions) {
       yield {
         type: "response",
-        response: await this.run(prompt, options),
+        response: await run(prompt, options),
       } as const;
     },
   });

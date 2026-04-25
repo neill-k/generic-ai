@@ -44,6 +44,9 @@ as executable authority.
 MissionSpec and BenchmarkSpec are first-class platform objects. Reports must keep
 observations, inferences, and recommendations separate. Underpowered runs or
 incomplete traces produce `insufficient_evidence` rather than a winner claim.
+Metric definitions may declare whether higher or lower values are better; report
+recommendations must honor that direction and must not turn missing primary
+metric samples into zero-valued evidence.
 
 ## Package Extension Boundary
 

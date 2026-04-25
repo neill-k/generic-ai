@@ -3,23 +3,45 @@ import type {
   BenchmarkReportCandidate,
   BenchmarkSpec,
   BenchmarkTrialResult,
+  MetricDefinition,
   MetricValue,
   MissionSpec,
   RecommendationBoundary,
 } from "./types.js";
 
-function average(values: readonly number[]): number {
+type ComparableMetricDirection = Exclude<MetricDefinition["direction"], "informational">;
+
+const DEFAULT_LOWER_IS_BETTER_METRICS = new Set([
+  "cost_usd",
+  "handoff_count",
+  "latency",
+  "latency_ms",
+  "policy_violations",
+  "rework_count",
+  "rework_rate",
+  "wall_time",
+]);
+
+function average(values: readonly number[]): number | undefined {
   if (values.length === 0) {
-    return 0;
+    return undefined;
   }
 
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
-function aggregateMetric(metricId: string, results: readonly BenchmarkTrialResult[]): MetricValue {
+function aggregateMetric(
+  metricId: string,
+  results: readonly BenchmarkTrialResult[],
+): MetricValue | undefined {
   const values = results
     .map((result) => result.metrics.find((metric) => metric.metricId === metricId)?.value)
     .filter((value): value is number => value !== undefined);
+  const averageValue = average(values);
+  if (averageValue === undefined) {
+    return undefined;
+  }
+
   const evidenceRefs = results.flatMap((result) =>
     result.metrics
       .filter((metric) => metric.metricId === metricId)
@@ -28,31 +50,70 @@ function aggregateMetric(metricId: string, results: readonly BenchmarkTrialResul
 
   return Object.freeze({
     metricId,
-    value: average(values),
+    value: averageValue,
     evidenceRefs: Object.freeze([...new Set(evidenceRefs)]),
   });
+}
+
+function metricDirection(
+  benchmark: BenchmarkSpec,
+  metricId: string,
+): MetricDefinition["direction"] {
+  const configured = benchmark.metricDefinitions?.find(
+    (metric) => metric.id === metricId,
+  )?.direction;
+  if (configured !== undefined) {
+    return configured;
+  }
+
+  return DEFAULT_LOWER_IS_BETTER_METRICS.has(metricId) ? "lower_is_better" : "higher_is_better";
+}
+
+function bestMetricValue(
+  values: readonly number[],
+  direction: ComparableMetricDirection,
+): number | undefined {
+  if (values.length === 0) {
+    return undefined;
+  }
+
+  return direction === "lower_is_better" ? Math.min(...values) : Math.max(...values);
 }
 
 function recommendationFor(input: {
   readonly benchmark: BenchmarkSpec;
   readonly trialCount: number;
   readonly traceCompleteness: number;
-  readonly primaryMetric: MetricValue;
-  readonly bestPrimaryMetricValue: number;
+  readonly primaryMetric: MetricValue | undefined;
+  readonly primaryMetricDirection: MetricDefinition["direction"];
+  readonly bestPrimaryMetricValue: number | undefined;
 }): RecommendationBoundary {
   const minimumTrials = input.benchmark.validity?.minimumTrialsForRecommendation ?? 3;
-  if (
-    input.trialCount < minimumTrials &&
-    input.benchmark.validity?.allowSingleRunRecommendation !== true
-  ) {
+  const singleRunOverride =
+    input.benchmark.validity?.allowSingleRunRecommendation === true &&
+    input.benchmark.trials.count === 1 &&
+    input.trialCount === 1;
+
+  if (input.trialCount === 0 || (input.trialCount < minimumTrials && !singleRunOverride)) {
+    return "insufficient_evidence";
+  }
+
+  if (input.benchmark.validity?.requireTraceCompleteness === true && input.traceCompleteness < 1) {
     return "insufficient_evidence";
   }
 
   if (
-    input.benchmark.validity?.requireTraceCompleteness === true &&
-    input.traceCompleteness < 1
+    input.primaryMetric === undefined ||
+    input.bestPrimaryMetricValue === undefined ||
+    input.primaryMetricDirection === "informational"
   ) {
     return "insufficient_evidence";
+  }
+
+  if (input.primaryMetricDirection === "lower_is_better") {
+    return input.primaryMetric.value <= input.bestPrimaryMetricValue
+      ? "recommended"
+      : "not_recommended";
   }
 
   if (input.primaryMetric.value >= input.bestPrimaryMetricValue) {
@@ -67,22 +128,27 @@ function candidateReport(input: {
   readonly candidateId: string;
   readonly harnessId: string;
   readonly results: readonly BenchmarkTrialResult[];
-  readonly bestPrimaryMetricValue: number;
+  readonly primaryMetricDirection: MetricDefinition["direction"];
+  readonly bestPrimaryMetricValue: number | undefined;
 }): BenchmarkReportCandidate {
   const primaryMetric = aggregateMetric(input.benchmark.primaryMetric, input.results);
-  const guardrails = (input.benchmark.guardrailMetrics ?? []).map((metricId) =>
-    aggregateMetric(metricId, input.results),
-  );
-  const traceCompleteness = average(input.results.map((result) => result.diagnostics.completeness));
+  const guardrails = (input.benchmark.guardrailMetrics ?? [])
+    .map((metricId) => aggregateMetric(metricId, input.results))
+    .filter((metric): metric is MetricValue => metric !== undefined);
+  const traceCompleteness =
+    average(input.results.map((result) => result.diagnostics.completeness)) ?? 0;
   const recommendation = recommendationFor({
     benchmark: input.benchmark,
     trialCount: input.results.length,
     traceCompleteness,
     primaryMetric,
+    primaryMetricDirection: input.primaryMetricDirection,
     bestPrimaryMetricValue: input.bestPrimaryMetricValue,
   });
   const rationale = [
-    `${input.benchmark.primaryMetric} average: ${primaryMetric.value}`,
+    primaryMetric === undefined
+      ? `${input.benchmark.primaryMetric} average: missing`
+      : `${input.benchmark.primaryMetric} average: ${primaryMetric.value}`,
     `trace completeness: ${traceCompleteness}`,
     `trials: ${input.results.length}`,
   ];
@@ -91,7 +157,10 @@ function candidateReport(input: {
     candidateId: input.candidateId,
     harnessId: input.harnessId,
     trialCount: input.results.length,
-    scorecard: Object.freeze([primaryMetric, ...guardrails]),
+    scorecard: Object.freeze([
+      ...(primaryMetric === undefined ? [] : [primaryMetric]),
+      ...guardrails,
+    ]),
     traceCompleteness,
     recommendation,
     rationale: Object.freeze(rationale),
@@ -109,16 +178,21 @@ export function createBenchmarkReport(input: {
     byCandidate.set(result.candidateId, [...(byCandidate.get(result.candidateId) ?? []), result]);
   }
 
-  const primaryValues = [...byCandidate.values()].map(
-    (results) => aggregateMetric(input.benchmark.primaryMetric, results).value,
-  );
-  const bestPrimaryMetricValue = Math.max(0, ...primaryValues);
+  const primaryMetricDirection = metricDirection(input.benchmark, input.benchmark.primaryMetric);
+  const primaryValues = [...byCandidate.values()]
+    .map((results) => aggregateMetric(input.benchmark.primaryMetric, results)?.value)
+    .filter((value): value is number => value !== undefined);
+  const bestPrimaryMetricValue =
+    primaryMetricDirection === "informational"
+      ? undefined
+      : bestMetricValue(primaryValues, primaryMetricDirection);
   const candidates = input.benchmark.candidates.map((candidate) =>
     candidateReport({
       benchmark: input.benchmark,
       candidateId: candidate.id,
-      harnessId: candidate.harnessRef,
+      harnessId: byCandidate.get(candidate.id)?.[0]?.harnessId ?? candidate.harnessRef,
       results: byCandidate.get(candidate.id) ?? [],
+      primaryMetricDirection,
       bestPrimaryMetricValue,
     }),
   );
@@ -193,7 +267,12 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
   ];
 
   if (report.insufficientEvidence.length > 0) {
-    lines.push("## Insufficient Evidence", "", ...report.insufficientEvidence.map((item) => `- ${item}`), "");
+    lines.push(
+      "## Insufficient Evidence",
+      "",
+      ...report.insufficientEvidence.map((item) => `- ${item}`),
+      "",
+    );
   }
 
   return `${lines.join("\n")}\n`;
