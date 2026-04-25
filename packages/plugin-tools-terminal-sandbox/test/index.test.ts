@@ -328,9 +328,13 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
 
       const docker = new FakeDockerOperations();
       docker.copyHandler = async (_containerId, _sourcePath, destinationPath) => {
-        await mkdir(path.join(destinationPath, "logs"), { recursive: true });
-        await writeFile(path.join(destinationPath, "result.json"), '{"ok":true}\n', "utf8");
-        await writeFile(path.join(destinationPath, "logs", "stderr.txt"), "warn\n", "utf8");
+        const copiedOutputRoot = path.join(
+          destinationPath,
+          path.basename(SANDBOX_OUTPUT_MOUNT_PATH),
+        );
+        await mkdir(path.join(copiedOutputRoot, "logs"), { recursive: true });
+        await writeFile(path.join(copiedOutputRoot, "result.json"), '{"ok":true}\n', "utf8");
+        await writeFile(path.join(copiedOutputRoot, "logs", "stderr.txt"), "warn\n", "utf8");
       };
       const plugin = createSandboxTerminalPlugin({
         root,
@@ -406,7 +410,7 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(docker.copied[0]).toEqual(
         expect.objectContaining({
           containerId: "container-session-123",
-          sourcePath: `${SANDBOX_OUTPUT_MOUNT_PATH}/.`,
+          sourcePath: SANDBOX_OUTPUT_MOUNT_PATH,
         }),
       );
       expect(result.generatedFiles).toEqual(result.artifacts);
@@ -478,11 +482,10 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
       expect(docker.created[0]?.memoryMb).toBe(256);
       expect(getOutputMount(docker).sizeMb).toBe(32);
       expect(docker.copied).toEqual([
-        {
+        expect.objectContaining({
           containerId: "container-ephemeral-1",
-          sourcePath: `${SANDBOX_OUTPUT_MOUNT_PATH}/.`,
-          destinationPath: path.join(root, "workspace", "shared", "sandbox-results", "ephemeral-1"),
-        },
+          sourcePath: SANDBOX_OUTPUT_MOUNT_PATH,
+        }),
       ]);
       expect(docker.stopped).toEqual([
         { containerId: "container-ephemeral-1", graceMs: undefined },

@@ -1602,14 +1602,33 @@ async function syncArtifactsFromContainer(
   outputDir: string,
 ): Promise<void> {
   await mkdir(outputDir, { recursive: true });
+  const stagingRoot = await mkdtemp(path.join(os.tmpdir(), "generic-ai-sandbox-artifacts-"));
   try {
-    await docker.copyFromContainer(containerId, `${SANDBOX_OUTPUT_MOUNT_PATH}/.`, outputDir);
+    await docker.copyFromContainer(containerId, SANDBOX_OUTPUT_MOUNT_PATH, stagingRoot);
+    const copiedMountRoot = path.join(stagingRoot, path.basename(SANDBOX_OUTPUT_MOUNT_PATH));
+    const artifactsRoot = (await pathExists(copiedMountRoot)) ? copiedMountRoot : stagingRoot;
+    await copyDirectoryContents(artifactsRoot, outputDir);
   } catch (error) {
     if (error instanceof SandboxUnavailableError && isDockerUnavailableMessage(error.message)) {
       return;
     }
     throw error;
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true });
   }
+}
+
+async function copyDirectoryContents(sourceDir: string, destinationDir: string): Promise<void> {
+  await mkdir(destinationDir, { recursive: true });
+  const entries = await readdir(sourceDir, { withFileTypes: true });
+  await Promise.all(
+    entries.map((entry) =>
+      cp(path.join(sourceDir, entry.name), path.join(destinationDir, entry.name), {
+        recursive: true,
+        force: true,
+      }),
+    ),
+  );
 }
 
 function isDockerUnavailableMessage(message: string): boolean {
