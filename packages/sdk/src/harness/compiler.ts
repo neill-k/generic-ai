@@ -156,6 +156,7 @@ function validateAgentRefs(
   artifacts: readonly ArtifactContract[],
 ): void {
   const agentIds = collectIds(agents);
+  const artifactIds = collectIds(artifacts);
   const capabilityIds = collectIds(capabilities);
   const spaceIds = collectIds(spaces);
 
@@ -201,6 +202,16 @@ function validateAgentRefs(
         "missing_capability",
         "Agent capability reference",
         `agents.${agent.id}.capabilityRefs`,
+      );
+    }
+    for (const artifactRef of agent.artifactRefs ?? []) {
+      requireRef(
+        diagnostics,
+        artifactIds,
+        artifactRef,
+        "missing_artifact",
+        "Agent artifact reference",
+        `agents.${agent.id}.artifactRefs`,
       );
     }
   }

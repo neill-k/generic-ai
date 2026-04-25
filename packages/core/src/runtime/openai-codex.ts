@@ -32,7 +32,10 @@ type PiResourceLoader = {
 
 type PiSession = {
   readonly messages: readonly unknown[];
-  readonly prompt: (text: string, options?: { readonly source?: string }) => Promise<void>;
+  readonly prompt: (
+    text: string,
+    options?: { readonly source?: string; readonly signal?: AbortSignal },
+  ) => Promise<void>;
   readonly getLastAssistantText?: () => string | undefined;
   readonly dispose?: () => void;
 };
@@ -124,6 +127,43 @@ function setApiKey(authStorage: PiAuthStorage, apiKey: string | undefined): void
   }
 }
 
+function createAbortError(phase: "before" | "during"): Error {
+  return new Error(`Pi OpenAI Codex runtime aborted ${phase} prompt dispatch.`);
+}
+
+async function awaitPromptWithAbort(
+  promptPromise: Promise<void>,
+  signal: AbortSignal | undefined,
+  onAbort: () => void,
+): Promise<void> {
+  if (signal === undefined) {
+    await promptPromise;
+    return;
+  }
+
+  if (signal.aborted) {
+    onAbort();
+    throw createAbortError("before");
+  }
+
+  let removeAbortListener: () => void = () => undefined;
+  try {
+    await Promise.race([
+      promptPromise,
+      new Promise<never>((_resolve, reject) => {
+        const handleAbort = () => {
+          onAbort();
+          reject(createAbortError("during"));
+        };
+        signal.addEventListener("abort", handleAbort, { once: true });
+        removeAbortListener = () => signal.removeEventListener("abort", handleAbort);
+      }),
+    ]);
+  } finally {
+    removeAbortListener();
+  }
+}
+
 async function createSession(
   input: {
     readonly apiKey?: string;
@@ -208,14 +248,19 @@ export function createOpenAICodexRuntime(
   const model = input.model ?? DEFAULT_OPENAI_CODEX_MODEL;
   const run: GenericAILlmRuntime["run"] = async (prompt, options) => {
     if (options?.signal?.aborted) {
-      throw new Error("Pi OpenAI Codex runtime aborted before prompt dispatch.");
+      throw createAbortError("before");
     }
 
     const { modelId, session } = await createSession(input, dependencies);
     try {
-      await session.prompt(prompt, {
-        source: "extension",
-      });
+      await awaitPromptWithAbort(
+        session.prompt(prompt, {
+          source: "extension",
+          ...(options?.signal === undefined ? {} : { signal: options.signal }),
+        }),
+        options?.signal,
+        () => session.dispose?.(),
+      );
       return toRunResult(modelId, extractLatestAssistantText(session), undefined);
     } finally {
       session.dispose?.();

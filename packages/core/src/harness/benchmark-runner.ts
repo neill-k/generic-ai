@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   assertCompiledHarness,
   compileHarnessDsl,
@@ -336,10 +338,11 @@ export async function runHarnessBenchmark(
     compiledHarnesses[candidate.harnessRef] = assertCompiledHarness(compileHarnessDsl(harness));
   }
 
-  const runId = `${options.benchmark.id}:${createStableFingerprint({
+  const runFingerprint = createStableFingerprint({
     mission: options.mission.id,
     benchmark: options.benchmark.id,
-  }).slice(0, 12)}`;
+  }).slice(0, 12);
+  const runId = `${options.benchmark.id}:${runFingerprint}:${randomUUID()}`;
   const trialResults: BenchmarkTrialResult[] = [];
   for (let trialIndex = 0; trialIndex < options.benchmark.trials.count; trialIndex += 1) {
     for (const candidate of options.benchmark.candidates) {

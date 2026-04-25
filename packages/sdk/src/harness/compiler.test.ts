@@ -143,15 +143,50 @@ describe("Harness DSL compiler", () => {
       ...harness,
       agents: [
         {
-          ...harness.agents[0]!,
+          id: "solver",
+          role: "solver",
+          packageRefs: ["protocol.verifier-loop"],
           capabilityRefs: ["missing-capability"],
         },
-        harness.agents[1]!,
+        {
+          id: "critic",
+          role: "critic",
+          packageRefs: ["protocol.verifier-loop"],
+        },
       ],
     });
 
     expect(result.compiled).toBeUndefined();
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("missing_capability");
+  });
+
+  it("validates agent artifact references before runtime execution", () => {
+    const result = compileHarnessDsl({
+      ...harness,
+      artifacts: [
+        {
+          id: "artifact.readme",
+          name: "README.md",
+          kind: "file",
+        },
+      ],
+      agents: [
+        {
+          id: "solver",
+          role: "solver",
+          packageRefs: ["protocol.verifier-loop"],
+          artifactRefs: ["missing-artifact"],
+        },
+        {
+          id: "critic",
+          role: "critic",
+          packageRefs: ["protocol.verifier-loop"],
+        },
+      ],
+    });
+
+    expect(result.compiled).toBeUndefined();
+    expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("missing_artifact");
   });
 });
 

@@ -200,4 +200,30 @@ describe("runHarnessBenchmark", () => {
 
     expect(new Set(eventIds).size).toBe(eventIds.length);
   });
+
+  it("emits unique run ids across repeated benchmark executions", async () => {
+    const first = await runHarnessBenchmark({
+      benchmark,
+      mission,
+      harnesses: {
+        [harness.id]: harness,
+      },
+      createRuntime: async () => fakeRuntime("LOGIN_DONE README.md"),
+    });
+    const second = await runHarnessBenchmark({
+      benchmark,
+      mission,
+      harnesses: {
+        [harness.id]: harness,
+      },
+      createRuntime: async () => fakeRuntime("LOGIN_DONE README.md"),
+    });
+
+    const firstRunId = first.trialResults[0]?.traceEvents[0]?.runId;
+    const secondRunId = second.trialResults[0]?.traceEvents[0]?.runId;
+
+    expect(firstRunId).toBeDefined();
+    expect(secondRunId).toBeDefined();
+    expect(firstRunId).not.toBe(secondRunId);
+  });
 });

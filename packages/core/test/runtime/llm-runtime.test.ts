@@ -148,6 +148,53 @@ describe("@generic-ai/core llm runtime adapter", () => {
     ]);
   });
 
+  it("passes abort signals into Pi prompts and disposes aborted sessions", async () => {
+    const controller = new AbortController();
+    const dispose = vi.fn();
+    let promptOptions: { readonly source?: string; readonly signal?: AbortSignal } | undefined;
+    const prompt = vi.fn(
+      async (_text: string, options?: { readonly source?: string; readonly signal?: AbortSignal }) => {
+        promptOptions = options;
+        queueMicrotask(() => controller.abort());
+        await new Promise(() => undefined);
+      },
+    );
+    const runtime = createOpenAICodexRuntime(
+      {
+        apiKey: "test-key",
+      },
+      {
+        authStorageFactory: () => ({
+          setRuntimeApiKey: vi.fn(),
+        }),
+        modelRegistryFactory: () => ({
+          find: () => ({ id: "gpt-5.2-codex" }),
+          hasConfiguredAuth: () => true,
+        }),
+        resourceLoaderFactory: () => ({
+          reload: async () => undefined,
+        }),
+        createAgentSession: async () =>
+          ({
+            session: {
+              messages: [{ role: "assistant", content: "unused" }],
+              prompt,
+              dispose,
+            },
+          }) as never,
+      },
+    );
+
+    await expect(runtime.run("abort please", { signal: controller.signal })).rejects.toThrow(
+      "aborted during prompt dispatch",
+    );
+    expect(promptOptions).toMatchObject({
+      source: "extension",
+      signal: controller.signal,
+    });
+    expect(dispose).toHaveBeenCalled();
+  });
+
   it("supports the explicit pi compatibility adapter", async () => {
     const setRuntimeApiKey = vi.fn();
     const prompt = vi.fn(async () => undefined);
