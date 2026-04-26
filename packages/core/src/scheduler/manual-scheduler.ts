@@ -28,13 +28,8 @@ export function createManualScheduler(): ManualRunScheduler {
       if (!next || next.handle.cancelled) {
         continue;
       }
-
-      try {
         await next.task();
         return true;
-      } catch (error) {
-        throw error;
-      }
     }
 
     return false;

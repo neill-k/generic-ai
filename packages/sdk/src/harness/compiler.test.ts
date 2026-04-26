@@ -203,14 +203,24 @@ describe("standard protocol planners", () => {
       spaces: [],
     }).compiled;
     const pipelineCompiled = compileHarnessDsl(pipelineHarness).compiled;
-    const missingImplementerDiagnostics = await pipeline.validate?.(compiled!);
+    if (compiled === undefined) {
+      throw new Error("Expected the squad harness fixture to compile.");
+    }
+    if (pipelineCompiled === undefined) {
+      throw new Error("Expected the pipeline harness fixture to compile.");
+    }
+    if (noSharedSpaceCompiled === undefined) {
+      throw new Error("Expected the no-shared-space harness fixture to compile.");
+    }
+
+    const missingImplementerDiagnostics = await pipeline.validate?.(compiled);
     const pipelineResult = await pipeline.reduce({
-      compiled: pipelineCompiled!,
+      compiled: pipelineCompiled,
       state: { status: "ready" },
       events: [],
     });
-    const squadDiagnostics = await squad.validate?.(compiled!);
-    const noSharedSpaceDiagnostics = await squad.validate?.(noSharedSpaceCompiled!);
+    const squadDiagnostics = await squad.validate?.(compiled);
+    const noSharedSpaceDiagnostics = await squad.validate?.(noSharedSpaceCompiled);
 
     expect(pipelineResult.actions[0]?.kind).toBe("invoke_actor");
     expect(pipelineResult.actions[0]?.actorRef).toBe("implementer");

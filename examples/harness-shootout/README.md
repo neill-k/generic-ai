@@ -39,7 +39,7 @@ await runHarnessBenchmark({
   harnesses,
   runtimeOptions: {
     adapter: "openai-codex",
-    model: "gpt-5.4",
+    model: "gpt-5.5",
     agentDir: ".pi/agent",
   },
 });

@@ -42,7 +42,8 @@
       "recommended": true,
       "complexity": {
         "noUselessTypeConstraint": "error",
-        "noUselessConstructor": "error"
+        "noUselessConstructor": "error",
+        "useLiteralKeys": "off"
       },
       "correctness": {
         "noUnusedVariables": "error",

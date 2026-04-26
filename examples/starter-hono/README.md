@@ -9,7 +9,7 @@ What this example does now:
 - exposes `/starter/health`, `/starter/run`, and `/starter/run/stream`
 - serves a production-built prompt playground at `/`
 - uses a runtime adapter boundary in `@generic-ai/core`
-- defaults to Pi's OpenAI Codex provider path for `gpt-5.2-codex`
+- defaults to Pi's OpenAI Codex provider path for `gpt-5.5`
 - keeps `pi` available as an explicit compatibility adapter
 
 The main server entrypoint is `examples/starter-hono/src/index.ts`. The playground source lives under `examples/starter-hono/ui/` and builds into `examples/starter-hono/dist/public/`, which the same Hono process serves at `/`.
@@ -167,7 +167,7 @@ The stream endpoint emits canonical run lifecycle events followed by a terminal 
 
 ## Live provider smoke test
 
-`RT-05` adds an opt-in smoke test that drives the real provider path with a deterministic write/read task. The default provider target is OpenAI Codex via pi auth (`openai-codex` + `gpt-5.4`), but the harness stays provider-aware so trusted CI or local runs can override the provider/model without rewriting the test contract.
+`RT-05` adds an opt-in smoke test that drives the real provider path with a deterministic write/read task. The default provider target is OpenAI Codex via pi auth (`openai-codex` + `gpt-5.5`), but the harness stays provider-aware so trusted CI or local runs can override the provider/model without rewriting the test contract.
 
 Local setup:
 

@@ -15,8 +15,8 @@ import {
 
 const DEFAULT_LIVE_PROVIDER = "openai-codex";
 const DEFAULT_LIVE_MODEL_BY_PROVIDER = {
-  "openai-codex": "gpt-5.4",
-  openai: "gpt-5.4",
+  "openai-codex": "gpt-5.5",
+  openai: "gpt-5.5",
 } as const;
 
 export const LIVE_SMOKE_ENABLE_ENV = "GENERIC_AI_ENABLE_LIVE_SMOKE";

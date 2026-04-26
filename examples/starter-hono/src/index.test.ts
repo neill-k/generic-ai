@@ -19,11 +19,11 @@ const openServers: Array<() => Promise<void>> = [];
 function createFakeRuntime(outputText: string): GenericAILlmRuntime {
   return {
     adapter: "openai-codex",
-    model: "gpt-5.2-codex",
+    model: "gpt-5.5",
     run: async (input) =>
       ({
         adapter: "openai-codex",
-        model: "gpt-5.2-codex",
+        model: "gpt-5.5",
         outputText: `${outputText}: ${input}`,
       }) satisfies GenericAILlmRunResult,
     stream: async function* () {
@@ -31,7 +31,7 @@ function createFakeRuntime(outputText: string): GenericAILlmRuntime {
         type: "response",
         response: {
           adapter: "openai-codex",
-          model: "gpt-5.2-codex",
+          model: "gpt-5.5",
           outputText,
         },
       };
@@ -49,7 +49,7 @@ describe("@generic-ai/example-starter-hono", () => {
       async (options: CreateGenericAILlmRuntimeOptions): Promise<GenericAILlmRuntime> => {
         expect(options.adapter).toBe("openai-codex");
         expect(options.apiKey).toBe("test-key");
-        expect(options.model).toBe("gpt-5.2-codex");
+        expect(options.model).toBe("gpt-5.5");
         expect(options.cwd).toContain(path.join("examples", "starter-hono"));
         expect(options.instructions).toContain("Generic AI starter example agent");
         return createFakeRuntime("runtime result");
@@ -69,7 +69,7 @@ describe("@generic-ai/example-starter-hono", () => {
       expect(healthPayload).toMatchObject({
         adapter: "openai-codex",
         exposure: "loopback",
-        model: "gpt-5.2-codex",
+        model: "gpt-5.5",
         streaming: true,
         transport: "@generic-ai/plugin-hono",
       });
@@ -150,7 +150,7 @@ describe("@generic-ai/example-starter-hono", () => {
     );
     expect(await health.json()).toMatchObject({
       adapter: "openai-codex",
-      model: "gpt-5.2-codex",
+      model: "gpt-5.5",
       streaming: true,
     });
 

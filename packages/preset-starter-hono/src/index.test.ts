@@ -193,7 +193,7 @@ describe("@generic-ai/preset-starter-hono contract", () => {
         path.join(root, ".generic-ai", "agents", "starter.yaml"),
         [
           "displayName: Starter",
-          "model: gpt-5.2-codex",
+          "model: gpt-5.5",
           "instructions: |",
           "  Keep answers brief.",
           "tools: []",
@@ -212,11 +212,11 @@ describe("@generic-ai/preset-starter-hono contract", () => {
       });
 
       expect(bootstrap.runtimePlan.runtime.workspaceRoot).toBe(path.resolve(root, "app"));
-      expect(bootstrap.runtimePlan.primaryAgent.model).toBe("gpt-5.2-codex");
+      expect(bootstrap.runtimePlan.primaryAgent.model).toBe("gpt-5.5");
       await expect(bootstrap.startRuntime()).resolves.toEqual({
         status: "started",
         workspaceRoot: path.resolve(root, "app"),
-        model: "gpt-5.2-codex",
+        model: "gpt-5.5",
         instructions: "Keep answers brief.\n",
       });
     } finally {
@@ -248,7 +248,7 @@ runtime:
   logging:
     level: info
 `,
-        ".generic-ai/agents/primary.yaml": `model: gpt-5
+        ".generic-ai/agents/primary.yaml": `model: gpt-5.5
 instructions: "Use the configured starter stack."
 tools:
   - files.read
@@ -278,7 +278,7 @@ path: ".generic-ai/storage.db"
         });
         expect(bootstrap.runtimePlan.primaryAgent).toMatchObject({
           id: "primary",
-          model: "gpt-5",
+          model: "gpt-5.5",
           instructions: "Use the configured starter stack.",
           tools: ["files.read"],
           plugins: ["storage"],

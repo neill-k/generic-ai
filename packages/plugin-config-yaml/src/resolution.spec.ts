@@ -33,12 +33,12 @@ describe("resolveCanonicalConfig", () => {
       },
     });
     expect(implementer).toMatchObject({
-      model: "gpt-5",
+      model: "gpt-5.5",
       temperature: 0.1,
       maxTokens: 4000,
     });
     expect(research).toMatchObject({
-      model: "gpt-5",
+      model: "gpt-5.5",
       temperature: 0.3,
       focus: "architecture",
     });

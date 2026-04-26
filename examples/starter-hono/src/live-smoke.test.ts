@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createLiveProviderSmokeTransport,
+  LIVE_SMOKE_AGENT_DIR_ENV,
   LIVE_SMOKE_DONE_TEXT,
   LIVE_SMOKE_ENABLE_ENV,
   type LiveProviderSmokeCompletedResult,
@@ -51,6 +52,7 @@ describe("@generic-ai/example-starter-hono live smoke", () => {
         root,
         env: {
           [LIVE_SMOKE_ENABLE_ENV]: "1",
+          [LIVE_SMOKE_AGENT_DIR_ENV]: path.join(root, "empty-pi-agent"),
         },
       });
 

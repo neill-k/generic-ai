@@ -43,7 +43,7 @@ function configuredFixture(): GenericAIResolvedConfig {
     agents: {
       implementer: {
         id: "implementer",
-        model: "gpt-5",
+        model: "gpt-5.5",
         instructions: "Implement the requested change.",
         tools: ["files.read", "terminal.run"],
         plugins: ["storage"],
@@ -285,7 +285,7 @@ describe("createGenericAI", () => {
         agents: {
           starter: {
             id: "starter",
-            model: "gpt-5.2-codex",
+            model: "gpt-5.5",
             instructions: "Be concise.",
             tools: ["read"],
             plugins: [],
@@ -308,7 +308,7 @@ describe("createGenericAI", () => {
 
     expect(bootstrap.preset.name).toBe("Configured bootstrap");
     expect(bootstrap.runtimePlan.runtime.workspaceRoot).toBe(path.resolve("C:/workspace", "apps/demo"));
-    expect(bootstrap.runtimePlan.primaryAgent.model).toBe("gpt-5.2-codex");
+    expect(bootstrap.runtimePlan.primaryAgent.model).toBe("gpt-5.5");
     expect(bootstrap.surfaces.pluginConfigs["@generic-ai/plugin-hono"]).toMatchObject({
       namespace: "hono",
       routePrefix: "/starter",
@@ -368,7 +368,7 @@ describe("createGenericAI", () => {
     });
     expect(bootstrap.runtimePlan.primaryAgent).toMatchObject({
       id: "implementer",
-      model: "gpt-5",
+      model: "gpt-5.5",
       instructions: "Implement the requested change.",
       tools: ["files.read", "terminal.run"],
       plugins: ["storage"],
@@ -399,7 +399,7 @@ describe("createGenericAI", () => {
     const started = await bootstrap.startRuntime();
     expect(started).toEqual({
       status: "started",
-      model: "gpt-5",
+      model: "gpt-5.5",
     });
     expect(starterInput?.runtimePlan).toBe(bootstrap.runtimePlan);
   });

@@ -88,10 +88,10 @@ const benchmark: BenchmarkSpec = {
 function fakeRuntime(outputText: string): GenericAILlmRuntime {
   return {
     adapter: "openai-codex",
-    model: "gpt-5.4",
+    model: "gpt-5.5",
     run: vi.fn(async () => ({
       adapter: "openai-codex",
-      model: "gpt-5.4",
+      model: "gpt-5.5",
       outputText,
     })),
     async *stream() {
@@ -99,7 +99,7 @@ function fakeRuntime(outputText: string): GenericAILlmRuntime {
         type: "response",
         response: {
           adapter: "openai-codex",
-          model: "gpt-5.4",
+          model: "gpt-5.5",
           outputText,
         },
       };

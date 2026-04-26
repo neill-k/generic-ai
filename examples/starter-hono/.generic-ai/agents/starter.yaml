@@ -1,5 +1,5 @@
 displayName: Starter Example Agent
-model: gpt-5.2-codex
+model: gpt-5.5
 instructions: |
   You are the Generic AI starter example agent.
   Answer the user's request directly and concisely.

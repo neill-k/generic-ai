@@ -17,7 +17,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
             setRuntimeApiKey,
           }),
           modelRegistryFactory: () => ({
-            find: () => ({ id: "gpt-5.2-codex" }),
+            find: () => ({ id: "gpt-5.5" }),
             hasConfiguredAuth: () => true,
           }),
           resourceLoaderFactory: () => ({
@@ -42,7 +42,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
 
     await expect(runtime.run("ping")).resolves.toEqual({
       adapter: "openai-codex",
-      model: "gpt-5.2-codex",
+      model: "gpt-5.5",
       outputText: "hello from pi codex",
     });
     expect(setRuntimeApiKey).toHaveBeenCalledWith("openai-codex", "test-key");
@@ -62,7 +62,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
     const modelRegistryFactory = vi.fn((_authStorage: unknown, agentDir?: string) => {
       expect(agentDir).toBeTypeOf("string");
       return {
-        find: () => ({ id: "gpt-5.2-codex" }),
+        find: () => ({ id: "gpt-5.5" }),
         hasConfiguredAuth: () => true,
       };
     });
@@ -114,7 +114,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
           setRuntimeApiKey: vi.fn(),
         }),
         modelRegistryFactory: () => ({
-          find: () => ({ id: "gpt-5.2-codex" }),
+          find: () => ({ id: "gpt-5.5" }),
           hasConfiguredAuth: () => true,
         }),
         resourceLoaderFactory: () => ({
@@ -141,7 +141,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
         type: "response",
         response: {
           adapter: "openai-codex",
-          model: "gpt-5.2-codex",
+          model: "gpt-5.5",
           outputText: "streamed pi result",
         },
       },
@@ -168,7 +168,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
           setRuntimeApiKey: vi.fn(),
         }),
         modelRegistryFactory: () => ({
-          find: () => ({ id: "gpt-5.2-codex" }),
+          find: () => ({ id: "gpt-5.5" }),
           hasConfiguredAuth: () => true,
         }),
         resourceLoaderFactory: () => ({
@@ -203,7 +203,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
       {
         adapter: "pi",
         apiKey: "test-key",
-        model: "gpt-5.2-codex",
+        model: "gpt-5.5",
       },
       {
         pi: {
@@ -211,7 +211,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
             setRuntimeApiKey,
           }),
           modelRegistryFactory: () => ({
-            find: () => ({ id: "gpt-5.2-codex" }),
+            find: () => ({ id: "gpt-5.5" }),
           }),
           resourceLoaderFactory: () => ({
             reload: async () => undefined,
@@ -234,7 +234,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
 
     await expect(runtime.run("ping")).resolves.toEqual({
       adapter: "pi",
-      model: "gpt-5.2-codex",
+      model: "gpt-5.5",
       outputText: "pi result",
     });
     expect(setRuntimeApiKey).toHaveBeenCalledWith("openai", "test-key");
