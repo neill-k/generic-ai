@@ -1,0 +1,779 @@
+<!doctype html>
+<html lang="en" style="color-scheme: dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Generic AI Architecture Walkthrough</title>
+    <link rel="icon" href="data:," />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              wt: {
+                bg: "#000000",
+                surface: "#0a0a0a",
+                raised: "#141414",
+                border: "#2a2a2a",
+                fg: "#ffffff",
+                muted: "#a0a0a0",
+                accent: "#a855f7",
+                file: "#c084fc",
+                red: "#ef4444",
+              },
+              node: {
+                component: "#a855f7",
+                composable: "#7c3aed",
+                utility: "#6d28d9",
+                external: "#525252",
+                event: "#d8b4fe",
+                data: "#9333ea",
+              },
+            },
+          },
+        },
+      };
+    </script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <style>
+      html,
+      body,
+      #root {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: #000000;
+        color: #ffffff;
+        overflow: hidden;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      .mermaid-wrap svg {
+        max-width: none !important;
+        height: auto !important;
+      }
+
+      .mermaid-wrap .node {
+        cursor: pointer;
+      }
+
+      .mermaid-wrap .node:hover rect,
+      .mermaid-wrap .node:hover polygon,
+      .mermaid-wrap .node:hover circle,
+      .mermaid-wrap .node:hover .label-container {
+        filter: brightness(1.28);
+        transition: filter 0.15s;
+      }
+
+      .dt-body p {
+        color: #a0a0a0;
+        font-size: 0.88rem;
+        line-height: 1.65;
+        margin-bottom: 10px;
+      }
+
+      .dt-body .shiki,
+      .dt-body pre.code-fallback {
+        background: #000000;
+        border: 1px solid #2a2a2a;
+        border-radius: 8px;
+        padding: 14px 16px;
+        overflow-x: auto;
+        margin: 8px 0 14px;
+      }
+
+      .dt-body .shiki {
+        background: #000000 !important;
+      }
+
+      .dt-body .shiki code,
+      .dt-body pre.code-fallback code {
+        font-family: "SF Mono", "Fira Code", ui-monospace, monospace;
+        font-size: 0.78rem;
+        line-height: 1.55;
+        background: none;
+        padding: 0;
+        border-radius: 0;
+      }
+
+      .dt-body .shiki code {
+        color: inherit;
+      }
+
+      .dt-body pre.code-fallback code {
+        color: #e0e0e0;
+      }
+
+      .kbd {
+        border: 1px solid #2a2a2a;
+        border-bottom-color: #525252;
+        border-radius: 4px;
+        padding: 1px 5px;
+        background: #141414;
+        color: #a0a0a0;
+        font-family: "SF Mono", ui-monospace, monospace;
+        font-size: 0.72rem;
+      }
+    </style>
+  </head>
+  <body class="bg-wt-bg">
+    <div id="root"></div>
+    <script type="module">
+      import { createHighlighter } from "https://cdn.jsdelivr.net/npm/shiki@3.22.0/+esm";
+
+      const { useState, useEffect, useRef, useCallback } = window.React;
+      const h = window.React.createElement;
+
+      const SUMMARY =
+        "Generic AI is a package-extensible agents-as-code framework: planning docs define the boundaries, SDK contracts give plugins a stable surface, core orchestrates runs, and the starter preset wires a local-first stack. The key mental model is a DAG, not a chain: core may use SDK and pi, plugins use SDK, and presets compose core plus plugins without making plugins kernel dependencies.";
+
+      const DIAGRAM = String.raw`
+graph LR
+  subgraph truth["Source Of Truth"]
+    planning["Planning Pack"]:::data
+    boundaries["Package Boundaries"]:::data
+  end
+
+  subgraph contracts["Contracts And Kernel"]
+    sdk["SDK Contracts"]:::component
+    core["Core Kernel"]:::component
+  end
+
+  subgraph composition["Composition Surface"]
+    starter["Starter Preset"]:::composable
+    plugins["Default Plugins"]:::utility
+    optional["Optional Add-ons"]:::external
+    config["Config Discovery"]:::utility
+  end
+
+  subgraph runtime["Runtime And Proof"]
+    piRuntime["pi Runtime"]:::external
+    examples["Examples + Harness"]:::event
+    governance["Governance Gates"]:::data
+  end
+
+  planning -->|"sets direction"| boundaries
+  boundaries -->|"permits core to use"| sdk
+  boundaries -->|"keeps plugins out of"| core
+  sdk -->|"contracts for"| plugins
+  sdk -->|"shared types for"| core
+  starter -->|"supplies slots to"| core
+  starter -->|"wires"| plugins
+  config -->|"resolves YAML for"| starter
+  plugins -->|"depend on"| sdk
+  core -->|"runs through"| piRuntime
+  examples -->|"exercise"| starter
+  examples -->|"benchmark through"| core
+  governance -->|"checks"| boundaries
+  optional -.->|"addon or substitute"| plugins
+
+  click planning nodeClickHandler "View details"
+  click boundaries nodeClickHandler "View details"
+  click sdk nodeClickHandler "View details"
+  click core nodeClickHandler "View details"
+  click starter nodeClickHandler "View details"
+  click plugins nodeClickHandler "View details"
+  click optional nodeClickHandler "View details"
+  click config nodeClickHandler "View details"
+  click piRuntime nodeClickHandler "View details"
+  click examples nodeClickHandler "View details"
+  click governance nodeClickHandler "View details"
+
+  classDef component fill:#a855f7,stroke:#c084fc,color:#fff
+  classDef composable fill:#7c3aed,stroke:#a78bfa,color:#fff
+  classDef utility fill:#6d28d9,stroke:#8b5cf6,color:#fff
+  classDef external fill:#525252,stroke:#737373,color:#fff
+  classDef event fill:#d8b4fe,stroke:#e9d5ff,color:#000
+  classDef data fill:#9333ea,stroke:#a855f7,color:#fff
+`;
+
+      const NODES = {
+        planning: {
+          title: "Planning Pack",
+          description:
+            "The planning pack is the architectural source of truth. It frames Generic AI as an agents-as-code language, compiler, runtime, and evidence harness rather than a product-specific clone.",
+          files: ["docs/planning/README.md:3-16", "docs/planning/02-architecture.md"],
+          code: `This directory is the authoritative planning baseline
+for the \`Generic AI Framework\`.
+Treat Harness DSL -> Generic Agent IR -> runtime/packages
+-> traces/evals/reports as the public launch spine.`,
+          lang: "markdown",
+        },
+        boundaries: {
+          title: "Package Boundaries",
+          description:
+            "The boundary document turns the plan into dependency rules. Its most important correction is that the architecture is a directed graph, not SDK -> core chaining.",
+          files: ["docs/package-boundaries.md:26-43"],
+          code: `1. Kernel - @generic-ai/core
+2. SDK - @generic-ai/sdk
+3. Plugins and package extensions
+4. Presets - @generic-ai/preset-*
+5. Examples - examples/*`,
+          lang: "markdown",
+        },
+        sdk: {
+          title: "SDK Contracts",
+          description:
+            "The SDK is the public surface plugin and preset authors compile against. It may use pi, but it must not import core, plugins, or presets.",
+          files: ["packages/sdk/package.json", "packages/sdk/src/contracts"],
+          code: `"dependencies": {
+  "zod": "^4.3.6",
+  "@mariozechner/pi-coding-agent": "0.70.2"
+}`,
+          lang: "json",
+        },
+        core: {
+          title: "Core Kernel",
+          description:
+            "Core owns the control plane: bootstrap, plugin host, registries, scope, sessions, event stream, and run envelope. It keeps plugin ids as metadata instead of importing plugin packages.",
+          files: ["packages/core/src/bootstrap/starter-preset.ts:10-31"],
+          code: `const starterCapabilities = Object.freeze([
+  "workspace",
+  "storage",
+  "queue",
+]);`,
+          lang: "typescript",
+        },
+        starter: {
+          title: "Starter Preset",
+          description:
+            "The starter preset is the default path to a working local-first stack. Its slot list defines the default plugins, while sandbox mode can substitute the terminal implementation.",
+          files: [
+            "packages/preset-starter-hono/src/index.ts:157-242",
+            "packages/core/src/bootstrap/starter-preset.ts:31-143",
+          ],
+          code: `{
+  slot: "transport",
+  pluginId: "@generic-ai/plugin-hono",
+  required: false,
+}`,
+          lang: "typescript",
+        },
+        plugins: {
+          title: "Default Plugins",
+          description:
+            "Plugins own replaceable capabilities such as config, workspace, storage, tools, MCP, skills, delegation, messaging, memory, output, and Hono transport. They depend on SDK, not core.",
+          files: ["docs/package-boundaries.md:36-43", "packages/core/src/bootstrap/starter-preset.ts"],
+          code: `Plugins may depend on @generic-ai/sdk and on pi.
+They must not import from @generic-ai/core.
+Presets may depend on core, SDK, and plugins.`,
+          lang: "markdown",
+        },
+        optional: {
+          title: "Optional Add-ons",
+          description:
+            "tools-web and interaction are real packages, but they are not default starter slots. terminal-sandbox is a substitute for the terminalTools slot when sandbox mode resolves to docker.",
+          files: [
+            "packages/plugin-tools-web/package.json",
+            "packages/plugin-interaction/package.json",
+            "packages/plugin-tools-terminal-sandbox/package.json",
+          ],
+          code: `export const STARTER_SANDBOX_TERMINAL_PLUGIN_ID =
+  "@generic-ai/plugin-tools-terminal-sandbox";`,
+          lang: "typescript",
+        },
+        config: {
+          title: "Config Discovery",
+          description:
+            "Config discovery currently resolves only framework, agents, and plugin YAML concerns. Harness declarations live in specs/examples and compile through the harness path, not config discovery.",
+          files: ["packages/plugin-config-yaml/src/discovery.ts:47-52"],
+          code: `const CONFIG_DIR_NAME = ".generic-ai";
+const AGENTS_DIR_NAME = "agents";
+const PLUGINS_DIR_NAME = "plugins";
+const YAML_EXTENSIONS = new Set([".yaml", ".yml"]);`,
+          lang: "typescript",
+        },
+        piRuntime: {
+          title: "pi Runtime",
+          description:
+            "pi supplies the underlying agent/tool mechanics and OpenAI Codex provider path. Generic AI exposes pi directly where useful instead of hiding it behind a heavy wrapper.",
+          files: ["docs/decisions/0011-pi-direct-boundary.md", "packages/core/package.json"],
+          code: `"@mariozechner/pi-coding-agent": "0.70.2"
+// core and SDK both use the pi runtime boundary`,
+          lang: "json",
+        },
+        examples: {
+          title: "Examples And Harness",
+          description:
+            "Examples demonstrate the public surface. starter-hono is runnable, terminal-bench is a private integration workspace, and harness-shootout is the JSON fixture for the public launch spine.",
+          files: [
+            "examples/starter-hono/package.json",
+            "examples/terminal-bench/package.json",
+            "examples/harness-shootout/README.md",
+          ],
+          code: `await runHarnessBenchmark({
+  benchmark,
+  mission,
+  harnesses,
+});`,
+          lang: "typescript",
+        },
+        governance: {
+          title: "Governance Gates",
+          description:
+            "Repo governance is mechanical where it matters: the boundary checker scans package metadata and source imports, docs generation verifies generated indexes, and CI runs the same gates.",
+          files: ["scripts/check-package-boundaries.mjs:92-140", ".github/workflows"],
+          code: `const dependencyRules =
+  workspacePackage.kind === "core"
+    ? ["@generic-ai/plugin-", "@generic-ai/preset-"]
+    : workspacePackage.kind === "sdk"`,
+          lang: "javascript",
+        },
+      };
+
+      const LEGEND = [
+        { label: "Core contract", color: "bg-node-component" },
+        { label: "Preset/composition", color: "bg-node-composable" },
+        { label: "Plugin/utility", color: "bg-node-utility" },
+        { label: "External/runtime", color: "bg-node-external" },
+        { label: "Example/evidence", color: "bg-node-event" },
+        { label: "Governance/data", color: "bg-node-data" },
+      ];
+
+      const langs = [...new Set(Object.values(NODES).map((node) => node.lang).filter(Boolean))];
+      if (langs.length === 0) {
+        langs.push("typescript");
+      }
+
+      let highlighter = null;
+      try {
+        highlighter = await createHighlighter({ themes: ["vitesse-dark"], langs });
+      } catch (error) {
+        console.warn("Shiki failed:", error);
+      }
+
+      const HIGHLIGHTED = {};
+      for (const [id, node] of Object.entries(NODES)) {
+        if (node.code && highlighter) {
+          try {
+            HIGHLIGHTED[id] = highlighter.codeToHtml(node.code, {
+              lang: node.lang || "typescript",
+              theme: "vitesse-dark",
+            });
+          } catch (error) {
+            console.warn(`Highlight failed for ${id}:`, error);
+          }
+        }
+      }
+
+      const MERMAID_THEME = {
+        primaryColor: "#0a0a0a",
+        primaryTextColor: "#ffffff",
+        primaryBorderColor: "#2a2a2a",
+        lineColor: "#a0a0a0",
+        background: "#000000",
+      };
+
+      function usePanZoom() {
+        const viewportRef = useRef(null);
+        const canvasRef = useRef(null);
+        const zoomDisplayRef = useRef(null);
+        const st = useRef({ zoom: 1, panX: 0, panY: 0 });
+        const drag = useRef({ on: false, lx: 0, ly: 0 });
+
+        const apply = useCallback(() => {
+          const { zoom, panX, panY } = st.current;
+          if (canvasRef.current) {
+            canvasRef.current.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
+          }
+          if (zoomDisplayRef.current) {
+            zoomDisplayRef.current.textContent = `${Math.round(zoom * 100)}%`;
+          }
+        }, []);
+
+        const fitToScreen = useCallback(() => {
+          const svg = canvasRef.current?.querySelector("svg");
+          const vp = viewportRef.current;
+          if (!svg || !vp) {
+            return;
+          }
+          const s = st.current;
+          const vw = vp.clientWidth;
+          const vh = vp.clientHeight;
+          const sw = svg.getBoundingClientRect().width / s.zoom;
+          const sh = svg.getBoundingClientRect().height / s.zoom;
+          const fit = Math.max(0.15, Math.min(2, Math.min((vw - 120) / sw, (vh - 150) / sh)));
+          s.zoom = fit;
+          s.panX = (vw - sw * fit) / 2;
+          s.panY = (vh - sh * fit) / 2 + 28;
+          apply();
+        }, [apply]);
+
+        useEffect(() => {
+          const vp = viewportRef.current;
+          if (!vp) {
+            return undefined;
+          }
+
+          const onWheel = (event) => {
+            event.preventDefault();
+            const rect = vp.getBoundingClientRect();
+            const mx = event.clientX - rect.left;
+            const my = event.clientY - rect.top;
+            const s = st.current;
+            const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+            const nextZoom = Math.min(4, Math.max(0.15, s.zoom * factor));
+            const scale = nextZoom / s.zoom;
+            s.panX = mx - scale * (mx - s.panX);
+            s.panY = my - scale * (my - s.panY);
+            s.zoom = nextZoom;
+            apply();
+          };
+
+          const onDown = (event) => {
+            if (event.target.closest(".node")) {
+              return;
+            }
+            drag.current = { on: true, lx: event.clientX, ly: event.clientY };
+            vp.setPointerCapture(event.pointerId);
+          };
+
+          const onMove = (event) => {
+            const d = drag.current;
+            if (!d.on) {
+              return;
+            }
+            st.current.panX += event.clientX - d.lx;
+            st.current.panY += event.clientY - d.ly;
+            d.lx = event.clientX;
+            d.ly = event.clientY;
+            apply();
+          };
+
+          const onUp = () => {
+            drag.current.on = false;
+          };
+
+          vp.addEventListener("wheel", onWheel, { passive: false });
+          vp.addEventListener("pointerdown", onDown);
+          vp.addEventListener("pointermove", onMove);
+          vp.addEventListener("pointerup", onUp);
+          vp.addEventListener("pointercancel", onUp);
+          window.addEventListener("resize", fitToScreen);
+
+          return () => {
+            vp.removeEventListener("wheel", onWheel);
+            vp.removeEventListener("pointerdown", onDown);
+            vp.removeEventListener("pointermove", onMove);
+            vp.removeEventListener("pointerup", onUp);
+            vp.removeEventListener("pointercancel", onUp);
+            window.removeEventListener("resize", fitToScreen);
+          };
+        }, [apply, fitToScreen]);
+
+        const zoomIn = useCallback(() => {
+          st.current.zoom = Math.min(4, st.current.zoom * 1.25);
+          apply();
+        }, [apply]);
+
+        const zoomOut = useCallback(() => {
+          st.current.zoom = Math.max(0.15, st.current.zoom / 1.25);
+          apply();
+        }, [apply]);
+
+        return { viewportRef, canvasRef, zoomDisplayRef, zoomIn, zoomOut, fitToScreen };
+      }
+
+      function MermaidDiagram({ onNodeClick }) {
+        const ref = useRef(null);
+
+        useEffect(() => {
+          window.nodeClickHandler = onNodeClick;
+          window.mermaid.initialize({
+            startOnLoad: false,
+            theme: "dark",
+            securityLevel: "loose",
+            themeVariables: {
+              ...MERMAID_THEME,
+              secondaryColor: "#000000",
+              tertiaryColor: "#000000",
+              mainBkg: "#0a0a0a",
+              nodeBorder: "#2a2a2a",
+              clusterBkg: "rgba(10,10,10,0.8)",
+              clusterBorder: "#7c3aed",
+              titleColor: "#ffffff",
+              edgeLabelBackground: "transparent",
+            },
+            flowchart: { useMaxWidth: false, htmlLabels: true, curve: "basis" },
+          });
+
+          window.mermaid.render("walkthrough-diagram", DIAGRAM).then(({ svg, bindFunctions }) => {
+            if (ref.current) {
+              ref.current.innerHTML = svg;
+              bindFunctions?.(ref.current);
+            }
+          });
+
+          return () => {
+            delete window.nodeClickHandler;
+          };
+        }, [onNodeClick]);
+
+        return h("div", { ref, className: "mermaid-wrap" });
+      }
+
+      function Summary({ collapsed, onToggle }) {
+        if (collapsed) {
+          return h(
+            "button",
+            {
+              type: "button",
+              onClick: onToggle,
+              className:
+                "fixed top-16 left-6 z-20 px-3 py-1.5 bg-wt-surface/70 backdrop-blur border border-wt-border rounded-full shadow-lg cursor-pointer hover:bg-wt-surface transition-all duration-300",
+            },
+            h("span", { className: "text-xs text-wt-muted font-medium" }, "Summary"),
+          );
+        }
+
+        return h(
+          "button",
+          {
+            type: "button",
+            onClick: onToggle,
+            className:
+              "fixed top-16 left-6 z-20 max-w-xl px-4 py-3 text-left bg-wt-surface/90 backdrop-blur border border-wt-border rounded-lg shadow-lg cursor-pointer transition-all duration-300",
+          },
+          h("p", { className: "text-sm text-wt-muted leading-relaxed" }, SUMMARY),
+          h("p", { className: "text-[0.65rem] text-wt-muted/60 mt-1.5" }, "Click to dismiss"),
+        );
+      }
+
+      function DetailPanel({ nodeId, node, onClose }) {
+        useEffect(() => {
+          const onKey = (event) => {
+            if (event.key === "Escape") {
+              onClose();
+            }
+          };
+          document.addEventListener("keydown", onKey);
+          return () => document.removeEventListener("keydown", onKey);
+        }, [onClose]);
+
+        const codeHtml = HIGHLIGHTED[nodeId];
+
+        return h(
+          "aside",
+          {
+            className:
+              "fixed top-4 right-4 bottom-4 w-[min(560px,calc(100vw-2rem))] z-30 bg-wt-surface border border-wt-border rounded-xl shadow-2xl flex flex-col overflow-hidden",
+          },
+          h(
+            "button",
+            {
+              type: "button",
+              onClick: onClose,
+              className:
+                "absolute top-3 right-3 z-10 w-7 h-7 rounded-md border border-wt-border bg-wt-raised text-wt-muted flex items-center justify-center text-lg hover:bg-wt-red hover:border-wt-red hover:text-white transition-colors",
+              "aria-label": "Close detail panel",
+            },
+            h("span", { dangerouslySetInnerHTML: { __html: "&times;" } }),
+          ),
+          h(
+            "div",
+            { className: "flex-1 overflow-y-auto p-5" },
+            h("h2", { className: "text-lg font-bold text-wt-fg mb-3 pr-9" }, node.title),
+            h("div", { className: "dt-body" }, h("p", null, node.description)),
+            node.code
+              ? h(
+                  "div",
+                  { className: "dt-body" },
+                  codeHtml
+                    ? h("div", { dangerouslySetInnerHTML: { __html: codeHtml } })
+                    : h("pre", { className: "code-fallback" }, h("code", null, node.code)),
+                )
+              : null,
+            node.files?.length > 0
+              ? h(
+                  "div",
+                  { className: "mt-4 pt-3 border-t border-wt-border" },
+                  h(
+                    "div",
+                    {
+                      className:
+                        "text-[0.7rem] uppercase tracking-wider text-wt-muted font-semibold mb-1.5",
+                    },
+                    "Files",
+                  ),
+                  h(
+                    "code",
+                    { className: "text-sm text-wt-file font-mono leading-relaxed" },
+                    ...node.files.flatMap((file, index) => [
+                      h("span", { key: file }, file),
+                      h("br", { key: `${file}-${index}` }),
+                    ]),
+                  ),
+                )
+              : null,
+          ),
+        );
+      }
+
+      function ZoomControls({ zoomDisplayRef, onZoomIn, onZoomOut, onFit }) {
+        return h(
+          "div",
+          {
+            className:
+              "fixed bottom-5 left-5 z-20 flex items-center gap-1 bg-wt-surface border border-wt-border rounded-lg shadow-xl p-1",
+          },
+          h(
+            "button",
+            {
+              type: "button",
+              onClick: onZoomOut,
+              className: "w-8 h-8 rounded-md bg-wt-raised hover:bg-wt-border text-wt-fg",
+              "aria-label": "Zoom out",
+            },
+            "-",
+          ),
+          h(
+            "span",
+            {
+              ref: zoomDisplayRef,
+              className: "min-w-12 text-center text-xs text-wt-muted font-mono",
+            },
+            "100%",
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              onClick: onZoomIn,
+              className: "w-8 h-8 rounded-md bg-wt-raised hover:bg-wt-border text-wt-fg",
+              "aria-label": "Zoom in",
+            },
+            "+",
+          ),
+          h(
+            "button",
+            {
+              type: "button",
+              onClick: onFit,
+              className: "h-8 px-2 rounded-md bg-wt-raised hover:bg-wt-border text-xs text-wt-fg",
+            },
+            "Fit",
+          ),
+        );
+      }
+
+      function App() {
+        const [activeId, setActiveIdState] = useState(null);
+        const [summaryCollapsed, setSummaryCollapsed] = useState(true);
+        const pz = usePanZoom();
+
+        const setActiveNode = useCallback((nodeId) => {
+          setActiveIdState(nodeId);
+          document.querySelectorAll(".mermaid-wrap .node").forEach((node) => {
+            node.style.opacity = nodeId ? "0.4" : "1";
+          });
+          if (nodeId) {
+            const element = document.querySelector(`.mermaid-wrap .node[id*="${nodeId}"]`);
+            if (element) {
+              element.style.opacity = "1";
+            }
+          }
+        }, []);
+
+        const closeDetail = useCallback(() => {
+          setActiveIdState(null);
+          document.querySelectorAll(".mermaid-wrap .node").forEach((node) => {
+            node.style.opacity = "1";
+          });
+        }, []);
+
+        useEffect(() => {
+          const timeout = window.setTimeout(pz.fitToScreen, 700);
+          return () => window.clearTimeout(timeout);
+        }, [pz.fitToScreen]);
+
+        const activeNode = activeId ? NODES[activeId] : null;
+
+        return h(
+          window.React.Fragment,
+          null,
+          h(
+            "header",
+            {
+              className:
+                "fixed top-0 inset-x-0 z-10 px-6 py-3.5 bg-gradient-to-b from-wt-bg to-transparent pointer-events-none",
+            },
+            h("h1", { className: "text-base font-semibold text-wt-fg" }, "Generic AI Architecture"),
+            h(
+              "p",
+              { className: "text-sm text-wt-muted mt-0.5" },
+              "Clickable Mermaid walkthrough of the corrected package DAG, starter slots, and gates.",
+            ),
+          ),
+          h(Summary, {
+            collapsed: summaryCollapsed,
+            onToggle: () => setSummaryCollapsed((collapsed) => !collapsed),
+          }),
+          h(
+            "main",
+            {
+              ref: pz.viewportRef,
+              className: "w-full h-screen overflow-hidden cursor-grab active:cursor-grabbing",
+            },
+            h(
+              "div",
+              {
+                ref: pz.canvasRef,
+                className: "origin-top-left will-change-transform inline-block p-[110px_80px_90px]",
+              },
+              h(MermaidDiagram, { onNodeClick: setActiveNode }),
+            ),
+          ),
+          h(ZoomControls, {
+            zoomDisplayRef: pz.zoomDisplayRef,
+            onZoomIn: pz.zoomIn,
+            onZoomOut: pz.zoomOut,
+            onFit: pz.fitToScreen,
+          }),
+          h(
+            "div",
+            {
+              className:
+                "fixed bottom-5 left-1/2 -translate-x-1/2 z-20 flex flex-wrap justify-center gap-4 px-4 py-2 bg-wt-surface border border-wt-border rounded-lg shadow-xl max-w-[calc(100vw-11rem)]",
+            },
+            ...LEGEND.map((legend) =>
+              h(
+                "span",
+                {
+                  key: legend.label,
+                  className: "flex items-center gap-1.5 text-xs text-wt-muted whitespace-nowrap",
+                },
+                h("span", { className: `w-2 h-2 rounded-full ${legend.color}` }),
+                legend.label,
+              ),
+            ),
+          ),
+          activeNode
+            ? h(DetailPanel, { nodeId: activeId, node: activeNode, onClose: closeDetail })
+            : null,
+          h(
+            "div",
+            { className: "fixed bottom-5 right-5 z-20 text-xs text-wt-muted opacity-60" },
+            h("span", { className: "kbd" }, "Scroll"),
+            " zoom | ",
+            h("span", { className: "kbd" }, "Drag"),
+            " pan | Click nodes",
+          ),
+        );
+      }
+
+      window.ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+    </script>
+  </body>
+</html>

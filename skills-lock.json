@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "walkthrough": {
+      "source": "alexanderop/walkthrough",
+      "sourceType": "github",
+      "computedHash": "084197c11fa76d8f4efea92c6efe961524320c20763a2f817bacf7a9e5f44515"
+    }
+  }
+}
