@@ -26,7 +26,7 @@ Harbor currently documents `harbor run -c <job.yaml>` for config-backed jobs, cu
 - `src/run-terminal-bench.ts`: host-side Harbor launcher.
 - `src/import-harbor-results.ts`: Harbor job importer that writes Generic AI-native reports.
 - `src/render-benchmark-report.ts`: report JSON to markdown renderer.
-- `configs/*.job.yaml`: smoke, calibration, and full Harbor job configs.
+- `configs/*.job.yaml`: smoke, quick, calibration, and full Harbor job configs.
 - `skills/terminal-bench/*`: benchmark-local behavioral guidance for future richer agents.
 - `reports/`: ignored local output area for imported Generic AI reports.
 
@@ -48,6 +48,12 @@ Run one Generic AI smoke task:
 
 ```bash
 npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile smoke
+```
+
+Run a quick multi-task check before paying for repeated calibration:
+
+```bash
+npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile quick
 ```
 
 Run the repeated calibration subset:
@@ -106,7 +112,7 @@ examples/terminal-bench/reports/imported/<job-name>/
   benchmark-report.md
 ```
 
-Single-task smoke reports should usually remain `insufficient_evidence`; calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
+Single-task smoke reports should usually remain `insufficient_evidence`; quick runs prove several real task containers without repeated attempts, and calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
 
 ## Current MVP Boundary
 

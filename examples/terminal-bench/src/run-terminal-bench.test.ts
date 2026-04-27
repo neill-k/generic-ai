@@ -17,4 +17,13 @@ describe("buildHarborCommandPlan", () => {
     expect(plan.env["GENERIC_AI_MODEL"]).toBe("gpt-test");
     expect(plan.env["GENERIC_AI_REPO_ROOT"]).toContain("generic-ai");
   });
+
+  it("supports the multi-task quick profile between smoke and calibration", () => {
+    const plan = buildHarborCommandPlan({
+      profile: "quick",
+      env: {},
+    });
+
+    expect(plan.args[2]).toContain("quick.job.yaml");
+  });
 });

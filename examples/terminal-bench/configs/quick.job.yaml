@@ -1,0 +1,19 @@
+job_name: generic-ai-terminal-bench-quick
+jobs_dir: examples/terminal-bench/jobs
+quiet: true
+n_attempts: 1
+n_concurrent_trials: 1
+agent_setup_timeout_multiplier: 1
+agent_timeout_multiplier: 1
+environment:
+  type: docker
+  force_build: false
+  delete: true
+agents:
+  - import_path: generic_ai_agent:GenericAIInstalledAgent
+    model_name: openai-codex/gpt-5.5
+datasets:
+  - name: terminal-bench/terminal-bench-2
+    n_tasks: 3
+artifacts:
+  - /logs/artifacts/
