@@ -1,9 +1,9 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
-import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
+import { type PolicyDecisionRecord, withAgentHarnessToolEffects } from "@generic-ai/sdk";
 import { describe, expect, it } from "vitest";
 
 import { createAgentHarness } from "./agent-harness.js";
@@ -135,6 +135,38 @@ describe("createAgentHarness", () => {
     expect(result.artifacts[0]?.sha256).toHaveLength(64);
     expect(result.policyDecisions.some((decision) => decision.reason.includes("effect"))).toBe(
       true,
+    );
+    expect(new Set(result.events.map((event) => event.rootSessionId))).toEqual(
+      new Set(["session-1"]),
+    );
+    expect(
+      result.events.some(
+        (event) => event.name === "policy.decision" && event.sessionId === "session-3",
+      ),
+    ).toBe(true);
+    expect(result.policyDecisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorId: "verifier",
+          action: "bind_tool",
+          decision: "denied",
+        }),
+      ]),
+    );
+
+    const policyArtifact = result.artifacts.find((artifact) => artifact.id === "policy-decisions");
+    expect(policyArtifact?.localPath).toBeDefined();
+    const artifactDecisions = JSON.parse(
+      await readFile(policyArtifact?.localPath ?? "", "utf-8"),
+    ) as readonly PolicyDecisionRecord[];
+    expect(artifactDecisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorId: "verifier",
+          action: "bind_tool",
+          decision: "denied",
+        }),
+      ]),
     );
   });
 });

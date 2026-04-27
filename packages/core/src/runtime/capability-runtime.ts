@@ -200,9 +200,12 @@ export interface RunCapabilityPiAgentSessionOptions extends CreateCapabilityPiAg
   readonly promptOptions?: PromptOptions;
   readonly runId?: string;
   readonly rootScopeId?: string;
+  readonly rootSessionId?: string;
+  readonly parentSessionId?: string;
   readonly rootAgentId?: string;
   readonly mode?: RunEnvelopeMode;
   readonly eventStream?: CanonicalEventStream;
+  readonly onSessionReady?: (context: CapabilityPiSessionEventContext) => Promise<void> | void;
 }
 
 export interface RunCapabilityPiAgentSessionResult extends CreateCapabilityPiAgentSessionResult {
@@ -210,6 +213,14 @@ export interface RunCapabilityPiAgentSessionResult extends CreateCapabilityPiAge
   readonly eventStream: CanonicalEventStream;
   readonly events: readonly CanonicalEvent[];
   readonly failureMessage?: string;
+}
+
+export interface CapabilityPiSessionEventContext {
+  readonly runId: string;
+  readonly scopeId: string;
+  readonly rootSessionId: string;
+  readonly sessionId: string;
+  readonly parentSessionId?: string;
 }
 
 function requireString(value: string | undefined, label: string): string {
@@ -859,9 +870,12 @@ export async function runCapabilityPiAgentSession(
   const eventContext = {
     scopeId,
     runId,
-    rootSessionId: sessionId,
+    rootSessionId: options.rootSessionId ?? sessionId,
     sessionId,
-  };
+    ...(options.parentSessionId === undefined
+      ? {}
+      : { parentSessionId: options.parentSessionId }),
+  } satisfies CapabilityPiSessionEventContext;
 
   await eventStream.emit({
     ...eventContext,
@@ -877,6 +891,7 @@ export async function runCapabilityPiAgentSession(
       sessionId,
     },
   });
+  await options.onSessionReady?.(eventContext);
   await eventStream.emit({
     ...eventContext,
     name: "run.started",

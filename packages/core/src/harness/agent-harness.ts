@@ -41,6 +41,7 @@ import { Type } from "@sinclair/typebox";
 
 import { createCanonicalEventStream, type CanonicalEventStream } from "../events/index.js";
 import {
+  type CapabilityPiSessionEventContext,
   type PiCapabilityBindings,
   runCapabilityPiAgentSession,
 } from "../runtime/capability-runtime.js";
@@ -271,7 +272,7 @@ function policyDecision(input: {
   readonly index?: number;
 }): PolicyDecisionRecord {
   return Object.freeze({
-    id: `${input.runId}:policy:${input.action}:${input.resource.id ?? input.resource.kind}${input.index === undefined ? "" : `:${input.index}`}`,
+    id: `${input.runId}:policy:${input.actorId}:${input.action}:${input.resource.id ?? input.resource.kind}${input.index === undefined ? "" : `:${input.index}`}`,
     runId: input.runId,
     actorId: input.actorId,
     action: input.action,
@@ -711,7 +712,7 @@ async function emitPolicyDecision(
   input: {
     readonly runId: string;
     readonly scopeId: string;
-    readonly rootAgentId: string;
+    readonly rootSessionId: string;
     readonly sessionId: string;
     readonly decision: PolicyDecisionRecord;
   },
@@ -719,7 +720,7 @@ async function emitPolicyDecision(
   await eventStream.emit({
     runId: input.runId,
     scopeId: input.scopeId,
-    rootSessionId: input.rootAgentId,
+    rootSessionId: input.rootSessionId,
     sessionId: input.sessionId,
     name: "policy.decision",
     data: jsonObject({
@@ -835,6 +836,10 @@ function createDelegateTool(input: {
   readonly capabilities: PiCapabilityBindings;
   readonly deniedEffects: ReadonlySet<AgentHarnessCapabilityEffect>;
   readonly eventStream: CanonicalEventStream;
+  readonly getRootSessionId: () => string | undefined;
+  readonly recordPolicyDecisions: (
+    decisions: readonly PolicyDecisionRecord[],
+  ) => void;
   readonly factories?: PiRuntimeFactories;
 }): ToolDefinition {
   const rolesById = new Map(input.roles.map((role) => [role.id, role]));
@@ -864,11 +869,15 @@ function createDelegateTool(input: {
         }
 
         const delegationId = `${input.runId}:delegation:${randomUUID()}`;
+        const rootSessionId = input.getRootSessionId();
+        if (rootSessionId === undefined) {
+          throw new Error("Cannot delegate before the root Pi session is ready.");
+        }
         const eventContext = {
           runId: input.runId,
           scopeId: input.rootScopeId,
-          rootSessionId: input.rootAgentId,
-          sessionId: input.rootAgentId,
+          rootSessionId,
+          sessionId: rootSessionId,
           delegationId,
         };
         await input.eventStream.emit({
@@ -895,15 +904,7 @@ function createDelegateTool(input: {
           actorId: role.id,
           deniedEffects: input.deniedEffects,
         });
-        for (const decision of rolePolicyResult.policyDecisions) {
-          await emitPolicyDecision(input.eventStream, {
-            runId: input.runId,
-            scopeId: input.rootScopeId,
-            rootAgentId: input.rootAgentId,
-            sessionId: input.rootAgentId,
-            decision,
-          });
-        }
+        input.recordPolicyDecisions(rolePolicyResult.policyDecisions);
         const roleRunOptions = {
           cwd: input.workspaceRoot,
           agentDir: input.sessionInputs.agentDir,
@@ -921,7 +922,20 @@ function createDelegateTool(input: {
           runId: input.runId,
           rootScopeId: input.rootScopeId,
           rootAgentId: role.id,
+          rootSessionId,
+          parentSessionId: rootSessionId,
           eventStream: input.eventStream,
+          onSessionReady: async (context: CapabilityPiSessionEventContext) => {
+            for (const decision of rolePolicyResult.policyDecisions) {
+              await emitPolicyDecision(input.eventStream, {
+                runId: input.runId,
+                scopeId: input.rootScopeId,
+                rootSessionId: context.rootSessionId,
+                sessionId: context.sessionId,
+                decision,
+              });
+            }
+          },
         };
         const roleResult =
           input.factories === undefined
@@ -1015,6 +1029,7 @@ async function writeHarnessArtifacts(input: {
   readonly runId: string;
   readonly scopeId: string;
   readonly rootAgentId: string;
+  readonly rootSessionId: string;
   readonly sessionId: string;
   readonly events: readonly CanonicalEvent[];
   readonly projections: readonly AgentHarnessEventProjection[];
@@ -1070,7 +1085,7 @@ async function writeHarnessArtifacts(input: {
     await input.eventStream.emit({
       runId: input.runId,
       scopeId: input.scopeId,
-      rootSessionId: input.rootAgentId,
+      rootSessionId: input.rootSessionId,
       sessionId: input.sessionId,
       name: "artifact.created",
       data: jsonObject({
@@ -1220,6 +1235,8 @@ function createPiAgentHarnessAdapter(
         allowNetwork,
         allowMcp,
       });
+      const policyDecisions: PolicyDecisionRecord[] = [...profilePolicyDecisions];
+      let rootRuntimeSessionId: string | undefined;
       const rootPolicyResult = applyRolePolicy({
         capabilities: {
           ...baseCapabilities,
@@ -1236,6 +1253,10 @@ function createPiAgentHarnessAdapter(
               capabilities: baseCapabilities,
               deniedEffects,
               eventStream,
+              getRootSessionId: () => rootRuntimeSessionId,
+              recordPolicyDecisions: (decisions) => {
+                policyDecisions.push(...decisions);
+              },
               ...(options.factories === undefined ? {} : { factories: options.factories }),
             }),
           ],
@@ -1245,20 +1266,7 @@ function createPiAgentHarnessAdapter(
         actorId: rootAgentId,
         deniedEffects,
       });
-      const policyDecisions = Object.freeze([
-        ...profilePolicyDecisions,
-        ...rootPolicyResult.policyDecisions,
-      ]);
-
-      for (const decision of policyDecisions) {
-        await emitPolicyDecision(eventStream, {
-          runId,
-          scopeId: rootScopeId,
-          rootAgentId,
-          sessionId: rootAgentId,
-          decision,
-        });
-      }
+      policyDecisions.push(...rootPolicyResult.policyDecisions);
 
       const result = await runCapabilityPiAgentSession(
         {
@@ -1279,6 +1287,18 @@ function createPiAgentHarnessAdapter(
           rootScopeId,
           rootAgentId,
           eventStream,
+          onSessionReady: async (context) => {
+            rootRuntimeSessionId = context.sessionId;
+            for (const decision of policyDecisions) {
+              await emitPolicyDecision(eventStream, {
+                runId,
+                scopeId: rootScopeId,
+                rootSessionId: context.rootSessionId,
+                sessionId: context.sessionId,
+                decision,
+              });
+            }
+          },
         },
         options.factories,
       );
@@ -1286,6 +1306,7 @@ function createPiAgentHarnessAdapter(
       const events = result.events;
       const projections = Object.freeze(events.map(projectEvent));
       const status = result.failureMessage === undefined ? "succeeded" : "failed";
+      const finalPolicyDecisions = Object.freeze([...policyDecisions]);
       const summary = jsonObject({
         harnessId: input.harness.id,
         adapter: "pi",
@@ -1293,7 +1314,7 @@ function createPiAgentHarnessAdapter(
         outputText,
         eventCount: events.length,
         projectionCount: projections.length,
-        policyDecisionCount: policyDecisions.length,
+        policyDecisionCount: finalPolicyDecisions.length,
       });
       const artifacts = await writeHarnessArtifacts({
         artifactStore: context.artifacts,
@@ -1301,10 +1322,11 @@ function createPiAgentHarnessAdapter(
         runId,
         scopeId: rootScopeId,
         rootAgentId,
-        sessionId: rootAgentId,
+        rootSessionId: result.session.sessionId,
+        sessionId: result.session.sessionId,
         events,
         projections,
-        policyDecisions,
+        policyDecisions: finalPolicyDecisions,
         summary,
       });
       const finalEvents = eventStream.snapshot();
@@ -1322,7 +1344,7 @@ function createPiAgentHarnessAdapter(
         events: finalEvents,
         projections: finalProjections,
         artifacts,
-        policyDecisions,
+        policyDecisions: finalPolicyDecisions,
         ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
       });
     },
