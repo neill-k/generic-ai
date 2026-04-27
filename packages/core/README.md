@@ -14,6 +14,8 @@ Kernel responsibilities (see `docs/planning/02-architecture.md`):
 - Config discovery, validation, and composition wiring
 - Consuming compiled Harness DSL / Generic Agent IR contracts for runtime and
   benchmark execution
+- Pi-backed `AgentHarness` runtime over SDK adapter context, effect-described
+  tool policy, canonical harness events, and URI/hash artifacts
 
 The kernel does not own business capabilities. MCP, Agent Skills, delegation, messaging, memory, storage, output shaping, and transport all live in plugins.
 
@@ -38,8 +40,11 @@ Current runtime bridge:
 - `createCapabilityPiAgentSession(options)` wires capability tools plus Agent Skills into a real `pi` `AgentSession`
 - `runCapabilityPiAgentSession(options)` forwards `pi` session activity into the canonical event stream and run envelope
 - `createDelegationCoordinator(options)` keeps child-session lifecycle plumbing in the kernel while delegation business contracts stay outside core
+- `createAgentHarness(options)` / `runAgentHarness(options)` run the composable
+  harness control plane above Pi; `GenericAILlmRuntime` remains the low-level
+  text/model helper
 - `runHarnessBenchmark(options)` compiles Harness DSL contracts from the SDK,
-  then runs trials through the same `GenericAILlmRuntime` used by normal runs
+  then runs trials through the configured runtime helper for benchmark fixtures
 
 OpenAI Codex inference uses Pi's `openai-codex` provider path. The
 `openai-codex` adapter resolves credentials and models through Pi auth/model

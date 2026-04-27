@@ -48,7 +48,7 @@ Anything outside these rules needs an entry in `docs/decisions/` explaining the 
 
 Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and the repo root itself are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
-- **Public (20 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
+- **Public (22 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
 - **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. Any new workspace under `examples/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
@@ -63,7 +63,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Allowed deps: `pi`, `@generic-ai/sdk`.
 - Not responsible for: MCP, Agent Skills, delegation, messaging, memory, storage implementations, transport, output shaping, Harness DSL syntax, package-specific protocol/policy/grader semantics, or any business capability.
 - Notes: the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls is the only approved kernel/preset composition exception. See `docs/decisions/0012-bootstrap-api.md`.
-- Harness note: core may expose compiled-harness benchmark runtime helpers that run through `GenericAILlmRuntime`; the public language and IR contracts remain SDK-owned.
+- Harness note: core exposes the Pi-backed `AgentHarness` control-plane implementation, filters role capabilities by SDK-declared effects, writes artifacts through the harness artifact-store contract, and may consume SDK-owned compiled harness contracts. `GenericAILlmRuntime` remains a low-level text/model helper rather than the composable agent harness.
 - Publishes as: `@generic-ai/core` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/sdk`
@@ -71,13 +71,13 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: public framework-facing SDK. Defines the contracts plugin authors and preset authors compile against.
 - Allowed deps: `pi`.
 - Not responsible for: plugin implementations, config discovery, kernel internals, live provider execution, or report hosting.
-- Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch contract types plus deterministic compile/report helpers.
+- Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
 - Publishes as: `@generic-ai/sdk` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/preset-starter-hono`
 
 - Role: default starter preset contract. Composes the local-first working stack and is the package-owned public contract for the starter path.
-- Allowed deps: `@generic-ai/core`, `@generic-ai/sdk`, all plugins it bundles (`plugin-config-yaml`, `plugin-workspace-fs`, storage, queue, logging, tool, MCP, skill, delegation, messaging, memory, output, and Hono plugins), and `pi`.
+- Allowed deps: `@generic-ai/core`, `@generic-ai/sdk`, all plugins it bundles (`plugin-config-yaml`, `plugin-workspace-fs`, storage, queue, logging, terminal/file/repo-map/LSP/web tools, MCP, skill, delegation, messaging, memory, output, and Hono plugins), and `pi`.
 - Not responsible for: defining new plugin-owned business models. The preset only wires existing plugins together.
 - Notes: the starter package owns the public starter contract and may expose a convenience bootstrap wrapper around the generic core bootstrap. `@generic-ai/core` keeps a mirrored starter descriptor only as the approved `createGenericAI()` default-path exception documented in `docs/decisions/0012-bootstrap-api.md`.
 
@@ -137,6 +137,20 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
 - Not responsible for: terminal commands, storage, search beyond the filesystem-level primitives file tools natively provide, or cross-capability governance orchestration.
 - Notes: the deferred hardening plan for this package now lives in `docs/runtime-governance.md`.
+
+### `@generic-ai/plugin-repo-map`
+
+- Role: deterministic compact repository map and repo-orientation tool for harness roles.
+- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
+- Not responsible for: semantic code navigation, diagnostics, or long-running indexing. Those belong to LSP or future search/index plugins.
+- Notes: declares `repo.inspect` and `fs.read` effects so it is safe for read-only planner and explorer roles and stable enough for trace-backed benchmark artifacts.
+
+### `@generic-ai/plugin-lsp`
+
+- Role: configurable stdio Language Server Protocol client exposing diagnostics, document symbols, definitions, and references as harness tools.
+- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, and language-server protocol/client libraries if the package later adopts one.
+- Not responsible for: repository-wide indexing beyond server-backed LSP calls, file mutation, or installing language servers.
+- Notes: declares `lsp.read`, `fs.read`, and `process.spawn` effects. It is part of the local starter stack, but benchmark profiles should gate or omit it unless language-server spawning is explicitly allowed.
 
 ### `@generic-ai/plugin-tools-web`
 

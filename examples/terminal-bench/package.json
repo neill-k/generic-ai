@@ -22,6 +22,15 @@
   },
   "dependencies": {
     "@generic-ai/core": "0.0.0",
+    "@generic-ai/plugin-agent-skills": "0.0.0",
+    "@generic-ai/plugin-lsp": "0.0.0",
+    "@generic-ai/plugin-mcp": "0.0.0",
+    "@generic-ai/plugin-memory-files": "0.0.0",
+    "@generic-ai/plugin-messaging": "0.0.0",
+    "@generic-ai/plugin-repo-map": "0.0.0",
+    "@generic-ai/plugin-storage-memory": "0.0.0",
+    "@generic-ai/plugin-tools-files": "0.0.0",
+    "@generic-ai/plugin-tools-terminal": "0.0.0",
     "@generic-ai/sdk": "0.0.0"
   },
   "engines": {

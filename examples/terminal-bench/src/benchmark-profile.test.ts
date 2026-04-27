@@ -14,24 +14,58 @@ describe("runBenchmarkProfile", () => {
       outputDir,
       now: () => "2026-04-26T00:00:00.000Z",
       createRunId: () => "run-1",
-      createRuntime: () => ({
-        adapter: "openai-codex",
-        model: "gpt-test",
-        run: async () => ({
-          adapter: "openai-codex",
-          model: "gpt-test",
-          outputText: "Done.",
-        }),
-        stream: async function* () {
-          yield {
-            type: "response",
-            response: {
-              adapter: "openai-codex",
-              model: "gpt-test",
-              outputText: "Done.",
-            },
-          };
+      runHarness: (options) => ({
+        harnessId: options.harness.id,
+        adapter: "pi",
+        status: "succeeded",
+        outputText: "Done.",
+        envelope: {
+          kind: "run-envelope",
+          runId: "run-1",
+          rootScopeId: "terminal-bench",
+          mode: "sync",
+          status: "succeeded",
+          timestamps: {
+            createdAt: "2026-04-26T00:00:00.000Z",
+            startedAt: "2026-04-26T00:00:00.000Z",
+            completedAt: "2026-04-26T00:00:00.000Z",
+          },
         },
+        events: [],
+        projections: [
+          {
+            id: "projection-1",
+            sequence: 1,
+            type: "terminal.command.started",
+            eventName: "plugin.generic-ai-runtime.pi.tool_execution_start",
+            occurredAt: "2026-04-26T00:00:00.000Z",
+            roleId: "builder",
+            toolName: "bash",
+            summary: "plugin.generic-ai-runtime.pi.tool_execution_start bash.",
+            data: { toolName: "bash" },
+          },
+        ],
+        artifacts: [
+          {
+            id: "canonical-events",
+            kind: "events",
+            uri: "generic-ai-artifact://run-1/harness/canonical-events",
+            localPath: join(outputDir, "harness", "canonical-events.json"),
+          },
+        ],
+        policyDecisions: [
+          {
+            id: "run-1:policy:nested-sandbox",
+            runId: "run-1",
+            actorId: "generic-ai",
+            action: "create_nested_sandbox",
+            resource: { kind: "sandbox", id: "nested" },
+            effect: "deny",
+            decision: "denied",
+            reason: "Benchmark runs use the harness container as the execution boundary.",
+            evidenceRefs: [],
+          },
+        ],
       }),
     });
 

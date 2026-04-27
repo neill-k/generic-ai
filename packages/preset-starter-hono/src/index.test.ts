@@ -50,6 +50,8 @@ describe("@generic-ai/preset-starter-hono contract", () => {
       "@generic-ai/plugin-logging-otel",
       "@generic-ai/plugin-tools-terminal",
       "@generic-ai/plugin-tools-files",
+      "@generic-ai/plugin-repo-map",
+      "@generic-ai/plugin-lsp",
       "@generic-ai/plugin-mcp",
       "@generic-ai/plugin-agent-skills",
       "@generic-ai/plugin-delegation",
@@ -151,7 +153,7 @@ describe("@generic-ai/preset-starter-hono contract", () => {
   it("exports the starter preset contract", () => {
     expect(starterPresetContract.id).toBe("preset.starter-hono");
     expect(starterPresetContract.version).toBe(1);
-    expect(starterPresetContract.slots).toHaveLength(14);
+    expect(starterPresetContract.slots).toHaveLength(16);
   });
 
   it("builds a bootstrap-ready starter preset definition", () => {

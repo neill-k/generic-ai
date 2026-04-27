@@ -14,6 +14,8 @@
     { "path": "packages/plugin-tools-terminal-sandbox" },
     { "path": "packages/plugin-tools-files" },
     { "path": "packages/plugin-tools-web" },
+    { "path": "packages/plugin-repo-map" },
+    { "path": "packages/plugin-lsp" },
     { "path": "packages/plugin-mcp" },
     { "path": "packages/plugin-agent-skills" },
     { "path": "packages/plugin-delegation" },

@@ -6,6 +6,7 @@ import {
   type CreateAgentSessionResult,
   DefaultResourceLoader,
   defineTool,
+  withAgentHarnessToolEffects,
   type PromptOptions,
   type ToolDefinition,
 } from "@generic-ai/sdk";
@@ -23,13 +24,15 @@ import { createPiAgentSession, type PiRuntimeFactories } from "./pi.js";
 
 const PI_RUNTIME_EVENT_PLUGIN_ID = "generic-ai-runtime";
 
-type PiRuntimeTool = ToolDefinition | {
-  readonly name: string;
-  readonly label?: string;
-  readonly description: string;
-  readonly parameters?: unknown;
-  readonly execute: (...args: never[]) => unknown;
-};
+type PiRuntimeTool =
+  | ToolDefinition
+  | {
+      readonly name: string;
+      readonly label?: string;
+      readonly description: string;
+      readonly parameters?: unknown;
+      readonly execute: (...args: never[]) => unknown;
+    };
 
 export interface PiCapabilityFileTools {
   readonly piTools: readonly PiRuntimeTool[];
@@ -163,6 +166,7 @@ export interface PiCapabilityMemory {
 export interface PiCapabilityBindings {
   readonly terminalTools?: PiCapabilityTerminalTools;
   readonly fileTools?: PiCapabilityFileTools;
+  readonly customTools?: readonly ToolDefinition[];
   readonly mcp?: PiCapabilityMcp;
   readonly skills?: PiCapabilitySkills;
   readonly messaging?: PiCapabilityMessaging;
@@ -256,336 +260,345 @@ function redactMcpServer<T extends { readonly env?: Readonly<Record<string, stri
 }
 
 function createMcpRegistryTool(capability: PiCapabilityMcp): ToolDefinition {
-  return defineTool({
-    name: "mcp_registry",
-    label: "MCP Registry",
-    description: "Inspect registered MCP servers and resolve launch configuration for a server.",
-    promptSnippet: "inspect configured MCP servers and their launch details",
-    promptGuidelines: [
-      "Use mcp_registry before assuming an MCP server id, transport, or launch command.",
-    ],
-    parameters: Type.Object({
-      action: Type.Union([
-        Type.Literal("list"),
-        Type.Literal("get"),
-        Type.Literal("resolve-launch"),
-        Type.Literal("describe-for-prompt"),
-      ]),
-      serverId: Type.Optional(
-        Type.String({
-          description: "Required for get and resolve-launch actions.",
-        }),
-      ),
-    }),
-    async execute(_toolCallId, params) {
-      if (params.action === "describe-for-prompt") {
-        return createTextResult(capability.describeForPrompt(), {
-          action: params.action,
-        });
-      }
-
-      if (params.action === "list") {
-        const servers = capability.list();
-        return createTextResult(
-          summarizeNames(
-            servers.map((server) => server.id),
-            "MCP server",
-            "MCP servers",
-          ),
-          {
+  return withAgentHarnessToolEffects(
+    defineTool({
+      name: "mcp_registry",
+      label: "MCP Registry",
+      description: "Inspect registered MCP servers and resolve launch configuration for a server.",
+      promptSnippet: "inspect configured MCP servers and their launch details",
+      promptGuidelines: [
+        "Use mcp_registry before assuming an MCP server id, transport, or launch command.",
+      ],
+      parameters: Type.Object({
+        action: Type.Union([
+          Type.Literal("list"),
+          Type.Literal("get"),
+          Type.Literal("resolve-launch"),
+          Type.Literal("describe-for-prompt"),
+        ]),
+        serverId: Type.Optional(
+          Type.String({
+            description: "Required for get and resolve-launch actions.",
+          }),
+        ),
+      }),
+      async execute(_toolCallId, params) {
+        if (params.action === "describe-for-prompt") {
+          return createTextResult(capability.describeForPrompt(), {
             action: params.action,
-            servers: servers.map(redactMcpServer),
-          },
-        );
-      }
-
-      const serverId = requireString(params.serverId, "serverId");
-
-      if (params.action === "get") {
-        const server = capability.get(serverId);
-        if (server === undefined) {
-          throw new Error(`Unknown MCP server "${serverId}".`);
+          });
         }
 
-        return createTextResult(`Loaded MCP server "${serverId}".`, {
-          action: params.action,
-          server: redactMcpServer(server),
-        });
-      }
+        if (params.action === "list") {
+          const servers = capability.list();
+          return createTextResult(
+            summarizeNames(
+              servers.map((server) => server.id),
+              "MCP server",
+              "MCP servers",
+            ),
+            {
+              action: params.action,
+              servers: servers.map(redactMcpServer),
+            },
+          );
+        }
 
-      const launch = capability.resolveLaunch(serverId);
-      return createTextResult(`Resolved launch configuration for MCP server "${serverId}".`, {
-        action: params.action,
-        launch: redactMcpServer(launch),
-      });
-    },
-  });
+        const serverId = requireString(params.serverId, "serverId");
+
+        if (params.action === "get") {
+          const server = capability.get(serverId);
+          if (server === undefined) {
+            throw new Error(`Unknown MCP server "${serverId}".`);
+          }
+
+          return createTextResult(`Loaded MCP server "${serverId}".`, {
+            action: params.action,
+            server: redactMcpServer(server),
+          });
+        }
+
+        const launch = capability.resolveLaunch(serverId);
+        return createTextResult(`Resolved launch configuration for MCP server "${serverId}".`, {
+          action: params.action,
+          launch: redactMcpServer(launch),
+        });
+      },
+    }),
+    ["mcp.read", "mcp.launch", "secret.read"],
+  );
 }
 
 function createMessagingTool(capability: PiCapabilityMessaging): ToolDefinition {
-  return defineTool({
-    name: "agent_messages",
-    label: "Agent Messages",
-    description: "Send, inspect, and search durable inter-agent messages.",
-    promptSnippet: "send or inspect durable messages between agents",
-    promptGuidelines: [
-      "Use agent_messages when work must survive beyond the current in-memory turn.",
-    ],
-    parameters: Type.Object({
-      action: Type.Union([
-        Type.Literal("send"),
-        Type.Literal("inbox"),
-        Type.Literal("thread"),
-        Type.Literal("mark-read"),
-        Type.Literal("search"),
-      ]),
-      agentId: Type.Optional(
-        Type.String({
-          description: "Required for inbox and search actions.",
-        }),
-      ),
-      messageId: Type.Optional(
-        Type.String({
-          description: "Required for mark-read.",
-        }),
-      ),
-      threadId: Type.Optional(
-        Type.String({
-          description: "Required for thread.",
-        }),
-      ),
-      from: Type.Optional(
-        Type.String({
-          description: "Required for send.",
-        }),
-      ),
-      to: Type.Optional(
-        Type.String({
-          description: "Required for send.",
-        }),
-      ),
-      subject: Type.Optional(Type.String()),
-      body: Type.Optional(
-        Type.String({
-          description: "Required for send.",
-        }),
-      ),
-      query: Type.Optional(
-        Type.String({
-          description: "Required for search.",
-        }),
-      ),
-      limit: Type.Optional(Type.Integer({ minimum: 1 })),
-      unreadOnly: Type.Optional(Type.Boolean()),
-    }),
-    async execute(_toolCallId, params) {
-      switch (params.action) {
-        case "send": {
-          const message = capability.send({
-            from: requireString(params.from, "from"),
-            to: requireString(params.to, "to"),
-            body: requireString(params.body, "body"),
-            ...(params.subject === undefined ? {} : { subject: params.subject }),
-            ...(params.threadId === undefined ? {} : { threadId: params.threadId }),
-          });
+  return withAgentHarnessToolEffects(
+    defineTool({
+      name: "agent_messages",
+      label: "Agent Messages",
+      description: "Send, inspect, and search durable inter-agent messages.",
+      promptSnippet: "send or inspect durable messages between agents",
+      promptGuidelines: [
+        "Use agent_messages when work must survive beyond the current in-memory turn.",
+      ],
+      parameters: Type.Object({
+        action: Type.Union([
+          Type.Literal("send"),
+          Type.Literal("inbox"),
+          Type.Literal("thread"),
+          Type.Literal("mark-read"),
+          Type.Literal("search"),
+        ]),
+        agentId: Type.Optional(
+          Type.String({
+            description: "Required for inbox and search actions.",
+          }),
+        ),
+        messageId: Type.Optional(
+          Type.String({
+            description: "Required for mark-read.",
+          }),
+        ),
+        threadId: Type.Optional(
+          Type.String({
+            description: "Required for thread.",
+          }),
+        ),
+        from: Type.Optional(
+          Type.String({
+            description: "Required for send.",
+          }),
+        ),
+        to: Type.Optional(
+          Type.String({
+            description: "Required for send.",
+          }),
+        ),
+        subject: Type.Optional(Type.String()),
+        body: Type.Optional(
+          Type.String({
+            description: "Required for send.",
+          }),
+        ),
+        query: Type.Optional(
+          Type.String({
+            description: "Required for search.",
+          }),
+        ),
+        limit: Type.Optional(Type.Integer({ minimum: 1 })),
+        unreadOnly: Type.Optional(Type.Boolean()),
+      }),
+      async execute(_toolCallId, params) {
+        switch (params.action) {
+          case "send": {
+            const message = capability.send({
+              from: requireString(params.from, "from"),
+              to: requireString(params.to, "to"),
+              body: requireString(params.body, "body"),
+              ...(params.subject === undefined ? {} : { subject: params.subject }),
+              ...(params.threadId === undefined ? {} : { threadId: params.threadId }),
+            });
 
-          return createTextResult(`Sent durable message "${message.id}" to ${message.to}.`, {
-            action: params.action,
-            message,
-          });
-        }
-
-        case "inbox": {
-          const messages = capability.inbox(requireString(params.agentId, "agentId"), {
-            ...(params.limit === undefined ? {} : { limit: params.limit }),
-            ...(params.unreadOnly === undefined ? {} : { unreadOnly: params.unreadOnly }),
-          });
-
-          return createTextResult(
-            summarizeNames(
-              messages.map((message) => message.id),
-              "message",
-              "messages",
-            ),
-            {
+            return createTextResult(`Sent durable message "${message.id}" to ${message.to}.`, {
               action: params.action,
-              messages,
-            },
-          );
-        }
-
-        case "thread": {
-          const messages = capability.thread(requireString(params.threadId, "threadId"));
-          return createTextResult(
-            summarizeNames(
-              messages.map((message) => message.id),
-              "thread message",
-              "thread messages",
-            ),
-            {
-              action: params.action,
-              messages,
-            },
-          );
-        }
-
-        case "mark-read": {
-          const message = capability.markRead(requireString(params.messageId, "messageId"));
-          if (message === undefined) {
-            throw new Error(`Unknown message "${params.messageId}".`);
+              message,
+            });
           }
 
-          return createTextResult(`Marked message "${message.id}" as read.`, {
-            action: params.action,
-            message,
-          });
-        }
+          case "inbox": {
+            const messages = capability.inbox(requireString(params.agentId, "agentId"), {
+              ...(params.limit === undefined ? {} : { limit: params.limit }),
+              ...(params.unreadOnly === undefined ? {} : { unreadOnly: params.unreadOnly }),
+            });
 
-        case "search": {
-          const results = capability.search(
-            requireString(params.agentId, "agentId"),
-            requireString(params.query, "query"),
-            params.limit,
-          );
+            return createTextResult(
+              summarizeNames(
+                messages.map((message) => message.id),
+                "message",
+                "messages",
+              ),
+              {
+                action: params.action,
+                messages,
+              },
+            );
+          }
 
-          return createTextResult(
-            summarizeNames(
-              results.map((result) => result.message.id),
-              "search result",
-              "search results",
-            ),
-            {
+          case "thread": {
+            const messages = capability.thread(requireString(params.threadId, "threadId"));
+            return createTextResult(
+              summarizeNames(
+                messages.map((message) => message.id),
+                "thread message",
+                "thread messages",
+              ),
+              {
+                action: params.action,
+                messages,
+              },
+            );
+          }
+
+          case "mark-read": {
+            const message = capability.markRead(requireString(params.messageId, "messageId"));
+            if (message === undefined) {
+              throw new Error(`Unknown message "${params.messageId}".`);
+            }
+
+            return createTextResult(`Marked message "${message.id}" as read.`, {
               action: params.action,
-              results,
-            },
-          );
+              message,
+            });
+          }
+
+          case "search": {
+            const results = capability.search(
+              requireString(params.agentId, "agentId"),
+              requireString(params.query, "query"),
+              params.limit,
+            );
+
+            return createTextResult(
+              summarizeNames(
+                results.map((result) => result.message.id),
+                "search result",
+                "search results",
+              ),
+              {
+                action: params.action,
+                results,
+              },
+            );
+          }
         }
-      }
-    },
-  });
+      },
+    }),
+    ["handoff.read", "handoff.write"],
+  );
 }
 
 function createMemoryTool(capability: PiCapabilityMemory): ToolDefinition {
-  return defineTool({
-    name: "agent_memory",
-    label: "Agent Memory",
-    description: "Write, inspect, search, and delete file-backed agent memories.",
-    promptSnippet: "persist or retrieve long-lived agent memory entries",
-    promptGuidelines: ["Use agent_memory for durable facts that should survive into later runs."],
-    parameters: Type.Object({
-      action: Type.Union([
-        Type.Literal("remember"),
-        Type.Literal("get"),
-        Type.Literal("list"),
-        Type.Literal("search"),
-        Type.Literal("forget"),
-      ]),
-      agentId: Type.String({
-        description: "Agent id whose memory namespace should be used.",
+  return withAgentHarnessToolEffects(
+    defineTool({
+      name: "agent_memory",
+      label: "Agent Memory",
+      description: "Write, inspect, search, and delete file-backed agent memories.",
+      promptSnippet: "persist or retrieve long-lived agent memory entries",
+      promptGuidelines: ["Use agent_memory for durable facts that should survive into later runs."],
+      parameters: Type.Object({
+        action: Type.Union([
+          Type.Literal("remember"),
+          Type.Literal("get"),
+          Type.Literal("list"),
+          Type.Literal("search"),
+          Type.Literal("forget"),
+        ]),
+        agentId: Type.String({
+          description: "Agent id whose memory namespace should be used.",
+        }),
+        entryId: Type.Optional(
+          Type.String({
+            description: "Required for get and forget. Optional for remember when reusing an id.",
+          }),
+        ),
+        text: Type.Optional(
+          Type.String({
+            description: "Required for remember.",
+          }),
+        ),
+        tags: Type.Optional(Type.Array(Type.String())),
+        query: Type.Optional(
+          Type.String({
+            description: "Required for search.",
+          }),
+        ),
+        limit: Type.Optional(Type.Integer({ minimum: 1 })),
       }),
-      entryId: Type.Optional(
-        Type.String({
-          description: "Required for get and forget. Optional for remember when reusing an id.",
-        }),
-      ),
-      text: Type.Optional(
-        Type.String({
-          description: "Required for remember.",
-        }),
-      ),
-      tags: Type.Optional(Type.Array(Type.String())),
-      query: Type.Optional(
-        Type.String({
-          description: "Required for search.",
-        }),
-      ),
-      limit: Type.Optional(Type.Integer({ minimum: 1 })),
-    }),
-    async execute(_toolCallId, params) {
-      switch (params.action) {
-        case "remember": {
-          const entry = await capability.remember(params.agentId, {
-            text: requireString(params.text, "text"),
-            ...(params.entryId === undefined ? {} : { id: params.entryId }),
-            ...(params.tags === undefined ? {} : { tags: params.tags }),
-          });
+      async execute(_toolCallId, params) {
+        switch (params.action) {
+          case "remember": {
+            const entry = await capability.remember(params.agentId, {
+              text: requireString(params.text, "text"),
+              ...(params.entryId === undefined ? {} : { id: params.entryId }),
+              ...(params.tags === undefined ? {} : { tags: params.tags }),
+            });
 
-          return createTextResult(`Stored memory "${entry.id}" for agent "${params.agentId}".`, {
-            action: params.action,
-            entry,
-          });
-        }
-
-        case "get": {
-          const entry = await capability.get(
-            params.agentId,
-            requireString(params.entryId, "entryId"),
-          );
-          if (entry === undefined) {
-            throw new Error(`Unknown memory "${params.entryId}" for agent "${params.agentId}".`);
+            return createTextResult(`Stored memory "${entry.id}" for agent "${params.agentId}".`, {
+              action: params.action,
+              entry,
+            });
           }
 
-          return createTextResult(`Loaded memory "${entry.id}" for agent "${params.agentId}".`, {
-            action: params.action,
-            entry,
-          });
-        }
+          case "get": {
+            const entry = await capability.get(
+              params.agentId,
+              requireString(params.entryId, "entryId"),
+            );
+            if (entry === undefined) {
+              throw new Error(`Unknown memory "${params.entryId}" for agent "${params.agentId}".`);
+            }
 
-        case "list": {
-          const entries = await capability.list(params.agentId);
-          return createTextResult(
-            summarizeNames(
-              entries.map((entry) => entry.id),
-              "memory entry",
-              "memory entries",
-            ),
-            {
+            return createTextResult(`Loaded memory "${entry.id}" for agent "${params.agentId}".`, {
               action: params.action,
-              entries,
-            },
-          );
+              entry,
+            });
+          }
+
+          case "list": {
+            const entries = await capability.list(params.agentId);
+            return createTextResult(
+              summarizeNames(
+                entries.map((entry) => entry.id),
+                "memory entry",
+                "memory entries",
+              ),
+              {
+                action: params.action,
+                entries,
+              },
+            );
+          }
+
+          case "search": {
+            const results = await capability.search(
+              params.agentId,
+              requireString(params.query, "query"),
+              params.limit,
+            );
+
+            return createTextResult(
+              summarizeNames(
+                results.map((result) => result.entry.id),
+                "memory search result",
+                "memory search results",
+              ),
+              {
+                action: params.action,
+                results,
+              },
+            );
+          }
+
+          case "forget": {
+            const deleted = await capability.forget(
+              params.agentId,
+              requireString(params.entryId, "entryId"),
+            );
+
+            return createTextResult(
+              deleted
+                ? `Deleted memory "${params.entryId}" for agent "${params.agentId}".`
+                : `No memory "${params.entryId}" exists for agent "${params.agentId}".`,
+              {
+                action: params.action,
+                deleted,
+                entryId: params.entryId,
+              },
+            );
+          }
         }
-
-        case "search": {
-          const results = await capability.search(
-            params.agentId,
-            requireString(params.query, "query"),
-            params.limit,
-          );
-
-          return createTextResult(
-            summarizeNames(
-              results.map((result) => result.entry.id),
-              "memory search result",
-              "memory search results",
-            ),
-            {
-              action: params.action,
-              results,
-            },
-          );
-        }
-
-        case "forget": {
-          const deleted = await capability.forget(
-            params.agentId,
-            requireString(params.entryId, "entryId"),
-          );
-
-          return createTextResult(
-            deleted
-              ? `Deleted memory "${params.entryId}" for agent "${params.agentId}".`
-              : `No memory "${params.entryId}" exists for agent "${params.agentId}".`,
-            {
-              action: params.action,
-              deleted,
-              entryId: params.entryId,
-            },
-          );
-        }
-      }
-    },
-  });
+      },
+    }),
+    ["memory.read", "memory.write"],
+  );
 }
 
 function getToolName(tool: PiRuntimeTool | ToolDefinition): string {
@@ -619,13 +632,9 @@ function createSkillsOverride(
   }
 
   return (base) => {
-    const snapshotSkillNames = new Set(
-      snapshot.skills.map((s) => s.name.trim().toLowerCase()),
-    );
+    const snapshotSkillNames = new Set(snapshot.skills.map((s) => s.name.trim().toLowerCase()));
     const mergedSkills = [
-      ...base.skills.filter(
-        (s) => !snapshotSkillNames.has(s.name.trim().toLowerCase()),
-      ),
+      ...base.skills.filter((s) => !snapshotSkillNames.has(s.name.trim().toLowerCase())),
       ...snapshot.skills,
     ];
     const bridged = {
@@ -782,6 +791,10 @@ export async function resolveCapabilityPiToolRegistry(
 
   if (capabilities.fileTools) {
     tools.push(...capabilities.fileTools.piTools);
+  }
+
+  if (capabilities.customTools) {
+    customTools.push(...capabilities.customTools);
   }
 
   if (capabilities.mcp) {

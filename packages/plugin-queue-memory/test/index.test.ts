@@ -2,10 +2,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  createInMemoryQueue,
-  createQueueMemoryPlugin,
-} from "../src/index.js";
+import { createInMemoryQueue, createQueueMemoryPlugin } from "../src/index.js";
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -156,9 +153,12 @@ describe("@generic-ai/plugin-queue-memory", () => {
       await blocker;
       return "done";
     });
+    const started = new Promise<void>((resolve) => {
+      queue.once("started", () => resolve());
+    });
 
     const running = queue.enqueue({ id: "blocker", payload: "blocker" });
-    await delay(0);
+    await started;
 
     const drainPromise = queue.drain();
     await queue.close({ drain: false });
@@ -178,9 +178,7 @@ describe("@generic-ai/plugin-queue-memory", () => {
 
     queue.on("completed", onCompleted);
 
-    await expect(
-      queue.enqueue({ id: "job-1", payload: "ok" }),
-    ).resolves.toBe("ok");
+    await expect(queue.enqueue({ id: "job-1", payload: "ok" })).resolves.toBe("ok");
     await queue.drain();
 
     queue.off("completed", onCompleted);

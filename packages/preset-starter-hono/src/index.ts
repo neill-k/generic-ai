@@ -56,6 +56,8 @@ export type StarterPresetSlot =
   | "logging"
   | "terminalTools"
   | "fileTools"
+  | "repoMap"
+  | "lsp"
   | "mcp"
   | "skills"
   | "delegation"
@@ -198,6 +200,18 @@ export const STARTER_PRESET_DEFAULT_SLOTS = [
     description: "Filesystem read/write/list/edit/search tools.",
   },
   {
+    slot: "repoMap",
+    pluginId: "@generic-ai/plugin-repo-map",
+    required: true,
+    description: "Deterministic compact repository orientation tools.",
+  },
+  {
+    slot: "lsp",
+    pluginId: "@generic-ai/plugin-lsp",
+    required: true,
+    description: "Language-server diagnostics, symbols, definitions, and references.",
+  },
+  {
     slot: "mcp",
     pluginId: "@generic-ai/plugin-mcp",
     required: true,
@@ -252,6 +266,8 @@ const slotToCapability = {
   logging: "logging",
   terminalTools: "terminal-tools",
   fileTools: "file-tools",
+  repoMap: "repo-map",
+  lsp: "lsp",
   mcp: "mcp",
   skills: "skills",
   delegation: "delegation",
@@ -267,6 +283,8 @@ const dependencySlotsBySlot: Partial<Record<StarterPresetSlot, readonly StarterP
   logging: ["config"],
   terminalTools: ["workspace"],
   fileTools: ["workspace"],
+  repoMap: ["workspace"],
+  lsp: ["workspace"],
   mcp: ["config"],
   skills: ["workspace"],
   delegation: ["queue"],

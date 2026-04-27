@@ -34,10 +34,12 @@ export interface ResolvedCanonicalConfig {
   configDir: string;
   framework: Record<string, unknown>;
   agents: Record<string, Record<string, unknown>>;
+  harnesses: Record<string, Record<string, unknown>>;
   plugins: Record<string, Record<string, unknown>>;
   sources: {
     framework?: string;
     agents: Record<string, string>;
+    harnesses: Record<string, string>;
     plugins: Record<string, string>;
     order: string[];
   };
@@ -101,9 +103,11 @@ export async function resolveCanonicalConfig(
 
   const frameworkConfig: Record<string, unknown> = {};
   const agents: Record<string, Record<string, unknown>> = {};
+  const harnesses: Record<string, Record<string, unknown>> = {};
   const plugins: Record<string, Record<string, unknown>> = {};
   const sources: ResolvedCanonicalConfig["sources"] = {
     agents: {} as Record<string, string>,
+    harnesses: {} as Record<string, string>,
     plugins: {} as Record<string, string>,
     order: [] as string[],
   };
@@ -141,6 +145,14 @@ export async function resolveCanonicalConfig(
         sources.agents[file.key] = file.filePath;
         sources.order.push(file.filePath);
         break;
+      case "harness":
+        harnesses[file.key] = {
+          id: file.key,
+          ...loaded.value,
+        };
+        sources.harnesses[file.key] = file.filePath;
+        sources.order.push(file.filePath);
+        break;
       case "plugin":
         plugins[file.key] = {
           plugin: file.key,
@@ -165,6 +177,7 @@ export async function resolveCanonicalConfig(
       configDir: discovery.configDir,
       framework: frameworkConfig,
       agents,
+      harnesses,
       plugins,
       sources,
     },

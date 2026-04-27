@@ -213,12 +213,21 @@ export function createCanonicalEventStream(
   };
 }
 
-export { createCanonicalEvent, getCanonicalEventFamily } from "./taxonomy.js";
+export {
+  createCanonicalEvent,
+  createHandoffLifecycleEvent,
+  getCanonicalEventFamily,
+} from "./taxonomy.js";
 export type {
+  CanonicalArtifactLifecycleName,
   CanonicalCoreEventName,
   CanonicalEvent,
   CanonicalEventData,
   CanonicalEventFamily,
   CanonicalEventInput,
   CanonicalEventName,
+  CanonicalHandoffLifecycleName,
+  CanonicalPolicyLifecycleName,
+  CanonicalTerminalCommandLifecycleName,
+  CanonicalToolCallLifecycleName,
 } from "./taxonomy.js";

@@ -5,5 +5,17 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/sdk" }]
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/sdk" },
+    { "path": "../../packages/plugin-agent-skills" },
+    { "path": "../../packages/plugin-lsp" },
+    { "path": "../../packages/plugin-mcp" },
+    { "path": "../../packages/plugin-memory-files" },
+    { "path": "../../packages/plugin-messaging" },
+    { "path": "../../packages/plugin-repo-map" },
+    { "path": "../../packages/plugin-storage-memory" },
+    { "path": "../../packages/plugin-tools-files" },
+    { "path": "../../packages/plugin-tools-terminal" }
+  ]
 }

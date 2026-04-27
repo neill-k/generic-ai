@@ -5,18 +5,20 @@ import {
   CONFIG_SCHEMA_VERSION,
   PACKAGE_NAME_PATTERN,
   type AgentConfig,
+  type AgentHarnessConfig,
   type FrameworkConfig,
   type PluginConfig,
   type PresetConfig,
   type ResolvedConfig,
 } from "./types.js";
 
-export const CONFIG_YAML_CONCERNS = ["framework", "agent", "plugin"] as const;
+export const CONFIG_YAML_CONCERNS = ["framework", "agent", "harness", "plugin"] as const;
 export const CONFIG_NON_YAML_CONCERNS = ["preset"] as const;
 
 export const CONFIG_CONTRACT_IDS = {
   framework: "https://generic-ai.dev/contracts/config/framework.schema.json",
   agent: "https://generic-ai.dev/contracts/config/agent.schema.json",
+  harness: "https://generic-ai.dev/contracts/config/harness.schema.json",
   plugin: "https://generic-ai.dev/contracts/config/plugin.schema.json",
   preset: "https://generic-ai.dev/contracts/config/preset.schema.json",
   resolved: "https://generic-ai.dev/contracts/config/resolved.schema.json",
@@ -32,6 +34,7 @@ export interface PluginConfigSchemaFragment<TConfig = unknown> {
 export interface CanonicalConfigSchemaBundle {
   framework: ZodTypeLike<FrameworkConfig>;
   agent: ZodTypeLike<AgentConfig>;
+  harness: ZodTypeLike<AgentHarnessConfig>;
   plugin: ZodTypeLike<PluginConfig>;
   preset: ZodTypeLike<PresetConfig>;
   resolved: ZodTypeLike<ResolvedConfig>;
@@ -46,6 +49,7 @@ export interface CanonicalConfigSchemaBundle {
 export interface CanonicalConfigJsonSchemas {
   framework: JsonSchema;
   agent: JsonSchema;
+  harness: JsonSchema;
   plugin: JsonSchema;
   preset: JsonSchema;
   resolved: JsonSchema;
@@ -82,6 +86,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
       id: agentId.optional(),
       preset: packageName.optional(),
       primaryAgent: agentId.optional(),
+      primaryHarness: agentId.optional(),
       plugins: ensureUniqueStrings(z.array(packageName), "framework.plugins").optional(),
       runtime: z
         .object({
@@ -156,6 +161,62 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
     .describe(
       "Canonical YAML concern schema for .generic-ai/plugins/*.yaml",
     ) as ZodTypeLike<PluginConfig>;
+
+  const harness = z
+    .object({
+      id: agentId,
+      displayName: z.string().min(1, "displayName cannot be empty").optional(),
+      adapter: z
+        .string()
+        .regex(/^(pi|external)$/, "adapter must be pi or external")
+        .optional(),
+      controller: z
+        .string()
+        .regex(/^model-directed$/, "controller must be model-directed")
+        .optional(),
+      model: z.string().min(1, "model cannot be empty").optional(),
+      primaryAgent: agentId.optional(),
+      policyProfile: z
+        .string()
+        .regex(
+          /^(local-dev-full|benchmark-container)$/,
+          "policyProfile must be local-dev-full or benchmark-container",
+        )
+        .optional(),
+      roles: z
+        .array(
+          z.object({
+            id: agentId,
+            kind: z
+              .string()
+              .regex(
+                /^(root|planner|explorer|builder|verifier|custom)$/,
+                "role.kind must be root/planner/explorer/builder/verifier/custom",
+              ),
+            description: z.string().min(1, "role.description cannot be empty").optional(),
+            instructions: z.string().min(1, "role.instructions cannot be empty").optional(),
+            model: z.string().min(1, "role.model cannot be empty").optional(),
+            tools: ensureUniqueStrings(
+              z.array(z.string().min(1, "role tool id cannot be empty")),
+              "role.tools",
+            ).optional(),
+            readOnly: z.boolean().optional(),
+            metadata: z.record(z.unknown()).optional(),
+          }),
+        )
+        .optional(),
+      tools: ensureUniqueStrings(
+        z.array(z.string().min(1, "harness tool id cannot be empty")),
+        "harness.tools",
+      ).optional(),
+      allowNetwork: z.boolean().optional(),
+      allowMcp: z.boolean().optional(),
+      artifactDir: z.string().min(1, "artifactDir cannot be empty").optional(),
+      metadata: z.record(z.unknown()).optional(),
+    })
+    .describe(
+      "Canonical YAML concern schema for .generic-ai/harnesses/*.yaml",
+    ) as ZodTypeLike<AgentHarnessConfig>;
 
   const preset = z
     .object({
@@ -233,12 +294,14 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
       .object({
         framework,
         agents: z.record(agent).default({}),
+        harnesses: z.record(harness).default({}),
         plugins: z.record(composePluginSchema(fragments)).default({}),
         preset: preset.optional(),
         sources: z
           .object({
             framework: z.string().optional(),
             agents: z.record(z.string()).optional(),
+            harnesses: z.record(z.string()).optional(),
             plugins: z.record(z.string()).optional(),
             order: z.array(z.string()).optional(),
           })
@@ -252,6 +315,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
   return {
     framework,
     agent,
+    harness,
     plugin,
     preset,
     resolved: composeResolvedSchema(),
@@ -266,6 +330,7 @@ export const emitCanonicalConfigJsonSchemas = (
 ): CanonicalConfigJsonSchemas => ({
   framework: emitter.emit(schemas.framework, CONFIG_CONTRACT_IDS.framework),
   agent: emitter.emit(schemas.agent, CONFIG_CONTRACT_IDS.agent),
+  harness: emitter.emit(schemas.harness, CONFIG_CONTRACT_IDS.harness),
   plugin: emitter.emit(schemas.plugin, CONFIG_CONTRACT_IDS.plugin),
   preset: emitter.emit(schemas.preset, CONFIG_CONTRACT_IDS.preset),
   resolved: emitter.emit(schemas.resolved, CONFIG_CONTRACT_IDS.resolved),

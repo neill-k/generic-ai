@@ -1,14 +1,317 @@
 import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
+import type { CanonicalEvent } from "../events/index.js";
+import type { RunEnvelope } from "../run-envelope/index.js";
 
 export const HARNESS_SCHEMA_VERSION = "0.1" as const;
 
 export type HarnessSchemaVersion = typeof HARNESS_SCHEMA_VERSION;
+export const AGENT_HARNESS_ADAPTER_KINDS = ["pi", "external"] as const;
+export const AGENT_HARNESS_ROLE_KINDS = [
+  "root",
+  "planner",
+  "explorer",
+  "builder",
+  "verifier",
+  "custom",
+] as const;
+export const AGENT_HARNESS_POLICY_PROFILES = ["local-dev-full", "benchmark-container"] as const;
+export const AGENT_HARNESS_CAPABILITY_EFFECTS = [
+  "fs.read",
+  "fs.write",
+  "process.spawn",
+  "network.egress",
+  "mcp.read",
+  "mcp.launch",
+  "memory.read",
+  "memory.write",
+  "handoff.read",
+  "handoff.write",
+  "artifact.write",
+  "repo.inspect",
+  "lsp.read",
+  "secret.read",
+  "sandbox.create",
+] as const;
+
+export const AGENT_HARNESS_EVENT_TYPES = [
+  "run.started",
+  "run.completed",
+  "run.failed",
+  "session.started",
+  "session.completed",
+  "session.failed",
+  "tool.call.started",
+  "tool.call.completed",
+  "tool.call.failed",
+  "terminal.command.started",
+  "terminal.command.completed",
+  "terminal.command.failed",
+  "policy.decision",
+  "artifact.created",
+  "handoff.requested",
+  "handoff.accepted",
+  "handoff.completed",
+  "handoff.failed",
+  "model.message",
+] as const;
+
+export type AgentHarnessAdapterKind = (typeof AGENT_HARNESS_ADAPTER_KINDS)[number];
+export type AgentHarnessController = "model-directed";
+export type AgentHarnessRoleKind = (typeof AGENT_HARNESS_ROLE_KINDS)[number];
+export type AgentHarnessPolicyProfileId = (typeof AGENT_HARNESS_POLICY_PROFILES)[number];
+export type AgentHarnessCapabilityEffect =
+  | (typeof AGENT_HARNESS_CAPABILITY_EFFECTS)[number]
+  | `custom.${string}`;
+export type AgentHarnessEventType = (typeof AGENT_HARNESS_EVENT_TYPES)[number];
 export type DiagnosticSeverity = "error" | "warning";
 export type ObjectiveClass = "coding" | "research" | "operations" | "analysis" | "custom";
 export type PolicyEffect = "allow" | "deny" | "require_approval" | "redact" | "rewrite";
 export type ApprovalState = "not_required" | "pending" | "approved" | "rejected" | "expired";
 export type ProtocolTerminalState = "blocked" | "idle" | "ready" | "done" | "failed";
 export type RecommendationBoundary = "recommended" | "not_recommended" | "insufficient_evidence";
+
+export interface AgentHarnessRole {
+  readonly id: string;
+  readonly kind: AgentHarnessRoleKind;
+  readonly description?: string;
+  readonly instructions?: string;
+  readonly model?: string;
+  readonly tools?: readonly string[];
+  readonly readOnly?: boolean;
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessPolicyProfile {
+  readonly id: AgentHarnessPolicyProfileId;
+  readonly description: string;
+  readonly sharedWorkspace: boolean;
+  readonly defaultNetwork: "allow" | "deny";
+  readonly defaultMcp: "allow" | "deny";
+  readonly nestedSandbox: "allow" | "deny";
+  readonly immutablePathPatterns?: readonly string[];
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessConfig {
+  readonly id: string;
+  readonly displayName?: string;
+  readonly adapter?: AgentHarnessAdapterKind;
+  readonly controller?: AgentHarnessController;
+  readonly model?: string;
+  readonly primaryAgent?: string;
+  readonly policyProfile?: AgentHarnessPolicyProfileId;
+  readonly roles?: readonly AgentHarnessRole[];
+  readonly tools?: readonly string[];
+  readonly allowNetwork?: boolean;
+  readonly allowMcp?: boolean;
+  readonly artifactDir?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessBudget {
+  readonly maxCostUsd?: number;
+  readonly maxTokens?: number;
+  readonly maxToolCalls?: number;
+  readonly maxWallTimeMs?: number;
+}
+
+export interface AgentHarnessRunInput<TCapabilities = unknown> {
+  readonly instruction: string;
+  readonly harness: AgentHarnessConfig;
+  readonly workspaceRoot: string;
+  readonly runId?: string;
+  readonly rootScopeId?: string;
+  readonly rootAgentId?: string;
+  readonly artifactDir?: string;
+  readonly deadline?: string;
+  readonly budget?: AgentHarnessBudget;
+  readonly capabilities?: TCapabilities;
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessToolDescriptor {
+  readonly id: string;
+  readonly label?: string;
+  readonly description?: string;
+  readonly effects: readonly AgentHarnessCapabilityEffect[];
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessEffectMetadata {
+  readonly genericAi?: {
+    readonly descriptor?: AgentHarnessToolDescriptor;
+    readonly effects?: readonly AgentHarnessCapabilityEffect[];
+  };
+}
+
+export function getAgentHarnessToolEffects(
+  tool: AgentHarnessEffectMetadata | unknown,
+): readonly AgentHarnessCapabilityEffect[] {
+  if (typeof tool !== "object" || tool === null || !("genericAi" in tool)) {
+    return [];
+  }
+
+  const metadata = (tool as AgentHarnessEffectMetadata).genericAi;
+  return metadata?.effects ?? metadata?.descriptor?.effects ?? [];
+}
+
+export function withAgentHarnessToolEffects<TTool extends object>(
+  tool: TTool,
+  descriptorOrEffects: AgentHarnessToolDescriptor | readonly AgentHarnessCapabilityEffect[],
+): TTool & AgentHarnessEffectMetadata {
+  const isDescriptor = !Array.isArray(descriptorOrEffects);
+  const descriptor = isDescriptor ? (descriptorOrEffects as AgentHarnessToolDescriptor) : undefined;
+  const effects = isDescriptor
+    ? (descriptorOrEffects as AgentHarnessToolDescriptor).effects
+    : descriptorOrEffects;
+  const value = Object.freeze({
+    ...(descriptor === undefined ? {} : { descriptor }),
+    effects: Object.freeze([...effects]),
+  });
+
+  try {
+    Object.defineProperty(tool, "genericAi", {
+      value,
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
+    return tool as TTool & AgentHarnessEffectMetadata;
+  } catch {
+    const clone = Object.create(Object.getPrototypeOf(tool)) as TTool;
+    Object.defineProperties(clone, Object.getOwnPropertyDescriptors(tool));
+    Object.defineProperty(clone, "genericAi", {
+      value,
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
+    return clone as TTool & AgentHarnessEffectMetadata;
+  }
+}
+
+export type AgentHarnessArtifactKind =
+  | "trace"
+  | "report"
+  | "handoff"
+  | "policy"
+  | "events"
+  | "summary"
+  | "custom";
+
+export interface AgentHarnessArtifactRef {
+  readonly id: string;
+  readonly kind: AgentHarnessArtifactKind;
+  readonly uri: string;
+  readonly sha256?: string;
+  readonly localPath?: string;
+  readonly ownerId?: string;
+  readonly namespace?: string;
+  readonly description?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessEventProjection {
+  readonly id: string;
+  readonly sequence: number;
+  readonly type: AgentHarnessEventType;
+  readonly eventName: string;
+  readonly occurredAt: string;
+  readonly roleId?: string;
+  readonly toolName?: string;
+  readonly summary: string;
+  readonly data: JsonObject;
+}
+
+export interface AgentHarnessRunResult<TOutput = string> {
+  readonly harnessId: string;
+  readonly adapter: AgentHarnessAdapterKind;
+  readonly status: "succeeded" | "failed";
+  readonly outputText: string;
+  readonly output?: TOutput;
+  readonly envelope: RunEnvelope<TOutput>;
+  readonly events: readonly CanonicalEvent[];
+  readonly projections: readonly AgentHarnessEventProjection[];
+  readonly artifacts: readonly AgentHarnessArtifactRef[];
+  readonly policyDecisions: readonly PolicyDecisionRecord[];
+  readonly failureMessage?: string;
+  readonly errorCategory?: AgentHarnessRunErrorCategory;
+  readonly metadata?: JsonObject;
+}
+
+export type AgentHarnessRunErrorCategory =
+  | "cancelled"
+  | "deadline_exceeded"
+  | "budget_exceeded"
+  | "policy_denied"
+  | "adapter_error"
+  | "model_error"
+  | "tool_error"
+  | "unknown";
+
+export interface AgentHarnessPolicyEvaluationInput {
+  readonly runId: string;
+  readonly actorId: string;
+  readonly action: string;
+  readonly resource: ResourceSelector;
+  readonly effects: readonly AgentHarnessCapabilityEffect[];
+  readonly evidenceRefs?: readonly string[];
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessPolicyEvaluation {
+  readonly decision: PolicyDecisionRecord;
+  readonly allowed: boolean;
+}
+
+export interface AgentHarnessEventSink {
+  emit(event: AgentHarnessEventProjection): Awaitable<void>;
+}
+
+export interface AgentHarnessArtifactWriteInput {
+  readonly id: string;
+  readonly kind: AgentHarnessArtifactKind;
+  readonly bytes: string | Uint8Array;
+  readonly contentType?: string;
+  readonly description?: string;
+  readonly ownerId?: string;
+  readonly namespace?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessArtifactStore {
+  write(input: AgentHarnessArtifactWriteInput): Awaitable<AgentHarnessArtifactRef>;
+}
+
+export interface AgentHarnessPolicyEvaluator {
+  evaluate(input: AgentHarnessPolicyEvaluationInput): Awaitable<AgentHarnessPolicyEvaluation>;
+}
+
+export interface AgentHarnessAdapterRunContext {
+  readonly signal?: AbortSignal;
+  readonly deadline?: Date;
+  readonly budget?: AgentHarnessBudget;
+  readonly events: AgentHarnessEventSink;
+  readonly artifacts: AgentHarnessArtifactStore;
+  readonly policy: AgentHarnessPolicyEvaluator;
+}
+
+export interface AgentHarnessAdapter<TCapabilities = unknown, TOutput = string> {
+  readonly id: string;
+  readonly kind: AgentHarnessAdapterKind;
+  run(
+    input: AgentHarnessRunInput<TCapabilities>,
+    context: AgentHarnessAdapterRunContext,
+  ): Awaitable<AgentHarnessRunResult<TOutput>>;
+}
+
+export interface AgentHarness<TCapabilities = unknown, TOutput = string> {
+  readonly config: AgentHarnessConfig;
+  readonly adapter: AgentHarnessAdapter<TCapabilities, TOutput>;
+  run(
+    input: Omit<AgentHarnessRunInput<TCapabilities>, "harness">,
+  ): Awaitable<AgentHarnessRunResult<TOutput>>;
+}
 
 export interface CompileDiagnostic {
   readonly severity: DiagnosticSeverity;

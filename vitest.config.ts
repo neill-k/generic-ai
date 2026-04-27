@@ -13,6 +13,8 @@ const packageAliases = [
   "plugin-tools-terminal",
   "plugin-tools-terminal-sandbox",
   "plugin-tools-files",
+  "plugin-repo-map",
+  "plugin-lsp",
   "plugin-mcp",
   "plugin-agent-skills",
   "plugin-delegation",
