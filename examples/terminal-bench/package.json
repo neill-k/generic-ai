@@ -1,0 +1,32 @@
+{
+  "name": "@generic-ai/example-terminal-bench",
+  "version": "0.0.0",
+  "description": "Private Harbor and Terminal-Bench integration example for Generic AI benchmark runs.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "check:node": "node ../../scripts/check-node-version.mjs",
+    "pretypecheck": "node ../../scripts/check-node-version.mjs",
+    "typecheck": "tsc -b --pretty",
+    "test": "vitest run --root ../.. --config vitest.config.ts examples/terminal-bench/src/benchmark-profile.test.ts examples/terminal-bench/src/import-harbor-results.test.ts examples/terminal-bench/src/run-terminal-bench.test.ts",
+    "lint": "biome lint .",
+    "terminal-bench:agent": "node dist/benchmark-agent.js",
+    "terminal-bench:run": "node dist/run-terminal-bench.js",
+    "terminal-bench:import": "node dist/import-harbor-results.js",
+    "terminal-bench:report": "node dist/render-benchmark-report.js"
+  },
+  "bin": {
+    "generic-ai-terminal-bench-agent": "dist/benchmark-agent.js",
+    "generic-ai-terminal-bench": "dist/run-terminal-bench.js",
+    "generic-ai-import-harbor-results": "dist/import-harbor-results.js"
+  },
+  "dependencies": {
+    "@generic-ai/core": "0.0.0",
+    "@generic-ai/sdk": "0.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "MIT",
+  "private": true
+}

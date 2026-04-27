@@ -63,3 +63,4 @@ temp/
 .agents/worktrees/
 .claude/
 .codex/
+.pi/

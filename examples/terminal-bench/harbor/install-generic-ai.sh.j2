@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+GENERIC_AI_REPO_DIR="{{GENERIC_AI_REPO_DIR}}"
+NODE_VERSION="{{GENERIC_AI_NODE_VERSION}}"
+NODE_DIST="node-${NODE_VERSION}-linux-x64"
+NODE_PREFIX="/opt/${NODE_DIST}"
+
+need_node_install=0
+if ! command -v node >/dev/null 2>&1; then
+  need_node_install=1
+else
+  node_major="$(node -p 'process.versions.node.split(".")[0]')"
+  if [ "${node_major}" != "24" ]; then
+    need_node_install=1
+  fi
+fi
+
+if [ "${need_node_install}" = "1" ]; then
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl tar xz-utils
+  fi
+
+  curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/${NODE_DIST}.tar.xz" -o /tmp/node.tar.xz
+  rm -rf "${NODE_PREFIX}"
+  mkdir -p /opt
+  tar -xJf /tmp/node.tar.xz -C /opt
+  ln -sf "${NODE_PREFIX}/bin/node" /usr/local/bin/node
+  ln -sf "${NODE_PREFIX}/bin/npm" /usr/local/bin/npm
+  ln -sf "${NODE_PREFIX}/bin/npx" /usr/local/bin/npx
+fi
+
+rm -rf "${GENERIC_AI_REPO_DIR}"
+mkdir -p "${GENERIC_AI_REPO_DIR}"
+tar -xzf /tmp/generic-ai-repo.tgz -C /opt
+
+cd "${GENERIC_AI_REPO_DIR}"
+npm ci --include=dev
+npm run -w @generic-ai/example-terminal-bench build

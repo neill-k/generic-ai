@@ -1,0 +1,9 @@
+[project]
+name = "generic-ai-terminal-bench"
+version = "0.0.0"
+description = "Private Harbor installed-agent adapter for the Generic AI Terminal-Bench example."
+requires-python = ">=3.11"
+dependencies = ["harbor>=0.5.0"]
+
+[tool.ruff]
+line-length = 100

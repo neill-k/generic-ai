@@ -7,7 +7,7 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@generic-ai/example-starter-hono"],
+  "ignore": ["@generic-ai/example-starter-hono", "@generic-ai/example-terminal-bench"],
   "privatePackages": {
     "version": false,
     "tag": false
