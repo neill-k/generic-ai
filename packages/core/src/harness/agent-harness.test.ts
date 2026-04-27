@@ -64,6 +64,13 @@ describe("createAgentHarness", () => {
                       undefined,
                       {} as never,
                     );
+                    await delegate?.execute(
+                      "delegate-2",
+                      { roleId: "verifier", task: "run the final check" },
+                      undefined,
+                      undefined,
+                      {} as never,
+                    );
                     messages.push({ role: "assistant", content: "root done" });
                   } else {
                     messages.push({ role: "assistant", content: "builder done" });
@@ -115,6 +122,9 @@ describe("createAgentHarness", () => {
     expect(toolSets[0]).not.toContain("bash");
     expect(toolSets[0]).not.toContain("write");
     expect(toolSets[1]).toEqual(expect.arrayContaining(["bash", "read", "write"]));
+    expect(toolSets[2]).toContain("bash");
+    expect(toolSets[2]).toContain("read");
+    expect(toolSets[2]).not.toContain("write");
     expect(result.projections.some((projection) => projection.type === "handoff.requested")).toBe(
       true,
     );

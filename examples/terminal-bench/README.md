@@ -28,7 +28,7 @@ Harbor currently documents `harbor run -c <job.yaml>` for config-backed jobs, cu
 - `src/import-harbor-results.ts`: Harbor job importer that writes Generic AI-native reports.
 - `src/render-benchmark-report.ts`: report JSON to markdown renderer.
 - `configs/*.job.yaml`: smoke, quick, calibration, and full Harbor job configs.
-- `skills/terminal-bench/*`: benchmark-local behavioral guidance for future richer agents.
+- `skills/terminal-bench/*`: benchmark-local behavioral guidance loaded by the benchmark profile, including clean verification before finish.
 - `reports/`: ignored local output area for imported Generic AI reports.
 
 ## Run Ladder
@@ -128,4 +128,4 @@ Validation gate means a pinned task set, at least five trials per configuration,
 
 ## Current MVP Boundary
 
-The current Generic AI benchmark profile proves adapter installation, headless `runAgentHarness()` invocation, starter-stack capability composition, deterministic artifact writing, integrity logging, ATIF handoff, and Harbor-result import. It does not claim a leaderboard-ready Terminal-Bench agent yet, and quick-profile mean reward is not a validation gate. Further benchmark-specific promotion should wait until smoke and calibration runs show repeated reusable behavior.
+The current Generic AI benchmark profile proves adapter installation, headless `runAgentHarness()` invocation, starter-stack capability composition, deterministic artifact writing, integrity logging, ATIF handoff, and Harbor-result import. The verifier role may run terminal checks but does not receive direct file write/edit tools. It does not claim a leaderboard-ready Terminal-Bench agent yet, and quick-profile mean reward is not a validation gate. Further benchmark-specific promotion should wait until smoke and calibration runs show repeated reusable behavior.

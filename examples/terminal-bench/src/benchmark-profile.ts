@@ -29,6 +29,8 @@ import { createStableFingerprint } from "@generic-ai/sdk";
 
 export const DEFAULT_BENCHMARK_ARTIFACT_DIR = "/logs/artifacts/generic-ai";
 export const DEFAULT_IMMUTABLE_PATHS = ["/tests", "/solution", "task.toml"] as const;
+const EXAMPLE_ROOT = resolve(import.meta.dirname, "..");
+const BENCHMARK_SKILLS_DIR = resolve(EXAMPLE_ROOT, "skills");
 
 export type BenchmarkProfileStatus = "passed" | "failed" | "integrity_failed";
 
@@ -348,6 +350,8 @@ function runtimeInstructions(): string {
     "Treat Harbor as the orchestration and sandbox authority.",
     "Do not start nested Docker sandboxes.",
     "Do not edit verifier files, test assets, task metadata, or solution assets unless the task explicitly authorizes it.",
+    "Verify from a clean external-grader posture: do not trust stale files or logs produced by an earlier builder check.",
+    "If a verification command creates transient runtime outputs, remove stale copies before the check and clean them up before finishing when the external verifier is expected to create them itself.",
     "Write a concise final summary of what you did and what verification was run.",
   ].join("\n");
 }
@@ -366,6 +370,7 @@ function createBenchmarkCapabilities(workspaceRoot: string, env: NodeJS.ProcessE
   const memory = createFileMemoryStore({ root: workspaceRoot });
   const skills = createAgentSkillsPlugin({
     root: workspaceRoot,
+    skillDirs: [BENCHMARK_SKILLS_DIR],
     includeProject: true,
     includeUser: false,
     includeGlobal: false,

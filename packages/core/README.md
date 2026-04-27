@@ -43,6 +43,9 @@ Current runtime bridge:
 - `createAgentHarness(options)` / `runAgentHarness(options)` run the composable
   harness control plane above Pi; `GenericAILlmRuntime` remains the low-level
   text/model helper
+- Harness role binding is effect-based. Planner/explorer roles get read
+  capabilities, builder gets edit/terminal access, and verifier gets terminal
+  execution for checks without direct file write/edit tools.
 - `runHarnessBenchmark(options)` compiles Harness DSL contracts from the SDK,
   then runs trials through the configured runtime helper for benchmark fixtures
 

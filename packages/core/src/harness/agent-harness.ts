@@ -61,6 +61,7 @@ type PiSessionInputs = ReturnType<typeof resolvePiSessionInputs>;
 
 interface EffectPolicy {
   readonly allow: ReadonlySet<AgentHarnessCapabilityEffect>;
+  readonly allowByCategory?: Readonly<Record<string, ReadonlySet<AgentHarnessCapabilityEffect>>>;
   readonly denyUnknown: boolean;
 }
 
@@ -135,6 +136,9 @@ const ROLE_EFFECT_POLICIES: Readonly<Record<AgentHarnessRolePolicy, EffectPolicy
   },
   verify: {
     allow: effectSet([...READ_EFFECTS, "artifact.write"]),
+    allowByCategory: {
+      terminal: effectSet([...READ_EFFECTS, "process.spawn", "fs.write"]),
+    },
     denyUnknown: true,
   },
 });
@@ -322,6 +326,7 @@ function filterToolsByEffect<TTool extends { readonly name?: string }>(input: {
   }
 
   const policy = ROLE_EFFECT_POLICIES[input.rolePolicy];
+  const allowedEffects = policy.allowByCategory?.[input.category] ?? policy.allow;
   const decisions: PolicyDecisionRecord[] = [];
   const allowedTools: TTool[] = [];
 
@@ -331,7 +336,7 @@ function filterToolsByEffect<TTool extends { readonly name?: string }>(input: {
     const deniedEffects =
       effects.length === 0 && policy.denyUnknown
         ? ["custom.unknown" as AgentHarnessCapabilityEffect]
-        : effects.filter((effect) => !policy.allow.has(effect) || input.deniedEffects.has(effect));
+        : effects.filter((effect) => !allowedEffects.has(effect) || input.deniedEffects.has(effect));
 
     if (deniedEffects.length > 0) {
       decisions.push(
@@ -538,7 +543,8 @@ function buildRootPrompt(input: {
   return [
     "You are the root coordinator for a Generic AI composable agent harness run.",
     "Use model-directed Plan/Explore/Build/Verify topology. Delegate whenever another role should do focused work.",
-    "Planner and explorer roles are read-only. Builder may edit and run terminal commands. Verifier is read-only in P1; delegate terminal-based fixes or checks to builder until read-only terminal effects exist.",
+    "Planner and explorer roles are read-only. Builder may edit and run terminal commands. Verifier may run terminal checks but must not use file write/edit tools.",
+    "Before finishing, delegate a verifier pass that reruns the important command from the final state instead of trusting stale builder logs.",
     "Keep durable handoffs in the delegation messages and preserve concrete evidence from tools.",
     `Policy profile: ${input.policyProfile}.`,
     "",

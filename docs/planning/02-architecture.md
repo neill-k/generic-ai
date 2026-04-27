@@ -120,6 +120,7 @@ Recommended envelope shape:
 - run benchmark trials through the public `AgentHarness` control plane and adapter run context
 - keep `GenericAILlmRuntime` as a low-level text/model helper rather than the composable harness
 - emit trace-backed evidence without making report renderer semantics kernel-owned; core may enforce SDK-declared capability effects for harness role binding
+- bind verifier roles to read/file-inspection tools plus explicit terminal execution for checks, while continuing to deny direct file write/edit tools
 
 ## Kernel Non-Responsibilities
 
