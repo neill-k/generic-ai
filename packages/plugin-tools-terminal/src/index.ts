@@ -1,6 +1,7 @@
 import {
   createBashTool,
   createLocalBashOperations,
+  withAgentHarnessToolEffects,
   type BashOperations,
   type BashSpawnHook,
 } from "@generic-ai/sdk";
@@ -104,11 +105,14 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
   const commandPrefix = options.commandPrefix;
   const spawnHook = buildSpawnHook(options.env, options.spawnHook);
   const unrestrictedLocal = options.unrestrictedLocal ?? true;
-  const tool = createBashTool(layout.root, {
-    operations,
-    ...(commandPrefix === undefined ? {} : { commandPrefix }),
-    ...(spawnHook === undefined ? {} : { spawnHook }),
-  });
+  const tool = withAgentHarnessToolEffects(
+    createBashTool(layout.root, {
+      operations,
+      ...(commandPrefix === undefined ? {} : { commandPrefix }),
+      ...(spawnHook === undefined ? {} : { spawnHook }),
+    }),
+    ["process.spawn", "fs.read", "fs.write"],
+  );
 
   return Object.freeze({
     name,

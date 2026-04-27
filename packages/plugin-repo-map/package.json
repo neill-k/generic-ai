@@ -1,0 +1,23 @@
+{
+  "name": "@generic-ai/plugin-repo-map",
+  "version": "0.0.0",
+  "description": "Deterministic compact repository maps and repo-orientation tools for Generic AI harness runs.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@generic-ai/plugin-workspace-fs": "0.0.0",
+    "@generic-ai/sdk": "0.0.0",
+    "@sinclair/typebox": "0.34.49"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

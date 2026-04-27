@@ -8,6 +8,7 @@ import {
   createLsTool,
   createReadTool,
   createWriteTool,
+  withAgentHarnessToolEffects,
   type WorkspaceEntry,
 } from "@generic-ai/sdk";
 import {
@@ -157,12 +158,12 @@ function toSearchExpression(pattern: string, options: FileGrepOptions): RegExp {
 export function createWorkspaceFileTools(options: WorkspaceFileToolsOptions): WorkspaceFileTools {
   const workspace = createWorkspaceFs(options.root);
   const piTools = Object.freeze([
-    createReadTool(workspace.root),
-    createWriteTool(workspace.root),
-    createEditTool(workspace.root),
-    createFindTool(workspace.root),
-    createGrepTool(workspace.root),
-    createLsTool(workspace.root),
+    withAgentHarnessToolEffects(createReadTool(workspace.root), ["fs.read"]),
+    withAgentHarnessToolEffects(createWriteTool(workspace.root), ["fs.write"]),
+    withAgentHarnessToolEffects(createEditTool(workspace.root), ["fs.read", "fs.write"]),
+    withAgentHarnessToolEffects(createFindTool(workspace.root), ["fs.read"]),
+    withAgentHarnessToolEffects(createGrepTool(workspace.root), ["fs.read"]),
+    withAgentHarnessToolEffects(createLsTool(workspace.root), ["fs.read"]),
   ]);
 
   async function resolveExistingPath(targetPath?: string): Promise<string> {
@@ -221,11 +222,7 @@ export function createWorkspaceFileTools(options: WorkspaceFileToolsOptions): Wo
 
       return entries.map((entry) => ({
         path: normalizeRelativePath(workspace.root, path.join(absolutePath, entry.name)),
-        kind: entry.isDirectory()
-          ? "directory"
-          : entry.isSymbolicLink()
-            ? "symlink"
-            : "file",
+        kind: entry.isDirectory() ? "directory" : entry.isSymbolicLink() ? "symlink" : "file",
       }));
     },
     async find(pattern: string, searchOptions: FileFindOptions = {}): Promise<readonly string[]> {
@@ -247,7 +244,10 @@ export function createWorkspaceFileTools(options: WorkspaceFileToolsOptions): Wo
 
       return results;
     },
-    async grep(pattern: string, grepOptions: FileGrepOptions = {}): Promise<readonly FileGrepMatch[]> {
+    async grep(
+      pattern: string,
+      grepOptions: FileGrepOptions = {},
+    ): Promise<readonly FileGrepMatch[]> {
       const absolutePath = await resolveExistingPath(grepOptions.path);
       const expression = toSearchExpression(pattern, grepOptions);
       const files = await walkFiles(absolutePath);

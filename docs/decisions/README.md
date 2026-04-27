@@ -45,6 +45,12 @@ ADRs must be written when:
 - [`0019-identity-auth-plugin-boundary.md`](0019-identity-auth-plugin-boundary.md) - deferred identity/auth architecture: plugin-owned auth, SDK-visible identity context, Hono adapter implications, and hosted-vs-local preset posture.
 - [`0020-advanced-observability.md`](0020-advanced-observability.md) - deferred advanced observability architecture: baseline OTEL logs/traces stay separate from future metrics, dashboards, and product analytics.
 - [`0021-agents-as-code-harness-spine.md`](0021-agents-as-code-harness-spine.md) - Harness DSL, Generic Agent IR, evidence-harness boundaries, Architecture Lab positioning, and Pi-backed OpenAI Codex inference.
+- [`0022-composable-agent-harness-control-plane.md`](0022-composable-agent-harness-control-plane.md) - SDK AgentHarness contracts, core Pi-backed harness control-plane, repo-map/LSP plugins, and Terminal-Bench harness consumption.
+- [`0023-agent-harness-adapter-run-context.md`](0023-agent-harness-adapter-run-context.md) - Adapter run context, cancellation/deadline/budget hooks, policy callbacks, artifact stores, and the Pi boundary.
+- [`0024-capability-effect-descriptors.md`](0024-capability-effect-descriptors.md) - effect-based tool descriptors and role-policy composition.
+- [`0025-canonical-harness-event-schema-v0-1.md`](0025-canonical-harness-event-schema-v0-1.md) - explicit v0.1 harness event projections for tool, terminal, policy, artifact, and handoff evidence.
+- [`0026-artifact-store-and-p1-serial-handoffs.md`](0026-artifact-store-and-p1-serial-handoffs.md) - URI/hash artifact references, atomic local writes, and the P1 serial handoff stance.
+- [`0027-terminal-bench-smoke-vs-validation-gates.md`](0027-terminal-bench-smoke-vs-validation-gates.md) - Terminal-Bench smoke gates versus recommendation-quality validation gates.
 
 ## Planning Baseline
 

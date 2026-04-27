@@ -6,6 +6,7 @@ This private workspace is the first Generic AI integration point for Terminal-Be
 
 - Harbor is the orchestration authority. Use Harbor job configs and trial directories as the benchmark source of truth.
 - Generic AI contracts are the report and trace authority after the run. The importer maps Harbor artifacts into the existing `TraceEvent`, `BenchmarkTrialResult`, and `BenchmarkReport` contracts from `@generic-ai/sdk`.
+- Benchmark execution goes through `runAgentHarness()`, not the low-level `GenericAILlmRuntime`. The harness owns role topology, effect-based capability composition, policy decisions, canonical events, and artifact writing above Pi.
 - Nested Generic AI Docker sandboxing is disabled by default. The Harbor task container is the primary runtime boundary.
 - Keep Harbor-specific glue here until smoke and calibration runs prove which abstractions are reusable across more than one benchmark.
 
@@ -27,7 +28,7 @@ Harbor currently documents `harbor run -c <job.yaml>` for config-backed jobs, cu
 - `src/import-harbor-results.ts`: Harbor job importer that writes Generic AI-native reports.
 - `src/render-benchmark-report.ts`: report JSON to markdown renderer.
 - `configs/*.job.yaml`: smoke, quick, calibration, and full Harbor job configs.
-- `skills/terminal-bench/*`: benchmark-local behavioral guidance for future richer agents.
+- `skills/terminal-bench/*`: benchmark-local behavioral guidance loaded by the benchmark profile, including clean verification before finish.
 - `reports/`: ignored local output area for imported Generic AI reports.
 
 ## Run Ladder
@@ -50,7 +51,7 @@ Run one Generic AI smoke task:
 npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile smoke
 ```
 
-Run a quick multi-task check before paying for repeated calibration:
+Run a quick multi-task smoke check before paying for repeated calibration:
 
 ```bash
 npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile quick
@@ -74,7 +75,7 @@ The shell wrappers in `scripts/` run the same commands after building the worksp
 
 - `GENERIC_AI_PROVIDER_API_KEY`: optional runtime API key.
 - `GENERIC_AI_MODEL`: model id passed to Generic AI, defaulting to `gpt-5.5`.
-- `GENERIC_AI_RUNTIME_ADAPTER`: `openai-codex` by default.
+- `GENERIC_AI_RUNTIME_ADAPTER`: `pi`/`openai-codex` both select the Pi-backed harness adapter in P1.
 - `GENERIC_AI_REPO_ARCHIVE`: optional prebuilt repo archive for the Harbor adapter. If unset, the adapter creates a filtered archive from the local repo and uploads it into the task container.
 - `GENERIC_AI_NODE_VERSION`: Node version installed in the task container when Node 24 is missing. Defaults to `v24.13.0`.
 - `GENERIC_AI_BENCHMARK_IMMUTABLE_PATHS`: comma-separated verifier/task paths to snapshot before and after the run. Defaults to `/tests,/solution,task.toml`.
@@ -91,6 +92,11 @@ Inside each Harbor task container, Generic AI writes:
   policy-decisions.json
   integrity.json
   trajectory.json
+  harness/
+    canonical-events.json
+    harness-projections.json
+    policy-decisions.json
+    summary.json
 ```
 
 Harbor collects `/logs/artifacts/` into each trial directory. The installed agent also copies `trajectory.json` into Harbor's agent log directory when possible so Harbor can treat it as an ATIF trajectory.
@@ -114,6 +120,12 @@ examples/terminal-bench/reports/imported/<job-name>/
 
 Single-task smoke reports should usually remain `insufficient_evidence`; quick runs prove several real task containers without repeated attempts, and calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
 
+## Gates
+
+Smoke gate means the harness launches in Harbor, the Pi-backed run completes or fails with categorized evidence, required artifacts are written, trace projections include policy/tool/handoff/artifact evidence where applicable, and at least one nonzero reward on smoke or quick is treated only as smoke evidence.
+
+Validation gate means a pinned task set, at least five trials per configuration, flake reruns for surprising flips, and trace-completeness checks. Only validation evidence should support benchmark-quality recommendations.
+
 ## Current MVP Boundary
 
-The current Generic AI runtime profile proves adapter installation, headless invocation, deterministic artifact writing, integrity logging, ATIF handoff, and Harbor-result import. It does not claim a leaderboard-ready Terminal-Bench agent yet. Promotion into `@generic-ai/core`, `@generic-ai/sdk`, or a benchmark plugin should wait until smoke and calibration runs show repeated reusable behavior.
+The current Generic AI benchmark profile proves adapter installation, headless `runAgentHarness()` invocation, starter-stack capability composition, deterministic artifact writing, integrity logging, ATIF handoff, and Harbor-result import. The verifier role may run terminal checks but does not receive direct file write/edit tools. It does not claim a leaderboard-ready Terminal-Bench agent yet, and quick-profile mean reward is not a validation gate. Further benchmark-specific promotion should wait until smoke and calibration runs show repeated reusable behavior.

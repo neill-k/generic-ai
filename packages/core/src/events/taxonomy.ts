@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 
-export const canonicalEventFamilies = ["run", "session", "delegation", "plugin"] as const;
+export const canonicalEventFamilies = [
+  "run",
+  "session",
+  "delegation",
+  "handoff",
+  "tool",
+  "terminal",
+  "policy",
+  "artifact",
+  "plugin",
+] as const;
 
 export type CanonicalEventFamily = (typeof canonicalEventFamilies)[number];
 
@@ -40,10 +50,50 @@ export const canonicalDelegationLifecycleNames = [
 
 export type CanonicalDelegationLifecycleName = (typeof canonicalDelegationLifecycleNames)[number];
 
+export const canonicalHandoffLifecycleNames = [
+  "handoff.requested",
+  "handoff.accepted",
+  "handoff.completed",
+  "handoff.failed",
+  "handoff.cancelled",
+] as const;
+
+export type CanonicalHandoffLifecycleName = (typeof canonicalHandoffLifecycleNames)[number];
+
+export const canonicalToolCallLifecycleNames = [
+  "tool.call.started",
+  "tool.call.completed",
+  "tool.call.failed",
+] as const;
+
+export type CanonicalToolCallLifecycleName = (typeof canonicalToolCallLifecycleNames)[number];
+
+export const canonicalTerminalCommandLifecycleNames = [
+  "terminal.command.started",
+  "terminal.command.completed",
+  "terminal.command.failed",
+] as const;
+
+export type CanonicalTerminalCommandLifecycleName =
+  (typeof canonicalTerminalCommandLifecycleNames)[number];
+
+export const canonicalPolicyLifecycleNames = ["policy.decision"] as const;
+
+export type CanonicalPolicyLifecycleName = (typeof canonicalPolicyLifecycleNames)[number];
+
+export const canonicalArtifactLifecycleNames = ["artifact.created"] as const;
+
+export type CanonicalArtifactLifecycleName = (typeof canonicalArtifactLifecycleNames)[number];
+
 export const canonicalCoreEventNames = [
   ...canonicalRunLifecycleNames,
   ...canonicalSessionLifecycleNames,
   ...canonicalDelegationLifecycleNames,
+  ...canonicalHandoffLifecycleNames,
+  ...canonicalToolCallLifecycleNames,
+  ...canonicalTerminalCommandLifecycleNames,
+  ...canonicalPolicyLifecycleNames,
+  ...canonicalArtifactLifecycleNames,
 ] as const;
 
 export type CanonicalCoreEventName = (typeof canonicalCoreEventNames)[number];
@@ -128,6 +178,26 @@ export function getCanonicalEventFamily(name: string): CanonicalEventFamily | un
     return "delegation";
   }
 
+  if (name.startsWith("handoff.")) {
+    return "handoff";
+  }
+
+  if (name.startsWith("tool.")) {
+    return "tool";
+  }
+
+  if (name.startsWith("terminal.")) {
+    return "terminal";
+  }
+
+  if (name.startsWith("policy.")) {
+    return "policy";
+  }
+
+  if (name.startsWith("artifact.")) {
+    return "artifact";
+  }
+
   if (isCanonicalPluginEventName(name)) {
     return "plugin";
   }
@@ -193,6 +263,17 @@ export function createSessionLifecycleEvent<
 
 export function createDelegationLifecycleEvent<
   TName extends CanonicalDelegationLifecycleName,
+  TData extends CanonicalEventData = CanonicalEventData,
+>(
+  name: TName,
+  input: Omit<CanonicalEventInput<TName, TData>, "name">,
+  options?: CreateCanonicalEventOptions,
+): CanonicalEvent<TName, TData> {
+  return createCanonicalEvent({ ...input, name }, options);
+}
+
+export function createHandoffLifecycleEvent<
+  TName extends CanonicalHandoffLifecycleName,
   TData extends CanonicalEventData = CanonicalEventData,
 >(
   name: TName,

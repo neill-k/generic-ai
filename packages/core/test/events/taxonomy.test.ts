@@ -3,8 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalCoreEventNames,
   canonicalDelegationLifecycleNames,
+  canonicalArtifactLifecycleNames,
+  canonicalHandoffLifecycleNames,
+  canonicalPolicyLifecycleNames,
   canonicalRunLifecycleNames,
   canonicalSessionLifecycleNames,
+  canonicalTerminalCommandLifecycleNames,
+  canonicalToolCallLifecycleNames,
   createCanonicalEvent,
   createPluginEvent,
   getCanonicalEventFamily,
@@ -24,20 +29,34 @@ describe("core canonical event taxonomy", () => {
     ]);
     expect(canonicalSessionLifecycleNames).toContain("session.child.completed");
     expect(canonicalDelegationLifecycleNames).toContain("delegation.accepted");
+    expect(canonicalHandoffLifecycleNames).toContain("handoff.completed");
+    expect(canonicalToolCallLifecycleNames).toContain("tool.call.started");
+    expect(canonicalTerminalCommandLifecycleNames).toContain("terminal.command.failed");
+    expect(canonicalPolicyLifecycleNames).toEqual(["policy.decision"]);
+    expect(canonicalArtifactLifecycleNames).toEqual(["artifact.created"]);
     expect(canonicalCoreEventNames).toHaveLength(
       canonicalRunLifecycleNames.length +
         canonicalSessionLifecycleNames.length +
-        canonicalDelegationLifecycleNames.length,
+        canonicalDelegationLifecycleNames.length +
+        canonicalHandoffLifecycleNames.length +
+        canonicalToolCallLifecycleNames.length +
+        canonicalTerminalCommandLifecycleNames.length +
+        canonicalPolicyLifecycleNames.length +
+        canonicalArtifactLifecycleNames.length,
     );
   });
 
   it("recognizes canonical names and plugin extensions", () => {
     expect(isCanonicalCoreEventName("run.created")).toBe(true);
+    expect(isCanonicalCoreEventName("policy.decision")).toBe(true);
+    expect(isCanonicalCoreEventName("artifact.created")).toBe(true);
     expect(isCanonicalPluginEventName("plugin.otel.trace.started")).toBe(true);
     expect(isCanonicalEventName("session.child.created")).toBe(true);
     expect(isCanonicalEventName("plugin.otel.trace.started")).toBe(true);
     expect(isCanonicalEventName("something-else")).toBe(false);
     expect(getCanonicalEventFamily("delegation.completed")).toBe("delegation");
+    expect(getCanonicalEventFamily("handoff.completed")).toBe("handoff");
+    expect(getCanonicalEventFamily("tool.call.failed")).toBe("tool");
   });
 
   it("seals kernel events with stable runtime metadata", () => {

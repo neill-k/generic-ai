@@ -9,6 +9,7 @@ This package is the explicit host-execution path. It is intentionally local-firs
 - commands run on the host via local bash operations
 - the public plugin surface defaults `unrestrictedLocal` to `true`
 - this is appropriate for local development and tests, not as a production isolation boundary
+- the tool declares `process.spawn`, `fs.read`, and `fs.write` effects so `AgentHarness` can withhold it from read-only roles
 
 Sandboxed code execution is tracked separately in [`docs/decisions/0013-sandboxed-execution.md`](../../docs/decisions/0013-sandboxed-execution.md). The planned migration path is a dedicated `@generic-ai/plugin-tools-terminal-sandbox` package that can replace this package in the starter preset's `terminalTools` slot without changing kernel boundaries.
 

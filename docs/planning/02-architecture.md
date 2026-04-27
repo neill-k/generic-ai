@@ -47,8 +47,8 @@ multi-agent coordination, experimentation, and evidence-backed comparison.
 | @generic-ai base plugins |
 | ------------------------ |
 | config                   | workspace  | storage | queue  | logging/otel |
-| terminal tools           | file tools | mcp     | skills | delegation   |
-| messaging                | memory     | output  | hono   |
+| terminal tools           | file tools | repo map | lsp    | mcp          |
+| skills                   | delegation | messaging | memory | output/hono  |
 +--------------------------------------------------------------+
                  | bundled by
                  v
@@ -117,8 +117,10 @@ Recommended envelope shape:
 ### Compiled Harness Runtime Consumption
 
 - consume typed compiled-harness contracts emitted by the SDK compiler
-- run benchmark trials through the same `GenericAILlmRuntime` path used by normal runs
-- emit trace-backed evidence without making report renderer or policy decisions kernel-owned
+- run benchmark trials through the public `AgentHarness` control plane and adapter run context
+- keep `GenericAILlmRuntime` as a low-level text/model helper rather than the composable harness
+- emit trace-backed evidence without making report renderer semantics kernel-owned; core may enforce SDK-declared capability effects for harness role binding
+- bind verifier roles to read/file-inspection tools plus explicit terminal execution for checks, while continuing to deny direct file write/edit tools
 
 ## Kernel Non-Responsibilities
 
@@ -151,6 +153,8 @@ packages/
   plugin-logging-otel/
   plugin-tools-terminal/
   plugin-tools-files/
+  plugin-repo-map/
+  plugin-lsp/
   plugin-mcp/
   plugin-agent-skills/
   plugin-delegation/
@@ -183,7 +187,10 @@ Recommended contents:
 - output-plugin contract
 - typed helpers for writing plugins and presets
 - Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI,
-  TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch contracts
+  TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, AgentHarness,
+  AgentHarnessAdapter, adapter run context, capability-effect descriptors,
+  role/policy profile, URI/hash artifact references, run envelope, and event
+  projection contracts
 
 `pi` primitives should be re-exported where that materially improves plugin developer ergonomics.
 
@@ -199,6 +206,8 @@ Recommended contents:
 - `plugin-logging-otel`
 - `plugin-tools-terminal`
 - `plugin-tools-files`
+- `plugin-repo-map`
+- `plugin-lsp`
 - `plugin-mcp`
 - `plugin-agent-skills`
 - `plugin-delegation`
@@ -256,6 +265,20 @@ The starter preset should include Hono anyway, but the plugin itself remains opt
 
 - ship standard `pi` tools for reading/writing/listing/editing local files
 
+### `plugin-repo-map`
+
+- ship a deterministic compact repository map tool
+- declare `repo.inspect` and `fs.read` effects for harness role policy
+- provide cheap repo orientation for planner and explorer roles
+- stay read-only and stable enough for benchmark evidence
+
+### `plugin-lsp`
+
+- expose configurable language-server diagnostics, symbols, definitions, and references
+- declare `lsp.read`, `fs.read`, and `process.spawn` effects so benchmark profiles can gate server spawning
+- use stdio language servers or injected clients
+- avoid becoming a repository indexer or code mutation plugin
+
 ### `plugin-mcp`
 
 - provide embedded MCP support as a plugin, not a kernel hard requirement
@@ -304,6 +327,7 @@ Recommended preset behavior:
 - wires up a local-first development stack
 - includes Hono by default
 - includes standard file and terminal tools
+- includes repo-map and LSP orientation slots
 - includes MCP, Agent Skills, delegation, messaging, and memory
 - uses SQLite for persistent storage
 - uses the in-process queue for async execution
@@ -321,6 +345,8 @@ Recommended v1 layout:
   framework.yaml
   agents/
     primary.yaml
+  harnesses/
+    default.yaml
   plugins/
     config.yaml
     workspace.yaml

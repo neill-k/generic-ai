@@ -14,6 +14,7 @@ export type {
   ResolvedConfig,
   FrameworkConfig,
   AgentConfig,
+  AgentHarnessConfig,
   PluginConfig,
   PresetConfig,
 } from "./config/types.js";

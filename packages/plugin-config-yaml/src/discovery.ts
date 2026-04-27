@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access, readdir } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 
-export type ConfigConcern = "framework" | "agent" | "plugin";
+export type ConfigConcern = "framework" | "agent" | "harness" | "plugin";
 
 export interface DiscoveredConfigFile {
   concern: ConfigConcern;
@@ -32,6 +32,7 @@ export interface ConfigDiscoveryResult {
   configDir?: string;
   frameworkFile?: DiscoveredConfigFile;
   agentFiles: DiscoveredConfigFile[];
+  harnessFiles: DiscoveredConfigFile[];
   pluginFiles: DiscoveredConfigFile[];
   files: DiscoveredConfigFile[];
   failures: ConfigDiscoveryFailure[];
@@ -46,6 +47,7 @@ export interface DiscoverCanonicalConfigOptions {
 
 const CONFIG_DIR_NAME = ".generic-ai";
 const AGENTS_DIR_NAME = "agents";
+const HARNESSES_DIR_NAME = "harnesses";
 const PLUGINS_DIR_NAME = "plugins";
 const YAML_EXTENSIONS = new Set([".yaml", ".yml"]);
 const FRAMEWORK_FILENAMES = ["framework.yaml", "framework.yml"] as const;
@@ -71,6 +73,7 @@ export async function discoverCanonicalConfig(
     return {
       startDir: normalizedStartDir,
       agentFiles: [],
+      harnessFiles: [],
       pluginFiles: [],
       files: [],
       failures,
@@ -125,9 +128,21 @@ export async function discoverCanonicalConfig(
     failures,
   });
 
-  const files = [...(frameworkFile ? [frameworkFile] : []), ...agentFiles, ...pluginFiles].sort(
-    compareDiscoveredFile,
-  );
+  const harnessFiles = await discoverConcernFiles({
+    rootDir: configRoot,
+    concern: "harness",
+    concernDir: join(configDir, HARNESSES_DIR_NAME),
+    readdirImpl,
+    accessImpl,
+    failures,
+  });
+
+  const files = [
+    ...(frameworkFile ? [frameworkFile] : []),
+    ...agentFiles,
+    ...harnessFiles,
+    ...pluginFiles,
+  ].sort(compareDiscoveredFile);
 
   return {
     startDir: normalizedStartDir,
@@ -135,6 +150,7 @@ export async function discoverCanonicalConfig(
     configDir,
     ...(frameworkFile ? { frameworkFile } : {}),
     agentFiles,
+    harnessFiles,
     pluginFiles,
     files,
     failures,
@@ -265,7 +281,8 @@ function compareConcern(left: ConfigConcern, right: ConfigConcern): number {
   const weight: Record<ConfigConcern, number> = {
     framework: 0,
     agent: 1,
-    plugin: 2,
+    harness: 2,
+    plugin: 3,
   };
   return weight[left] - weight[right];
 }
