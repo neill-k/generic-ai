@@ -232,7 +232,6 @@ class GenericAIInstalledAgent(BaseInstalledAgent):
                 environment,
                 command=command,
                 env=self._agent_env(),
-                timeout_sec=int(os.environ.get("GENERIC_AI_RUN_TIMEOUT_SEC", "3600")),
             )
         finally:
             await self._download_artifacts(environment)
