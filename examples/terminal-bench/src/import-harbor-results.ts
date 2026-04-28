@@ -34,9 +34,61 @@ export interface HarborImportResult {
   readonly benchmark: BenchmarkSpec;
   readonly trialResults: readonly BenchmarkTrialResult[];
   readonly report: BenchmarkReport;
+  readonly validation: HarborValidationSummary;
 }
 
 type JsonRecord = Record<string, unknown>;
+type ValidationGateKind = "smoke" | "quick" | "validation" | "full" | "custom";
+
+export interface MetricDistributionSummary {
+  readonly samples: number;
+  readonly values: readonly number[];
+  readonly mean?: number;
+  readonly standardDeviation?: number;
+  readonly min?: number;
+  readonly max?: number;
+  readonly distribution: Readonly<Record<string, number>>;
+}
+
+export interface TraceCompletenessSummary {
+  readonly samples: number;
+  readonly average: number;
+  readonly min: number;
+  readonly completeTrials: number;
+}
+
+export interface ValidationTaskPinning {
+  readonly status: "pinned" | "sampled" | "unknown";
+  readonly taskNames: readonly string[];
+  readonly declaredTaskCount?: number;
+}
+
+export interface ValidationFlakeSignal {
+  readonly taskId: string;
+  readonly successValues: readonly number[];
+  readonly rewardValues: readonly number[];
+  readonly reason: string;
+}
+
+export interface HarborValidationSummary {
+  readonly kind: "generic-ai.terminal-bench-validation-summary";
+  readonly jobName: string;
+  readonly gate: ValidationGateKind;
+  readonly trialCount: number;
+  readonly thresholds: {
+    readonly minimumTrialsForRecommendation: number;
+    readonly requireTraceCompleteness: boolean;
+  };
+  readonly pinnedTaskSet: ValidationTaskPinning;
+  readonly reward: MetricDistributionSummary;
+  readonly success: MetricDistributionSummary;
+  readonly traceCompleteness: TraceCompletenessSummary;
+  readonly flakeSignals: readonly ValidationFlakeSignal[];
+  readonly insufficientEvidenceReasons: readonly string[];
+  readonly recommendationQuality: "sufficient" | "insufficient";
+  readonly limitations: readonly string[];
+  readonly nextActions: readonly string[];
+}
 
 const EXAMPLE_ROOT = resolve(import.meta.dirname, "..");
 const DEFAULT_REPORTS_ROOT = resolve(EXAMPLE_ROOT, "reports", "imported");
@@ -124,10 +176,15 @@ function findFirstBoolean(value: unknown, names: ReadonlySet<string>): boolean |
 }
 
 async function sha256(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
-async function collectFileArtifacts(root: string, baseUri: string): Promise<readonly ArtifactReference[]> {
+async function collectFileArtifacts(
+  root: string,
+  baseUri: string,
+): Promise<readonly ArtifactReference[]> {
   if (!existsSync(root)) {
     return [];
   }
@@ -257,7 +314,10 @@ function metric(
   });
 }
 
-function extractMetrics(resultJson: unknown, artifactRefs: readonly string[]): readonly MetricValue[] {
+function extractMetrics(
+  resultJson: unknown,
+  artifactRefs: readonly string[],
+): readonly MetricValue[] {
   const reward = findFirstNumber(resultJson, new Set(["reward", "score"]));
   const duration = findFirstNumber(resultJson, new Set(["duration_sec", "duration_seconds"]));
   const costUsd = findFirstNumber(resultJson, new Set(["cost_usd", "cost"]));
@@ -271,6 +331,192 @@ function extractMetrics(resultJson: unknown, artifactRefs: readonly string[]): r
   ];
 
   return Object.freeze(values.filter((value): value is MetricValue => value !== undefined));
+}
+
+function metricValues(
+  trialResults: readonly BenchmarkTrialResult[],
+  metricId: string,
+): readonly number[] {
+  return Object.freeze(
+    trialResults
+      .map((result) => result.metrics.find((metric) => metric.metricId === metricId)?.value)
+      .filter((value): value is number => value !== undefined),
+  );
+}
+
+function averageNumber(values: readonly number[]): number | undefined {
+  if (values.length === 0) {
+    return undefined;
+  }
+
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function sampleStandardDeviation(values: readonly number[]): number | undefined {
+  if (values.length < 2) {
+    return undefined;
+  }
+
+  const mean = averageNumber(values);
+  if (mean === undefined) {
+    return undefined;
+  }
+
+  const variance =
+    values.reduce((total, value) => total + (value - mean) ** 2, 0) / (values.length - 1);
+  return Math.sqrt(variance);
+}
+
+function distributionKey(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(4);
+}
+
+function summarizeMetric(values: readonly number[]): MetricDistributionSummary {
+  const mean = averageNumber(values);
+  const standardDeviation = sampleStandardDeviation(values);
+  const distribution: Record<string, number> = {};
+  for (const value of values) {
+    const key = distributionKey(value);
+    distribution[key] = (distribution[key] ?? 0) + 1;
+  }
+
+  return Object.freeze({
+    samples: values.length,
+    values: Object.freeze([...values]),
+    ...(mean === undefined ? {} : { mean }),
+    ...(standardDeviation === undefined ? {} : { standardDeviation }),
+    ...(values.length === 0 ? {} : { min: Math.min(...values), max: Math.max(...values) }),
+    distribution: Object.freeze(distribution),
+  });
+}
+
+function summarizeTraceCompleteness(
+  trialResults: readonly BenchmarkTrialResult[],
+): TraceCompletenessSummary {
+  const values = trialResults.map((result) => result.diagnostics.completeness);
+  if (values.length === 0) {
+    return Object.freeze({
+      samples: 0,
+      average: 0,
+      min: 0,
+      completeTrials: 0,
+    });
+  }
+
+  return Object.freeze({
+    samples: values.length,
+    average: averageNumber(values) ?? 0,
+    min: Math.min(...values),
+    completeTrials: values.filter((value) => value >= 1).length,
+  });
+}
+
+function validationGateKind(jobName: string): ValidationGateKind {
+  const normalized = jobName.toLowerCase();
+  if (normalized.includes("smoke")) {
+    return "smoke";
+  }
+
+  if (normalized.includes("quick")) {
+    return "quick";
+  }
+
+  if (normalized.includes("validation") || normalized.includes("calibration")) {
+    return "validation";
+  }
+
+  if (normalized.includes("full")) {
+    return "full";
+  }
+
+  return "custom";
+}
+
+function numberFromRecord(record: JsonRecord, names: readonly string[]): number | undefined {
+  for (const name of names) {
+    const value = record[name];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+function stringArrayFromRecord(record: JsonRecord, names: readonly string[]): readonly string[] {
+  for (const name of names) {
+    const value = record[name];
+    if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+      return Object.freeze([...value]);
+    }
+  }
+
+  return Object.freeze([]);
+}
+
+function extractTaskPinning(configJson: unknown): ValidationTaskPinning {
+  if (!isRecord(configJson) || !Array.isArray(configJson["datasets"])) {
+    return Object.freeze({
+      status: "unknown",
+      taskNames: Object.freeze([]),
+    });
+  }
+
+  const taskNames: string[] = [];
+  let declaredTaskCount: number | undefined;
+  for (const dataset of configJson["datasets"]) {
+    if (!isRecord(dataset)) {
+      continue;
+    }
+
+    taskNames.push(...stringArrayFromRecord(dataset, ["task_names", "taskNames"]));
+    declaredTaskCount ??= numberFromRecord(dataset, ["n_tasks", "nTasks"]);
+  }
+
+  return Object.freeze({
+    status:
+      taskNames.length > 0 ? "pinned" : declaredTaskCount === undefined ? "unknown" : "sampled",
+    taskNames: Object.freeze([...new Set(taskNames)]),
+    ...(declaredTaskCount === undefined ? {} : { declaredTaskCount }),
+  });
+}
+
+function trialTaskId(trialId: string): string {
+  return trialId.split("__")[0] ?? trialId;
+}
+
+function flakeSignals(
+  trialResults: readonly BenchmarkTrialResult[],
+): readonly ValidationFlakeSignal[] {
+  const byTask = new Map<string, BenchmarkTrialResult[]>();
+  for (const result of trialResults) {
+    const taskId = trialTaskId(result.trialId);
+    byTask.set(taskId, [...(byTask.get(taskId) ?? []), result]);
+  }
+
+  const signals: ValidationFlakeSignal[] = [];
+  for (const [taskId, results] of byTask) {
+    const successValues = metricValues(results, "success");
+    const rewardValues = metricValues(results, "reward");
+    const successFlipped = new Set(successValues).size > 1;
+    const rewardFlipped =
+      rewardValues.length > 1 && Math.min(...rewardValues) <= 0 && Math.max(...rewardValues) > 0;
+    if (!successFlipped && !rewardFlipped) {
+      continue;
+    }
+
+    signals.push(
+      Object.freeze({
+        taskId,
+        successValues,
+        rewardValues,
+        reason:
+          "Repeated attempts produced both passing and failing evidence; rerun this task before making recommendation-quality claims.",
+      }),
+    );
+  }
+
+  return Object.freeze(signals.sort((left, right) => left.taskId.localeCompare(right.taskId)));
 }
 
 async function listTrialDirs(jobDir: string): Promise<readonly string[]> {
@@ -381,6 +627,8 @@ function createBenchmark(input: {
   readonly jobName: string;
   readonly trialCount: number;
 }): BenchmarkSpec {
+  const gate = validationGateKind(input.jobName);
+  const requiresValidationCompleteness = gate === "validation" || gate === "full";
   const metricDefinitions: NonNullable<BenchmarkSpec["metricDefinitions"]> = Object.freeze([
     {
       id: "reward",
@@ -436,7 +684,7 @@ function createBenchmark(input: {
     }),
     validity: Object.freeze({
       minimumTrialsForRecommendation: 5,
-      requireTraceCompleteness: false,
+      requireTraceCompleteness: requiresValidationCompleteness,
       allowSingleRunRecommendation: false,
     }),
     report: Object.freeze({
@@ -446,24 +694,192 @@ function createBenchmark(input: {
   });
 }
 
+function validationLimitations(input: {
+  readonly gate: ValidationGateKind;
+  readonly trialCount: number;
+  readonly minimumTrials: number;
+  readonly pinnedTaskSet: ValidationTaskPinning;
+  readonly requireTraceCompleteness: boolean;
+  readonly traceCompleteness: TraceCompletenessSummary;
+}): readonly string[] {
+  const limitations: string[] = [];
+  if (input.gate !== "validation" && input.gate !== "full") {
+    limitations.push(
+      "This profile is a smoke signal, not a recommendation-quality Terminal-Bench validation gate.",
+    );
+  }
+
+  if (input.trialCount < input.minimumTrials) {
+    limitations.push(
+      `Only ${input.trialCount} trial(s) were imported; ${input.minimumTrials} are required before recommendations.`,
+    );
+  }
+
+  if (input.pinnedTaskSet.status !== "pinned") {
+    limitations.push("The Harbor config did not expose an explicit pinned task_names set.");
+  }
+
+  if (input.requireTraceCompleteness && input.traceCompleteness.completeTrials < input.trialCount) {
+    limitations.push("One or more imported trials are missing required trace event types.");
+  }
+
+  return Object.freeze(limitations);
+}
+
+function validationNextActions(input: {
+  readonly limitations: readonly string[];
+  readonly flakeSignals: readonly ValidationFlakeSignal[];
+}): readonly string[] {
+  const nextActions: string[] = [];
+  if (input.flakeSignals.length > 0) {
+    nextActions.push("Rerun tasks with mixed pass/fail evidence before reporting a stable delta.");
+  }
+
+  if (input.limitations.some((limitation) => limitation.includes("pinned task_names"))) {
+    nextActions.push("Run the validation profile with explicit dataset.task_names.");
+  }
+
+  if (input.limitations.some((limitation) => limitation.includes("trial"))) {
+    nextActions.push("Import at least five validation trials for the same configuration.");
+  }
+
+  if (input.limitations.some((limitation) => limitation.includes("trace event"))) {
+    nextActions.push("Fix trace completeness before using the report for recommendations.");
+  }
+
+  if (nextActions.length === 0) {
+    nextActions.push(
+      "Compare this validation report with a same-profile baseline before claiming movement.",
+    );
+  }
+
+  return Object.freeze(nextActions);
+}
+
+function createValidationSummary(input: {
+  readonly jobName: string;
+  readonly configJson: unknown;
+  readonly benchmark: BenchmarkSpec;
+  readonly trialResults: readonly BenchmarkTrialResult[];
+  readonly report: BenchmarkReport;
+}): HarborValidationSummary {
+  const gate = validationGateKind(input.jobName);
+  const minimumTrials = input.benchmark.validity?.minimumTrialsForRecommendation ?? 3;
+  const requireTraceCompleteness = input.benchmark.validity?.requireTraceCompleteness === true;
+  const pinnedTaskSet = extractTaskPinning(input.configJson);
+  const traceCompleteness = summarizeTraceCompleteness(input.trialResults);
+  const signals = flakeSignals(input.trialResults);
+  const limitations = validationLimitations({
+    gate,
+    trialCount: input.trialResults.length,
+    minimumTrials,
+    pinnedTaskSet,
+    requireTraceCompleteness,
+    traceCompleteness,
+  });
+  const nextActions = validationNextActions({ limitations, flakeSignals: signals });
+
+  return Object.freeze({
+    kind: "generic-ai.terminal-bench-validation-summary",
+    jobName: input.jobName,
+    gate,
+    trialCount: input.trialResults.length,
+    thresholds: Object.freeze({
+      minimumTrialsForRecommendation: minimumTrials,
+      requireTraceCompleteness,
+    }),
+    pinnedTaskSet,
+    reward: summarizeMetric(metricValues(input.trialResults, "reward")),
+    success: summarizeMetric(metricValues(input.trialResults, "success")),
+    traceCompleteness,
+    flakeSignals: signals,
+    insufficientEvidenceReasons: Object.freeze([...input.report.insufficientEvidence]),
+    recommendationQuality:
+      input.report.insufficientEvidence.length === 0 ? "sufficient" : "insufficient",
+    limitations,
+    nextActions,
+  });
+}
+
+function formatMetricSummary(summary: MetricDistributionSummary): string {
+  const mean = summary.mean === undefined ? "missing" : String(summary.mean);
+  const standardDeviation =
+    summary.standardDeviation === undefined ? "n/a" : String(summary.standardDeviation);
+  const distribution = Object.entries(summary.distribution)
+    .map(([value, count]) => `${value}: ${count}`)
+    .join(", ");
+  return `samples=${summary.samples}; mean=${mean}; standardDeviation=${standardDeviation}; distribution=${distribution || "empty"}`;
+}
+
+function renderValidationSummaryMarkdown(summary: HarborValidationSummary): string {
+  const pinned =
+    summary.pinnedTaskSet.taskNames.length > 0
+      ? summary.pinnedTaskSet.taskNames.join(", ")
+      : `${summary.pinnedTaskSet.status}${
+          summary.pinnedTaskSet.declaredTaskCount === undefined
+            ? ""
+            : ` (${summary.pinnedTaskSet.declaredTaskCount} sampled task(s))`
+        }`;
+  const lines = [
+    "## Terminal-Bench Validation Gate",
+    "",
+    `- Gate: ${summary.gate}`,
+    `- Trial count: ${summary.trialCount}`,
+    `- Minimum trials for recommendation: ${summary.thresholds.minimumTrialsForRecommendation}`,
+    `- Require trace completeness: ${summary.thresholds.requireTraceCompleteness}`,
+    `- Pinned task set: ${pinned}`,
+    `- Reward distribution: ${formatMetricSummary(summary.reward)}`,
+    `- Success distribution: ${formatMetricSummary(summary.success)}`,
+    `- Trace completeness: samples=${summary.traceCompleteness.samples}; average=${summary.traceCompleteness.average}; min=${summary.traceCompleteness.min}; completeTrials=${summary.traceCompleteness.completeTrials}`,
+    `- Recommendation quality: ${summary.recommendationQuality}`,
+    "",
+  ];
+
+  if (summary.flakeSignals.length > 0) {
+    lines.push(
+      "### Flake Rerun Signals",
+      "",
+      ...summary.flakeSignals.map((signal) => `- ${signal.taskId}: ${signal.reason}`),
+      "",
+    );
+  }
+
+  if (summary.insufficientEvidenceReasons.length > 0) {
+    lines.push(
+      "### Insufficient Evidence Reasons",
+      "",
+      ...summary.insufficientEvidenceReasons.map((reason) => `- ${reason}`),
+      "",
+    );
+  }
+
+  if (summary.limitations.length > 0) {
+    lines.push("### Limitations", "", ...summary.limitations.map((item) => `- ${item}`), "");
+  }
+
+  lines.push("### Next Actions", "", ...summary.nextActions.map((item) => `- ${item}`), "");
+
+  return `${lines.join("\n")}\n`;
+}
+
 async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 }
 
-async function readJobName(jobDir: string): Promise<string> {
-  const config = await readJsonIfExists(join(jobDir, "config.json"));
+function readJobNameFromConfig(config: unknown, fallback: string): string {
   if (isRecord(config) && typeof config["job_name"] === "string") {
     return config["job_name"];
   }
 
-  return basename(jobDir);
+  return fallback;
 }
 
 export async function importHarborResults(
   options: HarborImportOptions,
 ): Promise<HarborImportResult> {
   const jobDir = resolve(options.jobDir);
-  const jobName = await readJobName(jobDir);
+  const configJson = await readJsonIfExists(join(jobDir, "config.json"));
+  const jobName = readJobNameFromConfig(configJson, basename(jobDir));
   const outputDir = resolve(options.outputDir ?? join(DEFAULT_REPORTS_ROOT, jobName));
   const timestamp = options.now?.() ?? new Date().toISOString();
   const runId = `harbor:${createStableFingerprint(jobDir).slice(0, 12)}`;
@@ -482,13 +898,24 @@ export async function importHarborResults(
     generatedAt: timestamp,
     results: trialResults,
   });
+  const validation = createValidationSummary({
+    jobName,
+    configJson,
+    benchmark,
+    trialResults,
+    report,
+  });
 
   await mkdir(outputDir, { recursive: true });
   await writeJson(join(outputDir, "mission.json"), mission);
   await writeJson(join(outputDir, "benchmark.json"), benchmark);
   await writeJson(join(outputDir, "trial-results.json"), trialResults);
   await writeJson(join(outputDir, "benchmark-report.json"), report);
-  await writeFile(join(outputDir, "benchmark-report.md"), renderBenchmarkReportMarkdown(report));
+  await writeJson(join(outputDir, "validation-summary.json"), validation);
+  await writeFile(
+    join(outputDir, "benchmark-report.md"),
+    `${renderBenchmarkReportMarkdown(report)}${renderValidationSummaryMarkdown(validation)}`,
+  );
 
   return Object.freeze({
     jobDir,
@@ -497,6 +924,7 @@ export async function importHarborResults(
     benchmark,
     trialResults: Object.freeze(trialResults),
     report,
+    validation,
   });
 }
 

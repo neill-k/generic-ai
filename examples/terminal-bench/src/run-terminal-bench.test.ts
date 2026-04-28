@@ -18,12 +18,17 @@ describe("buildHarborCommandPlan", () => {
     expect(plan.env["GENERIC_AI_REPO_ROOT"]).toContain("generic-ai");
   });
 
-  it("supports the multi-task quick profile between smoke and calibration", () => {
+  it("supports quick and validation profiles between smoke and full", () => {
     const plan = buildHarborCommandPlan({
       profile: "quick",
       env: {},
     });
+    const validationPlan = buildHarborCommandPlan({
+      profile: "validation",
+      env: {},
+    });
 
     expect(plan.args[2]).toContain("quick.job.yaml");
+    expect(validationPlan.args[2]).toContain("validation.job.yaml");
   });
 });

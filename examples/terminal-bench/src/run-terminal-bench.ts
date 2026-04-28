@@ -5,7 +5,7 @@ import { delimiter, resolve } from "node:path";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-export type TerminalBenchProfile = "smoke" | "quick" | "calibration" | "full";
+export type TerminalBenchProfile = "smoke" | "quick" | "calibration" | "validation" | "full";
 
 export interface HarborCommandPlan {
   readonly command: string;
@@ -35,15 +35,22 @@ const CONFIGS: Readonly<Record<TerminalBenchProfile, string>> = Object.freeze({
   smoke: resolve(EXAMPLE_ROOT, "configs", "smoke.job.yaml"),
   quick: resolve(EXAMPLE_ROOT, "configs", "quick.job.yaml"),
   calibration: resolve(EXAMPLE_ROOT, "configs", "calibration.job.yaml"),
+  validation: resolve(EXAMPLE_ROOT, "configs", "validation.job.yaml"),
   full: resolve(EXAMPLE_ROOT, "configs", "full.job.yaml"),
 });
 
 function profileFromString(value: string): TerminalBenchProfile {
-  if (value === "smoke" || value === "quick" || value === "calibration" || value === "full") {
+  if (
+    value === "smoke" ||
+    value === "quick" ||
+    value === "calibration" ||
+    value === "validation" ||
+    value === "full"
+  ) {
     return value;
   }
 
-  throw new Error("--profile must be smoke, quick, calibration, or full.");
+  throw new Error("--profile must be smoke, quick, calibration, validation, or full.");
 }
 
 function ensureWindowsHarborPythonShims(): readonly string[] {
@@ -116,7 +123,8 @@ function withPathPrefix(env: NodeJS.ProcessEnv, prefix: string): NodeJS.ProcessE
   const current = env[pathKey];
   return {
     ...env,
-    [pathKey]: current === undefined || current.length === 0 ? prefix : `${prefix}${delimiter}${current}`,
+    [pathKey]:
+      current === undefined || current.length === 0 ? prefix : `${prefix}${delimiter}${current}`,
   };
 }
 
@@ -138,10 +146,10 @@ function ensureWindowsDockerComposeShim(env: NodeJS.ProcessEnv): NodeJS.ProcessE
     resolve(DOCKER_COMPOSE_SHIM_DIR, "docker.cmd"),
     [
       "@echo off",
-      "if /I \"%~1\"==\"compose\" (",
+      'if /I "%~1"=="compose" (',
       "  setlocal EnableDelayedExpansion",
-      "  set \"args=%*\"",
-      "  set \"args=!args:~8!\"",
+      '  set "args=%*"',
+      '  set "args=!args:~8!"',
       "  docker-compose.exe !args!",
       "  exit /b !ERRORLEVEL!",
       ")",
@@ -163,12 +171,12 @@ export function buildHarborCommandPlan(options: TerminalBenchRunOptions = {}): H
   const nextEnv: NodeJS.ProcessEnv = ensureWindowsDockerComposeShim({
     ...env,
     GENERIC_AI_REPO_ROOT: REPO_ROOT,
-    GENERIC_AI_RUNTIME_ADAPTER: options.adapter ?? env["GENERIC_AI_RUNTIME_ADAPTER"] ?? "openai-codex",
+    GENERIC_AI_RUNTIME_ADAPTER:
+      options.adapter ?? env["GENERIC_AI_RUNTIME_ADAPTER"] ?? "openai-codex",
     PYTHONIOENCODING: env["PYTHONIOENCODING"] ?? "utf-8",
     PYTHONUTF8: env["PYTHONUTF8"] ?? "1",
     TERM: env["TERM"] ?? "dumb",
-    GENERIC_AI_HARBOR_DOCKER_COMPOSE_SHIM:
-      env["GENERIC_AI_HARBOR_DOCKER_COMPOSE_SHIM"] ?? "1",
+    GENERIC_AI_HARBOR_DOCKER_COMPOSE_SHIM: env["GENERIC_AI_HARBOR_DOCKER_COMPOSE_SHIM"] ?? "1",
   });
 
   if (options.model !== undefined) {

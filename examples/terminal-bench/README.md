@@ -25,9 +25,9 @@ Harbor currently documents `harbor run -c <job.yaml>` for config-backed jobs, cu
 - `harbor/install-generic-ai.sh.j2`: task-container install template for Node 24 and this workspace.
 - `src/benchmark-agent.ts`: headless Generic AI benchmark profile invoked inside the task container.
 - `src/run-terminal-bench.ts`: host-side Harbor launcher.
-- `src/import-harbor-results.ts`: Harbor job importer that writes Generic AI-native reports.
+- `src/import-harbor-results.ts`: Harbor job importer that writes Generic AI-native reports and validation-gate summaries.
 - `src/render-benchmark-report.ts`: report JSON to markdown renderer.
-- `configs/*.job.yaml`: smoke, quick, calibration, and full Harbor job configs.
+- `configs/*.job.yaml`: smoke, quick, validation, calibration, and full Harbor job configs.
 - `skills/terminal-bench/*`: benchmark-local behavioral guidance loaded by the benchmark profile, including clean verification before finish.
 - `reports/`: ignored local output area for imported Generic AI reports.
 
@@ -63,7 +63,13 @@ Run the repeated calibration subset:
 npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile calibration
 ```
 
-Run the full dataset only after smoke and calibration are stable:
+Run the pinned repeated validation gate before making recommendation-quality claims:
+
+```bash
+npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile validation
+```
+
+Run the full dataset only after smoke, calibration, and validation are stable:
 
 ```bash
 npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile full
@@ -116,15 +122,18 @@ examples/terminal-bench/reports/imported/<job-name>/
   trial-results.json
   benchmark-report.json
   benchmark-report.md
+  validation-summary.json
 ```
 
 Single-task smoke reports should usually remain `insufficient_evidence`; quick runs prove several real task containers without repeated attempts, and calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
+
+Validation imports also write `validation-summary.json` and append a `Terminal-Bench Validation Gate` section to `benchmark-report.md`. That summary records the gate type, pinned task set when Harbor exposes `dataset.task_names`, trial count, reward and success distributions, reward standard deviation, trace-completeness statistics, flake rerun signals for mixed pass/fail task evidence, insufficient-evidence reasons, and the next action needed before claiming benchmark movement.
 
 ## Gates
 
 Smoke gate means the harness launches in Harbor, the Pi-backed run completes or fails with categorized evidence, required artifacts are written, trace projections include policy/tool/handoff/artifact evidence where applicable, and at least one nonzero reward on smoke or quick is treated only as smoke evidence.
 
-Validation gate means a pinned task set, at least five trials per configuration, flake reruns for surprising flips, and trace-completeness checks. Only validation evidence should support benchmark-quality recommendations.
+Validation gate means a pinned task set, at least five trials per configuration, flake rerun signals for surprising flips, and trace-completeness checks. Only validation evidence should support benchmark-quality recommendations, and even then only after a same-profile baseline/after comparison.
 
 ## Current MVP Boundary
 

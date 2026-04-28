@@ -1,0 +1,24 @@
+job_name: generic-ai-terminal-bench-validation
+jobs_dir: examples/terminal-bench/jobs
+quiet: true
+n_attempts: 5
+n_concurrent_trials: 1
+agent_setup_timeout_multiplier: 1
+agent_timeout_multiplier: 1
+retry:
+  max_retries: 1
+environment:
+  type: docker
+  force_build: false
+  delete: true
+agents:
+  - import_path: generic_ai_agent:GenericAIInstalledAgent
+    model_name: openai-codex/gpt-5.5
+datasets:
+  - name: terminal-bench/terminal-bench-2
+    task_names:
+      - terminal-bench/make-mips-interpreter
+      - terminal-bench/circuit-fibsqrt
+      - terminal-bench/build-pov-ray
+artifacts:
+  - /logs/artifacts/
