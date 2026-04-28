@@ -11,6 +11,8 @@ What this example does now:
 - uses a runtime adapter boundary in `@generic-ai/core`
 - defaults to Pi's OpenAI Codex provider path for `gpt-5.5`
 - keeps `pi` available as an explicit compatibility adapter
+- runs agents in the default stop-tool loop: the model must call
+  `stop_and_respond` to end the run and return the final response
 
 The main server entrypoint is `examples/starter-hono/src/index.ts`. The playground source lives under `examples/starter-hono/ui/` and builds into `examples/starter-hono/dist/public/`, which the same Hono process serves at `/`.
 
@@ -36,6 +38,9 @@ Default model behavior:
   `AuthStorage`, `ModelRegistry`, and `createAgentSession`
 - adapter `pi`: uses `pi` with the OpenAI provider as an explicit compatibility path
 - if `GENERIC_AI_MODEL` is unset, the example falls back to the primary agent model from `.generic-ai/agents/starter.yaml`
+- agent and harness configs default to `execution.turnMode: stop-tool-loop`;
+  set `execution.turnMode: single-turn` only for deliberately one-turn demos or
+  compatibility tests
 
 Security posture:
 

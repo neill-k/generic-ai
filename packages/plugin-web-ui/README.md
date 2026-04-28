@@ -9,3 +9,8 @@ catalog.
 
 The package does not import `@generic-ai/core` or presets. Hosts inject runtime
 or harness execution behavior.
+
+Runnable templates rely on the core default agent loop: generated agents and
+harnesses keep working until the runtime-injected `stop_and_respond` tool is
+called. Hosts can still honor `execution.turnMode: single-turn` for template
+experiments that intentionally need a one-shot provider call.

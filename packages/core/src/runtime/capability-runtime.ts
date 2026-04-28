@@ -21,6 +21,13 @@ import {
 } from "../events/index.js";
 import { createRunEnvelope } from "../run-envelope/index.js";
 import { createPiAgentSession, type PiRuntimeFactories } from "./pi.js";
+import {
+  createStopAndRespondTool,
+  type AgentTurnMode,
+  type StopAndRespondState,
+  runStopToolLoop,
+  STOP_AND_RESPOND_TOOL_NAME,
+} from "./stop-tool-loop.js";
 
 const PI_RUNTIME_EVENT_PLUGIN_ID = "generic-ai-runtime";
 
@@ -198,6 +205,8 @@ export interface CreateCapabilityPiAgentSessionResult extends CreateAgentSession
 export interface RunCapabilityPiAgentSessionOptions extends CreateCapabilityPiAgentSessionOptions {
   readonly prompt: string;
   readonly promptOptions?: PromptOptions;
+  readonly turnMode?: AgentTurnMode;
+  readonly maxTurns?: number;
   readonly runId?: string;
   readonly rootScopeId?: string;
   readonly rootSessionId?: string;
@@ -212,6 +221,7 @@ export interface RunCapabilityPiAgentSessionResult extends CreateCapabilityPiAge
   readonly envelope: RunEnvelope;
   readonly eventStream: CanonicalEventStream;
   readonly events: readonly CanonicalEvent[];
+  readonly outputText?: string;
   readonly failureMessage?: string;
 }
 
@@ -860,7 +870,22 @@ export async function runCapabilityPiAgentSession(
   options: RunCapabilityPiAgentSessionOptions,
   factories: PiRuntimeFactories = {},
 ): Promise<RunCapabilityPiAgentSessionResult> {
-  const sessionResult = await createCapabilityPiAgentSession(options, factories);
+  const turnMode = options.turnMode ?? "stop-tool-loop";
+  const stopState: StopAndRespondState = { stopped: false };
+  const stopTool = turnMode === "single-turn" ? undefined : createStopAndRespondTool(stopState);
+  const sessionResult = await createCapabilityPiAgentSession(
+    {
+      ...options,
+      capabilities:
+        stopTool === undefined
+          ? options.capabilities
+          : {
+              ...options.capabilities,
+              customTools: [...(options.capabilities.customTools ?? []), stopTool],
+            },
+    },
+    factories,
+  );
   const runId = options.runId ?? randomUUID();
   const scopeId = options.rootScopeId ?? "scope/root";
   const eventStream = options.eventStream ?? createCanonicalEventStream({});
@@ -924,7 +949,24 @@ export async function runCapabilityPiAgentSession(
   });
 
   try {
-    await sessionResult.session.prompt(options.prompt, options.promptOptions);
+    const loop =
+      turnMode === "single-turn"
+        ? undefined
+        : await runStopToolLoop({
+            prompt: options.prompt,
+            promptOptions: options.promptOptions,
+            state: stopState,
+            maxTurns: options.maxTurns,
+            runPrompt: (prompt, promptOptions) =>
+              sessionResult.session.prompt(prompt, promptOptions),
+          });
+    if (turnMode === "single-turn") {
+      await sessionResult.session.prompt(options.prompt, options.promptOptions);
+    } else if (loop?.stopped !== true || loop.outputText === undefined) {
+      throw new Error(
+        `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop?.turnCount ?? 0} turn(s).`,
+      );
+    }
     unsubscribe();
     await forwarder;
 
@@ -951,6 +993,7 @@ export async function runCapabilityPiAgentSession(
       ...sessionResult,
       eventStream,
       events,
+      ...(loop?.outputText === undefined ? {} : { outputText: loop.outputText }),
       envelope: createRunEnvelope({
         runId,
         rootScopeId: scopeId,

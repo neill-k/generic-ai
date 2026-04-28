@@ -10,10 +10,17 @@ import {
 import { createPiAgentSession } from "./pi.js";
 import {
   DEFAULT_OPENAI_CODEX_MODEL,
+  type GenericAIAgentTurnMode,
   type GenericAILlmRunOptions,
   type GenericAILlmRunResult,
   type GenericAILlmRuntime,
 } from "./types.js";
+import {
+  createStopAndRespondTool,
+  type StopAndRespondState,
+  runStopToolLoop,
+  STOP_AND_RESPOND_TOOL_NAME,
+} from "./stop-tool-loop.js";
 
 const OPENAI_CODEX_PI_PROVIDER = "openai-codex";
 
@@ -173,6 +180,7 @@ async function createSession(
     readonly agentDir?: string;
   },
   dependencies: OpenAICodexRuntimeDependencies,
+  stopState?: StopAndRespondState,
 ): Promise<{ readonly modelId: string; readonly session: PiSession }> {
   const cwd = input.cwd ?? process.cwd();
   const agentDir = input.agentDir ?? getAgentDir();
@@ -209,13 +217,15 @@ async function createSession(
     });
   await resourceLoader.reload?.();
 
+  const stopTool = stopState === undefined ? undefined : createStopAndRespondTool(stopState);
   const result = await createAgentSession({
     cwd,
     agentDir,
     authStorage: authStorage as never,
     modelRegistry: modelRegistry as never,
     model: model as never,
-    tools: [],
+    tools: stopTool === undefined ? [] : [STOP_AND_RESPOND_TOOL_NAME],
+    ...(stopTool === undefined ? {} : { customTools: [stopTool] as never }),
     resourceLoader: resourceLoader as never,
     sessionManager: (dependencies.sessionManagerFactory?.() ?? SessionManager.inMemory()) as never,
     settingsManager: (dependencies.settingsManagerFactory?.() ??
@@ -235,6 +245,8 @@ export function createOpenAICodexRuntime(
     readonly instructions?: string;
     readonly cwd?: string;
     readonly agentDir?: string;
+    readonly turnMode?: GenericAIAgentTurnMode;
+    readonly maxTurns?: number;
   },
   dependencies: OpenAICodexRuntimeDependencies = {},
 ): GenericAILlmRuntime {
@@ -244,17 +256,48 @@ export function createOpenAICodexRuntime(
       throw createAbortError("before");
     }
 
-    const { modelId, session } = await createSession(input, dependencies);
+    const turnMode = options?.turnMode ?? input.turnMode ?? "stop-tool-loop";
+    const stopState: StopAndRespondState = { stopped: false };
+    const { modelId, session } = await createSession(
+      input,
+      dependencies,
+      turnMode === "single-turn" ? undefined : stopState,
+    );
     try {
-      await awaitPromptWithAbort(
-        session.prompt(prompt, {
+      if (turnMode === "single-turn") {
+        await awaitPromptWithAbort(
+          session.prompt(prompt, {
+            source: "extension",
+            ...(options?.signal === undefined ? {} : { signal: options.signal }),
+          }),
+          options?.signal,
+          () => session.dispose?.(),
+        );
+        return toRunResult(modelId, extractLatestAssistantText(session), undefined);
+      }
+
+      const loop = await runStopToolLoop({
+        prompt,
+        state: stopState,
+        maxTurns: options?.maxTurns ?? input.maxTurns,
+        promptOptions: {
           source: "extension",
           ...(options?.signal === undefined ? {} : { signal: options.signal }),
-        }),
-        options?.signal,
-        () => session.dispose?.(),
-      );
-      return toRunResult(modelId, extractLatestAssistantText(session), undefined);
+        },
+        runPrompt: async (loopPrompt, promptOptions) =>
+          await awaitPromptWithAbort(
+            session.prompt(loopPrompt, promptOptions),
+            options?.signal,
+            () => session.dispose?.(),
+          ),
+      });
+      if (!loop.stopped || loop.outputText === undefined) {
+        throw new Error(
+          `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop.turnCount} turn(s).`,
+        );
+      }
+
+      return toRunResult(modelId, loop.outputText, undefined);
     } finally {
       session.dispose?.();
     }

@@ -18,6 +18,8 @@ Current SDK contents:
   TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch contracts
 - AgentHarness contracts, adapter run context, capability-effect descriptors,
   URI/hash artifact references, and typed harness event projections
+- Agent execution config for the default stop-tool loop and the
+  `single-turn` opt-out used when a caller truly wants one provider turn.
 - Deterministic Harness DSL compiler and evidence report helpers
 
 ## Contract surface

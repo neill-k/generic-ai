@@ -3,6 +3,7 @@ import type { AgentHarnessRole } from "@generic-ai/sdk";
 import type { WebUiTemplateDefinition, WebUiTemplateRegistry } from "./types.js";
 
 const readOnlyTools = ["workspace.read", "repo.inspect"] as const;
+const stopToolExecution = { turnMode: "stop-tool-loop", maxTurns: 8 } as const;
 
 function role(
   id: string,
@@ -83,6 +84,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           instructions: "Break the user request into specialist work, coordinate results, and produce a concise final plan.",
           tools: [...readOnlyTools],
           plugins: [],
+          execution: stopToolExecution,
         },
       },
       {
@@ -96,6 +98,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           model: "gpt-5.5",
           primaryAgent: "hierarchical-planner",
           policyProfile: "local-dev-full",
+          execution: stopToolExecution,
           roles: [
             role("planner", "planner", "Owns decomposition and final synthesis.", "Decompose the request and coordinate read-only specialists."),
             role("researcher", "explorer", "Finds relevant facts and constraints.", "Inspect available context and return evidence-backed notes."),
@@ -151,6 +154,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           instructions: "Convert the user request into ordered stage inputs and preserve stage boundaries.",
           tools: [...readOnlyTools],
           plugins: [],
+          execution: stopToolExecution,
         },
       },
       {
@@ -164,6 +168,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           model: "gpt-5.5",
           primaryAgent: "pipeline-intake",
           policyProfile: "local-dev-full",
+          execution: stopToolExecution,
           roles: [
             role("intake", "planner", "Normalizes the request.", "Identify inputs, constraints, and success criteria."),
             role("draft", "builder", "Produces the candidate answer.", "Draft the requested output using the intake notes."),
@@ -218,6 +223,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           instructions: "Propose a solution, respond to critique, and wait for verifier acceptance before finalizing.",
           tools: [...readOnlyTools],
           plugins: [],
+          execution: stopToolExecution,
         },
       },
       {
@@ -231,6 +237,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           model: "gpt-5.5",
           primaryAgent: "critic-verifier-builder",
           policyProfile: "local-dev-full",
+          execution: stopToolExecution,
           roles: [
             role("builder", "builder", "Creates the candidate answer.", "Draft the answer and explicitly state assumptions."),
             role("critic", "custom", "Challenges weak spots.", "Find missing evidence, brittle assumptions, and likely failure modes."),
@@ -288,6 +295,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           instructions: "Route subquestions to specialists, merge findings, and produce an evidence-weighted recommendation.",
           tools: [...readOnlyTools],
           plugins: [],
+          execution: stopToolExecution,
         },
       },
       {
@@ -301,6 +309,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           model: "gpt-5.5",
           primaryAgent: "hub-spoke-coordinator",
           policyProfile: "local-dev-full",
+          execution: stopToolExecution,
           roles: [
             role("hub", "planner", "Routes and synthesizes work.", "Break the question into specialist reads and merge the findings."),
             role("spoke-a", "explorer", "Investigates option A.", "Inspect the context for the first plausible option."),

@@ -39,6 +39,15 @@ Current runtime bridge:
 - `resolveCapabilityPiToolRegistry(capabilities)` assembles the stable `pi` tool registry from capability plugins
 - `createCapabilityPiAgentSession(options)` wires capability tools plus Agent Skills into a real `pi` `AgentSession`
 - `runCapabilityPiAgentSession(options)` forwards `pi` session activity into the canonical event stream and run envelope
+- Pi already owns the per-prompt model/tool loop. Generic AI adds the terminal
+  run contract around it: the runtime injects `stop_and_respond`, marks that
+  tool result as terminal for Pi, re-enters the same conversation if the model
+  finishes with a plain assistant message, and only returns once the stop tool
+  is called. Set `execution.turnMode: single-turn` in agent or harness config
+  for deliberately one-shot behavior.
+- Pi-owned auto-compaction remains enabled by the underlying session settings;
+  the bridge forwards Pi `compaction_start` / `compaction_end` events into the
+  canonical event stream instead of replacing Pi's compactor.
 - `createDelegationCoordinator(options)` keeps child-session lifecycle plumbing in the kernel while delegation business contracts stay outside core
 - `createAgentHarness(options)` / `runAgentHarness(options)` run the composable
   harness control plane above Pi; `GenericAILlmRuntime` remains the low-level

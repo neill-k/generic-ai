@@ -1,5 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
-import { createGenericAILlmRuntime, createOpenAICodexRuntime } from "../../src/runtime/index.js";
+import {
+  createGenericAILlmRuntime,
+  createOpenAICodexRuntime,
+  STOP_AND_RESPOND_TOOL_NAME,
+} from "../../src/runtime/index.js";
+
+interface FakeSessionOptions {
+  readonly customTools?: readonly {
+    readonly name?: string;
+    readonly execute: (
+      toolCallId: string,
+      params: { readonly response: string },
+    ) => Promise<unknown> | unknown;
+  }[];
+}
+
+async function callStopTool(options: FakeSessionOptions, response: string) {
+  const stopTool = options.customTools?.find(
+    (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
+  );
+  if (stopTool === undefined) {
+    throw new Error("Expected stop_and_respond tool to be registered.");
+  }
+
+  await stopTool.execute("stop-1", { response });
+}
 
 describe("@generic-ai/core llm runtime adapter", () => {
   it("uses Pi's OpenAI Codex provider path by default", async () => {
@@ -23,19 +48,19 @@ describe("@generic-ai/core llm runtime adapter", () => {
           resourceLoaderFactory: () => ({
             reload: async () => undefined,
           }),
-          createAgentSession: async () =>
-            ({
+          createAgentSession: async (options) => {
+            const sessionPrompt = vi.fn(async () => {
+              await callStopTool(options as FakeSessionOptions, "hello from pi codex");
+            });
+            prompt.mockImplementation(sessionPrompt);
+            return {
               session: {
-                messages: [
-                  {
-                    role: "assistant",
-                    content: [{ type: "text", text: "hello from pi codex" }],
-                  },
-                ],
+                messages: [],
                 prompt,
                 dispose: vi.fn(),
               },
-            }) as never,
+            } as never;
+          },
         },
       },
     );
@@ -46,7 +71,8 @@ describe("@generic-ai/core llm runtime adapter", () => {
       outputText: "hello from pi codex",
     });
     expect(setRuntimeApiKey).toHaveBeenCalledWith("openai-codex", "test-key");
-    expect(prompt).toHaveBeenCalledWith("ping", {
+    expect(prompt.mock.calls[0]?.[0]).toContain("User task:\nping");
+    expect(prompt).toHaveBeenCalledWith(expect.stringContaining(STOP_AND_RESPOND_TOOL_NAME), {
       source: "extension",
     });
   });
@@ -83,11 +109,13 @@ describe("@generic-ai/core llm runtime adapter", () => {
           authStorageFactory,
           modelRegistryFactory,
           resourceLoaderFactory,
-          createAgentSession: async () =>
+          createAgentSession: async (options) =>
             ({
               session: {
-                messages: [{ role: "assistant", content: "stored auth result" }],
-                prompt: vi.fn(async () => undefined),
+                messages: [],
+                prompt: vi.fn(async () => {
+                  await callStopTool(options as FakeSessionOptions, "stored auth result");
+                }),
               },
             }) as never,
         },
@@ -120,11 +148,14 @@ describe("@generic-ai/core llm runtime adapter", () => {
           resourceLoaderFactory: () => ({
             reload: async () => undefined,
           }),
-          createAgentSession: async () =>
+          createAgentSession: async (options) =>
             ({
               session: {
-                messages: [{ role: "assistant", content: "oauth auth result" }],
-                prompt,
+                messages: [],
+                prompt: vi.fn(async (...args) => {
+                  prompt(...args);
+                  await callStopTool(options as FakeSessionOptions, "oauth auth result");
+                }),
               },
             }) as never,
         },
@@ -135,7 +166,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
       adapter: "openai-codex",
       outputText: "oauth auth result",
     });
-    expect(prompt).toHaveBeenCalledWith("ping", {
+    expect(prompt).toHaveBeenCalledWith(expect.stringContaining("User task:\nping"), {
       source: "extension",
     });
   });
@@ -156,11 +187,13 @@ describe("@generic-ai/core llm runtime adapter", () => {
         resourceLoaderFactory: () => ({
           reload: async () => undefined,
         }),
-        createAgentSession: async () =>
+        createAgentSession: async (options) =>
           ({
             session: {
-              messages: [{ role: "assistant", content: "streamed pi result" }],
-              prompt: vi.fn(async () => undefined),
+              messages: [],
+              prompt: vi.fn(async () => {
+                await callStopTool(options as FakeSessionOptions, "streamed pi result");
+              }),
             },
           }) as never,
       },
@@ -252,16 +285,14 @@ describe("@generic-ai/core llm runtime adapter", () => {
           resourceLoaderFactory: () => ({
             reload: async () => undefined,
           }),
-          createAgentSession: async () =>
+          createAgentSession: async (options) =>
             ({
               session: {
-                messages: [
-                  {
-                    role: "assistant",
-                    content: [{ type: "text", text: "pi result" }],
-                  },
-                ],
-                prompt,
+                messages: [],
+                prompt: vi.fn(async (...args) => {
+                  prompt(...args);
+                  await callStopTool(options as FakeSessionOptions, "pi result");
+                }),
               },
             }) as never,
         },
@@ -274,7 +305,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
       outputText: "pi result",
     });
     expect(setRuntimeApiKey).toHaveBeenCalledWith("openai", "test-key");
-    expect(prompt).toHaveBeenCalledWith("ping", {
+    expect(prompt).toHaveBeenCalledWith(expect.stringContaining("User task:\nping"), {
       source: "extension",
     });
   });

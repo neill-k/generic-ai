@@ -4,13 +4,14 @@ This directory freezes the canonical config contracts introduced by `NEI-317` (`
 
 Boundaries:
 
-- YAML concerns (`.generic-ai/**`): `framework`, `agent`, `plugin`
+- YAML concerns (`.generic-ai/**`): `framework`, `agent`, `harness`, `plugin`
 - Non-YAML concern: `preset` (preset package/default composition metadata)
 
 Artifacts:
 
 - `framework.schema.json` - `.generic-ai/framework.yaml`
 - `agent.schema.json` - `.generic-ai/agents/*.yaml`
+- `harness.schema.json` - `.generic-ai/harnesses/*.yaml`
 - `plugin.schema.json` - `.generic-ai/plugins/*.yaml`
 - `preset.schema.json` - preset package metadata (not a dedicated user-facing `preset.yaml`)
 - `resolved.schema.json` - single resolved config layer composed from concerns above

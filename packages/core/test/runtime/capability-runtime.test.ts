@@ -10,6 +10,7 @@ import {
   type PiCapabilityBindings,
   resolveCapabilityPiToolRegistry,
   runCapabilityPiAgentSession,
+  STOP_AND_RESPOND_TOOL_NAME,
 } from "../../src/runtime/index.js";
 
 const tempRoots: string[] = [];
@@ -140,6 +141,34 @@ function createCapabilityBindings(root = "/virtual"): PiCapabilityBindings {
   };
 }
 
+async function callStopTool(
+  options: {
+    readonly customTools?: readonly {
+      readonly name?: string;
+      readonly execute?: unknown;
+    }[];
+  },
+  response: string,
+) {
+  const stopTool = options.customTools?.find(
+    (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
+  );
+  if (stopTool === undefined) {
+    throw new Error("Expected stop_and_respond tool to be registered.");
+  }
+
+  if (typeof stopTool.execute !== "function") {
+    throw new Error("Expected stop_and_respond tool to be executable.");
+  }
+
+  await (
+    stopTool.execute as (
+      toolCallId: string,
+      params: { readonly response: string },
+    ) => Promise<unknown> | unknown
+  )("stop-1", { response });
+}
+
 describe("@generic-ai/core capability pi runtime bridge", () => {
   it("assembles a stable capability-backed pi tool registry", async () => {
     const registry = await resolveCapabilityPiToolRegistry(createCapabilityBindings());
@@ -253,7 +282,7 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
           },
         },
         {
-          createAgentSession: async () =>
+          createAgentSession: async (options) =>
             ({
               session: {
                 sessionId: "session-002",
@@ -283,6 +312,7 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
                     toolName: "agent_memory",
                     isError: false,
                   });
+                  await callStopTool(options, "starter stack");
                 },
               },
               extensionsResult: {

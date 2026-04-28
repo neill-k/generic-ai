@@ -548,6 +548,7 @@ function buildRootPrompt(input: {
     "Before finishing, delegate a verifier pass that reruns the important command from the final state instead of trusting stale builder logs.",
     "Keep durable handoffs in the delegation messages and preserve concrete evidence from tools.",
     `Policy profile: ${input.policyProfile}.`,
+    "The runtime loops until you call stop_and_respond. Use that tool for the final response once the task is complete, blocked, or failed.",
     "",
     "Available roles:",
     roleDirectory(input.roles),
@@ -579,6 +580,7 @@ function buildRolePrompt(input: {
     input.parentTask,
     "",
     "Return a concise handoff with actions taken, evidence, blockers, and recommended next step.",
+    "The runtime loops until you call stop_and_respond. Use that tool to return your handoff.",
   ]
     .filter((line) => line.length > 0)
     .join("\n");
@@ -781,6 +783,12 @@ function projectEventType(event: CanonicalEvent): AgentHarnessEventType {
     }
     return failed ? "tool.call.failed" : "tool.call.completed";
   }
+  if (runtimeType === "compaction_start") {
+    return "session.compaction.started";
+  }
+  if (runtimeType === "compaction_end") {
+    return "session.compaction.completed";
+  }
 
   return "model.message";
 }
@@ -831,6 +839,8 @@ function createDelegateTool(input: {
   readonly rootAgentId: string;
   readonly workspaceRoot: string;
   readonly instruction: string;
+  readonly turnMode?: NonNullable<AgentHarnessConfig["execution"]>["turnMode"];
+  readonly maxTurns?: NonNullable<AgentHarnessConfig["execution"]>["maxTurns"];
   readonly sessionInputs: PiSessionInputs;
   readonly roles: readonly AgentHarnessRole[];
   readonly capabilities: PiCapabilityBindings;
@@ -919,6 +929,8 @@ function createDelegateTool(input: {
             instruction: params.task,
             parentTask: input.instruction,
           }),
+          ...(input.turnMode === undefined ? {} : { turnMode: input.turnMode }),
+          ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
           runId: input.runId,
           rootScopeId: input.rootScopeId,
           rootAgentId: role.id,
@@ -941,7 +953,8 @@ function createDelegateTool(input: {
           input.factories === undefined
             ? await runCapabilityPiAgentSession(roleRunOptions)
             : await runCapabilityPiAgentSession(roleRunOptions, input.factories);
-        const outputText = extractLatestAssistantText(roleResult.session.messages);
+        const outputText =
+          roleResult.outputText ?? extractLatestAssistantText(roleResult.session.messages);
 
         await input.eventStream.emit({
           ...eventContext,
@@ -1206,6 +1219,8 @@ function createPiAgentHarnessAdapter(
       const profile = input.harness.policyProfile ?? LOCAL_DEV_FULL_POLICY_PROFILE;
       const allowMcp = input.harness.allowMcp ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
       const allowNetwork = input.harness.allowNetwork ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
+      const turnMode = input.harness.execution?.turnMode;
+      const maxTurns = input.harness.execution?.maxTurns;
       if (context.signal?.aborted) {
         return failedHarnessResult({
           input,
@@ -1248,6 +1263,8 @@ function createPiAgentHarnessAdapter(
               rootAgentId,
               workspaceRoot: input.workspaceRoot,
               instruction: input.instruction,
+              ...(turnMode === undefined ? {} : { turnMode }),
+              ...(maxTurns === undefined ? {} : { maxTurns }),
               sessionInputs: piSessionInputs,
               roles,
               capabilities: baseCapabilities,
@@ -1283,6 +1300,8 @@ function createPiAgentHarnessAdapter(
             roles,
             policyProfile: profile,
           }),
+          ...(turnMode === undefined ? {} : { turnMode }),
+          ...(maxTurns === undefined ? {} : { maxTurns }),
           runId,
           rootScopeId,
           rootAgentId,
@@ -1302,7 +1321,7 @@ function createPiAgentHarnessAdapter(
         },
         options.factories,
       );
-      const outputText = extractLatestAssistantText(result.session.messages);
+      const outputText = result.outputText ?? extractLatestAssistantText(result.session.messages);
       const events = result.events;
       const projections = Object.freeze(events.map(projectEvent));
       const status = result.failureMessage === undefined ? "succeeded" : "failed";

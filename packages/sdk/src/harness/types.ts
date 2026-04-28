@@ -15,6 +15,7 @@ export const AGENT_HARNESS_ROLE_KINDS = [
   "custom",
 ] as const;
 export const AGENT_HARNESS_POLICY_PROFILES = ["local-dev-full", "benchmark-container"] as const;
+export const AGENT_TURN_MODES = ["stop-tool-loop", "single-turn"] as const;
 export const AGENT_HARNESS_CAPABILITY_EFFECTS = [
   "fs.read",
   "fs.write",
@@ -40,6 +41,8 @@ export const AGENT_HARNESS_EVENT_TYPES = [
   "session.started",
   "session.completed",
   "session.failed",
+  "session.compaction.started",
+  "session.compaction.completed",
   "tool.call.started",
   "tool.call.completed",
   "tool.call.failed",
@@ -59,6 +62,7 @@ export type AgentHarnessAdapterKind = (typeof AGENT_HARNESS_ADAPTER_KINDS)[numbe
 export type AgentHarnessController = "model-directed";
 export type AgentHarnessRoleKind = (typeof AGENT_HARNESS_ROLE_KINDS)[number];
 export type AgentHarnessPolicyProfileId = (typeof AGENT_HARNESS_POLICY_PROFILES)[number];
+export type AgentTurnMode = (typeof AGENT_TURN_MODES)[number];
 export type AgentHarnessCapabilityEffect =
   | (typeof AGENT_HARNESS_CAPABILITY_EFFECTS)[number]
   | `custom.${string}`;
@@ -81,6 +85,11 @@ export interface AgentHarnessRole {
   readonly metadata?: JsonObject;
 }
 
+export interface AgentExecutionConfig {
+  readonly turnMode?: AgentTurnMode;
+  readonly maxTurns?: number;
+}
+
 export interface AgentHarnessPolicyProfile {
   readonly id: AgentHarnessPolicyProfileId;
   readonly description: string;
@@ -101,6 +110,7 @@ export interface AgentHarnessConfig {
   readonly primaryAgent?: string;
   readonly policyProfile?: AgentHarnessPolicyProfileId;
   readonly roles?: readonly AgentHarnessRole[];
+  readonly execution?: AgentExecutionConfig;
   readonly tools?: readonly string[];
   readonly allowNetwork?: boolean;
   readonly allowMcp?: boolean;

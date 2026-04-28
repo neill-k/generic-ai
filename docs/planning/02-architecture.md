@@ -91,6 +91,11 @@ The kernel should own the framework control plane, not the business capabilities
 - own child-session lifecycle tracking
 - collect child terminal states and outputs
 - support synchronous and queued execution with one shared session model
+- let Pi own each per-prompt model/tool loop, then wrap it in the Generic AI
+  terminal contract: inject `stop_and_respond`, mark that tool result terminal
+  for Pi, and re-enter the same conversation only when the model stops with a
+  plain assistant message; use `execution.turnMode: single-turn` only for
+  explicit one-shot compatibility paths
 
 ### Streaming Events
 

@@ -664,6 +664,7 @@ function normalizeAgentPlan(
     tools: readonly string[];
     plugins: readonly string[];
     memory?: NonNullable<AgentConfig["memory"]>;
+    execution?: NonNullable<AgentConfig["execution"]>;
   } = {
     id: agent.id || agentId,
     tools: Object.freeze([...(agent.tools ?? [])]),
@@ -678,6 +679,9 @@ function normalizeAgentPlan(
   }
   if (agent.memory !== undefined) {
     plan.memory = Object.freeze({ ...agent.memory });
+  }
+  if (agent.execution !== undefined) {
+    plan.execution = Object.freeze({ ...agent.execution });
   }
 
   return Object.freeze(plan);

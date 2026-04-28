@@ -68,6 +68,11 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Not responsible for: MCP, Agent Skills, delegation, messaging, memory, storage implementations, transport, output shaping, Harness DSL syntax, package-specific protocol/policy/grader semantics, or any business capability.
 - Notes: the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls is the only approved kernel/preset composition exception. See `docs/decisions/0012-bootstrap-api.md`.
 - Harness note: core exposes the Pi-backed `AgentHarness` control-plane implementation, filters role capabilities by SDK-declared effects, writes artifacts through the harness artifact-store contract, and may consume SDK-owned compiled harness contracts. `GenericAILlmRuntime` remains a low-level text/model helper rather than the composable agent harness.
+- Agent-loop note: Pi owns the per-prompt model/tool loop. Core owns the
+  Generic AI terminal contract around Pi sessions: it injects the
+  runtime-control `stop_and_respond` tool, lets that tool terminate Pi's
+  current loop, and honors SDK config that opts a specific agent or harness
+  into `single-turn` behavior.
 - Publishes as: `@generic-ai/core` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/sdk`

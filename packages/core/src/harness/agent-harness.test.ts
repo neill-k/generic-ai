@@ -7,6 +7,35 @@ import { type PolicyDecisionRecord, withAgentHarnessToolEffects } from "@generic
 import { describe, expect, it } from "vitest";
 
 import { createAgentHarness } from "./agent-harness.js";
+import { STOP_AND_RESPOND_TOOL_NAME } from "../runtime/index.js";
+
+async function callStopTool(
+  options: {
+    readonly customTools?: readonly {
+      readonly name?: string;
+      readonly execute?: unknown;
+    }[];
+  },
+  response: string,
+) {
+  const stopTool = options.customTools?.find(
+    (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
+  );
+  if (stopTool === undefined) {
+    throw new Error("Expected stop_and_respond tool to be registered.");
+  }
+
+  if (typeof stopTool.execute !== "function") {
+    throw new Error("Expected stop_and_respond tool to be executable.");
+  }
+
+  await (
+    stopTool.execute as (
+      toolCallId: string,
+      params: { readonly response: string },
+    ) => Promise<unknown> | unknown
+  )("stop-1", { response });
+}
 
 describe("createAgentHarness", () => {
   it("passes role-filtered tools into root and delegated Pi sessions", async () => {
@@ -71,9 +100,9 @@ describe("createAgentHarness", () => {
                       undefined,
                       {} as never,
                     );
-                    messages.push({ role: "assistant", content: "root done" });
+                    await callStopTool(options, "root done");
                   } else {
-                    messages.push({ role: "assistant", content: "builder done" });
+                    await callStopTool(options, "builder done");
                   }
                   for (const listener of listeners) {
                     listener({
@@ -119,6 +148,7 @@ describe("createAgentHarness", () => {
     expect(result.outputText).toBe("root done");
     expect(toolSets[0]).toContain("read");
     expect(toolSets[0]).toContain("delegate_agent");
+    expect(toolSets[0]).toContain("stop_and_respond");
     expect(toolSets[0]).not.toContain("bash");
     expect(toolSets[0]).not.toContain("write");
     expect(toolSets[1]).toEqual(expect.arrayContaining(["bash", "read", "write"]));
