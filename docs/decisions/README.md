@@ -51,6 +51,7 @@ ADRs must be written when:
 - [`0025-canonical-harness-event-schema-v0-1.md`](0025-canonical-harness-event-schema-v0-1.md) - explicit v0.1 harness event projections for tool, terminal, policy, artifact, and handoff evidence.
 - [`0026-artifact-store-and-p1-serial-handoffs.md`](0026-artifact-store-and-p1-serial-handoffs.md) - URI/hash artifact references, atomic local writes, and the P1 serial handoff stance.
 - [`0027-terminal-bench-smoke-vs-validation-gates.md`](0027-terminal-bench-smoke-vs-validation-gates.md) - Terminal-Bench smoke gates versus recommendation-quality validation gates.
+- [`0029-observability-surface-package.md`](0029-observability-surface-package.md) - surface-package layer, safe observability defaults, repository ownership, metric-first ordering, and OTEL export deferral.
 
 ## Planning Baseline
 

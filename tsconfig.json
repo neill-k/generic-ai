@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/sdk" },
+    { "path": "packages/observability" },
     { "path": "packages/preset-starter-hono" },
     { "path": "packages/plugin-config-yaml" },
     { "path": "packages/plugin-workspace-fs" },

@@ -31,7 +31,8 @@ Generic AI has a small number of layers. Dependency direction is strictly downwa
 2. **SDK** — `@generic-ai/sdk`
 3. **Plugins and package extensions** - everything matching `@generic-ai/plugin-*` plus future documented protocol/grader/report/policy package layers
 4. **Presets** — `@generic-ai/preset-*`
-5. **Examples** — `examples/*`
+5. **Surface packages** — documented public user-facing packages such as `@generic-ai/observability` and future `@generic-ai/web-ui`
+6. **Examples** — `examples/*`
 
 The layering rules:
 
@@ -39,6 +40,7 @@ The layering rules:
 - The SDK may depend on `pi`. It must not depend on the kernel or any plugin.
 - Plugins may depend on `@generic-ai/sdk` and on `pi`. They must not import from `@generic-ai/core`. Plugins may depend on other plugins only when the dependency is part of the documented intent for that plugin (for example, `plugin-memory-files` and `plugin-tools-files` depending on `plugin-workspace-fs`, or `plugin-messaging` depending on a storage plugin through the storage contract rather than through a specific implementation whenever possible).
 - Presets may depend on `@generic-ai/core`, `@generic-ai/sdk`, and any plugins they wire up. Presets are the normal package type that composes kernel and plugins together. Approved exception: `@generic-ai/core` may keep the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls, but that exception is limited to bootstrap metadata and must not introduce plugin or preset package imports into the kernel.
+- Surface packages may depend on `@generic-ai/sdk`, third-party UI/server libraries, and documented plugin packages through their public contracts. They must not import `@generic-ai/core` or `@generic-ai/preset-*`. Surface packages must keep their public entrypoints isolated so client/React imports do not pull server-only code and server imports do not pull React DOM.
 - Examples may depend on any public package they need to demonstrate framework usage. Examples must not be depended on by any package inside `packages/`.
 - Harness DSL and Generic Agent IR contracts belong in the SDK and specs. Runtime helpers in core may consume compiled harnesses, but loose DSL parsing and package-owned protocol/policy/grader semantics must not become kernel business logic.
 
@@ -48,7 +50,7 @@ Anything outside these rules needs an entry in `docs/decisions/` explaining the 
 
 Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and the repo root itself are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
-- **Public (22 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
+- **Public packages under `packages/*`.** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
 - **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. Any new workspace under `examples/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
@@ -208,6 +210,13 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: official-but-optional Hono integration plugin.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `hono`.
 - Not responsible for: being part of the kernel or making Hono mandatory at the core layer.
+
+### `@generic-ai/observability`
+
+- Role: public local-first observability surface. Owns run/trace repositories, metadata-only ingestion, metric catalog/query, read-only Hono routes, live event replay, deterministic evidence reports, read-only React panels, and read-only agent convenience tools.
+- Allowed deps: `@generic-ai/sdk`, UI/server libraries such as React and Hono, SQLite via Node, and documented public plugin contracts if later needed.
+- Not responsible for: kernel event ownership, starter-preset wiring, payload capture by default, OTEL logs/traces emission, hosted vendor adapters, mutating admin tools, or LLM-authored reports.
+- Notes: ADR 0029 extends ADR 0020 for this package. Payload capture and OTEL export endpoints remain deferred until follow-on decisions define redaction, purge, ownership, export IDs, and dedupe rules.
 
 ## Planned Deferred Package Boundaries
 

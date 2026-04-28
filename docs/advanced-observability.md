@@ -21,6 +21,10 @@ resume plan for that deferred track.
   product analytics, retention, or backend-specific exporter pipelines.
 - The starter preset includes the logging package as a baseline capability, not
   as an all-in-one observability product.
+- ADR 0029 resumes this track through `@generic-ai/observability` as a public
+  surface package with metadata-only ingestion, a package-owned repository
+  contract, bounded metric catalog, read-only routes, deterministic reports, and
+  deferred payload capture plus OTEL export endpoints.
 
 ## Decision Summary
 

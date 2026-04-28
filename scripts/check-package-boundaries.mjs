@@ -21,6 +21,9 @@ function packageKind(packageName) {
   if (packageName.startsWith("@generic-ai/preset-")) {
     return "preset";
   }
+  if (packageName.startsWith("@generic-ai/")) {
+    return "surface";
+  }
 
   return "other";
 }
@@ -127,7 +130,9 @@ for (const workspacePackage of workspacePackages) {
         ? ["@generic-ai/core", "@generic-ai/plugin-", "@generic-ai/preset-"]
         : workspacePackage.kind === "plugin"
           ? ["@generic-ai/core", "@generic-ai/preset-"]
-          : [];
+          : workspacePackage.kind === "surface"
+            ? ["@generic-ai/core", "@generic-ai/preset-"]
+            : [];
 
   for (const { field, dependencyName } of internalDeps) {
     if (
@@ -148,7 +153,9 @@ for (const workspacePackage of workspacePackages) {
         ? ["@generic-ai/core", "@generic-ai/plugin-", "@generic-ai/preset-"]
         : workspacePackage.kind === "plugin"
           ? ["@generic-ai/core", "@generic-ai/preset-"]
-          : [];
+          : workspacePackage.kind === "surface"
+            ? ["@generic-ai/core", "@generic-ai/preset-"]
+            : [];
 
   const sourceFiles = collectPackageSourceFiles(workspacePackage.directory);
   for (const sourceFile of sourceFiles) {
