@@ -24,8 +24,18 @@ describe("importHarborResults", () => {
     await writeJson(join(trialDir, "artifacts", "generic-ai", "trace-events.json"), [
       {
         id: "event-1",
-        type: "actor.completed",
+        type: "tool.invoked",
         sequence: 1,
+        timestamp: "2026-04-26T00:00:00.000Z",
+        runId: "run-1",
+        actorId: "builder",
+        artifactId: "stdout-log",
+        summary: "Tool invoked: bash pytest.",
+      },
+      {
+        id: "event-2",
+        type: "actor.completed",
+        sequence: 2,
         timestamp: "2026-04-26T00:00:00.000Z",
         runId: "run-1",
         summary: "Agent completed.",
@@ -45,7 +55,14 @@ describe("importHarborResults", () => {
       .toBe(0);
     expect(result.trialResults[0]?.metrics.find((metric) => metric.metricId === "success")?.value)
       .toBe(0);
+    expect(result.trialTranscripts[0]?.entries[0]?.sourceType).toBe("tool.invoked");
     expect(result.report.insufficientEvidence).toHaveLength(1);
+    await expect(
+      readFile(join(outputDir, "trial-command-transcripts.md"), "utf-8"),
+    ).resolves.toContain("Tool invoked: bash pytest.");
+    await expect(
+      readFile(join(outputDir, "trial-command-transcripts.json"), "utf-8"),
+    ).resolves.toContain("stdout-log");
     await expect(readFile(join(outputDir, "benchmark-report.md"), "utf-8")).resolves.toContain(
       "## Insufficient Evidence",
     );
