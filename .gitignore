@@ -46,6 +46,7 @@ lerna-debug.log*
 .DS_Store
 .AppleDouble
 .LSOverride
+%SystemDrive%/
 Thumbs.db
 Thumbs.db:encryptable
 ehthumbs.db

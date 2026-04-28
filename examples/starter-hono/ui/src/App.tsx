@@ -368,7 +368,7 @@ function StarterPlayground() {
   const [prompt, setPrompt] = useState(
     () => localStorage.getItem(PROMPT_STORAGE_KEY) ?? spaceshipPrompt,
   );
-  const [authToken, setAuthToken] = useState(() => localStorage.getItem(AUTH_STORAGE_KEY) ?? "");
+  const [authToken, setAuthToken] = useState(() => sessionStorage.getItem(AUTH_STORAGE_KEY) ?? "");
   const [mode, setMode] = useState<RunMode>("stream");
   const [status, setStatus] = useState<RunStatus>("ready");
   const [health, setHealth] = useState<HealthPayload | null>(null);
@@ -420,11 +420,11 @@ function StarterPlayground() {
 
   useEffect(() => {
     if (authToken.trim().length === 0) {
-      localStorage.removeItem(AUTH_STORAGE_KEY);
+      sessionStorage.removeItem(AUTH_STORAGE_KEY);
       return;
     }
 
-    localStorage.setItem(AUTH_STORAGE_KEY, authToken);
+    sessionStorage.setItem(AUTH_STORAGE_KEY, authToken);
   }, [authToken]);
 
   const requestHeaders = useCallback((): HeadersInit => {

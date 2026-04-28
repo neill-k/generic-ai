@@ -173,10 +173,7 @@ export function createWorkspaceFileTools(options: WorkspaceFileToolsOptions): Wo
   }
 
   async function resolveWritablePath(filePath: string): Promise<string> {
-    // Ensure the parent directory exists before validating so that realpath can
-    // resolve any intermediate symlinks. We then re-check containment via the
-    // safe resolver before performing the write.
-    const absolutePath = workspace.resolvePath(filePath);
+    const absolutePath = await resolveSafeWorkspacePath(workspace.root, filePath);
     await mkdir(path.dirname(absolutePath), { recursive: true });
     return resolveSafeWorkspacePath(workspace.root, filePath);
   }

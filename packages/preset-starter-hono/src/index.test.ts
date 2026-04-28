@@ -406,6 +406,7 @@ kind: 42
           sandbox: {
             env: {
               NODE_ENV: "production",
+              GENERIC_AI_SANDBOX_FALLBACK: "warn",
             },
             dockerProbe: async () => false,
             warn: (message) => warnings.push(message),
@@ -424,6 +425,28 @@ kind: 42
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain("Docker is unavailable");
     expect(warnings[0]).toContain(STARTER_TERMINAL_PLUGIN_ID);
+  });
+
+  it("fails closed by default when production sandbox Docker is unavailable", async () => {
+    await withConfigRoot(
+      {
+        ".generic-ai/framework.yaml": `name: docker unavailable production
+`,
+      },
+      async (root) => {
+        await expect(
+          createStarterHonoBootstrapFromYaml({
+            startDir: root,
+            sandbox: {
+              env: {
+                NODE_ENV: "production",
+              },
+              dockerProbe: async () => false,
+            },
+          }),
+        ).rejects.toThrow("Docker is unavailable");
+      },
+    );
   });
 
   it("honors a caller terminalTools override when sandbox mode came from production default", async () => {

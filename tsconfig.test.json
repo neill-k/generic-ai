@@ -1,0 +1,61 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": ".tsbuild/test",
+    "composite": false,
+    "incremental": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "paths": {
+      "@generic-ai/core": ["./packages/core/src/index.ts"],
+      "@generic-ai/observability": ["./packages/observability/src/index.ts"],
+      "@generic-ai/plugin-agent-skills": ["./packages/plugin-agent-skills/src/index.ts"],
+      "@generic-ai/plugin-config-yaml": ["./packages/plugin-config-yaml/src/index.ts"],
+      "@generic-ai/plugin-delegation": ["./packages/plugin-delegation/src/index.ts"],
+      "@generic-ai/plugin-hono": ["./packages/plugin-hono/src/index.ts"],
+      "@generic-ai/plugin-interaction": ["./packages/plugin-interaction/src/index.ts"],
+      "@generic-ai/plugin-logging-otel": ["./packages/plugin-logging-otel/src/index.ts"],
+      "@generic-ai/plugin-lsp": ["./packages/plugin-lsp/src/index.ts"],
+      "@generic-ai/plugin-mcp": ["./packages/plugin-mcp/src/index.ts"],
+      "@generic-ai/plugin-memory-files": ["./packages/plugin-memory-files/src/index.ts"],
+      "@generic-ai/plugin-messaging": ["./packages/plugin-messaging/src/index.ts"],
+      "@generic-ai/plugin-output-default": ["./packages/plugin-output-default/src/index.ts"],
+      "@generic-ai/plugin-queue-memory": ["./packages/plugin-queue-memory/src/index.ts"],
+      "@generic-ai/plugin-repo-map": ["./packages/plugin-repo-map/src/index.ts"],
+      "@generic-ai/plugin-storage-memory": ["./packages/plugin-storage-memory/src/index.ts"],
+      "@generic-ai/plugin-storage-sqlite": ["./packages/plugin-storage-sqlite/src/index.ts"],
+      "@generic-ai/plugin-tools-files": ["./packages/plugin-tools-files/src/index.ts"],
+      "@generic-ai/plugin-tools-terminal": ["./packages/plugin-tools-terminal/src/index.ts"],
+      "@generic-ai/plugin-tools-terminal-sandbox": [
+        "./packages/plugin-tools-terminal-sandbox/src/index.ts"
+      ],
+      "@generic-ai/plugin-tools-web": ["./packages/plugin-tools-web/src/index.ts"],
+      "@generic-ai/plugin-web-ui": ["./packages/plugin-web-ui/src/index.ts"],
+      "@generic-ai/plugin-web-ui/agent-tools": ["./packages/plugin-web-ui/src/agent-tools.ts"],
+      "@generic-ai/plugin-web-ui/client": ["./packages/plugin-web-ui/src/client.tsx"],
+      "@generic-ai/plugin-web-ui/server": ["./packages/plugin-web-ui/src/server.ts"],
+      "@generic-ai/plugin-workspace-fs": ["./packages/plugin-workspace-fs/src/index.ts"],
+      "@generic-ai/preset-starter-hono": ["./packages/preset-starter-hono/src/index.ts"],
+      "@generic-ai/sdk": ["./packages/sdk/src/index.ts"]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts",
+    "packages/*/src/**/*.tsx",
+    "packages/*/test/**/*.ts",
+    "packages/*/test/**/*.tsx",
+    "examples/*/src/**/*.ts",
+    "examples/*/src/**/*.tsx",
+    "examples/*/test/**/*.ts",
+    "examples/*/test/**/*.tsx",
+    "scripts/**/*.ts",
+    "scripts/**/*.tsx"
+  ],
+  "exclude": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"]
+}

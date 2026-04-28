@@ -400,6 +400,7 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
         security: {
           loopbackOnly: true,
           requiresSessionTokenForMutation: true,
+          requiresSessionTokenForRead: true,
         },
       };
     },
@@ -648,15 +649,28 @@ export function createHonoWebUiTransport(
       return unauthorized;
     }
 
+    const blockedRead = authorizeRead(context.req.raw, plugin.sessionToken, options.security);
+    if (blockedRead !== undefined) {
+      return blockedRead;
+    }
+
     return await next();
   });
 
   app.get(`${routePrefix}/health`, async (context) =>
     context.json(await plugin.health(routePrefix)),
   );
-  app.get(`${routePrefix}/session`, (context) =>
-    context.json({ sessionToken: options.security?.sessionToken ?? plugin.sessionToken }),
-  );
+  app.get(`${routePrefix}/session`, (context) => {
+    const token = options.security?.sessionToken ?? plugin.sessionToken;
+    return context.json(
+      { sessionToken: token },
+      {
+        headers: {
+          "cache-control": "no-store",
+        },
+      },
+    );
+  });
   app.get(`${routePrefix}/config`, async (context) => context.json(await plugin.getConfig()));
   app.post(`${routePrefix}/config/preview`, async (context) => {
     const blocked = await authorizeMutation(context.req.raw, plugin.sessionToken, options.security);
@@ -795,14 +809,36 @@ async function authorizeMutation(
     return originFailure;
   }
 
-  const token = security.sessionToken ?? sessionToken;
-  const headerToken = request.headers.get("x-generic-ai-web-ui-token");
-  const authorization = request.headers.get("authorization");
-  if (headerToken === token || authorization === `Bearer ${token}`) {
+  if (hasSessionToken(request, security.sessionToken ?? sessionToken)) {
     return undefined;
   }
 
   return jsonError("Missing or invalid local web UI session token.", 403);
+}
+
+function authorizeRead(
+  request: Request,
+  sessionToken: string,
+  security: WebUiTransportSecurityOptions = {},
+): Response | undefined {
+  if (!SAFE_METHODS.has(request.method) || security.requireSessionTokenForRead === false) {
+    return undefined;
+  }
+
+  const path = new URL(request.url).pathname;
+  if (path.endsWith("/health") || path.endsWith("/session")) {
+    return undefined;
+  }
+
+  return hasSessionToken(request, security.sessionToken ?? sessionToken)
+    ? undefined
+    : jsonError("Missing or invalid local web UI session token.", 403);
+}
+
+function hasSessionToken(request: Request, token: string): boolean {
+  const headerToken = request.headers.get("x-generic-ai-web-ui-token");
+  const authorization = request.headers.get("authorization");
+  return headerToken === token || authorization === `Bearer ${token}`;
 }
 
 function validateExposure(

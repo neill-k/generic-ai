@@ -47,6 +47,7 @@ export interface HonoPluginOptions {
   readonly run: HonoRunHandler;
   readonly stream?: HonoStreamHandler;
   readonly createRequestId?: () => string;
+  readonly maxBodyBytes?: number;
 }
 
 export interface HonoPlugin {
@@ -87,8 +88,51 @@ class InvalidRequestBodyError extends Error {
   }
 }
 
-async function readPayload(request: Request): Promise<HonoRunPayload> {
-  const rawBody = await request.text();
+function normalizeMaxBodyBytes(value: number | undefined): number {
+  const normalized = value ?? 1_048_576;
+  if (!Number.isInteger(normalized) || normalized < 1) {
+    throw new Error("maxBodyBytes must be a positive integer.");
+  }
+
+  return normalized;
+}
+
+async function readRequestText(request: Request, maxBodyBytes: number): Promise<string> {
+  const body = request.body;
+  if (body === null) {
+    return "";
+  }
+
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let size = 0;
+  let rawBody = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+
+      size += value.byteLength;
+      if (size > maxBodyBytes) {
+        void reader.cancel().catch(() => undefined);
+        throw new InvalidRequestBodyError(`Request body exceeds the ${maxBodyBytes} byte limit.`);
+      }
+
+      rawBody += decoder.decode(value, { stream: true });
+    }
+
+    rawBody += decoder.decode();
+    return rawBody;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+async function readPayload(request: Request, maxBodyBytes: number): Promise<HonoRunPayload> {
+  const rawBody = await readRequestText(request, maxBodyBytes);
 
   if (rawBody.trim().length === 0) {
     return {
@@ -223,6 +267,7 @@ async function authorizeRequest(
 export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
   const routePrefix = normalizeRoutePrefix(options.routePrefix);
   const createRequestId = options.createRequestId ?? randomUUID;
+  const maxBodyBytes = normalizeMaxBodyBytes(options.maxBodyBytes);
   const app = new Hono();
 
   app.get(`${routePrefix}/health`, async (context) => {
@@ -256,7 +301,7 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
 
     let payload: HonoRunPayload;
     try {
-      payload = await readPayload(context.req.raw);
+      payload = await readPayload(context.req.raw, maxBodyBytes);
     } catch (error) {
       if (error instanceof InvalidRequestBodyError) {
         return context.json({ error: error.message }, 400);
@@ -300,7 +345,7 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
 
     let payload: HonoRunPayload;
     try {
-      payload = await readPayload(context.req.raw);
+      payload = await readPayload(context.req.raw, maxBodyBytes);
     } catch (error) {
       if (error instanceof InvalidRequestBodyError) {
         return context.json({ error: error.message }, 400);

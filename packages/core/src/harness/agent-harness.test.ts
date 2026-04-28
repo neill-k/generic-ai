@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
-import { type PolicyDecisionRecord, withAgentHarnessToolEffects } from "@generic-ai/sdk";
+import {
+  type AgentHarnessPolicyEvaluator,
+  type PolicyDecisionRecord,
+  withAgentHarnessToolEffects,
+} from "@generic-ai/sdk";
 import { describe, expect, it } from "vitest";
 
 import { createAgentHarness } from "./agent-harness.js";
@@ -168,5 +172,95 @@ describe("createAgentHarness", () => {
         }),
       ]),
     );
+  });
+
+  it("honors a caller-provided policy evaluator during tool binding", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-policy-"));
+    const toolSets: string[][] = [];
+    const policy: AgentHarnessPolicyEvaluator = {
+      async evaluate(input) {
+        const denied = input.resource.id === "read";
+        return {
+          allowed: !denied,
+          decision: {
+            id: `${input.runId}:external:${input.resource.id ?? input.resource.kind}`,
+            runId: input.runId,
+            actorId: input.actorId,
+            action: input.action,
+            resource: input.resource,
+            effect: denied ? "deny" : "allow",
+            decision: denied ? "denied" : "allowed",
+            reason: denied ? "External policy denied read." : "External policy allowed binding.",
+            evidenceRefs: [],
+          },
+        };
+      },
+    };
+    const harness = createAgentHarness(
+      {
+        id: "policy-harness",
+        adapter: "pi",
+        model: "fake-model",
+      },
+      {
+        policy,
+        sessionInputs: {
+          agentDir: root,
+          authStorage: {} as never,
+          modelRegistry: {} as never,
+          model: {} as never,
+          sessionManager: SessionManager.inMemory(),
+          settingsManager: SettingsManager.inMemory(),
+        },
+        factories: {
+          createAgentSession: async (options) => {
+            toolSets.push([...(options?.tools ?? [])]);
+            return {
+              session: {
+                sessionId: "policy-session",
+                messages: [{ role: "assistant", content: "done" }],
+                subscribe: () => () => undefined,
+                prompt: async () => undefined,
+              },
+              extensionsResult: {
+                diagnostics: [],
+              },
+              tools: options?.tools,
+            } as never;
+          },
+        },
+      },
+    );
+
+    await harness.run({
+      instruction: "Run with external policy.",
+      workspaceRoot: root,
+      artifactDir: join(root, "artifacts"),
+      capabilities: {
+        fileTools: {
+          piTools: [
+            withAgentHarnessToolEffects(
+              { name: "read", description: "read", execute: async () => ({}) },
+              ["fs.read"],
+            ),
+          ],
+        },
+        customTools: [
+          withAgentHarnessToolEffects(
+            {
+              name: "visible",
+              label: "visible",
+              description: "visible",
+              parameters: {} as never,
+              execute: async () => ({ content: [], details: {} }),
+            },
+            ["handoff.read"],
+          ),
+        ],
+      },
+    });
+
+    expect(toolSets[0]).toContain("visible");
+    expect(toolSets[0]).not.toContain("read");
   });
 });

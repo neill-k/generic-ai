@@ -198,6 +198,7 @@ export interface CreateCapabilityPiAgentSessionResult extends CreateAgentSession
 export interface RunCapabilityPiAgentSessionOptions extends CreateCapabilityPiAgentSessionOptions {
   readonly prompt: string;
   readonly promptOptions?: PromptOptions;
+  readonly signal?: AbortSignal;
   readonly runId?: string;
   readonly rootScopeId?: string;
   readonly rootSessionId?: string;
@@ -229,6 +230,19 @@ function requireString(value: string | undefined, label: string): string {
   }
 
   throw new Error(`${label} is required.`);
+}
+
+function promptOptionsWithSignal(
+  options: PromptOptions | undefined,
+  signal: AbortSignal | undefined,
+): PromptOptions | undefined {
+  if (signal === undefined) {
+    return options;
+  }
+
+  const nextOptions: PromptOptions & { signal?: AbortSignal } = { ...(options ?? {}) };
+  nextOptions.signal = signal;
+  return nextOptions;
 }
 
 function summarizeNames(names: readonly string[], singular: string, plural: string): string {
@@ -872,9 +886,7 @@ export async function runCapabilityPiAgentSession(
     runId,
     rootSessionId: options.rootSessionId ?? sessionId,
     sessionId,
-    ...(options.parentSessionId === undefined
-      ? {}
-      : { parentSessionId: options.parentSessionId }),
+    ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
   } satisfies CapabilityPiSessionEventContext;
 
   await eventStream.emit({
@@ -924,7 +936,16 @@ export async function runCapabilityPiAgentSession(
   });
 
   try {
-    await sessionResult.session.prompt(options.prompt, options.promptOptions);
+    if (options.signal?.aborted) {
+      throw (
+        options.signal.reason ?? new Error("Pi session run was aborted before prompt dispatch.")
+      );
+    }
+
+    await sessionResult.session.prompt(
+      options.prompt,
+      promptOptionsWithSignal(options.promptOptions, options.signal),
+    );
     unsubscribe();
     await forwarder;
 

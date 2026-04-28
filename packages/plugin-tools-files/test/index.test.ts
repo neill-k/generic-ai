@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { lstat, mkdtemp, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -63,6 +63,34 @@ describe("@generic-ai/plugin-tools-files", () => {
       ]);
 
       expect(files.piTools).toHaveLength(6);
+    });
+  });
+
+  it("rejects writes through a symlinked parent before creating directories", async () => {
+    await withTempRoot(async (root) => {
+      const outside = await mkdtemp(path.join(os.tmpdir(), "plugin-tools-files-outside-"));
+      tempRoots.push(outside);
+      const linkPath = path.join(root, "workspace", "escape");
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(path.dirname(linkPath), { recursive: true });
+
+      try {
+        await symlink(outside, linkPath, "dir");
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          ("code" in error ? error.code === "EPERM" || error.code === "EACCES" : false)
+        ) {
+          return;
+        }
+        throw error;
+      }
+
+      const files = createWorkspaceFileTools({ root });
+      await expect(files.writeText("workspace/escape/nested/file.txt", "nope")).rejects.toThrow(
+        /escapes the workspace root/i,
+      );
+      await expect(lstat(path.join(outside, "nested"))).rejects.toThrow();
     });
   });
 });

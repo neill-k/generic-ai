@@ -14,6 +14,9 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
 
+      - name: Use pinned npm
+        run: npm install --global npm@11.12.1
+
       - name: Install workspace dependencies
         run: npm ci
 

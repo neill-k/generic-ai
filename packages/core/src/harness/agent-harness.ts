@@ -51,6 +51,7 @@ import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 export interface CreateAgentHarnessOptions {
   readonly factories?: PiRuntimeFactories;
   readonly sessionInputs?: PiSessionInputs;
+  readonly policy?: AgentHarnessPolicyEvaluator;
 }
 
 export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilityBindings> {
@@ -138,7 +139,7 @@ const ROLE_EFFECT_POLICIES: Readonly<Record<AgentHarnessRolePolicy, EffectPolicy
   verify: {
     allow: effectSet([...READ_EFFECTS, "artifact.write"]),
     allowByCategory: {
-      terminal: effectSet([...READ_EFFECTS, "process.spawn", "fs.write"]),
+      terminal: effectSet([...READ_EFFECTS, "process.spawn", "fs.write", "network.egress"]),
     },
     denyUnknown: true,
   },
@@ -292,33 +293,30 @@ function createPolicyEvaluator(_input: {
     async evaluate(
       request: AgentHarnessPolicyEvaluationInput,
     ): Promise<{ readonly decision: PolicyDecisionRecord; readonly allowed: boolean }> {
-      const hasDeniedEffect = request.effects.some((effect) => MUTATING_EFFECTS.includes(effect));
-      const allowed = !hasDeniedEffect;
       const decision = policyDecision({
         runId: request.runId,
         actorId: request.actorId,
         action: request.action,
         resource: request.resource,
-        effect: allowed ? "allow" : "deny",
-        decision: allowed ? "allowed" : "denied",
-        reason: allowed
-          ? "Effect request is allowed by the default harness policy evaluator."
-          : `Effect request includes denied effect(s): ${request.effects.join(", ")}.`,
+        effect: "allow",
+        decision: "allowed",
+        reason: "Effect request is allowed by the default harness policy evaluator.",
       });
 
-      return Object.freeze({ decision, allowed });
+      return Object.freeze({ decision, allowed: true });
     },
   });
 }
 
-function filterToolsByEffect<TTool extends { readonly name?: string }>(input: {
+async function filterToolsByEffect<TTool extends { readonly name?: string }>(input: {
   readonly tools: readonly TTool[] | undefined;
   readonly runId: string;
   readonly actorId: string;
   readonly rolePolicy: AgentHarnessRolePolicy;
   readonly category: string;
   readonly deniedEffects: ReadonlySet<AgentHarnessCapabilityEffect>;
-}): PolicyFilterResult<TTool> {
+  readonly policy: AgentHarnessPolicyEvaluator;
+}): Promise<PolicyFilterResult<TTool>> {
   if (input.tools === undefined) {
     return Object.freeze({
       tools: Object.freeze([]),
@@ -337,7 +335,9 @@ function filterToolsByEffect<TTool extends { readonly name?: string }>(input: {
     const deniedEffects =
       effects.length === 0 && policy.denyUnknown
         ? ["custom.unknown" as AgentHarnessCapabilityEffect]
-        : effects.filter((effect) => !allowedEffects.has(effect) || input.deniedEffects.has(effect));
+        : effects.filter(
+            (effect) => !allowedEffects.has(effect) || input.deniedEffects.has(effect),
+          );
 
     if (deniedEffects.length > 0) {
       decisions.push(
@@ -358,6 +358,25 @@ function filterToolsByEffect<TTool extends { readonly name?: string }>(input: {
       continue;
     }
 
+    const evaluation = await input.policy.evaluate({
+      runId: input.runId,
+      actorId: input.actorId,
+      action: "bind_tool",
+      resource: {
+        kind: "tool",
+        id: name,
+      },
+      effects,
+      metadata: jsonObject({
+        category: input.category,
+        rolePolicy: input.rolePolicy,
+      }),
+    });
+    decisions.push(evaluation.decision);
+    if (!evaluation.allowed) {
+      continue;
+    }
+
     allowedTools.push(tool);
   }
 
@@ -374,6 +393,46 @@ function allowsAllEffects(
 ): boolean {
   const policy = ROLE_EFFECT_POLICIES[rolePolicy];
   return effects.every((effect) => policy.allow.has(effect) && !deniedEffects.has(effect));
+}
+
+async function evaluateCapabilityBinding(input: {
+  readonly runId: string;
+  readonly actorId: string;
+  readonly rolePolicy: AgentHarnessRolePolicy;
+  readonly capabilityId: string;
+  readonly effects: readonly AgentHarnessCapabilityEffect[];
+  readonly deniedEffects: ReadonlySet<AgentHarnessCapabilityEffect>;
+  readonly policy: AgentHarnessPolicyEvaluator;
+  readonly decisions: PolicyDecisionRecord[];
+}): Promise<boolean> {
+  if (!allowsAllEffects(input.rolePolicy, input.effects, input.deniedEffects)) {
+    input.decisions.push(
+      capabilityDeniedDecision({
+        runId: input.runId,
+        actorId: input.actorId,
+        rolePolicy: input.rolePolicy,
+        capabilityId: input.capabilityId,
+        effects: input.effects,
+      }),
+    );
+    return false;
+  }
+
+  const evaluation = await input.policy.evaluate({
+    runId: input.runId,
+    actorId: input.actorId,
+    action: "bind_capability",
+    resource: {
+      kind: "custom",
+      id: input.capabilityId,
+    },
+    effects: input.effects,
+    metadata: jsonObject({
+      rolePolicy: input.rolePolicy,
+    }),
+  });
+  input.decisions.push(evaluation.decision);
+  return evaluation.allowed;
 }
 
 function capabilityDeniedDecision(input: {
@@ -397,18 +456,19 @@ function capabilityDeniedDecision(input: {
   });
 }
 
-function applyRolePolicy(input: {
+async function applyRolePolicy(input: {
   readonly capabilities: PiCapabilityBindings;
   readonly rolePolicy: AgentHarnessRolePolicy;
   readonly runId: string;
   readonly actorId: string;
+  readonly policy: AgentHarnessPolicyEvaluator;
   readonly deniedEffects?: ReadonlySet<AgentHarnessCapabilityEffect>;
-}): {
+}): Promise<{
   readonly capabilities: PiCapabilityBindings;
   readonly policyDecisions: readonly PolicyDecisionRecord[];
-} {
+}> {
   const deniedEffects = input.deniedEffects ?? new Set<AgentHarnessCapabilityEffect>();
-  const terminalTools = filterToolsByEffect({
+  const terminalTools = await filterToolsByEffect({
     tools:
       input.capabilities.terminalTools === undefined
         ? undefined
@@ -418,22 +478,25 @@ function applyRolePolicy(input: {
     rolePolicy: input.rolePolicy,
     category: "terminal",
     deniedEffects,
+    policy: input.policy,
   });
-  const fileTools = filterToolsByEffect({
+  const fileTools = await filterToolsByEffect({
     tools: input.capabilities.fileTools?.piTools,
     runId: input.runId,
     actorId: input.actorId,
     rolePolicy: input.rolePolicy,
     category: "file",
     deniedEffects,
+    policy: input.policy,
   });
-  const customTools = filterToolsByEffect({
+  const customTools = await filterToolsByEffect({
     tools: input.capabilities.customTools,
     runId: input.runId,
     actorId: input.actorId,
     rolePolicy: input.rolePolicy,
     category: "custom",
     deniedEffects,
+    policy: input.policy,
   });
   const decisions = [...terminalTools.decisions, ...fileTools.decisions, ...customTools.decisions];
   const mcpEffects: readonly AgentHarnessCapabilityEffect[] = [
@@ -448,47 +511,40 @@ function applyRolePolicy(input: {
   const memoryEffects: readonly AgentHarnessCapabilityEffect[] = ["memory.read", "memory.write"];
   const includeMcp =
     input.capabilities.mcp !== undefined &&
-    allowsAllEffects(input.rolePolicy, mcpEffects, deniedEffects);
+    (await evaluateCapabilityBinding({
+      runId: input.runId,
+      actorId: input.actorId,
+      rolePolicy: input.rolePolicy,
+      capabilityId: "mcp",
+      effects: mcpEffects,
+      deniedEffects,
+      policy: input.policy,
+      decisions,
+    }));
   const includeMessaging =
     input.capabilities.messaging !== undefined &&
-    allowsAllEffects(input.rolePolicy, messagingEffects, deniedEffects);
+    (await evaluateCapabilityBinding({
+      runId: input.runId,
+      actorId: input.actorId,
+      rolePolicy: input.rolePolicy,
+      capabilityId: "messaging",
+      effects: messagingEffects,
+      deniedEffects,
+      policy: input.policy,
+      decisions,
+    }));
   const includeMemory =
     input.capabilities.memory !== undefined &&
-    allowsAllEffects(input.rolePolicy, memoryEffects, deniedEffects);
-
-  if (input.capabilities.mcp !== undefined && !includeMcp) {
-    decisions.push(
-      capabilityDeniedDecision({
-        runId: input.runId,
-        actorId: input.actorId,
-        rolePolicy: input.rolePolicy,
-        capabilityId: "mcp",
-        effects: mcpEffects,
-      }),
-    );
-  }
-  if (input.capabilities.messaging !== undefined && !includeMessaging) {
-    decisions.push(
-      capabilityDeniedDecision({
-        runId: input.runId,
-        actorId: input.actorId,
-        rolePolicy: input.rolePolicy,
-        capabilityId: "messaging",
-        effects: messagingEffects,
-      }),
-    );
-  }
-  if (input.capabilities.memory !== undefined && !includeMemory) {
-    decisions.push(
-      capabilityDeniedDecision({
-        runId: input.runId,
-        actorId: input.actorId,
-        rolePolicy: input.rolePolicy,
-        capabilityId: "memory",
-        effects: memoryEffects,
-      }),
-    );
-  }
+    (await evaluateCapabilityBinding({
+      runId: input.runId,
+      actorId: input.actorId,
+      rolePolicy: input.rolePolicy,
+      capabilityId: "memory",
+      effects: memoryEffects,
+      deniedEffects,
+      policy: input.policy,
+      decisions,
+    }));
 
   return {
     capabilities: {
@@ -835,11 +891,11 @@ function createDelegateTool(input: {
   readonly roles: readonly AgentHarnessRole[];
   readonly capabilities: PiCapabilityBindings;
   readonly deniedEffects: ReadonlySet<AgentHarnessCapabilityEffect>;
+  readonly policy: AgentHarnessPolicyEvaluator;
+  readonly signal?: AbortSignal;
   readonly eventStream: CanonicalEventStream;
   readonly getRootSessionId: () => string | undefined;
-  readonly recordPolicyDecisions: (
-    decisions: readonly PolicyDecisionRecord[],
-  ) => void;
+  readonly recordPolicyDecisions: (decisions: readonly PolicyDecisionRecord[]) => void;
   readonly factories?: PiRuntimeFactories;
 }): ToolDefinition {
   const rolesById = new Map(input.roles.map((role) => [role.id, role]));
@@ -897,12 +953,13 @@ function createDelegateTool(input: {
         });
 
         const rolePolicy = policyForRole(role, false);
-        const rolePolicyResult = applyRolePolicy({
+        const rolePolicyResult = await applyRolePolicy({
           capabilities: input.capabilities,
           rolePolicy,
           runId: input.runId,
           actorId: role.id,
           deniedEffects: input.deniedEffects,
+          policy: input.policy,
         });
         input.recordPolicyDecisions(rolePolicyResult.policyDecisions);
         const roleRunOptions = {
@@ -924,6 +981,7 @@ function createDelegateTool(input: {
           rootAgentId: role.id,
           rootSessionId,
           parentSessionId: rootSessionId,
+          ...(input.signal === undefined ? {} : { signal: input.signal }),
           eventStream: input.eventStream,
           onSessionReady: async (context: CapabilityPiSessionEventContext) => {
             for (const decision of rolePolicyResult.policyDecisions) {
@@ -1023,6 +1081,41 @@ function createEventSink(): {
   });
 }
 
+function createDeadlineSignal(context: AgentHarnessAdapterRunContext): {
+  readonly signal?: AbortSignal;
+  readonly cleanup: () => void;
+} {
+  if (context.deadline === undefined) {
+    return {
+      ...(context.signal === undefined ? {} : { signal: context.signal }),
+      cleanup: () => undefined,
+    };
+  }
+
+  const controller = new AbortController();
+  const timeoutMs = Math.max(0, context.deadline.getTime() - Date.now());
+  const timeout = setTimeout(() => {
+    controller.abort(new Error("Harness run deadline elapsed during Pi adapter execution."));
+  }, timeoutMs);
+  const abortFromParent = () => {
+    controller.abort(context.signal?.reason);
+  };
+
+  if (context.signal?.aborted) {
+    abortFromParent();
+  } else {
+    context.signal?.addEventListener("abort", abortFromParent, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      context.signal?.removeEventListener("abort", abortFromParent);
+    },
+  };
+}
+
 async function writeHarnessArtifacts(input: {
   readonly artifactStore: AgentHarnessArtifactStore;
   readonly eventStream: CanonicalEventStream;
@@ -1116,13 +1209,14 @@ export function createAgentHarness(
         runId,
         harness: config,
       };
-      return adapter.run(runInput, createDefaultRunContext(runInput));
+      return adapter.run(runInput, createDefaultRunContext(runInput, options));
     },
   });
 }
 
 function createDefaultRunContext(
   input: AgentHarnessRunInput<PiCapabilityBindings>,
+  options: CreateAgentHarnessOptions,
 ): AgentHarnessAdapterRunContext {
   const eventSink = createEventSink();
   return Object.freeze({
@@ -1137,10 +1231,12 @@ function createDefaultRunContext(
           join(input.workspaceRoot, ".generic-ai", "artifacts", input.runId ?? "run"),
       ),
     }),
-    policy: createPolicyEvaluator({
-      runId: input.runId ?? "run",
-      actorId: input.rootAgentId ?? input.harness.primaryAgent ?? "root",
-    }),
+    policy:
+      options.policy ??
+      createPolicyEvaluator({
+        runId: input.runId ?? "run",
+        actorId: input.rootAgentId ?? input.harness.primaryAgent ?? "root",
+      }),
   });
 }
 
@@ -1222,6 +1318,7 @@ function createPiAgentHarnessAdapter(
           errorCategory: "deadline_exceeded",
         });
       }
+      const runSignal = createDeadlineSignal(context);
       const eventStream = createCanonicalEventStream({});
       const roles = resolveRoles(input.harness);
       const modelId = input.harness.model ?? DEFAULT_OPENAI_CODEX_MODEL;
@@ -1237,7 +1334,7 @@ function createPiAgentHarnessAdapter(
       });
       const policyDecisions: PolicyDecisionRecord[] = [...profilePolicyDecisions];
       let rootRuntimeSessionId: string | undefined;
-      const rootPolicyResult = applyRolePolicy({
+      const rootPolicyResult = await applyRolePolicy({
         capabilities: {
           ...baseCapabilities,
           customTools: [
@@ -1252,6 +1349,8 @@ function createPiAgentHarnessAdapter(
               roles,
               capabilities: baseCapabilities,
               deniedEffects,
+              policy: context.policy,
+              ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
               eventStream,
               getRootSessionId: () => rootRuntimeSessionId,
               recordPolicyDecisions: (decisions) => {
@@ -1265,6 +1364,7 @@ function createPiAgentHarnessAdapter(
         runId,
         actorId: rootAgentId,
         deniedEffects,
+        policy: context.policy,
       });
       policyDecisions.push(...rootPolicyResult.policyDecisions);
 
@@ -1286,6 +1386,7 @@ function createPiAgentHarnessAdapter(
           runId,
           rootScopeId,
           rootAgentId,
+          ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
           eventStream,
           onSessionReady: async (context) => {
             rootRuntimeSessionId = context.sessionId;
@@ -1301,7 +1402,9 @@ function createPiAgentHarnessAdapter(
           },
         },
         options.factories,
-      );
+      ).finally(() => {
+        runSignal.cleanup();
+      });
       const outputText = extractLatestAssistantText(result.session.messages);
       const events = result.events;
       const projections = Object.freeze(events.map(projectEvent));

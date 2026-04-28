@@ -336,6 +336,7 @@ function resolveStarterRuntimeEnvironment(
 
 function resolveStarterFallbackMode(
   options: StarterSandboxBootstrapOptions | undefined,
+  environment: StarterRuntimeEnvironment,
 ): StarterSandboxFallbackMode {
   if (options?.fallbackMode !== undefined) {
     return options.fallbackMode;
@@ -344,7 +345,7 @@ function resolveStarterFallbackMode(
   const env = options?.env ?? process.env;
   const rawFallback = env[STARTER_SANDBOX_FALLBACK_ENV_VAR];
   if (rawFallback === undefined || rawFallback.trim().length === 0) {
-    return "warn";
+    return environment === "production" ? "fail" : "warn";
   }
 
   return normalizeStarterSandboxFallbackMode(rawFallback, STARTER_SANDBOX_FALLBACK_ENV_VAR);
@@ -360,7 +361,7 @@ function resolveRequestedSandboxMode(
   readonly fallbackMode: StarterSandboxFallbackMode;
 } {
   const environment = resolveStarterRuntimeEnvironment(options);
-  const fallbackMode = resolveStarterFallbackMode(options);
+  const fallbackMode = resolveStarterFallbackMode(options, environment);
 
   if (explicitMode !== undefined) {
     return {

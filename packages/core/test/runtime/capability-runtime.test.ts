@@ -99,7 +99,14 @@ function createCapabilityBindings(root = "/virtual"): PiCapabilityBindings {
             description: "explain the starter stack",
             filePath: skillFilePath,
             baseDir: skillDir,
-            source: "project",
+            sourceInfo: {
+              path: skillFilePath,
+              source: "project",
+              scope: "project",
+              origin: "top-level",
+              baseDir: skillDir,
+            },
+            disableModelInvocation: false,
           },
         ],
         diagnostics: [],
@@ -204,7 +211,7 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
         },
       );
 
-      expect(capturedOptions?.tools).toEqual([
+      expect(capturedOptions?.["tools"]).toEqual([
         "bash",
         "read",
         "write",
@@ -216,7 +223,9 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
         "agent_messages",
         "agent_memory",
       ]);
-      expect((capturedOptions?.customTools as { name: string }[]).map((tool) => tool.name)).toEqual([
+      expect(
+        (capturedOptions?.["customTools"] as { name: string }[]).map((tool) => tool.name),
+      ).toEqual([
         "bash",
         "read",
         "write",

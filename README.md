@@ -196,16 +196,26 @@ Generic AI uses a single shared toolchain for every package in the workspace:
 - Biome 2.4 for linting and formatting, configured in [`biome.json`](biome.json).
 - Vitest 4 for tests, configured in [`vitest.config.ts`](vitest.config.ts).
 
-The four-command quality gate:
+The full local quality gate:
 
 ```bash
 npm run typecheck
 npm run lint
 npm run test
 npm run build
+npm run docs:check
 ```
 
-Every contributor runs the same four commands locally before opening a pull request. The [`baseline-quality-gate`](.github/workflows/baseline-quality-gate.yml) workflow runs the same gate on pull requests and pushes to `main`; the required branch-protection settings live in [`docs/branch-protection.md`](docs/branch-protection.md). Full contributor setup, per-command reference, and how to add new packages live in [`CONTRIBUTING.md`](CONTRIBUTING.md). The toolchain decisions and trade-offs are recorded in [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md).
+Every contributor runs the same commands locally before opening a pull request.
+The [`baseline-quality-gate`](.github/workflows/baseline-quality-gate.yml)
+workflow covers typecheck, lint, test, and build on pull requests and pushes to
+`main`; the separate [`Docs as Code`](.github/workflows/docs.yml) workflow runs
+`npm run docs:check`. The required branch-protection settings live in
+[`docs/branch-protection.md`](docs/branch-protection.md). Full contributor
+setup, per-command reference, and how to add new packages live in
+[`CONTRIBUTING.md`](CONTRIBUTING.md). The toolchain decisions and trade-offs are
+recorded in
+[`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md).
 
 ## Releases
 

@@ -32,7 +32,10 @@ type PiResourceLoader = {
 
 type PiSession = {
   readonly messages: readonly unknown[];
-  readonly prompt: (text: string, options?: { readonly source?: string }) => Promise<void>;
+  readonly prompt: (
+    text: string,
+    options?: { readonly source?: string; readonly signal?: AbortSignal },
+  ) => Promise<void>;
 };
 
 export interface GenericAILlmRuntimeDependencies {
@@ -65,9 +68,7 @@ function isTextPart(value: unknown): value is { readonly type: "text"; readonly 
   );
 }
 
-function isAssistantLikeMessage(
-  value: unknown,
-): value is {
+function isAssistantLikeMessage(value: unknown): value is {
   readonly role: "assistant";
   readonly content: unknown;
 } {
@@ -92,7 +93,10 @@ function extractLatestAssistantText(messages: readonly unknown[]): string {
     }
 
     if (Array.isArray(message.content)) {
-      return message.content.filter(isTextPart).map((part) => part.text).join("");
+      return message.content
+        .filter(isTextPart)
+        .map((part) => part.text)
+        .join("");
     }
   }
 
@@ -119,7 +123,9 @@ async function createPiCompatibilityRuntime(
     const agentDir = input.agentDir ?? getAgentDir();
     const authStorage =
       dependencies.authStorageFactory?.(input.agentDir) ??
-      AuthStorage.create(input.agentDir === undefined ? undefined : join(input.agentDir, "auth.json"));
+      AuthStorage.create(
+        input.agentDir === undefined ? undefined : join(input.agentDir, "auth.json"),
+      );
     const apiKey = input.apiKey?.trim();
     if (apiKey !== undefined && apiKey.length > 0) {
       authStorage.setRuntimeApiKey("openai", apiKey);
@@ -163,15 +169,19 @@ async function createPiCompatibilityRuntime(
       model: model as never,
       tools: [],
       resourceLoader: resourceLoader as never,
-      sessionManager: (dependencies.sessionManagerFactory?.() ?? SessionManager.inMemory()) as never,
-      settingsManager:
-        (dependencies.settingsManagerFactory?.() ?? SettingsManager.inMemory()) as never,
+      sessionManager: (dependencies.sessionManagerFactory?.() ??
+        SessionManager.inMemory()) as never,
+      settingsManager: (dependencies.settingsManagerFactory?.() ??
+        SettingsManager.inMemory()) as never,
     });
 
     return result.session as unknown as PiSession;
   }
 
-  async function run(prompt: string, options?: GenericAILlmRunOptions): Promise<GenericAILlmRunResult> {
+  async function run(
+    prompt: string,
+    options?: GenericAILlmRunOptions,
+  ): Promise<GenericAILlmRunResult> {
     if (options?.signal?.aborted) {
       throw new Error("pi compatibility runtime aborted before prompt dispatch.");
     }
@@ -179,6 +189,7 @@ async function createPiCompatibilityRuntime(
     const session = await createSession();
     await session.prompt(prompt, {
       source: "extension",
+      ...(options?.signal === undefined ? {} : { signal: options.signal }),
     });
     return toRunResult("pi", modelId, extractLatestAssistantText(session.messages));
   }
