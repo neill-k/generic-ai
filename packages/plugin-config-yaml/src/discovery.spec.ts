@@ -44,4 +44,16 @@ describe("discoverCanonicalConfig", () => {
     expect(duplicate?.paths?.length).toBe(2);
     expect(duplicate?.suggestion).toContain("Keep a single file");
   });
+
+  it("discovers singleton lifecycle hook config next to framework.yaml", async () => {
+    const result = await discoverCanonicalConfig(fixtureRoot("hooks"));
+
+    expect(result.failures).toEqual([]);
+    expect(result.hooksFile?.key).toBe("hooks");
+    expect(toPosixPath(result.hooksFile?.relativePath ?? "")).toBe(".generic-ai/hooks.yaml");
+    expect(result.files.map((entry) => toPosixPath(entry.relativePath))).toEqual([
+      ".generic-ai/framework.yaml",
+      ".generic-ai/hooks.yaml",
+    ]);
+  });
 });

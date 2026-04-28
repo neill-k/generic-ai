@@ -10,10 +10,10 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["framework", "agent", "plugin"]
+        "enum": ["framework", "hooks", "agent", "harness", "plugin"]
       },
       "uniqueItems": true,
-      "minItems": 3
+      "minItems": 5
     },
     "nonYamlConcerns": {
       "type": "array",
@@ -27,11 +27,15 @@
     "artifacts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["framework", "agent", "plugin", "preset", "resolved"],
+      "required": ["framework", "hooks", "agent", "plugin", "preset", "resolved"],
       "properties": {
         "framework": {
           "type": "string",
           "const": "framework.schema.json"
+        },
+        "hooks": {
+          "type": "string",
+          "const": "hooks.schema.json"
         },
         "agent": {
           "type": "string",

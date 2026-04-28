@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://generic-ai.dev/contracts/config/hooks.schema.json",
+  "title": "Generic AI Agent Lifecycle Hooks Config (YAML Concern)",
+  "description": "Canonical schema for .generic-ai/hooks.yaml.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["hooks"],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "v1"
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failureMode": {
+          "type": "string",
+          "enum": ["fail-open", "fail-closed"]
+        }
+      }
+    },
+    "hooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "events", "handler"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SessionStart",
+                "UserPromptSubmit",
+                "PreToolUse",
+                "PermissionRequest",
+                "PostToolUse",
+                "Stop"
+              ]
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          },
+          "matcher": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "actorId": {
+                "type": "string"
+              },
+              "roleId": {
+                "type": "string"
+              },
+              "toolName": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string"
+              },
+              "resourceKind": {
+                "type": "string"
+              },
+              "resourceId": {
+                "type": "string"
+              }
+            }
+          },
+          "handler": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": ["command", "in-process", "http", "mcp", "prompt", "agent"]
+              },
+              "command": {
+                "type": "string"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "cwd": {
+                "type": "string"
+              },
+              "env": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "shell": {
+                "type": "boolean"
+              },
+              "ref": {
+                "type": "string"
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failureMode": {
+                "type": "string",
+                "enum": ["fail-open", "fail-closed"]
+              },
+              "config": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "type": {
+                      "const": "command"
+                    }
+                  }
+                },
+                "then": {
+                  "required": ["command"]
+                },
+                "else": {
+                  "required": ["ref"]
+                }
+              }
+            ]
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failureMode": {
+            "type": "string",
+            "enum": ["fail-open", "fail-closed"]
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

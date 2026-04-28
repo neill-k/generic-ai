@@ -88,4 +88,31 @@ describe("resolveCanonicalConfig", () => {
     expect(missingFailure?.concern).toBe("framework");
     expect(missingFailure?.suggestion).toContain(".generic-ai/framework.yaml");
   });
+
+  it("resolves lifecycle hook config with source provenance", async () => {
+    const result = await resolveCanonicalConfig(fixtureRoot("hooks"));
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      throw new Error("Expected hook config resolution.");
+    }
+
+    expect(result.config.hooks).toMatchObject({
+      schemaVersion: "v1",
+      defaults: {
+        timeoutMs: 1000,
+        failureMode: "fail-closed",
+      },
+      hooks: [
+        {
+          id: "inject-context",
+          events: ["UserPromptSubmit"],
+          handler: {
+            type: "command",
+            command: "node",
+          },
+        },
+      ],
+    });
+    expect(toPosixPath(result.config.sources.hooks ?? "")).toContain(".generic-ai/hooks.yaml");
+  });
 });

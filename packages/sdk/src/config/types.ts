@@ -1,5 +1,7 @@
 import type { AgentHarnessConfig } from "../harness/types.js";
+import type { AgentLifecycleHooksConfig } from "../contracts/agent-lifecycle.js";
 export type { AgentHarnessConfig } from "../harness/types.js";
+export type { AgentLifecycleHooksConfig } from "../contracts/agent-lifecycle.js";
 
 export const CONFIG_SCHEMA_VERSION = "v1" as const;
 
@@ -82,6 +84,7 @@ export interface PresetConfig {
 
 export interface ResolvedConfigSources {
   framework?: string;
+  hooks?: string;
   agents?: Record<string, string>;
   harnesses?: Record<string, string>;
   plugins?: Record<string, string>;
@@ -90,6 +93,7 @@ export interface ResolvedConfigSources {
 
 export interface ResolvedConfig {
   framework: FrameworkConfig;
+  hooks?: AgentLifecycleHooksConfig;
   agents: Record<string, AgentConfig>;
   harnesses?: Record<string, AgentHarnessConfig>;
   plugins: Record<string, PluginConfig>;

@@ -54,6 +54,7 @@ ADRs must be written when:
 - [`0028-web-ui-plugin-console.md`](0028-web-ui-plugin-console.md) - plugin-layer web console, config-write ownership, local-console security, and runnable template limits.
 - [`0029-memory-service-contract-and-roadmap.md`](0029-memory-service-contract-and-roadmap.md) - SDK memory service contract, file-memory conformance, and richer memory plugin sequencing.
 - [`0030-observability-surface-package.md`](0030-observability-surface-package.md) - surface-package layer, safe observability defaults, repository ownership, metric-first ordering, and OTEL export deferral.
+- [`0031-agent-lifecycle-hooks.md`](0031-agent-lifecycle-hooks.md) - SDK hook contracts, `.generic-ai/hooks.yaml`, command handler runtime, and canonical hook evidence.
 
 ## Planning Baseline
 

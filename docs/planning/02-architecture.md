@@ -180,6 +180,7 @@ Recommended contents:
 - plugin lifecycle contract
 - registry contracts
 - config-schema contract, authored in the SDK and exported as JSON Schema artifacts under `contracts/`
+- agent lifecycle hook contracts for session, prompt, tool, permission, post-tool, and stop decisions
 - scope contract
 - storage contract
 - workspace contract
@@ -227,6 +228,7 @@ The starter preset should include Hono anyway, but the plugin itself remains opt
 ### `plugin-config-yaml`
 
 - load canonical YAML config files
+- discover and validate `.generic-ai/hooks.yaml` as the singleton agent lifecycle hook concern
 - validate plugin config schemas
 - produce a single resolved config object
 - export or support generation of the frozen machine-readable config contracts

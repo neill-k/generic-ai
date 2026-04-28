@@ -206,6 +206,7 @@ export interface RunCapabilityPiAgentSessionOptions extends CreateCapabilityPiAg
   readonly mode?: RunEnvelopeMode;
   readonly eventStream?: CanonicalEventStream;
   readonly onSessionReady?: (context: CapabilityPiSessionEventContext) => Promise<void> | void;
+  readonly lifecycleHooks?: PiCapabilitySessionLifecycleHooks;
 }
 
 export interface RunCapabilityPiAgentSessionResult extends CreateCapabilityPiAgentSessionResult {
@@ -221,6 +222,15 @@ export interface CapabilityPiSessionEventContext {
   readonly rootSessionId: string;
   readonly sessionId: string;
   readonly parentSessionId?: string;
+}
+
+export interface PiCapabilitySessionLifecycleHooks {
+  onSessionStart?(context: CapabilityPiSessionEventContext): Promise<void> | void;
+  onUserPromptSubmit(
+    context: CapabilityPiSessionEventContext,
+    prompt: string,
+  ): Promise<string> | string;
+  onStop?(context: CapabilityPiSessionEventContext): Promise<void> | void;
 }
 
 function requireString(value: string | undefined, label: string): string {
@@ -872,9 +882,7 @@ export async function runCapabilityPiAgentSession(
     runId,
     rootSessionId: options.rootSessionId ?? sessionId,
     sessionId,
-    ...(options.parentSessionId === undefined
-      ? {}
-      : { parentSessionId: options.parentSessionId }),
+    ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
   } satisfies CapabilityPiSessionEventContext;
 
   await eventStream.emit({
@@ -892,6 +900,7 @@ export async function runCapabilityPiAgentSession(
     },
   });
   await options.onSessionReady?.(eventContext);
+  await options.lifecycleHooks?.onSessionStart?.(eventContext);
   await eventStream.emit({
     ...eventContext,
     name: "run.started",
@@ -924,9 +933,13 @@ export async function runCapabilityPiAgentSession(
   });
 
   try {
-    await sessionResult.session.prompt(options.prompt, options.promptOptions);
+    const prompt =
+      (await options.lifecycleHooks?.onUserPromptSubmit(eventContext, options.prompt)) ??
+      options.prompt;
+    await sessionResult.session.prompt(prompt, options.promptOptions);
     unsubscribe();
     await forwarder;
+    await options.lifecycleHooks?.onStop?.(eventContext);
 
     const completedAt = new Date().toISOString();
     await eventStream.emit({

@@ -1,5 +1,6 @@
 import type { JsonSchema, JsonSchemaEmitter } from "./json-schema.js";
 import type { ZodNamespaceLike, ZodTypeLike } from "./zod-like.js";
+import type { AgentLifecycleHooksConfig } from "../contracts/agent-lifecycle.js";
 import {
   AGENT_ID_PATTERN,
   CONFIG_SCHEMA_VERSION,
@@ -12,11 +13,12 @@ import {
   type ResolvedConfig,
 } from "./types.js";
 
-export const CONFIG_YAML_CONCERNS = ["framework", "agent", "harness", "plugin"] as const;
+export const CONFIG_YAML_CONCERNS = ["framework", "hooks", "agent", "harness", "plugin"] as const;
 export const CONFIG_NON_YAML_CONCERNS = ["preset"] as const;
 
 export const CONFIG_CONTRACT_IDS = {
   framework: "https://generic-ai.dev/contracts/config/framework.schema.json",
+  hooks: "https://generic-ai.dev/contracts/config/hooks.schema.json",
   agent: "https://generic-ai.dev/contracts/config/agent.schema.json",
   harness: "https://generic-ai.dev/contracts/config/harness.schema.json",
   plugin: "https://generic-ai.dev/contracts/config/plugin.schema.json",
@@ -33,6 +35,7 @@ export interface PluginConfigSchemaFragment<TConfig = unknown> {
 
 export interface CanonicalConfigSchemaBundle {
   framework: ZodTypeLike<FrameworkConfig>;
+  hooks: ZodTypeLike<AgentLifecycleHooksConfig>;
   agent: ZodTypeLike<AgentConfig>;
   harness: ZodTypeLike<AgentHarnessConfig>;
   plugin: ZodTypeLike<PluginConfig>;
@@ -48,6 +51,7 @@ export interface CanonicalConfigSchemaBundle {
 
 export interface CanonicalConfigJsonSchemas {
   framework: JsonSchema;
+  hooks: JsonSchema;
   agent: JsonSchema;
   harness: JsonSchema;
   plugin: JsonSchema;
@@ -119,6 +123,85 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
     .describe(
       "Canonical YAML concern schema for .generic-ai/framework.yaml",
     ) as ZodTypeLike<FrameworkConfig>;
+
+  const lifecycleHookEvent = z
+    .string()
+    .regex(
+      /^(SessionStart|UserPromptSubmit|PreToolUse|PermissionRequest|PostToolUse|Stop)$/,
+      "hook event must be SessionStart/UserPromptSubmit/PreToolUse/PermissionRequest/PostToolUse/Stop",
+    );
+
+  const lifecycleHookFailureMode = z
+    .string()
+    .regex(/^(fail-open|fail-closed)$/, "failureMode must be fail-open or fail-closed");
+
+  const hooks = z
+    .object({
+      schemaVersion: z.literal(CONFIG_SCHEMA_VERSION).optional(),
+      defaults: z
+        .object({
+          timeoutMs: z.number().int("timeoutMs must be an integer").nonnegative().optional(),
+          failureMode: lifecycleHookFailureMode.optional(),
+        })
+        .optional(),
+      hooks: z.array(
+        z.object({
+          id: agentId,
+          description: z.string().min(1, "hook description cannot be empty").optional(),
+          enabled: z.boolean().optional(),
+          events: ensureUniqueStrings(z.array(lifecycleHookEvent), "hook.events") as ZodTypeLike<
+            string[]
+          >,
+          matcher: z
+            .object({
+              actorId: agentId.optional(),
+              roleId: agentId.optional(),
+              toolName: z.string().min(1, "matcher.toolName cannot be empty").optional(),
+              action: z.string().min(1, "matcher.action cannot be empty").optional(),
+              resourceKind: z.string().min(1, "matcher.resourceKind cannot be empty").optional(),
+              resourceId: z.string().min(1, "matcher.resourceId cannot be empty").optional(),
+            })
+            .optional(),
+          handler: z.object({
+            type: z
+              .string()
+              .regex(
+                /^(command|in-process|http|mcp|prompt|agent)$/,
+                "handler.type must be command/in-process/http/mcp/prompt/agent",
+              ),
+            command: z.string().min(1, "handler.command cannot be empty").optional(),
+            args: z.array(z.string()).optional(),
+            cwd: z.string().min(1, "handler.cwd cannot be empty").optional(),
+            env: z.record(z.string()).optional(),
+            shell: z.boolean().optional(),
+            ref: z.string().min(1, "handler.ref cannot be empty").optional(),
+            timeoutMs: z
+              .number()
+              .int("handler.timeoutMs must be an integer")
+              .nonnegative()
+              .optional(),
+            failureMode: lifecycleHookFailureMode.optional(),
+            config: z.record(z.unknown()).optional(),
+          }),
+          timeoutMs: z.number().int("hook.timeoutMs must be an integer").nonnegative().optional(),
+          failureMode: lifecycleHookFailureMode.optional(),
+          metadata: z.record(z.unknown()).optional(),
+        }),
+      ),
+      metadata: z.record(z.unknown()).optional(),
+    })
+    .refine(
+      (candidate) =>
+        candidate.hooks.every((hook) =>
+          hook.handler.type === "command"
+            ? typeof hook.handler.command === "string" && hook.handler.command.trim().length > 0
+            : typeof hook.handler.ref === "string" && hook.handler.ref.trim().length > 0,
+        ),
+      "command handlers require handler.command; non-command handlers require handler.ref",
+    )
+    .describe(
+      "Canonical YAML concern schema for .generic-ai/hooks.yaml",
+    ) as ZodTypeLike<AgentLifecycleHooksConfig>;
 
   const agent = z
     .object({
@@ -293,6 +376,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
     z
       .object({
         framework,
+        hooks: hooks.optional(),
         agents: z.record(agent).default({}),
         harnesses: z.record(harness).default({}),
         plugins: z.record(composePluginSchema(fragments)).default({}),
@@ -300,6 +384,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
         sources: z
           .object({
             framework: z.string().optional(),
+            hooks: z.string().optional(),
             agents: z.record(z.string()).optional(),
             harnesses: z.record(z.string()).optional(),
             plugins: z.record(z.string()).optional(),
@@ -314,6 +399,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
 
   return {
     framework,
+    hooks,
     agent,
     harness,
     plugin,
@@ -329,6 +415,7 @@ export const emitCanonicalConfigJsonSchemas = (
   schemas: CanonicalConfigSchemaBundle,
 ): CanonicalConfigJsonSchemas => ({
   framework: emitter.emit(schemas.framework, CONFIG_CONTRACT_IDS.framework),
+  hooks: emitter.emit(schemas.hooks, CONFIG_CONTRACT_IDS.hooks),
   agent: emitter.emit(schemas.agent, CONFIG_CONTRACT_IDS.agent),
   harness: emitter.emit(schemas.harness, CONFIG_CONTRACT_IDS.harness),
   plugin: emitter.emit(schemas.plugin, CONFIG_CONTRACT_IDS.plugin),

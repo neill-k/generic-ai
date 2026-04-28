@@ -8,6 +8,7 @@ export const canonicalEventFamilies = [
   "tool",
   "terminal",
   "policy",
+  "hook",
   "artifact",
   "plugin",
 ] as const;
@@ -81,6 +82,15 @@ export const canonicalPolicyLifecycleNames = ["policy.decision"] as const;
 
 export type CanonicalPolicyLifecycleName = (typeof canonicalPolicyLifecycleNames)[number];
 
+export const canonicalHookLifecycleNames = [
+  "hook.execution.started",
+  "hook.execution.completed",
+  "hook.execution.failed",
+  "hook.decision",
+] as const;
+
+export type CanonicalHookLifecycleName = (typeof canonicalHookLifecycleNames)[number];
+
 export const canonicalArtifactLifecycleNames = ["artifact.created"] as const;
 
 export type CanonicalArtifactLifecycleName = (typeof canonicalArtifactLifecycleNames)[number];
@@ -93,6 +103,7 @@ export const canonicalCoreEventNames = [
   ...canonicalToolCallLifecycleNames,
   ...canonicalTerminalCommandLifecycleNames,
   ...canonicalPolicyLifecycleNames,
+  ...canonicalHookLifecycleNames,
   ...canonicalArtifactLifecycleNames,
 ] as const;
 
@@ -192,6 +203,10 @@ export function getCanonicalEventFamily(name: string): CanonicalEventFamily | un
 
   if (name.startsWith("policy.")) {
     return "policy";
+  }
+
+  if (name.startsWith("hook.")) {
+    return "hook";
   }
 
   if (name.startsWith("artifact.")) {

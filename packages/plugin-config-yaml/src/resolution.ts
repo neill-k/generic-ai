@@ -33,11 +33,13 @@ export interface ResolvedCanonicalConfig {
   rootDir: string;
   configDir: string;
   framework: Record<string, unknown>;
+  hooks?: Record<string, unknown>;
   agents: Record<string, Record<string, unknown>>;
   harnesses: Record<string, Record<string, unknown>>;
   plugins: Record<string, Record<string, unknown>>;
   sources: {
     framework?: string;
+    hooks?: string;
     agents: Record<string, string>;
     harnesses: Record<string, string>;
     plugins: Record<string, string>;
@@ -102,6 +104,7 @@ export async function resolveCanonicalConfig(
   }
 
   const frameworkConfig: Record<string, unknown> = {};
+  let hooksConfig: Record<string, unknown> | undefined;
   const agents: Record<string, Record<string, unknown>> = {};
   const harnesses: Record<string, Record<string, unknown>> = {};
   const plugins: Record<string, Record<string, unknown>> = {};
@@ -135,6 +138,11 @@ export async function resolveCanonicalConfig(
       case "framework":
         assignInto(frameworkConfig, loaded.value);
         sources.framework = file.filePath;
+        sources.order.push(file.filePath);
+        break;
+      case "hooks":
+        hooksConfig = loaded.value;
+        sources.hooks = file.filePath;
         sources.order.push(file.filePath);
         break;
       case "agent":
@@ -176,6 +184,7 @@ export async function resolveCanonicalConfig(
       rootDir: discovery.rootDir,
       configDir: discovery.configDir,
       framework: frameworkConfig,
+      ...(hooksConfig === undefined ? {} : { hooks: hooksConfig }),
       agents,
       harnesses,
       plugins,

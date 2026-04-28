@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
-import { type PolicyDecisionRecord, withAgentHarnessToolEffects } from "@generic-ai/sdk";
+import {
+  defineTool,
+  type PolicyDecisionRecord,
+  withAgentHarnessToolEffects,
+} from "@generic-ai/sdk";
+import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vitest";
 
 import { createAgentHarness } from "./agent-harness.js";
@@ -165,6 +170,186 @@ describe("createAgentHarness", () => {
           actorId: "verifier",
           action: "bind_tool",
           decision: "denied",
+        }),
+      ]),
+    );
+  });
+
+  it("runs command lifecycle hooks around prompt submission with inspectable evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-hooks-"));
+    let observedPrompt = "";
+    const messages: unknown[] = [];
+    const hookScript = [
+      "let input='';",
+      "process.stdin.on('data',(chunk)=>input+=chunk);",
+      "process.stdin.on('end',()=>{",
+      "const context=JSON.parse(input);",
+      "console.log(JSON.stringify({decision:'append_context',additionalContext:'hook saw '+context.event}));",
+      "});",
+    ].join("");
+    const harness = createAgentHarness(
+      {
+        id: "hooked-harness",
+        adapter: "pi",
+        model: "fake-model",
+        hooks: {
+          schemaVersion: "v1",
+          hooks: [
+            {
+              id: "prompt-context",
+              events: ["UserPromptSubmit"],
+              handler: {
+                type: "command",
+                command: process.execPath,
+                args: ["-e", hookScript],
+              },
+            },
+          ],
+        },
+      },
+      {
+        sessionInputs: {
+          agentDir: root,
+          authStorage: {} as never,
+          modelRegistry: {} as never,
+          model: {} as never,
+          sessionManager: SessionManager.inMemory(),
+          settingsManager: SettingsManager.inMemory(),
+        },
+        factories: {
+          createAgentSession: async () =>
+            ({
+              session: {
+                sessionId: "session-hooks",
+                messages,
+                subscribe() {
+                  return () => undefined;
+                },
+                async prompt(prompt: string) {
+                  observedPrompt = prompt;
+                  messages.push({ role: "assistant", content: "hooked done" });
+                },
+              },
+            }) as never,
+        },
+      },
+    );
+
+    const result = await harness.run({
+      instruction: "Test hook context.",
+      workspaceRoot: root,
+      artifactDir: join(root, "artifacts"),
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(observedPrompt).toContain("Additional hook context");
+    expect(observedPrompt).toContain("hook saw UserPromptSubmit");
+    expect(result.hookDecisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hookId: "prompt-context",
+          decision: "append_context",
+          status: "appended_context",
+        }),
+      ]),
+    );
+    expect(result.projections.some((projection) => projection.type === "hook.decision")).toBe(true);
+    expect(result.artifacts.some((artifact) => artifact.id === "hook-decisions")).toBe(true);
+  });
+
+  it("blocks matching tool calls through PreToolUse hooks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-hooks-"));
+    const blockScript = "console.log(JSON.stringify({decision:'block',reason:'danger blocked'}));";
+    const harness = createAgentHarness(
+      {
+        id: "blocking-harness",
+        adapter: "pi",
+        model: "fake-model",
+        hooks: {
+          schemaVersion: "v1",
+          hooks: [
+            {
+              id: "block-danger",
+              events: ["PreToolUse"],
+              matcher: {
+                toolName: "danger",
+              },
+              handler: {
+                type: "command",
+                command: process.execPath,
+                args: ["-e", blockScript],
+              },
+            },
+          ],
+        },
+      },
+      {
+        sessionInputs: {
+          agentDir: root,
+          authStorage: {} as never,
+          modelRegistry: {} as never,
+          model: {} as never,
+          sessionManager: SessionManager.inMemory(),
+          settingsManager: SettingsManager.inMemory(),
+        },
+        factories: {
+          createAgentSession: async (options) =>
+            ({
+              session: {
+                sessionId: "session-blocked",
+                messages: [],
+                subscribe() {
+                  return () => undefined;
+                },
+                async prompt() {
+                  const danger = options?.customTools?.find((tool) => tool.name === "danger");
+                  await danger?.execute(
+                    "tool-call-1",
+                    { ok: true },
+                    undefined,
+                    undefined,
+                    {} as never,
+                  );
+                },
+              },
+            }) as never,
+        },
+      },
+    );
+
+    const result = await harness.run({
+      instruction: "Use the dangerous tool.",
+      workspaceRoot: root,
+      artifactDir: join(root, "artifacts"),
+      capabilities: {
+        customTools: [
+          withAgentHarnessToolEffects(
+            defineTool({
+              name: "danger",
+              label: "Danger",
+              description: "Dangerous test tool.",
+              parameters: Type.Object({ ok: Type.Boolean() }),
+              async execute() {
+                return {
+                  content: [{ type: "text" as const, text: "danger ok" }],
+                  details: { ok: true },
+                };
+              },
+            }),
+            ["handoff.read"],
+          ),
+        ],
+      },
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.failureMessage).toContain("danger blocked");
+    expect(result.hookDecisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          hookId: "block-danger",
+          decision: "block",
+          status: "blocked",
         }),
       ]),
     );

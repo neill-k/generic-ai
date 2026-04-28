@@ -15,6 +15,9 @@ import {
   type AgentHarnessEventSink,
   type AgentHarnessEventProjection,
   type AgentHarnessEventType,
+  type AgentLifecycleHookContext,
+  type AgentLifecycleHookDecisionRecord,
+  type AgentLifecycleInProcessHookHandler,
   type AgentHarnessPolicyEvaluationInput,
   type AgentHarnessPolicyEvaluator,
   type AgentHarnessPolicyProfileId,
@@ -47,10 +50,17 @@ import {
 } from "../runtime/capability-runtime.js";
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
+import {
+  appendHookContext,
+  createAgentLifecycleHookExecutor,
+  type AgentLifecycleHookExecutor,
+  wrapToolWithLifecycleHooks,
+} from "./lifecycle-hooks.js";
 
 export interface CreateAgentHarnessOptions {
   readonly factories?: PiRuntimeFactories;
   readonly sessionInputs?: PiSessionInputs;
+  readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
 }
 
 export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilityBindings> {
@@ -337,7 +347,9 @@ function filterToolsByEffect<TTool extends { readonly name?: string }>(input: {
     const deniedEffects =
       effects.length === 0 && policy.denyUnknown
         ? ["custom.unknown" as AgentHarnessCapabilityEffect]
-        : effects.filter((effect) => !allowedEffects.has(effect) || input.deniedEffects.has(effect));
+        : effects.filter(
+            (effect) => !allowedEffects.has(effect) || input.deniedEffects.has(effect),
+          );
 
     if (deniedEffects.length > 0) {
       decisions.push(
@@ -684,6 +696,147 @@ function applyProfilePolicy(
   };
 }
 
+function wrapCapabilitiesWithHooks(input: {
+  readonly capabilities: PiCapabilityBindings;
+  readonly executor: AgentLifecycleHookExecutor;
+  readonly context: Omit<AgentLifecycleHookContext, "event">;
+}): PiCapabilityBindings {
+  if (!input.executor.enabled) {
+    return input.capabilities;
+  }
+
+  return {
+    ...(input.capabilities.terminalTools === undefined
+      ? {}
+      : {
+          terminalTools: {
+            tool: wrapToolWithLifecycleHooks(input.capabilities.terminalTools.tool, {
+              executor: input.executor,
+              baseContext: input.context,
+            }),
+          },
+        }),
+    ...(input.capabilities.fileTools === undefined
+      ? {}
+      : {
+          fileTools: {
+            piTools: input.capabilities.fileTools.piTools.map((tool) =>
+              wrapToolWithLifecycleHooks(tool, {
+                executor: input.executor,
+                baseContext: input.context,
+              }),
+            ),
+          },
+        }),
+    ...(input.capabilities.customTools === undefined
+      ? {}
+      : {
+          customTools: input.capabilities.customTools.map((tool) =>
+            wrapToolWithLifecycleHooks(tool, {
+              executor: input.executor,
+              baseContext: input.context,
+            }),
+          ),
+        }),
+    ...(input.capabilities.mcp === undefined ? {} : { mcp: input.capabilities.mcp }),
+    ...(input.capabilities.skills === undefined ? {} : { skills: input.capabilities.skills }),
+    ...(input.capabilities.messaging === undefined
+      ? {}
+      : { messaging: input.capabilities.messaging }),
+    ...(input.capabilities.memory === undefined ? {} : { memory: input.capabilities.memory }),
+  };
+}
+
+function createSessionLifecycleHooks(input: {
+  readonly executor: AgentLifecycleHookExecutor;
+  readonly context: Omit<AgentLifecycleHookContext, "event">;
+}) {
+  if (!input.executor.enabled) {
+    return undefined;
+  }
+
+  return {
+    async onSessionStart(sessionContext: {
+      readonly rootSessionId: string;
+      readonly sessionId: string;
+      readonly parentSessionId?: string;
+    }): Promise<void> {
+      await input.executor.run({
+        ...input.context,
+        ...sessionContext,
+        event: "SessionStart",
+      });
+    },
+    async onUserPromptSubmit(
+      sessionContext: {
+        readonly rootSessionId: string;
+        readonly sessionId: string;
+        readonly parentSessionId?: string;
+      },
+      prompt: string,
+    ): Promise<string> {
+      const result = await input.executor.run({
+        ...input.context,
+        ...sessionContext,
+        event: "UserPromptSubmit",
+        prompt,
+      });
+      if (result.blocked) {
+        throw new Error(
+          firstHookBlockReason(result.decisions) ?? "UserPromptSubmit hook blocked prompt.",
+        );
+      }
+      return appendHookContext(result.prompt ?? prompt, result.additionalContext);
+    },
+    async onStop(sessionContext: {
+      readonly rootSessionId: string;
+      readonly sessionId: string;
+      readonly parentSessionId?: string;
+    }): Promise<void> {
+      const result = await input.executor.run({
+        ...input.context,
+        ...sessionContext,
+        event: "Stop",
+      });
+      if (result.blocked) {
+        throw new Error(firstHookBlockReason(result.decisions) ?? "Stop hook blocked completion.");
+      }
+    },
+  };
+}
+
+async function observePermissionDecisions(input: {
+  readonly executor: AgentLifecycleHookExecutor;
+  readonly context: Omit<AgentLifecycleHookContext, "event">;
+  readonly decisions: readonly PolicyDecisionRecord[];
+  readonly sessionContext?: {
+    readonly rootSessionId: string;
+    readonly sessionId: string;
+    readonly parentSessionId?: string;
+  };
+}): Promise<void> {
+  if (!input.executor.enabled) {
+    return;
+  }
+
+  for (const decision of input.decisions) {
+    await input.executor.run({
+      ...input.context,
+      ...(input.sessionContext ?? {}),
+      event: "PermissionRequest",
+      action: decision.action,
+      resource: decision.resource,
+      policyDecision: decision,
+    });
+  }
+}
+
+function firstHookBlockReason(
+  decisions: readonly AgentLifecycleHookDecisionRecord[],
+): string | undefined {
+  return decisions.find((decision) => decision.decision === "block")?.reason;
+}
+
 function profileDeniedEffects(input: {
   readonly profile: AgentHarnessPolicyProfileId;
   readonly allowNetwork: boolean;
@@ -755,6 +908,14 @@ function projectEventType(event: CanonicalEvent): AgentHarnessEventType {
       return "session.failed";
     case "policy.decision":
       return "policy.decision";
+    case "hook.execution.started":
+      return "hook.execution.started";
+    case "hook.execution.completed":
+      return "hook.execution.completed";
+    case "hook.execution.failed":
+      return "hook.execution.failed";
+    case "hook.decision":
+      return "hook.decision";
     case "artifact.created":
       return "artifact.created";
     case "handoff.requested":
@@ -835,11 +996,10 @@ function createDelegateTool(input: {
   readonly roles: readonly AgentHarnessRole[];
   readonly capabilities: PiCapabilityBindings;
   readonly deniedEffects: ReadonlySet<AgentHarnessCapabilityEffect>;
+  readonly hookExecutor: AgentLifecycleHookExecutor;
   readonly eventStream: CanonicalEventStream;
   readonly getRootSessionId: () => string | undefined;
-  readonly recordPolicyDecisions: (
-    decisions: readonly PolicyDecisionRecord[],
-  ) => void;
+  readonly recordPolicyDecisions: (decisions: readonly PolicyDecisionRecord[]) => void;
   readonly factories?: PiRuntimeFactories;
 }): ToolDefinition {
   const rolesById = new Map(input.roles.map((role) => [role.id, role]));
@@ -905,6 +1065,24 @@ function createDelegateTool(input: {
           deniedEffects: input.deniedEffects,
         });
         input.recordPolicyDecisions(rolePolicyResult.policyDecisions);
+        const roleHookContext = {
+          runId: input.runId,
+          scopeId: input.rootScopeId,
+          rootSessionId,
+          sessionId: rootSessionId,
+          parentSessionId: rootSessionId,
+          actorId: role.id,
+          roleId: role.id,
+        };
+        const roleCapabilities = wrapCapabilitiesWithHooks({
+          capabilities: rolePolicyResult.capabilities,
+          executor: input.hookExecutor,
+          context: roleHookContext,
+        });
+        const roleLifecycleHooks = createSessionLifecycleHooks({
+          executor: input.hookExecutor,
+          context: roleHookContext,
+        });
         const roleRunOptions = {
           cwd: input.workspaceRoot,
           agentDir: input.sessionInputs.agentDir,
@@ -913,7 +1091,7 @@ function createDelegateTool(input: {
           model: input.sessionInputs.model as never,
           sessionManager: input.sessionInputs.sessionManager as never,
           settingsManager: input.sessionInputs.settingsManager as never,
-          capabilities: rolePolicyResult.capabilities,
+          capabilities: roleCapabilities,
           prompt: buildRolePrompt({
             role,
             instruction: params.task,
@@ -925,7 +1103,14 @@ function createDelegateTool(input: {
           rootSessionId,
           parentSessionId: rootSessionId,
           eventStream: input.eventStream,
+          ...(roleLifecycleHooks === undefined ? {} : { lifecycleHooks: roleLifecycleHooks }),
           onSessionReady: async (context: CapabilityPiSessionEventContext) => {
+            await observePermissionDecisions({
+              executor: input.hookExecutor,
+              context: roleHookContext,
+              decisions: rolePolicyResult.policyDecisions,
+              sessionContext: context,
+            });
             for (const decision of rolePolicyResult.policyDecisions) {
               await emitPolicyDecision(input.eventStream, {
                 runId: input.runId,
@@ -1034,6 +1219,7 @@ async function writeHarnessArtifacts(input: {
   readonly events: readonly CanonicalEvent[];
   readonly projections: readonly AgentHarnessEventProjection[];
   readonly policyDecisions: readonly PolicyDecisionRecord[];
+  readonly hookDecisions: readonly AgentLifecycleHookDecisionRecord[];
   readonly summary: JsonObject;
 }): Promise<readonly AgentHarnessArtifactRef[]> {
   const artifacts: readonly ArtifactWriteSpec[] = [
@@ -1057,6 +1243,13 @@ async function writeHarnessArtifacts(input: {
       fileName: "policy-decisions.json",
       description: "Policy decisions recorded for this harness run.",
       value: input.policyDecisions,
+    },
+    {
+      id: "hook-decisions",
+      kind: "hook",
+      fileName: "hook-decisions.json",
+      description: "Agent lifecycle hook decisions recorded for this harness run.",
+      value: input.hookDecisions,
     },
     {
       id: "harness-summary",
@@ -1177,6 +1370,7 @@ function failedHarnessResult(input: {
     projections: Object.freeze([]),
     artifacts: Object.freeze([]),
     policyDecisions: Object.freeze([]),
+    hookDecisions: Object.freeze([]),
     failureMessage: input.statusMessage,
     errorCategory: input.errorCategory,
   });
@@ -1223,6 +1417,10 @@ function createPiAgentHarnessAdapter(
         });
       }
       const eventStream = createCanonicalEventStream({});
+      const hookExecutor = createAgentLifecycleHookExecutor(input.hooks ?? input.harness.hooks, {
+        eventStream,
+        ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
+      });
       const roles = resolveRoles(input.harness);
       const modelId = input.harness.model ?? DEFAULT_OPENAI_CODEX_MODEL;
       const piSessionInputs = options.sessionInputs ?? resolvePiSessionInputs(modelId);
@@ -1237,6 +1435,12 @@ function createPiAgentHarnessAdapter(
       });
       const policyDecisions: PolicyDecisionRecord[] = [...profilePolicyDecisions];
       let rootRuntimeSessionId: string | undefined;
+      const rootHookContext = {
+        runId,
+        scopeId: rootScopeId,
+        actorId: rootAgentId,
+        roleId: rootAgentId,
+      };
       const rootPolicyResult = applyRolePolicy({
         capabilities: {
           ...baseCapabilities,
@@ -1252,6 +1456,7 @@ function createPiAgentHarnessAdapter(
               roles,
               capabilities: baseCapabilities,
               deniedEffects,
+              hookExecutor,
               eventStream,
               getRootSessionId: () => rootRuntimeSessionId,
               recordPolicyDecisions: (decisions) => {
@@ -1267,6 +1472,15 @@ function createPiAgentHarnessAdapter(
         deniedEffects,
       });
       policyDecisions.push(...rootPolicyResult.policyDecisions);
+      const rootCapabilities = wrapCapabilitiesWithHooks({
+        capabilities: rootPolicyResult.capabilities,
+        executor: hookExecutor,
+        context: rootHookContext,
+      });
+      const rootLifecycleHooks = createSessionLifecycleHooks({
+        executor: hookExecutor,
+        context: rootHookContext,
+      });
 
       const result = await runCapabilityPiAgentSession(
         {
@@ -1277,7 +1491,7 @@ function createPiAgentHarnessAdapter(
           model: piSessionInputs.model as never,
           sessionManager: piSessionInputs.sessionManager as never,
           settingsManager: piSessionInputs.settingsManager as never,
-          capabilities: rootPolicyResult.capabilities,
+          capabilities: rootCapabilities,
           prompt: buildRootPrompt({
             instruction: input.instruction,
             roles,
@@ -1287,8 +1501,15 @@ function createPiAgentHarnessAdapter(
           rootScopeId,
           rootAgentId,
           eventStream,
+          ...(rootLifecycleHooks === undefined ? {} : { lifecycleHooks: rootLifecycleHooks }),
           onSessionReady: async (context) => {
             rootRuntimeSessionId = context.sessionId;
+            await observePermissionDecisions({
+              executor: hookExecutor,
+              context: rootHookContext,
+              decisions: policyDecisions,
+              sessionContext: context,
+            });
             for (const decision of policyDecisions) {
               await emitPolicyDecision(eventStream, {
                 runId,
@@ -1307,6 +1528,7 @@ function createPiAgentHarnessAdapter(
       const projections = Object.freeze(events.map(projectEvent));
       const status = result.failureMessage === undefined ? "succeeded" : "failed";
       const finalPolicyDecisions = Object.freeze([...policyDecisions]);
+      const hookDecisions = hookExecutor.snapshot();
       const summary = jsonObject({
         harnessId: input.harness.id,
         adapter: "pi",
@@ -1315,6 +1537,7 @@ function createPiAgentHarnessAdapter(
         eventCount: events.length,
         projectionCount: projections.length,
         policyDecisionCount: finalPolicyDecisions.length,
+        hookDecisionCount: hookDecisions.length,
       });
       const artifacts = await writeHarnessArtifacts({
         artifactStore: context.artifacts,
@@ -1327,6 +1550,7 @@ function createPiAgentHarnessAdapter(
         events,
         projections,
         policyDecisions: finalPolicyDecisions,
+        hookDecisions,
         summary,
       });
       const finalEvents = eventStream.snapshot();
@@ -1345,6 +1569,7 @@ function createPiAgentHarnessAdapter(
         projections: finalProjections,
         artifacts,
         policyDecisions: finalPolicyDecisions,
+        hookDecisions,
         ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
       });
     },

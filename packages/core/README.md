@@ -46,6 +46,9 @@ Current runtime bridge:
 - Harness role binding is effect-based. Planner/explorer roles get read
   capabilities, builder gets edit/terminal access, and verifier gets terminal
   execution for checks without direct file write/edit tools.
+- Agent lifecycle hooks can inject prompt context, observe permission decisions,
+  wrap supported tool calls, and record `hook.*` events plus hook-decision
+  artifacts.
 - `runHarnessBenchmark(options)` compiles Harness DSL contracts from the SDK,
   then runs trials through the configured runtime helper for benchmark fixtures
 

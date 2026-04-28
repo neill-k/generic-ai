@@ -288,6 +288,8 @@ BenchmarkSpec, TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch types.
 `runHarnessBenchmark()` consumes compiled harnesses through the normal runtime
 path.
 
+Agent lifecycle hooks are documented in [`docs/agent-lifecycle-hooks.md`](docs/agent-lifecycle-hooks.md). They use `.generic-ai/hooks.yaml` to inject prompt context, observe permission decisions, and intercept supported tool lifecycle points with inspectable hook evidence.
+
 ## Sandbox Execution Docs
 
 The sandbox stack has its own operator and API docs pack:
