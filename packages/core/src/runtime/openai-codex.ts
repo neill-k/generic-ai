@@ -504,20 +504,56 @@ export function createOpenAICodexRuntime(
         throw createAbortError("before");
       }
 
-      const { modelId, session } = await createSession(input, dependencies);
+      const turnMode = options?.turnMode ?? input.turnMode ?? "stop-tool-loop";
+      const stopState: StopAndRespondState = { stopped: false };
+      const { modelId, session } = await createSession(
+        input,
+        dependencies,
+        turnMode === "single-turn" ? undefined : stopState,
+      );
       const queue = createAsyncEventQueue<GenericAILlmStreamChunk>();
       const unsubscribe = session.subscribe?.((event) => {
         queue.push(createRuntimeEventChunk(event));
       });
       let promptError: unknown;
-      const promptPromise = awaitPromptWithAbort(
-        session.prompt(prompt, {
-          source: "extension",
-          ...(options?.signal === undefined ? {} : { signal: options.signal }),
-        }),
-        options?.signal,
-        () => session.dispose?.(),
-      ).then(
+      let response: GenericAILlmRunResult | undefined;
+      const promptPromise = (async () => {
+        if (turnMode === "single-turn") {
+          await awaitPromptWithAbort(
+            session.prompt(prompt, {
+              source: "extension",
+              ...(options?.signal === undefined ? {} : { signal: options.signal }),
+            }),
+            options?.signal,
+            () => session.dispose?.(),
+          );
+          response = toRunResult(modelId, extractLatestAssistantText(session), undefined);
+          return;
+        }
+
+        const loop = await runStopToolLoop({
+          prompt,
+          state: stopState,
+          maxTurns: options?.maxTurns ?? input.maxTurns,
+          promptOptions: {
+            source: "extension",
+            ...(options?.signal === undefined ? {} : { signal: options.signal }),
+          },
+          runPrompt: async (loopPrompt, promptOptions) =>
+            await awaitPromptWithAbort(
+              session.prompt(loopPrompt, promptOptions),
+              options?.signal,
+              () => session.dispose?.(),
+            ),
+        });
+        if (!loop.stopped || loop.outputText === undefined) {
+          throw new Error(
+            `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop.turnCount} turn(s).`,
+          );
+        }
+
+        response = toRunResult(modelId, loop.outputText, undefined);
+      })().then(
         () => {
           queue.close();
         },
@@ -541,10 +577,13 @@ export function createOpenAICodexRuntime(
         if (promptError !== undefined) {
           throw promptError;
         }
+        if (response === undefined) {
+          throw new Error("Pi OpenAI Codex runtime stream completed without a response.");
+        }
 
         yield {
           type: "response",
-          response: toRunResult(modelId, extractLatestAssistantText(session), undefined),
+          response,
         } as const;
       } finally {
         unsubscribe?.();
