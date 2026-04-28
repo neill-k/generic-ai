@@ -28,6 +28,12 @@ npm run docs:check
 
 The repo targets Node 24 and npm 11. For full-workspace verification, use the root `npm run typecheck`, which runs `tsc -b --pretty` (emit + cleanup) for this project-reference layout. Individual package-level `typecheck` scripts may still use `--noEmit` for faster local iteration, but do not replace the root workspace check with `tsc -b --noEmit`.
 
+When editing `examples/starter-hono/ui/`, rebuild the Vite assets with `npm run -w @generic-ai/example-starter-hono build:ui` before browser verification. The root `npm run build` runs TypeScript project references and does not refresh the served UI bundle.
+
+For publish or package-surface changes, verify the actual npm payload with `npm pack --workspace <package-name> --dry-run --json`; for example, use `npm pack --workspace @generic-ai/plugin-web-ui --dry-run --json` when touching the web UI plugin publish surface.
+
 ## Documentation
 
 When a change alters public behavior, package ownership, configuration, or operational expectations, update docs in the same PR. ADRs live under `docs/decisions/` and should be added for cross-package decisions or explicit Linear decision-log requirements.
+
+For docs-only changes, `npm run docs:check` is the authoritative generated-docs gate. If it reports stale generated docs, run `npm run docs` and review the generated diff; Markdown content still needs manual readback because Biome does not lint Markdown in this repo.
