@@ -184,6 +184,7 @@ Recommended contents:
 - storage contract
 - workspace contract
 - queue contract
+- memory service contract
 - output-plugin contract
 - typed helpers for writing plugins and presets
 - Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI,

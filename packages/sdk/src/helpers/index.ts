@@ -2,6 +2,7 @@ export * from "./create-registry.js";
 export * from "./create-scope.js";
 export * from "./define-config-schema.js";
 export * from "./define-lifecycle.js";
+export * from "./define-memory.js";
 export * from "./define-output-plugin.js";
 export * from "./define-plugin.js";
 export * from "./define-queue.js";

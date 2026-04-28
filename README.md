@@ -128,7 +128,7 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 - [`@generic-ai/plugin-delegation`](packages/plugin-delegation) — delegation business model; kernel retains child-session lifecycle.
 - [`@generic-ai/plugin-interaction`](packages/plugin-interaction) — blocking user questions plus visible task-list publishing through standard `pi` tools.
 - [`@generic-ai/plugin-messaging`](packages/plugin-messaging) — durable, storage-backed inter-agent messaging.
-- [`@generic-ai/plugin-memory-files`](packages/plugin-memory-files) — file-backed persistent agent memory with search.
+- [`@generic-ai/plugin-memory-files`](packages/plugin-memory-files) — file-backed persistent agent memory with search; the reference `MemoryService` implementation for richer memory plugins.
 
 ### Transport and preset
 
@@ -164,7 +164,7 @@ The sandbox stack has its own operator and API docs pack:
 
 Remaining tracked work:
 
-- **Epic 7 - Deferred but planned tracks:** `DEF-02` Postgres storage and `DEF-03` external queueing remain open. Identity/auth posture is captured in [`docs/identity-auth.md`](docs/identity-auth.md), runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md), and advanced observability is captured in [`docs/advanced-observability.md`](docs/advanced-observability.md).
+- **Epic 7 - Deferred but planned tracks:** `DEF-02` Postgres storage and `DEF-03` external queueing remain open. Identity/auth posture is captured in [`docs/identity-auth.md`](docs/identity-auth.md), runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md), advanced observability is captured in [`docs/advanced-observability.md`](docs/advanced-observability.md), and richer memory plugin sequencing is captured in [`docs/memory-plugins.md`](docs/memory-plugins.md).
 - **Sandbox plugin P2 hardening (`NEI-383`):** DNS-rebinding defense in the allowlist proxy, proxy readiness probe, writable-rootfs tightening, and the rest of the deferred bot findings from the NEI-372 rollup.
 
 See [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) for full scope and dependency links.
