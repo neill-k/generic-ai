@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+@source "../../../../packages/plugin-web-ui/src/**/*.{ts,tsx}";
+@source "../../../../node_modules/streamdown/dist/*.js";
+
 @custom-variant dark (&:is(.dark *));
 
 :root {

@@ -22,6 +22,7 @@ const packageAliases = [
   "plugin-memory-files",
   "plugin-output-default",
   "plugin-hono",
+  "plugin-web-ui",
 ];
 
 export default defineConfig({
@@ -29,7 +30,20 @@ export default defineConfig({
     alias: packageAliases.map((packageName) => ({
       find: new RegExp(`^@generic-ai/${packageName}$`),
       replacement: resolve(__dirname, `packages/${packageName}/src/index.ts`),
-    })),
+    })).concat([
+      {
+        find: /^@generic-ai\/plugin-web-ui\/client$/,
+        replacement: resolve(__dirname, "packages/plugin-web-ui/src/client.tsx"),
+      },
+      {
+        find: /^@generic-ai\/plugin-web-ui\/server$/,
+        replacement: resolve(__dirname, "packages/plugin-web-ui/src/server.ts"),
+      },
+      {
+        find: /^@generic-ai\/plugin-web-ui\/agent-tools$/,
+        replacement: resolve(__dirname, "packages/plugin-web-ui/src/agent-tools.ts"),
+      },
+    ]),
   },
   test: {
     include: [

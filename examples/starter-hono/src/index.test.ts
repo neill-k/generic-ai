@@ -1,13 +1,15 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
+  createAgentHarness,
   CreateGenericAILlmRuntimeOptions,
   GenericAILlmRuntime,
   GenericAILlmRunResult,
 } from "@generic-ai/core";
 import {
+  STARTER_DEFAULT_START_DIR,
   createStarterExampleFetch,
   createStarterExampleServer,
   loadStarterExampleEnvironment,
@@ -15,6 +17,7 @@ import {
 import { runStarterExampleCli } from "./run.js";
 
 const openServers: Array<() => Promise<void>> = [];
+type HarnessRunInput = Parameters<ReturnType<typeof createAgentHarness>["run"]>[0];
 
 function createFakeRuntime(outputText: string): GenericAILlmRuntime {
   return {
@@ -51,6 +54,7 @@ describe("@generic-ai/example-starter-hono", () => {
         expect(options.apiKey).toBe("test-key");
         expect(options.model).toBe("gpt-5.5");
         expect(options.cwd).toContain(path.join("examples", "starter-hono"));
+        expect(options.agentDir).toBeUndefined();
         expect(options.instructions).toContain("Generic AI starter example agent");
         return createFakeRuntime("runtime result");
       },
@@ -99,6 +103,16 @@ describe("@generic-ai/example-starter-hono", () => {
       expect(payload.result.status).toBe("succeeded");
       expect(payload.result.output?.payload?.outputText).toBe("runtime result: hello runtime");
       expect(createRuntime).toHaveBeenCalledOnce();
+
+      const consoleHealth = await starter.app.request("/console/api/health");
+      expect(consoleHealth.status).toBe(200);
+      expect(await consoleHealth.json()).toMatchObject({
+        plugin: "@generic-ai/plugin-web-ui",
+        config: {
+          ok: true,
+          primaryAgent: "starter",
+        },
+      });
     } finally {
       await starter.stop();
     }
@@ -131,6 +145,109 @@ describe("@generic-ai/example-starter-hono", () => {
       expect(streamedText).toContain("streamed result: stream me");
     } finally {
       await starter.stop();
+    }
+  });
+
+  it("routes console chat through the applied harness instead of echoing the user message", async () => {
+    const startDir = await mkdtemp(path.join(tmpdir(), "generic-ai-console-harness-"));
+    await cp(
+      path.join(STARTER_DEFAULT_START_DIR, ".generic-ai"),
+      path.join(startDir, ".generic-ai"),
+      { recursive: true },
+    );
+    const harnessInstructions: string[] = [];
+    const harnessToolNames: string[][] = [];
+    const harnessWorkspaceRoots: string[] = [];
+    const createHarness: typeof createAgentHarness = vi.fn((config) => {
+      return {
+        config,
+        adapter: {
+          id: `${config.id}:fake`,
+          kind: "pi",
+          run: async () => {
+            throw new Error("The fake adapter should not be called directly.");
+          },
+        },
+        run: async (input: HarnessRunInput) => {
+          harnessInstructions.push(input.instruction);
+          harnessWorkspaceRoots.push(input.workspaceRoot);
+          harnessToolNames.push(
+            input.capabilities?.fileTools?.piTools.map((tool) => tool.name).sort() ?? [],
+          );
+          return {
+            harnessId: config.id,
+            adapter: "pi",
+            status: "succeeded",
+            outputText: "harness actually ran through pipeline",
+            envelope: {} as never,
+            events: [],
+            projections: [],
+            artifacts: [],
+            policyDecisions: [],
+          };
+        },
+      };
+    }) as never;
+
+    const starter = await createStarterExampleServer({
+      env: {
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+      },
+      startDir,
+      createRuntime: async () => createFakeRuntime("runtime fallback"),
+      createHarness,
+    });
+
+    try {
+      const token = starter.webUi.sessionToken;
+      const apply = await starter.app.request("/console/api/templates/pipeline/apply", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-generic-ai-web-ui-token": token,
+        },
+        body: JSON.stringify({
+          dryRun: false,
+          idempotencyKey: "pipeline-console-chat-test",
+        }),
+      });
+      expect(apply.status).toBe(200);
+      expect(await apply.json()).toMatchObject({ ok: true });
+
+      const posted = await starter.app.request("/console/api/chat/threads/demo/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-generic-ai-web-ui-token": token,
+        },
+        body: JSON.stringify({ content: "Do actual work" }),
+      });
+
+      expect(posted.status).toBe(200);
+      const detail = (await posted.json()) as {
+        readonly messages: readonly { readonly role: string; readonly content: string }[];
+      };
+      expect(detail.messages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ role: "user", content: "Do actual work" }),
+          expect.objectContaining({
+            role: "assistant",
+            content: "harness actually ran through pipeline",
+          }),
+        ]),
+      );
+      expect(detail.messages.some((message) => message.content === "echo: Do actual work")).toBe(
+        false,
+      );
+      expect(createHarness).toHaveBeenCalledOnce();
+      expect(harnessWorkspaceRoots[0]).toBe(startDir);
+      expect(harnessToolNames[0]).toEqual(["find", "grep", "ls", "read"]);
+      expect(harnessInstructions[0]).toContain("Selected harness id: pipeline");
+      expect(harnessInstructions[0]).toContain("Selected agent id: pipeline-intake");
+      expect(harnessInstructions[0]).toContain("User task:\nDo actual work");
+    } finally {
+      await starter.stop();
+      await rm(startDir, { force: true, recursive: true });
     }
   });
 
@@ -198,7 +315,10 @@ describe("@generic-ai/example-starter-hono", () => {
       const api = await fetchHandler(new Request("http://starter.test/starter/health"));
       expect(api.status).toBe(404);
       expect(await api.text()).toBe("transport:/starter/health");
-      expect(transportFetch).toHaveBeenCalledTimes(1);
+      const consoleApi = await fetchHandler(new Request("http://starter.test/console/api/health"));
+      expect(consoleApi.status).toBe(404);
+      expect(await consoleApi.text()).toBe("transport:/console/api/health");
+      expect(transportFetch).toHaveBeenCalledTimes(2);
     } finally {
       await rm(publicDir, { force: true, recursive: true });
     }

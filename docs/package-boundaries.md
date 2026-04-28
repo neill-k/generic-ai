@@ -9,6 +9,7 @@ This document maps every package in the Generic AI monorepo to its role, its all
 - Monorepo scaffold decision record: `docs/decisions/0001-monorepo-scaffold.md`
 - Base toolchain decision record: `docs/decisions/0002-base-toolchain.md`
 - Release and publishing decision record: `docs/decisions/0003-release-and-publishing.md`
+- Web UI plugin console decision record: `docs/decisions/0028-web-ui-plugin-console.md`
 - Release playbook: `RELEASING.md`
 
 When any of this document conflicts with the planning pack, the planning pack wins and this document should be updated to match.
@@ -48,7 +49,7 @@ Anything outside these rules needs an entry in `docs/decisions/` explaining the 
 
 Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and the repo root itself are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
-- **Public (22 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
+- **Public (23 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
 - **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. Any new workspace under `examples/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
@@ -208,6 +209,13 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: official-but-optional Hono integration plugin.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `hono`.
 - Not responsible for: being part of the kernel or making Hono mandatory at the core layer.
+
+### `@generic-ai/plugin-web-ui`
+
+- Role: local-first web console plugin. Owns the browser client, Hono console adapter, guarded composer surface, chat/run viewer, and multi-agent architecture template catalog.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-config-yaml`, `@generic-ai/plugin-hono`, `pi`, Hono, React, and browser-build helper libraries used only by the client entrypoint.
+- Not responsible for: kernel execution, preset composition, hosted multi-tenant auth, raw terminal proxying, or inventing config persistence outside `@generic-ai/plugin-config-yaml`.
+- Notes: server, client, agent-tools, and CSS are exported from separate subpaths. Browser code must not import Node built-ins, `@generic-ai/core`, presets, or server entrypoints. Mutating Hono routes require same-origin checks plus a local session token. See `docs/decisions/0028-web-ui-plugin-console.md`.
 
 ## Planned Deferred Package Boundaries
 

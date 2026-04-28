@@ -21,6 +21,7 @@
       "!**/*.tsbuildinfo",
       "!**/.turbo",
       "!**/.cache",
+      "!%SystemDrive%",
       "!.claude",
       "!.codex",
       "!.agents/scratch",

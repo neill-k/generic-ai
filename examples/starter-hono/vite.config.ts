@@ -12,10 +12,15 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(packageDir, "ui", "src"),
+      "@generic-ai/plugin-web-ui/client": resolve(
+        packageDir,
+        "../../packages/plugin-web-ui/src/client.tsx",
+      ),
     },
   },
   server: {
     proxy: {
+      "/console/api": "http://127.0.0.1:3000",
       "/starter": "http://127.0.0.1:3000",
     },
   },

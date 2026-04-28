@@ -1,8 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  createAgentHarness,
   createGenericAILlmRuntime,
   DEFAULT_GENERIC_AI_RUNTIME_ADAPTER,
   DEFAULT_OPENAI_CODEX_MODEL,
@@ -16,7 +18,15 @@ import {
   type HonoAuthorizeHandler,
   type HonoPlugin,
 } from "@generic-ai/plugin-hono";
+import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
+import { createHonoWebUiTransport, createWebUiPlugin } from "@generic-ai/plugin-web-ui/server";
+import type { WebUiHarnessRunnerInput, WebUiHarnessRunnerResult } from "@generic-ai/plugin-web-ui";
 import { createStarterHonoBootstrapFromYaml } from "@generic-ai/preset-starter-hono";
+import {
+  getAgentHarnessToolEffects,
+  type AgentHarnessConfig,
+  type AgentHarnessRunResult,
+} from "@generic-ai/sdk";
 
 const providerKeyName = "GENERIC_AI_PROVIDER_API_KEY";
 const modelName = "GENERIC_AI_MODEL";
@@ -55,6 +65,7 @@ const STATIC_MIME_TYPES: Readonly<Record<string, string>> = {
 } as const;
 
 export const STARTER_ROUTE_PREFIX = "/starter" as const;
+export const WEB_UI_ROUTE_PREFIX = "/console/api" as const;
 export const STARTER_DEFAULT_START_DIR = PACKAGE_ROOT;
 
 export class StarterExampleConfigError extends Error {
@@ -79,6 +90,8 @@ export interface StarterExampleEnvironment {
 export interface StarterExampleServer {
   readonly app: HonoPlugin["app"];
   readonly transport: HonoPlugin;
+  readonly webUi: ReturnType<typeof createWebUiPlugin>;
+  readonly webUiTransport: ReturnType<typeof createHonoWebUiTransport>;
   readonly fetch: (request: Request) => Promise<Response> | Response;
   readonly bootstrap: GenericAIConfiguredBootstrap<GenericAILlmRuntime>;
   readonly runtime: GenericAILlmRuntime;
@@ -94,6 +107,7 @@ export interface StarterExampleServerOptions {
   readonly createRuntime?: (
     options: CreateGenericAILlmRuntimeOptions,
   ) => Promise<GenericAILlmRuntime> | GenericAILlmRuntime;
+  readonly createHarness?: typeof createAgentHarness;
 }
 
 function readTrimmedEnv(env: NodeJS.ProcessEnv, ...keys: readonly string[]): string | undefined {
@@ -264,6 +278,112 @@ function normalizePrompt(input: unknown): string {
   return JSON.stringify(input, null, 2);
 }
 
+function createReadOnlyHarnessCapabilities(workspaceRoot: string) {
+  const files = createWorkspaceFileTools({ root: workspaceRoot });
+  return {
+    fileTools: {
+      piTools: files.piTools.filter((tool) => {
+        const effects = getAgentHarnessToolEffects(tool);
+        return effects.length > 0 && effects.every((effect) => effect !== "fs.write");
+      }),
+    },
+  };
+}
+
+function buildHarnessInstruction(input: WebUiHarnessRunnerInput): string {
+  const agentLines =
+    input.agent === undefined
+      ? []
+      : [
+          `Selected agent id: ${input.agent.id}`,
+          ...(input.agent.displayName === undefined
+            ? []
+            : [`Selected agent name: ${input.agent.displayName}`]),
+          ...(input.agent.model === undefined ? [] : [`Selected agent model: ${input.agent.model}`]),
+          ...(input.agent.instructions === undefined
+            ? []
+            : ["Selected agent instructions:", input.agent.instructions]),
+          "",
+        ];
+
+  return [
+    ...agentLines,
+    ...(input.harness === undefined
+      ? []
+      : [
+          `Selected harness id: ${input.harness.id}`,
+          ...(input.harness.displayName === undefined
+            ? []
+            : [`Selected harness name: ${input.harness.displayName}`]),
+          "",
+        ]),
+    "User task:",
+    input.message.content,
+  ].join("\n");
+}
+
+async function runConfiguredConsoleHarness(input: {
+  readonly request: WebUiHarnessRunnerInput;
+  readonly runtime: GenericAILlmRuntime;
+  readonly workspaceRoot: string;
+  readonly createHarness: typeof createAgentHarness;
+}): Promise<WebUiHarnessRunnerResult> {
+  if (input.request.harness === undefined) {
+    const result = await input.runtime.run(input.request.message.content, {
+      signal: input.request.signal,
+    });
+    return {
+      content: result.outputText,
+      status: "completed",
+      metadata: {
+        adapter: result.adapter,
+        model: result.model,
+        runner: "runtime",
+      },
+    };
+  }
+
+  if (input.request.signal.aborted) {
+    throw new Error("Console harness run was aborted before dispatch.");
+  }
+
+  const harness = input.createHarness(input.request.harness as AgentHarnessConfig);
+  const artifactDir = resolve(
+    input.workspaceRoot,
+    input.request.harness.artifactDir ?? ".generic-ai/artifacts/web-ui",
+  );
+  const rootAgentId =
+    input.request.harness.primaryAgent ??
+    input.request.agent?.id ??
+    input.request.thread.selectedAgentId;
+  const result = (await harness.run({
+    instruction: buildHarnessInstruction(input.request),
+    workspaceRoot: input.workspaceRoot,
+    artifactDir,
+    ...(rootAgentId === undefined ? {} : { rootAgentId }),
+    capabilities: createReadOnlyHarnessCapabilities(input.workspaceRoot),
+  })) as AgentHarnessRunResult;
+
+  return {
+    content:
+      result.outputText.trim().length > 0
+        ? result.outputText
+        : result.failureMessage ?? "Harness run completed without output.",
+    status: result.status === "succeeded" ? "completed" : "failed",
+    metadata: {
+      runner: "agent-harness",
+      harnessId: result.harnessId,
+      adapter: result.adapter,
+      eventCount: result.events.length,
+      projectionCount: result.projections.length,
+      artifactCount: result.artifacts.length,
+      policyDecisionCount: result.policyDecisions.length,
+      ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
+      ...(result.errorCategory === undefined ? {} : { errorCategory: result.errorCategory }),
+    },
+  };
+}
+
 function isInsideDirectory(root: string, target: string): boolean {
   const pathFromRoot = relative(root, target);
   return pathFromRoot === "" || (!pathFromRoot.startsWith("..") && !isAbsolute(pathFromRoot));
@@ -338,7 +458,10 @@ export function createStarterExampleFetch(
   return async (request) => {
     const url = new URL(request.url);
 
-    if (url.pathname.startsWith(`${STARTER_ROUTE_PREFIX}/`)) {
+    if (
+      url.pathname.startsWith(`${STARTER_ROUTE_PREFIX}/`) ||
+      url.pathname.startsWith(`${WEB_UI_ROUTE_PREFIX}/`)
+    ) {
       return transportFetch(request);
     }
 
@@ -406,6 +529,7 @@ export async function createStarterExampleServer(
   const startDir = resolve(options.startDir ?? STARTER_DEFAULT_START_DIR);
   const environment = loadStarterExampleEnvironment(options.env, startDir);
   const createRuntime = options.createRuntime ?? createGenericAILlmRuntime;
+  const createHarness = options.createHarness ?? createAgentHarness;
   const bootstrap = await createStarterHonoBootstrapFromYaml<GenericAILlmRuntime>({
     startDir,
     startRuntime: (input) => {
@@ -417,7 +541,6 @@ export async function createStarterExampleServer(
         model:
           environment.model ?? input.runtimePlan.primaryAgent.model ?? DEFAULT_OPENAI_CODEX_MODEL,
         cwd: workspaceRoot,
-        agentDir: resolve(workspaceRoot, ".pi", "agent"),
         ...(input.runtimePlan.primaryAgent.instructions === undefined
           ? {}
           : { instructions: input.runtimePlan.primaryAgent.instructions }),
@@ -468,6 +591,36 @@ export async function createStarterExampleServer(
       }
     },
   });
+  const webUi = createWebUiPlugin({
+    workspaceRoot,
+    ...(environment.authToken === undefined ? {} : { sessionToken: environment.authToken }),
+    harnessRunner: (request) =>
+      runConfiguredConsoleHarness({
+        request,
+        runtime,
+        workspaceRoot,
+        createHarness,
+      }),
+  });
+  const webUiTransport = createHonoWebUiTransport(webUi, {
+    routePrefix: "/console/api",
+    security: {
+      sessionToken: webUi.sessionToken,
+      allowRemote: environment.exposure !== "loopback",
+      ...(authorize === undefined
+        ? {}
+        : {
+            authorize: (request) =>
+              authorize({
+                request,
+                requestId: randomUUID(),
+                mode: "sync",
+                signal: request.signal,
+              }),
+          }),
+    },
+  });
+  transport.app.route("/", webUiTransport.app);
   const fetch = createStarterExampleFetch(transport.fetch, {
     ...(options.uiPublicDir === undefined ? {} : { publicDir: options.uiPublicDir }),
   });
@@ -476,6 +629,8 @@ export async function createStarterExampleServer(
     app: transport.app,
     fetch,
     transport,
+    webUi,
+    webUiTransport,
     bootstrap,
     runtime,
     environment,

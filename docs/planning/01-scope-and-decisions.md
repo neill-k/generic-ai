@@ -220,7 +220,9 @@ The concrete resumption plan for the deferred advanced-observability track now
 lives in [`docs/advanced-observability.md`](../advanced-observability.md).
 
 The concrete resumption plan for the deferred identity/auth track now lives in
-[`docs/identity-auth.md`](../identity-auth.md).
+[`docs/identity-auth.md`](../identity-auth.md). The web UI track resumes as the
+local-first `@generic-ai/plugin-web-ui` console in
+[`docs/decisions/0028-web-ui-plugin-console.md`](../decisions/0028-web-ui-plugin-console.md).
 
 Hosted package registry, marketplace behavior, visual builders, autonomous
 self-mutation, and broad workflow-engine semantics are deferred beyond the v0.1

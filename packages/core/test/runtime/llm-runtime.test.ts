@@ -104,6 +104,42 @@ describe("@generic-ai/core llm runtime adapter", () => {
     expect(resourceLoaderFactory).toHaveBeenCalled();
   });
 
+  it("lets the Pi OpenAI Codex provider attempt OAuth auth even when auth preflight is conservative", async () => {
+    const prompt = vi.fn(async () => undefined);
+    const runtime = await createGenericAILlmRuntime(
+      {},
+      {
+        openai: {
+          authStorageFactory: () => ({
+            setRuntimeApiKey: vi.fn(),
+          }),
+          modelRegistryFactory: () => ({
+            find: () => ({ id: "gpt-5.5" }),
+            hasConfiguredAuth: () => false,
+          }),
+          resourceLoaderFactory: () => ({
+            reload: async () => undefined,
+          }),
+          createAgentSession: async () =>
+            ({
+              session: {
+                messages: [{ role: "assistant", content: "oauth auth result" }],
+                prompt,
+              },
+            }) as never,
+        },
+      },
+    );
+
+    await expect(runtime.run("ping")).resolves.toMatchObject({
+      adapter: "openai-codex",
+      outputText: "oauth auth result",
+    });
+    expect(prompt).toHaveBeenCalledWith("ping", {
+      source: "extension",
+    });
+  });
+
   it("streams a terminal response from the Pi OpenAI Codex path", async () => {
     const runtime = createOpenAICodexRuntime(
       {

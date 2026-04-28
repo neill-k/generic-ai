@@ -1,5 +1,6 @@
 import {
   ActivityIcon,
+  BotIcon,
   CheckIcon,
   ClipboardIcon,
   Code2Icon,
@@ -7,13 +8,13 @@ import {
   ExternalLinkIcon,
   EyeIcon,
   FileTextIcon,
+  LayoutTemplateIcon,
   PlayIcon,
   RefreshCwIcon,
   ShieldIcon,
   SquareIcon,
   WandSparklesIcon,
-  WifiIcon,
-  WifiOffIcon,
+  WorkflowIcon,
 } from "lucide-react";
 import {
   useCallback,
@@ -21,12 +22,19 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactElement,
 } from "react";
+import { GenericAIConsole, type ConsoleTab } from "@generic-ai/plugin-web-ui/client";
 import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
+import {
+  Message,
+  MessageContent,
+  MessageResponse,
+} from "@/components/ai-elements/message";
 import {
   PromptInput,
   PromptInputBody,
@@ -53,6 +61,7 @@ type RunMode = "sync" | "stream";
 type RunStatus = "ready" | "submitted" | "streaming" | "error";
 type OutputView = "preview" | "code" | "events";
 type ChatRole = "user" | "assistant";
+type StudioTab = "playground" | ConsoleTab;
 
 interface HealthPayload {
   adapter?: string;
@@ -82,6 +91,10 @@ interface ParsedSseMessage {
 
 interface OutputTextCarrier {
   outputText?: unknown;
+}
+
+interface ErrorMessageCarrier {
+  message?: unknown;
 }
 
 const AUTH_STORAGE_KEY = "generic-ai.playground.auth-token";
@@ -184,6 +197,65 @@ function findOutputText(value: unknown, seen = new Set<unknown>()): string | und
   return undefined;
 }
 
+function readErrorMessage(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const { message } = value as ErrorMessageCarrier;
+  return typeof message === "string" ? message : undefined;
+}
+
+function findRunFailure(value: unknown, seen = new Set<unknown>()): string | undefined {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findRunFailure(item, seen);
+      if (found !== undefined) {
+        return found;
+      }
+    }
+    return undefined;
+  }
+
+  if (!isRecord(value) || seen.has(value)) {
+    return undefined;
+  }
+
+  seen.add(value);
+
+  if (value["status"] === "failed" || value["status"] === "error") {
+    const output = value["output"];
+    if (isRecord(output)) {
+      const payload = output["payload"];
+      if (isRecord(payload)) {
+        const payloadError = readErrorMessage(payload["error"]);
+        if (payloadError !== undefined) {
+          return payloadError;
+        }
+      }
+
+      if (typeof output["summary"] === "string") {
+        return output["summary"];
+      }
+    }
+
+    return "Run failed.";
+  }
+
+  for (const nested of Object.values(value)) {
+    const found = findRunFailure(nested, seen);
+    if (found !== undefined) {
+      return found;
+    }
+  }
+
+  return undefined;
+}
+
 function stripMarkdownFence(output: string) {
   const trimmed = output.trim();
   const fenced = /^```(?:html)?\s*([\s\S]*?)```$/i.exec(trimmed);
@@ -218,7 +290,92 @@ function summarizePrompt(prompt: string) {
   return compact.length > 420 ? `${compact.slice(0, 420)}...` : compact;
 }
 
-export function App() {
+const studioTabs: readonly {
+  id: StudioTab;
+  label: string;
+  icon: typeof WorkflowIcon;
+}[] = [
+  { id: "playground", label: "Generate", icon: WandSparklesIcon },
+  { id: "chat", label: "Chat", icon: BotIcon },
+  { id: "config", label: "Config", icon: FileTextIcon },
+  { id: "templates", label: "Templates", icon: LayoutTemplateIcon },
+];
+
+function initialStudioTab(): StudioTab {
+  return window.location.pathname.startsWith("/console") ? "chat" : "playground";
+}
+
+function updateStudioPath(tab: StudioTab): void {
+  const nextPath = tab === "playground" ? "/" : "/console";
+  if (window.location.pathname === nextPath) {
+    return;
+  }
+
+  window.history.replaceState(null, "", `${nextPath}${window.location.search}`);
+}
+
+export function App(): ReactElement {
+  const [tab, setTab] = useState<StudioTab>(initialStudioTab);
+  const consoleTab = tab === "playground" ? "chat" : tab;
+
+  const selectTab = useCallback((nextTab: StudioTab) => {
+    setTab(nextTab);
+    updateStudioPath(nextTab);
+  }, []);
+
+  return (
+    <TooltipProvider>
+      <div className="grid min-h-screen grid-cols-[240px_minmax(0,1fr)] bg-background text-foreground max-lg:grid-cols-1">
+        <aside className="min-w-0 border-r bg-card/40 p-4 max-lg:border-b max-lg:border-r-0">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-secondary">
+              <WorkflowIcon className="size-5" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-sm font-semibold">Generic AI Studio</h1>
+              <p className="truncate text-xs text-muted-foreground">
+                {tab === "playground" ? "generate" : consoleTab}
+              </p>
+            </div>
+          </div>
+          <nav aria-label="Studio sections" className="grid gap-2">
+            {studioTabs.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Button
+                  aria-pressed={tab === item.id}
+                  className="justify-start"
+                  key={item.id}
+                  onClick={() => selectTab(item.id)}
+                  type="button"
+                  variant={tab === item.id ? "default" : "ghost"}
+                >
+                  <Icon className="size-4" />
+                  {item.label}
+                </Button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <main className="min-w-0">
+          {tab === "playground" ? (
+            <StarterPlayground />
+          ) : (
+            <GenericAIConsole
+              activeTab={consoleTab}
+              apiBase="/console/api"
+              shell="embedded"
+              onTabChange={selectTab}
+            />
+          )}
+        </main>
+      </div>
+    </TooltipProvider>
+  );
+}
+
+function StarterPlayground() {
   const [prompt, setPrompt] = useState(() => localStorage.getItem(PROMPT_STORAGE_KEY) ?? spaceshipPrompt);
   const [authToken, setAuthToken] = useState(() => localStorage.getItem(AUTH_STORAGE_KEY) ?? "");
   const [mode, setMode] = useState<RunMode>("stream");
@@ -326,6 +483,11 @@ export function App() {
         throw new Error(`Run failed with HTTP ${response.status}: ${responseText}`);
       }
 
+      const failure = findRunFailure(payload);
+      if (failure !== undefined) {
+        throw new Error(failure);
+      }
+
       recordOutput(payload, responseText);
     },
     [recordOutput, requestHeaders],
@@ -383,6 +545,11 @@ export function App() {
         if (done) {
           break;
         }
+      }
+
+      const failure = findRunFailure(finalPayload);
+      if (failure !== undefined) {
+        throw new Error(failure);
       }
 
       recordOutput(latestOutput ?? finalPayload, latestOutput ?? fallbackText);
@@ -488,8 +655,7 @@ export function App() {
   const healthReady = health !== null && healthError === null;
 
   return (
-    <TooltipProvider>
-      <main className="min-h-screen bg-background text-foreground">
+      <section className="min-h-screen bg-background text-foreground">
         <header className="flex min-h-16 items-center justify-between border-b px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-secondary">
@@ -509,7 +675,6 @@ export function App() {
                 healthReady ? "border-emerald-500/30 text-emerald-300" : "border-destructive/30 text-destructive",
               )}
             >
-              {healthReady ? <WifiIcon className="size-3.5" /> : <WifiOffIcon className="size-3.5" />}
               {healthReady ? "Ready" : "Offline"}
             </span>
             <Button onClick={() => void refreshHealth()} size="icon" title="Refresh health" variant="ghost">
@@ -640,17 +805,11 @@ export function App() {
                     </div>
                   ) : (
                     messages.map((message) => (
-                      <div
-                        className={cn(
-                          "max-w-[95%] rounded-md text-sm leading-6",
-                          message.role === "user"
-                            ? "ml-auto bg-secondary px-4 py-3 text-foreground"
-                            : "text-foreground",
-                        )}
-                        key={message.id}
-                      >
-                        {message.content}
-                      </div>
+                      <Message from={message.role} key={message.id}>
+                        <MessageContent>
+                          <MessageResponse>{message.content}</MessageResponse>
+                        </MessageContent>
+                      </Message>
                     ))
                   )}
                 </ConversationContent>
@@ -759,7 +918,6 @@ export function App() {
             </div>
           </section>
         </div>
-      </main>
-    </TooltipProvider>
+      </section>
   );
 }

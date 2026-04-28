@@ -109,6 +109,16 @@ const internalPackageNames = new Set(workspacePackages.map((pkg) => pkg.packageN
 const violations = [];
 
 for (const workspacePackage of workspacePackages) {
+  if (
+    workspacePackage.kind === "other" &&
+    typeof workspacePackage.packageName === "string" &&
+    workspacePackage.packageName.startsWith("@generic-ai/")
+  ) {
+    violations.push(
+      `${path.relative(repoRoot, workspacePackage.packageJsonPath)}: package "${workspacePackage.packageName}" is not assigned to a documented Generic AI layer`,
+    );
+  }
+
   const internalDeps = [];
 
   for (const field of dependencyFields) {

@@ -115,7 +115,7 @@ async function readPayload(request: Request): Promise<HonoRunPayload> {
   };
 }
 
-function serializeChunk(chunk: HonoStreamChunk): string {
+export function serializeHonoSseChunk(chunk: HonoStreamChunk): string {
   const lines: string[] = [];
 
   if (chunk.id !== undefined) {
@@ -143,7 +143,7 @@ function serializeChunk(chunk: HonoStreamChunk): string {
   return lines.join("\n");
 }
 
-function createSseResponse(
+export function createHonoSseResponse(
   stream: AsyncIterable<HonoStreamChunk>,
   signal: AbortSignal,
 ): Response {
@@ -184,7 +184,7 @@ function createSseResponse(
               break;
             }
 
-            controller.enqueue(encoder.encode(serializeChunk(next.value)));
+            controller.enqueue(encoder.encode(serializeHonoSseChunk(next.value)));
           }
 
           controller.close();
@@ -314,7 +314,7 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
       signal: context.req.raw.signal,
     });
 
-    return createSseResponse(stream, context.req.raw.signal);
+    return createHonoSseResponse(stream, context.req.raw.signal);
   });
 
   return Object.freeze({

@@ -21,6 +21,7 @@
     { "path": "../../packages/plugin-storage-memory" },
     { "path": "../../packages/plugin-messaging" },
     { "path": "../../packages/plugin-memory-files" },
-    { "path": "../../packages/plugin-hono" }
+    { "path": "../../packages/plugin-hono" },
+    { "path": "../../packages/plugin-web-ui" }
   ]
 }

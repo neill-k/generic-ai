@@ -24,6 +24,7 @@
     { "path": "packages/plugin-memory-files" },
     { "path": "packages/plugin-output-default" },
     { "path": "packages/plugin-hono" },
+    { "path": "packages/plugin-web-ui" },
     { "path": "examples/starter-hono" },
     { "path": "examples/terminal-bench" }
   ]

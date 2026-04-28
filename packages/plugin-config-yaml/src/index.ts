@@ -18,6 +18,7 @@ export const name = "@generic-ai/plugin-config-yaml";
 export * from "./discovery.js";
 export * from "./registry.js";
 export * from "./resolution.js";
+export * from "./transactions.js";
 export * from "./validation.js";
 
 export interface LoadCanonicalConfigOptions

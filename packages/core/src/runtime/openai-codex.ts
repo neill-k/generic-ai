@@ -193,13 +193,6 @@ async function createSession(
     );
   }
 
-  if ((modelRegistry as PiModelRegistry).hasConfiguredAuth?.(model) === false) {
-    throw new Error(
-      `Pi has no configured auth for "${OPENAI_CODEX_PI_PROVIDER}/${modelId}". ` +
-        "Run `pi login` or provide GENERIC_AI_PROVIDER_API_KEY.",
-    );
-  }
-
   const resourceLoader =
     dependencies.resourceLoaderFactory?.({
       cwd,
