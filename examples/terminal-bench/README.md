@@ -114,9 +114,16 @@ examples/terminal-bench/reports/imported/<job-name>/
   mission.json
   benchmark.json
   trial-results.json
+  trial-harness-projections.json
+  trial-harness-projections.md
   benchmark-report.json
   benchmark-report.md
 ```
+
+The imported projection files summarize Harbor-collected canonical harness projections per
+trial. The importer also derives missing report `TraceEvent` inputs from those projections
+so tool calls, policy decisions, handoffs, and artifact writes survive even when a Harbor
+trial only collected `harness/harness-projections.json`.
 
 Single-task smoke reports should usually remain `insufficient_evidence`; quick runs prove several real task containers without repeated attempts, and calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
 
