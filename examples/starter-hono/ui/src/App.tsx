@@ -379,19 +379,28 @@ function eventDetail(payload: unknown, ...keys: readonly string[]): string | und
   return undefined;
 }
 
+function createRunEventInput(
+  input: Omit<RunEventInput, "detail">,
+  detail?: string,
+): RunEventInput {
+  return detail === undefined ? input : { ...input, detail };
+}
+
 function describeStreamEvent(eventName: string, payload: unknown): RunEventInput | undefined {
   const source = eventSourceName(eventName, payload);
   const type = eventPayloadType(eventName, payload);
 
   switch (eventName) {
     case "run.created":
-      return {
-        kind: "run",
-        level: "log",
-        source,
-        title: "Run created",
-        detail: eventDetail(payload, "presetId"),
-      };
+      return createRunEventInput(
+        {
+          kind: "run",
+          level: "log",
+          source,
+          title: "Run created",
+        },
+        eventDetail(payload, "presetId"),
+      );
 
     case "run.started":
       return { kind: "run", level: "log", source, title: "Run started" };
@@ -400,13 +409,15 @@ function describeStreamEvent(eventName: string, payload: unknown): RunEventInput
       return { kind: "run", level: "log", source, title: "Run completed" };
 
     case "run.failed":
-      return {
-        kind: "run",
-        level: "error",
-        source,
-        title: "Run failed",
-        detail: eventDetail(payload, "error", "message"),
-      };
+      return createRunEventInput(
+        {
+          kind: "run",
+          level: "error",
+          source,
+          title: "Run failed",
+        },
+        eventDetail(payload, "error", "message"),
+      );
 
     case "run.envelope":
       return { kind: "output", level: "log", source, title: "Preview ready" };
@@ -416,13 +427,15 @@ function describeStreamEvent(eventName: string, payload: unknown): RunEventInput
   }
 
   if (eventName === "tool") {
-    return {
-      kind: "tool",
-      level: "log",
-      source,
-      title: "Tool call",
-      detail: eventDetail(payload, "toolName", "name"),
-    };
+    return createRunEventInput(
+      {
+        kind: "tool",
+        level: "log",
+        source,
+        title: "Tool call",
+      },
+      eventDetail(payload, "toolName", "name"),
+    );
   }
 
   if (type === "message_update") {
@@ -430,64 +443,82 @@ function describeStreamEvent(eventName: string, payload: unknown): RunEventInput
   }
 
   if (type === "tool_execution_start" || eventName === "tool.call.started") {
-    return {
-      kind: "tool",
-      level: "log",
-      source,
-      title: "Tool started",
-      detail: eventDetail(payload, "toolName", "name"),
-    };
+    return createRunEventInput(
+      {
+        kind: "tool",
+        level: "log",
+        source,
+        title: "Tool started",
+      },
+      eventDetail(payload, "toolName", "name"),
+    );
   }
 
   if (type === "tool_execution_update") {
-    return {
-      kind: "tool",
-      level: "log",
-      source,
-      title: "Tool updated",
-      detail: eventDetail(payload, "toolName", "name"),
-    };
+    return createRunEventInput(
+      {
+        kind: "tool",
+        level: "log",
+        source,
+        title: "Tool updated",
+      },
+      eventDetail(payload, "toolName", "name"),
+    );
   }
 
   if (type === "tool_execution_end" || eventName === "tool.call.completed") {
     const failed = readBooleanField(eventPayloadData(payload), "isError");
-    return {
-      kind: "tool",
-      level: failed ? "error" : "log",
-      source,
-      title: failed ? "Tool failed" : "Tool completed",
-      detail: eventDetail(payload, "toolName", "name"),
-    };
+    return createRunEventInput(
+      {
+        kind: "tool",
+        level: failed ? "error" : "log",
+        source,
+        title: failed ? "Tool failed" : "Tool completed",
+      },
+      eventDetail(payload, "toolName", "name"),
+    );
   }
 
   if (eventName === "tool.call.failed") {
-    return {
-      kind: "tool",
-      level: "error",
-      source,
-      title: "Tool failed",
-      detail: eventDetail(payload, "toolName", "name", "error"),
-    };
+    return createRunEventInput(
+      {
+        kind: "tool",
+        level: "error",
+        source,
+        title: "Tool failed",
+      },
+      eventDetail(payload, "toolName", "name", "error"),
+    );
   }
 
   if (type === "message_start") {
-    return {
-      kind: "message",
-      level: "log",
-      source,
-      title: "Assistant started",
-      detail: eventDetail(payload, "role"),
-    };
+    const role = eventDetail(payload, "role");
+    return createRunEventInput(
+      {
+        kind: "message",
+        level: "log",
+        source,
+        title: role === "user" ? "User message sent" : "Assistant started",
+      },
+      role === "assistant" ? role : undefined,
+    );
   }
 
   if (type === "message_end") {
-    return {
-      kind: "message",
-      level: "log",
-      source,
-      title: "Assistant finished",
-      detail: eventDetail(payload, "role"),
-    };
+    const role = eventDetail(payload, "role");
+    return createRunEventInput(
+      {
+        kind: "message",
+        level: "log",
+        source,
+        title: role === "user" ? "User message sent" : "Assistant finished",
+      },
+      role === "assistant" ? role : undefined,
+    );
+  }
+
+  if (type === "agent_start") {
+    return { kind: "run", level: "log", source, title: "Agent started" };
   }
 
   if (type === "turn_start") {
@@ -503,13 +534,15 @@ function describeStreamEvent(eventName: string, payload: unknown): RunEventInput
   }
 
   if (type === "auto_retry_start") {
-    return {
-      kind: "system",
-      level: "warn",
-      source,
-      title: "Retry started",
-      detail: eventDetail(payload, "errorMessage"),
-    };
+    return createRunEventInput(
+      {
+        kind: "system",
+        level: "warn",
+        source,
+        title: "Retry started",
+      },
+      eventDetail(payload, "errorMessage"),
+    );
   }
 
   if (type === "auto_retry_end") {
@@ -517,23 +550,27 @@ function describeStreamEvent(eventName: string, payload: unknown): RunEventInput
   }
 
   if (type === "compaction_start") {
-    return {
-      kind: "system",
-      level: "log",
-      source,
-      title: "Context compacting",
-      detail: eventDetail(payload, "reason"),
-    };
+    return createRunEventInput(
+      {
+        kind: "system",
+        level: "log",
+        source,
+        title: "Context compacting",
+      },
+      eventDetail(payload, "reason"),
+    );
   }
 
   if (type === "compaction_end") {
-    return {
-      kind: "system",
-      level: "log",
-      source,
-      title: "Context ready",
-      detail: eventDetail(payload, "reason"),
-    };
+    return createRunEventInput(
+      {
+        kind: "system",
+        level: "log",
+        source,
+        title: "Context ready",
+      },
+      eventDetail(payload, "reason"),
+    );
   }
 
   if (type === "queue_update") {
