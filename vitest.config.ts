@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageAliases = [
   "core",
   "sdk",
+  "observability",
   "preset-starter-hono",
   "plugin-config-yaml",
   "plugin-workspace-fs",
