@@ -257,17 +257,57 @@ function metric(
   });
 }
 
-function extractMetrics(resultJson: unknown, artifactRefs: readonly string[]): readonly MetricValue[] {
-  const reward = findFirstNumber(resultJson, new Set(["reward", "score"]));
-  const duration = findFirstNumber(resultJson, new Set(["duration_sec", "duration_seconds"]));
-  const costUsd = findFirstNumber(resultJson, new Set(["cost_usd", "cost"]));
-  const successBool = findFirstBoolean(resultJson, new Set(["success", "passed"]));
+async function loadGenericAiSummary(trialDir: string): Promise<unknown | undefined> {
+  const candidates = [
+    join(trialDir, "artifacts", "generic-ai", "summary.json"),
+    join(trialDir, "agent", "generic-ai", "summary.json"),
+    join(trialDir, "agent", "summary.json"),
+  ];
+
+  for (const candidate of candidates) {
+    const summary = await readJsonIfExists(candidate);
+    if (summary !== undefined) {
+      return summary;
+    }
+  }
+
+  return undefined;
+}
+
+function extractMetrics(input: {
+  readonly resultJson: unknown;
+  readonly genericAiSummary: unknown;
+  readonly artifactRefs: readonly string[];
+}): readonly MetricValue[] {
+  const reward = findFirstNumber(input.resultJson, new Set(["reward", "score"]));
+  const duration = findFirstNumber(input.resultJson, new Set(["duration_sec", "duration_seconds"]));
+  const costUsd = findFirstNumber(input.resultJson, new Set(["cost_usd", "cost"]));
+  const successBool = findFirstBoolean(input.resultJson, new Set(["success", "passed"]));
+  const commandTimeoutCount = findFirstNumber(
+    input.genericAiSummary,
+    new Set(["commandtimeoutcount"]),
+  );
+  const outputClippedCommandCount = findFirstNumber(
+    input.genericAiSummary,
+    new Set(["outputclippedcommandcount"]),
+  );
+  const budgetExhaustedCommandCount = findFirstNumber(
+    input.genericAiSummary,
+    new Set(["budgetexhaustedcommandcount"]),
+  );
   const success = successBool ?? (reward === undefined ? undefined : reward > 0);
   const values = [
-    metric("reward", reward, artifactRefs),
-    metric("success", success === undefined ? undefined : Number(success), artifactRefs),
-    metric("duration_sec", duration, artifactRefs),
-    metric("cost_usd", costUsd, artifactRefs),
+    metric("reward", reward, input.artifactRefs),
+    metric("success", success === undefined ? undefined : Number(success), input.artifactRefs),
+    metric("duration_sec", duration, input.artifactRefs),
+    metric("cost_usd", costUsd, input.artifactRefs),
+    metric("generic_ai_command_timeout_count", commandTimeoutCount, input.artifactRefs),
+    metric("generic_ai_output_clipped_command_count", outputClippedCommandCount, input.artifactRefs),
+    metric(
+      "generic_ai_budget_exhausted_command_count",
+      budgetExhaustedCommandCount,
+      input.artifactRefs,
+    ),
   ];
 
   return Object.freeze(values.filter((value): value is MetricValue => value !== undefined));
@@ -297,6 +337,7 @@ async function importTrial(input: {
 }): Promise<BenchmarkTrialResult> {
   const trialId = basename(input.trialDir);
   const resultJson = await readJsonIfExists(join(input.trialDir, "result.json"));
+  const genericAiSummary = await loadGenericAiSummary(input.trialDir);
   const artifacts = [
     ...(await collectFileArtifacts(join(input.trialDir, "agent"), `${trialId}/agent`)),
     ...(await collectFileArtifacts(join(input.trialDir, "verifier"), `${trialId}/verifier`)),
@@ -349,7 +390,7 @@ async function importTrial(input: {
     candidateId: "generic-ai",
     harnessId: "harbor-installed-agent",
     trialId,
-    metrics: extractMetrics(resultJson, artifactRefs),
+    metrics: extractMetrics({ resultJson, genericAiSummary, artifactRefs }),
     traceEvents: Object.freeze(events.sort((left, right) => left.sequence - right.sequence)),
     artifacts: Object.freeze(artifacts),
     diagnostics: traceDiagnostics(events, artifacts.length),
@@ -411,6 +452,32 @@ function createBenchmark(input: {
       direction: "lower_is_better",
       source: "runtime",
     },
+    {
+      id: "generic_ai_command_timeout_count",
+      name: "Generic AI command timeouts",
+      unit: "count",
+      direction: "lower_is_better",
+      source: "runtime",
+      description:
+        "Commands killed by the Generic AI benchmark profile command timeout, separated from Harbor trial timeout and verifier timeout.",
+    },
+    {
+      id: "generic_ai_output_clipped_command_count",
+      name: "Generic AI output-clipped commands",
+      unit: "count",
+      direction: "lower_is_better",
+      source: "runtime",
+      description: "Commands whose tool output was clipped before being returned to the agent.",
+    },
+    {
+      id: "generic_ai_budget_exhausted_command_count",
+      name: "Generic AI budget-exhausted commands",
+      unit: "count",
+      direction: "lower_is_better",
+      source: "runtime",
+      description:
+        "Commands blocked or killed because the Generic AI profile-level wall-clock budget was exhausted.",
+    },
   ]);
 
   return Object.freeze({
@@ -429,7 +496,14 @@ function createBenchmark(input: {
     ]),
     primaryMetric: "reward",
     metricDefinitions,
-    guardrailMetrics: Object.freeze(["success", "duration_sec", "cost_usd"]),
+    guardrailMetrics: Object.freeze([
+      "success",
+      "duration_sec",
+      "cost_usd",
+      "generic_ai_command_timeout_count",
+      "generic_ai_output_clipped_command_count",
+      "generic_ai_budget_exhausted_command_count",
+    ]),
     trials: Object.freeze({
       count: Math.max(input.trialCount, 1),
       pairing: "independent",

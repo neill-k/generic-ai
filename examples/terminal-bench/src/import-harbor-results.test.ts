@@ -31,6 +31,11 @@ describe("importHarborResults", () => {
         summary: "Agent completed.",
       },
     ]);
+    await writeJson(join(trialDir, "artifacts", "generic-ai", "summary.json"), {
+      commandTimeoutCount: 1,
+      outputClippedCommandCount: 2,
+      budgetExhaustedCommandCount: 0,
+    });
     await writeFile(join(trialDir, "verifier", "reward.txt"), "1\n", "utf-8");
 
     const outputDir = join(jobDir, "generic-ai-report");
@@ -45,6 +50,17 @@ describe("importHarborResults", () => {
       .toBe(0);
     expect(result.trialResults[0]?.metrics.find((metric) => metric.metricId === "success")?.value)
       .toBe(0);
+    expect(
+      result.trialResults[0]?.metrics.find(
+        (metric) => metric.metricId === "generic_ai_command_timeout_count",
+      )?.value,
+    ).toBe(1);
+    expect(
+      result.trialResults[0]?.metrics.find(
+        (metric) => metric.metricId === "generic_ai_output_clipped_command_count",
+      )?.value,
+    ).toBe(2);
+    expect(result.benchmark.guardrailMetrics).toContain("generic_ai_command_timeout_count");
     expect(result.report.insufficientEvidence).toHaveLength(1);
     await expect(readFile(join(outputDir, "benchmark-report.md"), "utf-8")).resolves.toContain(
       "## Insufficient Evidence",

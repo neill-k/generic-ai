@@ -184,6 +184,15 @@ class GenericAIInstalledAgent(BaseInstalledAgent):
         elif self._host_agent_dir() is not None:
             env["GENERIC_AI_AGENT_DIR"] = DEFAULT_CONTAINER_AGENT_DIR
 
+        for key in (
+            "GENERIC_AI_BENCHMARK_COMMAND_TIMEOUT_MS",
+            "GENERIC_AI_BENCHMARK_TRIAL_TIMEOUT_MS",
+            "GENERIC_AI_BENCHMARK_MAX_COMMAND_OUTPUT_BYTES",
+        ):
+            value = self._get_env(key)
+            if value:
+                env[key] = value
+
         return env
 
     async def _upload_instruction(self, environment: BaseEnvironment, instruction: str) -> None:

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import {
   DEFAULT_OPENAI_CODEX_MODEL,
   runAgentHarness,
@@ -19,18 +19,23 @@ import type {
   AgentHarnessAdapterKind,
   AgentHarnessEventProjection,
   AgentHarnessRunResult,
+  BashOperations,
   PolicyDecisionRecord,
   ResourceSelector,
   TraceDiagnostics,
   TraceEvent,
   TraceEventType,
 } from "@generic-ai/sdk";
-import { createStableFingerprint } from "@generic-ai/sdk";
+import { createLocalBashOperations, createStableFingerprint } from "@generic-ai/sdk";
 
 export const DEFAULT_BENCHMARK_ARTIFACT_DIR = "/logs/artifacts/generic-ai";
+export const DEFAULT_BENCHMARK_COMMAND_TIMEOUT_MS = 120_000;
+export const DEFAULT_BENCHMARK_MAX_COMMAND_OUTPUT_BYTES = 65_536;
 export const DEFAULT_IMMUTABLE_PATHS = ["/tests", "/solution", "task.toml"] as const;
 const EXAMPLE_ROOT = resolve(import.meta.dirname, "..");
 const BENCHMARK_SKILLS_DIR = resolve(EXAMPLE_ROOT, "skills");
+const COMMAND_OBSERVATIONS_FILE = "command-observations.json";
+const COMMAND_OUTPUT_DIR = "terminal-command-output";
 
 export type BenchmarkProfileStatus = "passed" | "failed" | "integrity_failed";
 
@@ -60,9 +65,47 @@ export interface BenchmarkProfileSummary {
   readonly model: string;
   readonly workspaceRoot: string;
   readonly artifactDir: string;
+  readonly commandBudget: BenchmarkCommandBudgetConfig;
+  readonly commandObservationArtifact: string;
+  readonly commandObservationCount: number;
+  readonly commandTimeoutCount: number;
+  readonly outputClippedCommandCount: number;
+  readonly budgetExhaustedCommandCount: number;
   readonly outputText: string;
   readonly requestId?: string;
   readonly error?: string;
+}
+
+export interface BenchmarkCommandBudgetConfig {
+  readonly commandTimeoutMs?: number;
+  readonly trialTimeoutMs?: number;
+  readonly maxCommandOutputBytes?: number;
+}
+
+export interface BenchmarkCommandObservation {
+  readonly kind: "generic-ai.terminal-command-observation";
+  readonly id: string;
+  readonly command: string;
+  readonly cwd: string;
+  readonly startedAt: string;
+  readonly completedAt: string;
+  readonly durationMs: number;
+  readonly status: "completed" | "timed_out" | "budget_exhausted";
+  readonly exitCode: number | null;
+  readonly timeoutMs?: number;
+  readonly trialBudgetRemainingMs?: number;
+  readonly timedOut: boolean;
+  readonly budgetExhausted: boolean;
+  readonly output: {
+    readonly observedBytes: number;
+    readonly deliveredBytes: number;
+    readonly maxBytes?: number;
+    readonly clipped: boolean;
+    readonly redacted: boolean;
+    readonly artifactId?: string;
+    readonly artifactUri?: string;
+    readonly localPath?: string;
+  };
 }
 
 export interface BenchmarkProfileResult {
@@ -70,6 +113,7 @@ export interface BenchmarkProfileResult {
   readonly traceEvents: readonly TraceEvent[];
   readonly integrity: IntegrityReport;
   readonly policyDecisions: readonly PolicyDecisionRecord[];
+  readonly commandObservations: readonly BenchmarkCommandObservation[];
   readonly trajectory: unknown;
 }
 
@@ -80,6 +124,10 @@ export interface BenchmarkProfileOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly now?: () => string;
   readonly createRunId?: () => string;
+  readonly commandTimeoutMs?: number;
+  readonly trialTimeoutMs?: number;
+  readonly maxCommandOutputBytes?: number;
+  readonly terminalOperations?: BashOperations;
   readonly runHarness?: (
     options: RunAgentHarnessOptions,
   ) => Promise<AgentHarnessRunResult<unknown>> | AgentHarnessRunResult<unknown>;
@@ -98,6 +146,40 @@ function readTrimmedEnv(env: NodeJS.ProcessEnv, key: string): string | undefined
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function readPositiveIntegerEnv(env: NodeJS.ProcessEnv, key: string): number | undefined {
+  const value = readTrimmedEnv(env, key);
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${key} must be a positive integer.`);
+  }
+
+  return parsed;
+}
+
+function resolveCommandBudget(
+  options: BenchmarkProfileOptions,
+  env: NodeJS.ProcessEnv,
+): BenchmarkCommandBudgetConfig {
+  const trialTimeoutMs =
+    options.trialTimeoutMs ?? readPositiveIntegerEnv(env, "GENERIC_AI_BENCHMARK_TRIAL_TIMEOUT_MS");
+
+  return Object.freeze({
+    commandTimeoutMs:
+      options.commandTimeoutMs ??
+      readPositiveIntegerEnv(env, "GENERIC_AI_BENCHMARK_COMMAND_TIMEOUT_MS") ??
+      DEFAULT_BENCHMARK_COMMAND_TIMEOUT_MS,
+    ...(trialTimeoutMs === undefined ? {} : { trialTimeoutMs }),
+    maxCommandOutputBytes:
+      options.maxCommandOutputBytes ??
+      readPositiveIntegerEnv(env, "GENERIC_AI_BENCHMARK_MAX_COMMAND_OUTPUT_BYTES") ??
+      DEFAULT_BENCHMARK_MAX_COMMAND_OUTPUT_BYTES,
+  });
 }
 
 function normalizeAdapter(value: string | undefined): AgentHarnessAdapterKind {
@@ -344,32 +426,277 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 }
 
+function secretValues(env: NodeJS.ProcessEnv): readonly string[] {
+  return Object.entries(env)
+    .filter(([key, value]) => /KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL/i.test(key) && value)
+    .map(([, value]) => value)
+    .filter((value): value is string => typeof value === "string" && value.length >= 4)
+    .sort((left, right) => right.length - left.length);
+}
+
+function redactOutput(text: string, secrets: readonly string[]): string {
+  let redacted = text;
+  for (const secret of secrets) {
+    redacted = redacted.split(secret).join("[REDACTED]");
+  }
+  return redacted;
+}
+
+function minDefined(values: readonly (number | undefined)[]): number | undefined {
+  const defined = values.filter((value): value is number => value !== undefined);
+  if (defined.length === 0) {
+    return undefined;
+  }
+
+  return Math.min(...defined);
+}
+
+function timeoutSeconds(timeoutMs: number | undefined): number | undefined {
+  return timeoutMs === undefined ? undefined : Math.max(1, Math.ceil(timeoutMs / 1000));
+}
+
+function commandNotice(message: string): Buffer {
+  return Buffer.from(`\n[Generic AI benchmark observation: ${message}]\n`, "utf8");
+}
+
+function createCommandArtifactRef(input: {
+  readonly runId: string;
+  readonly observationId: string;
+  readonly outputDir: string;
+}): { readonly id: string; readonly uri: string; readonly localPath: string } {
+  const id = `${input.observationId}-raw-output`;
+  return Object.freeze({
+    id,
+    uri: `generic-ai-artifact://${input.runId}/${COMMAND_OUTPUT_DIR}/${id}`,
+    localPath: join(input.outputDir, COMMAND_OUTPUT_DIR, `${id}.log`),
+  });
+}
+
+function createBenchmarkTerminalOperations(input: {
+  readonly baseOperations: BashOperations;
+  readonly budget: BenchmarkCommandBudgetConfig;
+  readonly env: NodeJS.ProcessEnv;
+  readonly outputDir: string;
+  readonly runId: string;
+  readonly now: () => string;
+  readonly observations: BenchmarkCommandObservation[];
+}): BashOperations {
+  const profileSecrets = secretValues(input.env);
+  const trialStartedMs = Date.now();
+  let commandIndex = 0;
+
+  return Object.freeze({
+    async exec(
+      command: string,
+      cwd: string,
+      options: Parameters<BashOperations["exec"]>[2],
+    ): Promise<{ readonly exitCode: number | null }> {
+      commandIndex += 1;
+      const observationId = `command-${commandIndex}`;
+      const startedAt = input.now();
+      const startedMs = Date.now();
+      const elapsedTrialMs = startedMs - trialStartedMs;
+      const remainingTrialMs =
+        input.budget.trialTimeoutMs === undefined
+          ? undefined
+          : input.budget.trialTimeoutMs - elapsedTrialMs;
+      const requestedTimeoutMs =
+        options.timeout === undefined ? undefined : Math.max(1, options.timeout * 1000);
+      const effectiveTimeoutMs = minDefined([
+        input.budget.commandTimeoutMs,
+        requestedTimeoutMs,
+        remainingTrialMs,
+      ]);
+      const secrets = [...profileSecrets, ...secretValues(options.env ?? {})];
+      const rawOutput = createCommandArtifactRef({
+        runId: input.runId,
+        observationId,
+        outputDir: input.outputDir,
+      });
+      await mkdir(dirname(rawOutput.localPath), { recursive: true });
+
+      let observedBytes = 0;
+      let deliveredBytes = 0;
+      let clipped = false;
+      let clipNoticeSent = false;
+
+      const sendNotice = (message: string) => options.onData(commandNotice(message));
+      const recordObservation = (result: {
+        readonly exitCode: number | null;
+        readonly completedAt: string;
+        readonly durationMs: number;
+        readonly timedOut: boolean;
+        readonly budgetExhausted: boolean;
+      }) => {
+        const status = result.budgetExhausted
+          ? "budget_exhausted"
+          : result.timedOut
+            ? "timed_out"
+            : "completed";
+        input.observations.push(
+          Object.freeze({
+            kind: "generic-ai.terminal-command-observation",
+            id: observationId,
+            command,
+            cwd,
+            startedAt,
+            completedAt: result.completedAt,
+            durationMs: result.durationMs,
+            status,
+            exitCode: result.exitCode,
+            ...(effectiveTimeoutMs === undefined ? {} : { timeoutMs: effectiveTimeoutMs }),
+            ...(remainingTrialMs === undefined
+              ? {}
+              : { trialBudgetRemainingMs: Math.max(0, remainingTrialMs) }),
+            timedOut: result.timedOut,
+            budgetExhausted: result.budgetExhausted,
+            output: Object.freeze({
+              observedBytes,
+              deliveredBytes,
+              ...(input.budget.maxCommandOutputBytes === undefined
+                ? {}
+                : { maxBytes: input.budget.maxCommandOutputBytes }),
+              clipped,
+              redacted: true,
+              ...(observedBytes === 0
+                ? {}
+                : {
+                    artifactId: rawOutput.id,
+                    artifactUri: rawOutput.uri,
+                    localPath: rawOutput.localPath,
+                  }),
+            }),
+          }),
+        );
+      };
+
+      if (remainingTrialMs !== undefined && remainingTrialMs <= 0) {
+        sendNotice(
+          `trial wall-clock budget was exhausted before "${command}" could start; no command was executed.`,
+        );
+        const completedAt = input.now();
+        recordObservation({
+          exitCode: null,
+          completedAt,
+          durationMs: Date.now() - startedMs,
+          timedOut: false,
+          budgetExhausted: true,
+        });
+        return { exitCode: null };
+      }
+
+      const effectiveTimeoutSeconds = timeoutSeconds(effectiveTimeoutMs);
+      const result = await input.baseOperations.exec(command, cwd, {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        ...(options.env === undefined ? {} : { env: options.env }),
+        ...(effectiveTimeoutSeconds === undefined ? {} : { timeout: effectiveTimeoutSeconds }),
+        onData: (data) => {
+          const redacted = redactOutput(data.toString("utf8"), secrets);
+          const redactedBuffer = Buffer.from(redacted, "utf8");
+          appendFileSync(rawOutput.localPath, redactedBuffer);
+          observedBytes += redactedBuffer.byteLength;
+
+          if (input.budget.maxCommandOutputBytes === undefined) {
+            deliveredBytes += redactedBuffer.byteLength;
+            options.onData(redactedBuffer);
+            return;
+          }
+
+          const remainingBytes = input.budget.maxCommandOutputBytes - deliveredBytes;
+          if (remainingBytes > 0) {
+            const deliver = redactedBuffer.subarray(0, remainingBytes);
+            deliveredBytes += deliver.byteLength;
+            options.onData(deliver);
+          }
+
+          if (!clipNoticeSent && observedBytes > input.budget.maxCommandOutputBytes) {
+            clipped = true;
+            clipNoticeSent = true;
+            sendNotice(
+              `command output clipped at ${input.budget.maxCommandOutputBytes} bytes; redacted full output artifact: ${rawOutput.uri}.`,
+            );
+          }
+        },
+      });
+      const completedAt = input.now();
+      const durationMs = Date.now() - startedMs;
+      const budgetExhausted =
+        result.exitCode === null &&
+        remainingTrialMs !== undefined &&
+        effectiveTimeoutMs === remainingTrialMs;
+      const timedOut = result.exitCode === null && !budgetExhausted;
+
+      if (budgetExhausted) {
+        sendNotice(
+          `trial wall-clock budget expired while running "${command}"; exitCode is null and the run should repair or stop with a budget-exhausted reason.`,
+        );
+      } else if (timedOut) {
+        sendNotice(
+          `command timed out after ${effectiveTimeoutMs ?? "the configured"} ms; exitCode is null and the run should retry with a narrower command or stop with a timeout reason.`,
+        );
+      }
+
+      recordObservation({
+        exitCode: result.exitCode,
+        completedAt,
+        durationMs,
+        timedOut,
+        budgetExhausted,
+      });
+
+      return result;
+    },
+  });
+}
+
 function runtimeInstructions(): string {
   return [
     "You are Generic AI running inside a Harbor task container for Terminal-Bench.",
     "Treat Harbor as the orchestration and sandbox authority.",
     "Do not start nested Docker sandboxes.",
     "Do not edit verifier files, test assets, task metadata, or solution assets unless the task explicitly authorizes it.",
+    "Use bounded terminal commands. If a command output is clipped, timed out, or the trial budget is exhausted, treat the Generic AI benchmark observation in the tool output as live evidence for the next repair step.",
     "Verify from a clean external-grader posture: do not trust stale files or logs produced by an earlier builder check.",
     "If a verification command creates transient runtime outputs, remove stale copies before the check and clean them up before finishing when the external verifier is expected to create them itself.",
     "Write a concise final summary of what you did and what verification was run.",
   ].join("\n");
 }
 
-function createBenchmarkCapabilities(workspaceRoot: string, env: NodeJS.ProcessEnv) {
+function createBenchmarkCapabilities(input: {
+  readonly workspaceRoot: string;
+  readonly env: NodeJS.ProcessEnv;
+  readonly outputDir: string;
+  readonly runId: string;
+  readonly now: () => string;
+  readonly budget: BenchmarkCommandBudgetConfig;
+  readonly observations: BenchmarkCommandObservation[];
+  readonly terminalOperations?: BashOperations;
+}) {
+  const operations = createBenchmarkTerminalOperations({
+    baseOperations: input.terminalOperations ?? createLocalBashOperations(),
+    budget: input.budget,
+    env: input.env,
+    outputDir: input.outputDir,
+    runId: input.runId,
+    now: input.now,
+    observations: input.observations,
+  });
   const terminal = createTerminalToolPlugin({
-    root: workspaceRoot,
-    env,
-    defaultTimeoutMs: 120_000,
+    root: input.workspaceRoot,
+    operations,
+    env: input.env,
+    ...(input.budget.commandTimeoutMs === undefined
+      ? {}
+      : { defaultTimeoutMs: input.budget.commandTimeoutMs }),
     unrestrictedLocal: true,
   });
-  const files = createWorkspaceFileTools({ root: workspaceRoot });
-  const repoMap = createRepoMapPlugin({ root: workspaceRoot, maxFiles: 500 });
+  const files = createWorkspaceFileTools({ root: input.workspaceRoot });
+  const repoMap = createRepoMapPlugin({ root: input.workspaceRoot, maxFiles: 500 });
   const storage = createMemoryStorage();
   const messaging = createMessagingService({ storage });
-  const memory = createFileMemoryStore({ root: workspaceRoot });
+  const memory = createFileMemoryStore({ root: input.workspaceRoot });
   const skills = createAgentSkillsPlugin({
-    root: workspaceRoot,
+    root: input.workspaceRoot,
     skillDirs: [BENCHMARK_SKILLS_DIR],
     includeProject: true,
     includeUser: false,
@@ -439,6 +766,36 @@ function appendTraceEventsFromHarness(input: {
   return Object.freeze(traceEvents);
 }
 
+function appendTraceEventsFromCommandObservations(input: {
+  readonly observations: readonly BenchmarkCommandObservation[];
+  readonly addTraceEvent: ReturnType<typeof createTraceEventFactory>;
+  readonly completedAt: string;
+}): readonly TraceEvent[] {
+  return Object.freeze(
+    input.observations
+      .filter(
+        (observation) =>
+          observation.timedOut || observation.budgetExhausted || observation.output.clipped,
+      )
+      .map((observation) => {
+        const outcomes = [
+          ...(observation.timedOut ? ["timed out"] : []),
+          ...(observation.budgetExhausted ? ["exhausted trial budget"] : []),
+          ...(observation.output.clipped ? ["output clipped"] : []),
+        ].join(", ");
+        return input.addTraceEvent({
+          type: "diagnostic",
+          timestamp: input.completedAt,
+          actorId: "generic-ai",
+          ...(observation.output.artifactId === undefined
+            ? {}
+            : { artifactId: observation.output.artifactId }),
+          summary: `Terminal command ${observation.id} ${outcomes}: ${observation.command}`,
+        });
+      }),
+  );
+}
+
 function outputTextFromResult(result: AgentHarnessRunResult<unknown> | undefined): string {
   return result?.outputText ?? "";
 }
@@ -479,6 +836,8 @@ export async function runBenchmarkProfile(
       readTrimmedEnv(env, "GENERIC_AI_BENCHMARK_ARTIFACT_DIR") ??
       DEFAULT_BENCHMARK_ARTIFACT_DIR,
   );
+  const commandBudget = resolveCommandBudget(options, env);
+  const commandObservations: BenchmarkCommandObservation[] = [];
   const immutablePaths = splitCsv(readTrimmedEnv(env, "GENERIC_AI_BENCHMARK_IMMUTABLE_PATHS")).map(
     (path) => resolveImmutablePath(workspaceRoot, path),
   );
@@ -510,7 +869,24 @@ export async function runBenchmarkProfile(
       rootScopeId: "terminal-bench",
       rootAgentId: "generic-ai",
       artifactDir: outputDir,
-      capabilities: createBenchmarkCapabilities(workspaceRoot, env),
+      ...(commandBudget.trialTimeoutMs === undefined
+        ? {}
+        : {
+            deadline: new Date(Date.now() + commandBudget.trialTimeoutMs).toISOString(),
+            budget: { maxWallTimeMs: commandBudget.trialTimeoutMs },
+          }),
+      capabilities: createBenchmarkCapabilities({
+        workspaceRoot,
+        env,
+        outputDir,
+        runId,
+        now,
+        budget: commandBudget,
+        observations: commandObservations,
+        ...(options.terminalOperations === undefined
+          ? {}
+          : { terminalOperations: options.terminalOperations }),
+      }),
       harness: {
         id: "terminal-bench",
         adapter,
@@ -547,6 +923,17 @@ export async function runBenchmarkProfile(
         metadata: {
           benchmark: "terminal-bench",
           harborArtifactDir: outputDir,
+          commandBudget: {
+            ...(commandBudget.commandTimeoutMs === undefined
+              ? {}
+              : { commandTimeoutMs: commandBudget.commandTimeoutMs }),
+            ...(commandBudget.trialTimeoutMs === undefined
+              ? {}
+              : { trialTimeoutMs: commandBudget.trialTimeoutMs }),
+            ...(commandBudget.maxCommandOutputBytes === undefined
+              ? {}
+              : { maxCommandOutputBytes: commandBudget.maxCommandOutputBytes }),
+          },
         },
       },
     });
@@ -569,6 +956,11 @@ export async function runBenchmarkProfile(
     ...appendTraceEventsFromHarness({
       projections: response?.projections ?? [],
       policyDecisions,
+      addTraceEvent,
+      completedAt,
+    }),
+    ...appendTraceEventsFromCommandObservations({
+      observations: commandObservations,
       addTraceEvent,
       completedAt,
     }),
@@ -595,6 +987,12 @@ export async function runBenchmarkProfile(
     addTraceEvent({
       type: "artifact.created",
       timestamp: completedAt,
+      artifactId: "terminal-command-observations",
+      summary: `Wrote ${commandObservations.length} Terminal-Bench command observation records.`,
+    }),
+    addTraceEvent({
+      type: "artifact.created",
+      timestamp: completedAt,
       artifactId: "terminal-bench-artifacts",
       summary: "Wrote Generic AI benchmark artifacts under /logs/artifacts/generic-ai.",
     }),
@@ -613,6 +1011,16 @@ export async function runBenchmarkProfile(
     after: Object.freeze(after),
     violations: Object.freeze(violations),
   });
+  const commandObservationSnapshot = Object.freeze([...commandObservations]);
+  const commandTimeoutCount = commandObservationSnapshot.filter(
+    (observation) => observation.timedOut,
+  ).length;
+  const outputClippedCommandCount = commandObservationSnapshot.filter(
+    (observation) => observation.output.clipped,
+  ).length;
+  const budgetExhaustedCommandCount = commandObservationSnapshot.filter(
+    (observation) => observation.budgetExhausted,
+  ).length;
   const summary: BenchmarkProfileSummary = Object.freeze({
     kind: "generic-ai.terminal-bench-summary",
     runId,
@@ -624,6 +1032,12 @@ export async function runBenchmarkProfile(
     model,
     workspaceRoot,
     artifactDir: outputDir,
+    commandBudget,
+    commandObservationArtifact: COMMAND_OBSERVATIONS_FILE,
+    commandObservationCount: commandObservationSnapshot.length,
+    commandTimeoutCount,
+    outputClippedCommandCount,
+    budgetExhaustedCommandCount,
     outputText: outputTextFromResult(response),
     ...(errorMessage === undefined ? {} : { error: errorMessage }),
   });
@@ -637,6 +1051,7 @@ export async function runBenchmarkProfile(
     projections: response?.projections ?? [],
   });
 
+  await writeJson(join(outputDir, COMMAND_OBSERVATIONS_FILE), commandObservationSnapshot);
   await writeJson(join(outputDir, "summary.json"), summary);
   await writeJson(join(outputDir, "trace-events.json"), traceEvents);
   await writeJson(join(outputDir, "trace-diagnostics.json"), traceDiagnostics(traceEvents));
@@ -649,6 +1064,7 @@ export async function runBenchmarkProfile(
     traceEvents: Object.freeze(traceEvents),
     integrity,
     policyDecisions,
+    commandObservations: commandObservationSnapshot,
     trajectory,
   });
 }

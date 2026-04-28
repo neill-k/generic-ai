@@ -79,6 +79,9 @@ The shell wrappers in `scripts/` run the same commands after building the worksp
 - `GENERIC_AI_REPO_ARCHIVE`: optional prebuilt repo archive for the Harbor adapter. If unset, the adapter creates a filtered archive from the local repo and uploads it into the task container.
 - `GENERIC_AI_NODE_VERSION`: Node version installed in the task container when Node 24 is missing. Defaults to `v24.13.0`.
 - `GENERIC_AI_BENCHMARK_IMMUTABLE_PATHS`: comma-separated verifier/task paths to snapshot before and after the run. Defaults to `/tests,/solution,task.toml`.
+- `GENERIC_AI_BENCHMARK_COMMAND_TIMEOUT_MS`: per-command timeout inside the Generic AI benchmark profile. Defaults to `120000`.
+- `GENERIC_AI_BENCHMARK_TRIAL_TIMEOUT_MS`: optional Generic AI profile-level wall-clock budget. Harbor still owns the outer trial timeout; this budget turns later Generic AI terminal calls into structured budget-exhausted observations.
+- `GENERIC_AI_BENCHMARK_MAX_COMMAND_OUTPUT_BYTES`: max redacted terminal output bytes returned to the agent per command before clipping. Defaults to `65536`; the redacted full command log is still written as an artifact.
 
 ## Artifact Flow
 
@@ -92,6 +95,9 @@ Inside each Harbor task container, Generic AI writes:
   policy-decisions.json
   integrity.json
   trajectory.json
+  command-observations.json
+  terminal-command-output/
+    command-*-raw-output.log
   harness/
     canonical-events.json
     harness-projections.json
@@ -119,6 +125,15 @@ examples/terminal-bench/reports/imported/<job-name>/
 ```
 
 Single-task smoke reports should usually remain `insufficient_evidence`; quick runs prove several real task containers without repeated attempts, and calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
+
+The importer also reads `summary.json` command-budget counters and surfaces them
+as guardrail metrics:
+
+- `generic_ai_command_timeout_count`
+- `generic_ai_output_clipped_command_count`
+- `generic_ai_budget_exhausted_command_count`
+
+Those metrics distinguish Generic AI command-level timeout/output-budget behavior from Harbor's outer trial timeout and the task verifier's own timeout.
 
 ## Gates
 
