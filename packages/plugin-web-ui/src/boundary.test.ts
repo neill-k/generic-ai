@@ -17,9 +17,7 @@ describe("@generic-ai/plugin-web-ui import boundaries", () => {
   });
 
   it("keeps server-only packages out of the public client export", async () => {
-    const packageJson = JSON.parse(
-      await readFile(join(packageRoot, "package.json"), "utf8"),
-    ) as {
+    const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {
       exports: Record<string, unknown>;
     };
 
@@ -27,5 +25,15 @@ describe("@generic-ai/plugin-web-ui import boundaries", () => {
     expect(packageJson.exports).toHaveProperty("./server");
     expect(packageJson.exports).toHaveProperty("./agent-tools");
     expect(packageJson.exports).toHaveProperty("./styles.css");
+  });
+
+  it("does not publish build output with test artifacts", async () => {
+    const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")) as {
+      files: readonly string[];
+    };
+
+    expect(packageJson.files).not.toContain("dist");
+    expect(packageJson.files.every((entry) => !entry.includes(".test."))).toBe(true);
+    expect(packageJson.files.every((entry) => !entry.includes(".spec."))).toBe(true);
   });
 });

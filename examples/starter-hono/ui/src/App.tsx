@@ -16,25 +16,14 @@ import {
   WandSparklesIcon,
   WorkflowIcon,
 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactElement,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { GenericAIConsole, type ConsoleTab } from "@generic-ai/plugin-web-ui/client";
 import {
   Conversation,
   ConversationContent,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation";
-import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "@/components/ai-elements/message";
+import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
 import {
   PromptInput,
   PromptInputBody,
@@ -376,7 +365,9 @@ export function App(): ReactElement {
 }
 
 function StarterPlayground() {
-  const [prompt, setPrompt] = useState(() => localStorage.getItem(PROMPT_STORAGE_KEY) ?? spaceshipPrompt);
+  const [prompt, setPrompt] = useState(
+    () => localStorage.getItem(PROMPT_STORAGE_KEY) ?? spaceshipPrompt,
+  );
   const [authToken, setAuthToken] = useState(() => localStorage.getItem(AUTH_STORAGE_KEY) ?? "");
   const [mode, setMode] = useState<RunMode>("stream");
   const [status, setStatus] = useState<RunStatus>("ready");
@@ -655,269 +646,296 @@ function StarterPlayground() {
   const healthReady = health !== null && healthError === null;
 
   return (
-      <section className="min-h-screen bg-background text-foreground">
-        <header className="flex min-h-16 items-center justify-between border-b px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-secondary">
-              <WandSparklesIcon className="size-5" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold">Generic AI Playground</h1>
-              <p className="truncate text-xs text-muted-foreground">
-                {health?.model ?? "Model pending"} - {health?.adapter ?? "adapter pending"}
-              </p>
-            </div>
+    <section className="min-h-screen bg-background text-foreground">
+      <header className="flex min-h-16 items-center justify-between border-b px-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-secondary">
+            <WandSparklesIcon className="size-5" />
           </div>
-          <div className="flex items-center gap-2">
-            <span
-              className={cn(
-                "hidden items-center gap-2 rounded-md border px-2.5 py-1 text-xs sm:flex",
-                healthReady ? "border-emerald-500/30 text-emerald-300" : "border-destructive/30 text-destructive",
-              )}
-            >
-              {healthReady ? "Ready" : "Offline"}
-            </span>
-            <Button onClick={() => void refreshHealth()} size="icon" title="Refresh health" variant="ghost">
-              <RefreshCwIcon className="size-4" />
-            </Button>
+          <div className="min-w-0">
+            <h1 className="truncate text-base font-semibold">Generic AI Playground</h1>
+            <p className="truncate text-xs text-muted-foreground">
+              {health?.model ?? "Model pending"} - {health?.adapter ?? "adapter pending"}
+            </p>
           </div>
-        </header>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "hidden items-center gap-2 rounded-md border px-2.5 py-1 text-xs sm:flex",
+              healthReady
+                ? "border-emerald-500/30 text-emerald-300"
+                : "border-destructive/30 text-destructive",
+            )}
+          >
+            {healthReady ? "Ready" : "Offline"}
+          </span>
+          <Button
+            onClick={() => void refreshHealth()}
+            size="icon"
+            title="Refresh health"
+            variant="ghost"
+          >
+            <RefreshCwIcon className="size-4" />
+          </Button>
+        </div>
+      </header>
 
-        <div className="grid min-h-[calc(100vh-4rem)] grid-cols-[minmax(360px,0.92fr)_minmax(0,1.38fr)] max-lg:grid-cols-1">
-          <aside className="flex min-h-0 flex-col border-r max-lg:border-b max-lg:border-r-0">
-            <div className="grid gap-3 border-b p-4 sm:p-5">
-              <div className="grid grid-cols-3 gap-2">
+      <div className="grid min-h-[calc(100vh-4rem)] grid-cols-[minmax(360px,0.92fr)_minmax(0,1.38fr)] max-lg:grid-cols-1">
+        <aside className="flex min-h-0 flex-col border-r max-lg:border-b max-lg:border-r-0">
+          <div className="grid gap-3 border-b p-4 sm:p-5">
+            <div className="grid grid-cols-3 gap-2">
+              <Button
+                className={cn(mode === "stream" && "bg-primary text-primary-foreground")}
+                onClick={() => setMode("stream")}
+                type="button"
+                variant={mode === "stream" ? "default" : "secondary"}
+              >
+                <ActivityIcon className="size-4" />
+                Stream
+              </Button>
+              <Button
+                className={cn(mode === "sync" && "bg-primary text-primary-foreground")}
+                onClick={() => setMode("sync")}
+                type="button"
+                variant={mode === "sync" ? "default" : "secondary"}
+              >
+                <CheckIcon className="size-4" />
+                Sync
+              </Button>
+              <Button
+                disabled={status !== "submitted" && status !== "streaming"}
+                onClick={stopRun}
+                type="button"
+                variant="secondary"
+              >
+                <SquareIcon className="size-4" />
+                Stop
+              </Button>
+            </div>
+
+            <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
+              Auth token
+              <input
+                className="h-10 rounded-md border bg-background px-3 text-sm text-foreground outline-none transition focus:border-ring"
+                onChange={(event) => setAuthToken(event.currentTarget.value)}
+                placeholder="Optional bearer token"
+                type="password"
+                value={authToken}
+              />
+            </label>
+
+            <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
+              <div className="rounded-md border p-2">
+                <div className="mb-1 flex items-center gap-1 text-foreground">
+                  <ShieldIcon className="size-3.5" />
+                  Exposure
+                </div>
+                <div className="truncate">{health?.exposure ?? "unknown"}</div>
+              </div>
+              <div className="rounded-md border p-2">
+                <div className="mb-1 flex items-center gap-1 text-foreground">
+                  <ActivityIcon className="size-3.5" />
+                  Stream
+                </div>
+                <div>{health?.streaming ? "enabled" : "unknown"}</div>
+              </div>
+              <div className="rounded-md border p-2">
+                <div className="mb-1 flex items-center gap-1 text-foreground">
+                  <FileTextIcon className="size-3.5" />
+                  Output
+                </div>
+                <div>{normalizedOutput.length.toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 p-4 sm:p-5">
+            <PromptInput className="flex h-full flex-col" onSubmit={handleSubmit}>
+              <PromptInputBody>
+                <PromptInputTextarea
+                  className="min-h-[34rem] flex-1 resize-none text-sm leading-6 max-lg:min-h-[24rem]"
+                  onChange={(event) => setPrompt(event.currentTarget.value)}
+                  placeholder="Paste a workflow prompt..."
+                  value={prompt}
+                />
+              </PromptInputBody>
+              <PromptInputFooter>
+                <PromptInputTools>
+                  <PromptInputButton
+                    onClick={() => setPrompt(spaceshipPrompt)}
+                    tooltip="Load spaceship prompt"
+                  >
+                    <RefreshCwIcon className="size-4" />
+                  </PromptInputButton>
+                  <PromptInputButton
+                    onClick={() => {
+                      setPrompt("");
+                      setOutputHtml("");
+                      setMessages([]);
+                      setEvents([]);
+                    }}
+                    tooltip="Clear"
+                  >
+                    <FileTextIcon className="size-4" />
+                  </PromptInputButton>
+                </PromptInputTools>
+                <PromptInputSubmit disabled={!canRun} onStop={stopRun} status={status}>
+                  {status === "submitted" || status === "streaming" ? (
+                    <SquareIcon className="size-4" />
+                  ) : (
+                    <PlayIcon className="size-4" />
+                  )}
+                </PromptInputSubmit>
+              </PromptInputFooter>
+            </PromptInput>
+          </div>
+        </aside>
+
+        <section className="grid min-h-0 grid-rows-[minmax(14rem,0.45fr)_minmax(22rem,1fr)]">
+          <div className="min-h-0 border-b">
+            <Conversation className="h-full">
+              <ConversationContent className="p-4 sm:p-5">
+                {messages.length === 0 ? (
+                  <div className="max-w-[95%] text-sm text-muted-foreground">
+                    {healthError ?? "Run a prompt to see the request and response trail."}
+                  </div>
+                ) : (
+                  messages.map((message) => (
+                    <Message from={message.role} key={message.id}>
+                      <MessageContent>
+                        <MessageResponse>{message.content}</MessageResponse>
+                      </MessageContent>
+                    </Message>
+                  ))
+                )}
+              </ConversationContent>
+              <ConversationScrollButton />
+            </Conversation>
+          </div>
+
+          <div className="flex min-h-0 flex-col">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3 sm:px-5">
+              <div className="flex items-center gap-1">
                 <Button
-                  className={cn(mode === "stream" && "bg-primary text-primary-foreground")}
-                  onClick={() => setMode("stream")}
-                  type="button"
-                  variant={mode === "stream" ? "default" : "secondary"}
+                  onClick={() => setOutputView("preview")}
+                  size="sm"
+                  variant={outputView === "preview" ? "default" : "ghost"}
+                >
+                  <EyeIcon className="size-4" />
+                  Preview
+                </Button>
+                <Button
+                  onClick={() => setOutputView("code")}
+                  size="sm"
+                  variant={outputView === "code" ? "default" : "ghost"}
+                >
+                  <Code2Icon className="size-4" />
+                  HTML
+                </Button>
+                <Button
+                  onClick={() => setOutputView("events")}
+                  size="sm"
+                  variant={outputView === "events" ? "default" : "ghost"}
                 >
                   <ActivityIcon className="size-4" />
-                  Stream
-                </Button>
-                <Button
-                  className={cn(mode === "sync" && "bg-primary text-primary-foreground")}
-                  onClick={() => setMode("sync")}
-                  type="button"
-                  variant={mode === "sync" ? "default" : "secondary"}
-                >
-                  <CheckIcon className="size-4" />
-                  Sync
-                </Button>
-                <Button
-                  disabled={status !== "submitted" && status !== "streaming"}
-                  onClick={stopRun}
-                  type="button"
-                  variant="secondary"
-                >
-                  <SquareIcon className="size-4" />
-                  Stop
+                  Events
                 </Button>
               </div>
-
-              <label className="grid gap-1.5 text-xs font-medium text-muted-foreground">
-                Auth token
-                <input
-                  className="h-10 rounded-md border bg-background px-3 text-sm text-foreground outline-none transition focus:border-ring"
-                  onChange={(event) => setAuthToken(event.currentTarget.value)}
-                  placeholder="Optional bearer token"
-                  type="password"
-                  value={authToken}
-                />
-              </label>
-
-              <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground">
-                <div className="rounded-md border p-2">
-                  <div className="mb-1 flex items-center gap-1 text-foreground">
-                    <ShieldIcon className="size-3.5" />
-                    Exposure
-                  </div>
-                  <div className="truncate">{health?.exposure ?? "unknown"}</div>
-                </div>
-                <div className="rounded-md border p-2">
-                  <div className="mb-1 flex items-center gap-1 text-foreground">
-                    <ActivityIcon className="size-3.5" />
-                    Stream
-                  </div>
-                  <div>{health?.streaming ? "enabled" : "unknown"}</div>
-                </div>
-                <div className="rounded-md border p-2">
-                  <div className="mb-1 flex items-center gap-1 text-foreground">
-                    <FileTextIcon className="size-3.5" />
-                    Output
-                  </div>
-                  <div>{normalizedOutput.length.toLocaleString()}</div>
-                </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  disabled={normalizedOutput.length === 0}
+                  onClick={() => void copyOutput()}
+                  size="icon"
+                  title="Copy HTML"
+                  variant="ghost"
+                >
+                  <ClipboardIcon className="size-4" />
+                </Button>
+                <Button
+                  disabled={normalizedOutput.length === 0}
+                  onClick={downloadOutput}
+                  size="icon"
+                  title="Download HTML"
+                  variant="ghost"
+                >
+                  <DownloadIcon className="size-4" />
+                </Button>
+                <Button
+                  disabled={normalizedOutput.length === 0}
+                  onClick={openOutput}
+                  size="icon"
+                  title="Open output"
+                  variant="ghost"
+                >
+                  <ExternalLinkIcon className="size-4" />
+                </Button>
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 p-4 sm:p-5">
-              <PromptInput className="flex h-full flex-col" onSubmit={handleSubmit}>
-                <PromptInputBody>
-                  <PromptInputTextarea
-                    className="min-h-[34rem] flex-1 resize-none text-sm leading-6 max-lg:min-h-[24rem]"
-                    onChange={(event) => setPrompt(event.currentTarget.value)}
-                    placeholder="Paste a workflow prompt..."
-                    value={prompt}
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {outputView === "preview" ? (
+                <WebPreview className="rounded-none border-0" defaultUrl="generated-output">
+                  <WebPreviewNavigation>
+                    <WebPreviewNavigationButton disabled tooltip="Back">
+                      <span className="size-2 rounded-full bg-red-400" />
+                    </WebPreviewNavigationButton>
+                    <WebPreviewNavigationButton disabled tooltip="Forward">
+                      <span className="size-2 rounded-full bg-yellow-400" />
+                    </WebPreviewNavigationButton>
+                    <WebPreviewNavigationButton disabled tooltip="Reload">
+                      <span className="size-2 rounded-full bg-emerald-400" />
+                    </WebPreviewNavigationButton>
+                    <WebPreviewUrl readOnly value="generated-output" />
+                  </WebPreviewNavigation>
+                  <WebPreviewBody
+                    sandbox="allow-scripts allow-forms allow-pointer-lock allow-popups allow-modals"
+                    srcDoc={normalizedOutput || emptyPreview}
                   />
-                </PromptInputBody>
-                <PromptInputFooter>
-                  <PromptInputTools>
-                    <PromptInputButton onClick={() => setPrompt(spaceshipPrompt)} tooltip="Load spaceship prompt">
-                      <RefreshCwIcon className="size-4" />
-                    </PromptInputButton>
-                    <PromptInputButton
-                      onClick={() => {
-                        setPrompt("");
-                        setOutputHtml("");
-                        setMessages([]);
-                        setEvents([]);
-                      }}
-                      tooltip="Clear"
-                    >
-                      <FileTextIcon className="size-4" />
-                    </PromptInputButton>
-                  </PromptInputTools>
-                  <PromptInputSubmit
-                    disabled={!canRun}
-                    onStop={stopRun}
-                    status={status}
-                  >
-                    {status === "submitted" || status === "streaming" ? (
-                      <SquareIcon className="size-4" />
-                    ) : (
-                      <PlayIcon className="size-4" />
-                    )}
-                  </PromptInputSubmit>
-                </PromptInputFooter>
-              </PromptInput>
-            </div>
-          </aside>
+                </WebPreview>
+              ) : null}
 
-          <section className="grid min-h-0 grid-rows-[minmax(14rem,0.45fr)_minmax(22rem,1fr)]">
-            <div className="min-h-0 border-b">
-              <Conversation className="h-full">
-                <ConversationContent className="p-4 sm:p-5">
-                  {messages.length === 0 ? (
-                    <div className="max-w-[95%] text-sm text-muted-foreground">
-                      {healthError ?? "Run a prompt to see the request and response trail."}
-                    </div>
+              {outputView === "code" ? (
+                <div className="h-full overflow-auto p-4">
+                  <pre className="min-h-full overflow-auto rounded-md border bg-secondary/40 p-4 font-mono text-xs leading-5 text-foreground">
+                    <code>{normalizedOutput || "<!-- No output yet. -->"}</code>
+                  </pre>
+                </div>
+              ) : null}
+
+              {outputView === "events" ? (
+                <div className="h-full overflow-auto p-4 font-mono text-xs">
+                  {events.length === 0 ? (
+                    <div className="text-muted-foreground">No events yet.</div>
                   ) : (
-                    messages.map((message) => (
-                      <Message from={message.role} key={message.id}>
-                        <MessageContent>
-                          <MessageResponse>{message.content}</MessageResponse>
-                        </MessageContent>
-                      </Message>
+                    events.map((event, index) => (
+                      <div
+                        className="grid grid-cols-[6rem_4rem_minmax(0,1fr)] gap-3 py-1"
+                        key={event.id}
+                      >
+                        <span className="text-muted-foreground">
+                          {event.timestamp.toLocaleTimeString()}
+                        </span>
+                        <span
+                          className={cn(
+                            event.level === "error" && "text-destructive",
+                            event.level === "warn" && "text-yellow-300",
+                            event.level === "log" && "text-emerald-300",
+                          )}
+                        >
+                          {event.level}
+                        </span>
+                        <span className="truncate">{event.message}</span>
+                        {index < events.length - 1 ? <Separator className="col-span-3" /> : null}
+                      </div>
                     ))
                   )}
-                </ConversationContent>
-                <ConversationScrollButton />
-              </Conversation>
-            </div>
-
-            <div className="flex min-h-0 flex-col">
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3 sm:px-5">
-                <div className="flex items-center gap-1">
-                  <Button
-                    onClick={() => setOutputView("preview")}
-                    size="sm"
-                    variant={outputView === "preview" ? "default" : "ghost"}
-                  >
-                    <EyeIcon className="size-4" />
-                    Preview
-                  </Button>
-                  <Button
-                    onClick={() => setOutputView("code")}
-                    size="sm"
-                    variant={outputView === "code" ? "default" : "ghost"}
-                  >
-                    <Code2Icon className="size-4" />
-                    HTML
-                  </Button>
-                  <Button
-                    onClick={() => setOutputView("events")}
-                    size="sm"
-                    variant={outputView === "events" ? "default" : "ghost"}
-                  >
-                    <ActivityIcon className="size-4" />
-                    Events
-                  </Button>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Button disabled={normalizedOutput.length === 0} onClick={() => void copyOutput()} size="icon" title="Copy HTML" variant="ghost">
-                    <ClipboardIcon className="size-4" />
-                  </Button>
-                  <Button disabled={normalizedOutput.length === 0} onClick={downloadOutput} size="icon" title="Download HTML" variant="ghost">
-                    <DownloadIcon className="size-4" />
-                  </Button>
-                  <Button disabled={normalizedOutput.length === 0} onClick={openOutput} size="icon" title="Open output" variant="ghost">
-                    <ExternalLinkIcon className="size-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-hidden">
-                {outputView === "preview" ? (
-                  <WebPreview className="rounded-none border-0" defaultUrl="generated-output">
-                    <WebPreviewNavigation>
-                      <WebPreviewNavigationButton disabled tooltip="Back">
-                        <span className="size-2 rounded-full bg-red-400" />
-                      </WebPreviewNavigationButton>
-                      <WebPreviewNavigationButton disabled tooltip="Forward">
-                        <span className="size-2 rounded-full bg-yellow-400" />
-                      </WebPreviewNavigationButton>
-                      <WebPreviewNavigationButton disabled tooltip="Reload">
-                        <span className="size-2 rounded-full bg-emerald-400" />
-                      </WebPreviewNavigationButton>
-                      <WebPreviewUrl readOnly value="generated-output" />
-                    </WebPreviewNavigation>
-                    <WebPreviewBody
-                      sandbox="allow-scripts allow-forms allow-pointer-lock allow-popups allow-modals"
-                      srcDoc={normalizedOutput || emptyPreview}
-                    />
-                  </WebPreview>
-                ) : null}
-
-                {outputView === "code" ? (
-                  <div className="h-full overflow-auto p-4">
-                    <pre className="min-h-full overflow-auto rounded-md border bg-secondary/40 p-4 font-mono text-xs leading-5 text-foreground">
-                      <code>{normalizedOutput || "<!-- No output yet. -->"}</code>
-                    </pre>
-                  </div>
-                ) : null}
-
-                {outputView === "events" ? (
-                  <div className="h-full overflow-auto p-4 font-mono text-xs">
-                    {events.length === 0 ? (
-                      <div className="text-muted-foreground">No events yet.</div>
-                    ) : (
-                      events.map((event, index) => (
-                        <div className="grid grid-cols-[6rem_4rem_minmax(0,1fr)] gap-3 py-1" key={event.id}>
-                          <span className="text-muted-foreground">
-                            {event.timestamp.toLocaleTimeString()}
-                          </span>
-                          <span
-                            className={cn(
-                              event.level === "error" && "text-destructive",
-                              event.level === "warn" && "text-yellow-300",
-                              event.level === "log" && "text-emerald-300",
-                            )}
-                          >
-                            {event.level}
-                          </span>
-                          <span className="truncate">{event.message}</span>
-                          {index < events.length - 1 ? <Separator className="col-span-3" /> : null}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                ) : null}
-              </div>
+              ) : null}
             </div>
-          </section>
-        </div>
-      </section>
+          </div>
+        </section>
+      </div>
+    </section>
   );
 }

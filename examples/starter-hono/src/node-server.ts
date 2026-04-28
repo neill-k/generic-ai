@@ -20,6 +20,8 @@ export interface StartedFetchServer {
 
 type FetchHandler = (request: Request) => Promise<Response> | Response;
 
+const TRUSTED_PEER_ADDRESS_SYMBOL = Symbol.for("@generic-ai/http.peerAddress");
+
 function toHeaders(headers: IncomingHttpHeaders): Headers {
   const result = new Headers();
 
@@ -90,6 +92,10 @@ export async function startFetchServer(
           signal: abortController.signal,
         },
       );
+      Object.defineProperty(request, TRUSTED_PEER_ADDRESS_SYMBOL, {
+        enumerable: false,
+        value: req.socket.remoteAddress,
+      });
 
       await forwardFetch(handler, request, res);
     } catch (error) {

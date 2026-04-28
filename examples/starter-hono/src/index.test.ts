@@ -14,10 +14,21 @@ import {
   createStarterExampleServer,
   loadStarterExampleEnvironment,
 } from "./index.js";
+import { startFetchServer } from "./node-server.js";
 import { runStarterExampleCli } from "./run.js";
 
 const openServers: Array<() => Promise<void>> = [];
 type HarnessRunInput = Parameters<ReturnType<typeof createAgentHarness>["run"]>[0];
+const TRUSTED_PEER_ADDRESS_SYMBOL = Symbol.for("@generic-ai/http.peerAddress");
+
+function localAppRequest(pathname: string, init?: RequestInit): Request {
+  const request = new Request(`http://localhost${pathname}`, init);
+  Object.defineProperty(request, TRUSTED_PEER_ADDRESS_SYMBOL, {
+    enumerable: false,
+    value: "127.0.0.1",
+  });
+  return request;
+}
 
 function createFakeRuntime(outputText: string): GenericAILlmRuntime {
   return {
@@ -104,7 +115,7 @@ describe("@generic-ai/example-starter-hono", () => {
       expect(payload.result.output?.payload?.outputText).toBe("runtime result: hello runtime");
       expect(createRuntime).toHaveBeenCalledOnce();
 
-      const consoleHealth = await starter.app.request("/console/api/health");
+      const consoleHealth = await starter.app.request(localAppRequest("/console/api/health"));
       expect(consoleHealth.status).toBe(200);
       expect(await consoleHealth.json()).toMatchObject({
         plugin: "@generic-ai/plugin-web-ui",
@@ -200,28 +211,32 @@ describe("@generic-ai/example-starter-hono", () => {
 
     try {
       const token = starter.webUi.sessionToken;
-      const apply = await starter.app.request("/console/api/templates/pipeline/apply", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-generic-ai-web-ui-token": token,
-        },
-        body: JSON.stringify({
-          dryRun: false,
-          idempotencyKey: "pipeline-console-chat-test",
+      const apply = await starter.app.request(
+        localAppRequest("/console/api/templates/pipeline/apply", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-generic-ai-web-ui-token": token,
+          },
+          body: JSON.stringify({
+            dryRun: false,
+            idempotencyKey: "pipeline-console-chat-test",
+          }),
         }),
-      });
+      );
       expect(apply.status).toBe(200);
       expect(await apply.json()).toMatchObject({ ok: true });
 
-      const posted = await starter.app.request("/console/api/chat/threads/demo/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-generic-ai-web-ui-token": token,
-        },
-        body: JSON.stringify({ content: "Do actual work" }),
-      });
+      const posted = await starter.app.request(
+        localAppRequest("/console/api/chat/threads/demo/messages", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-generic-ai-web-ui-token": token,
+          },
+          body: JSON.stringify({ content: "Do actual work" }),
+        }),
+      );
 
       expect(posted.status).toBe(200);
       const detail = (await posted.json()) as {
@@ -289,12 +304,34 @@ describe("@generic-ai/example-starter-hono", () => {
     expect(streamedText).toContain("network result: from browser");
   });
 
+  it("stamps fetch requests with trusted peer socket metadata", async () => {
+    let peerAddress: unknown;
+    const started = await startFetchServer(
+      (request) => {
+        peerAddress = Reflect.get(request, TRUSTED_PEER_ADDRESS_SYMBOL);
+        return new Response("ok");
+      },
+      { host: "127.0.0.1", port: 0 },
+    );
+    openServers.push(started.close);
+
+    const response = await fetch(`http://${started.host}:${started.port}/`, {
+      headers: { host: "localhost" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(String(peerAddress)).toContain("127.0.0.1");
+  });
+
   it("serves the built playground shell before falling back to starter routes", async () => {
     const publicDir = await mkdtemp(path.join(tmpdir(), "generic-ai-starter-ui-"));
 
     try {
       await mkdir(path.join(publicDir, "assets"));
-      await writeFile(path.join(publicDir, "index.html"), "<!doctype html><title>Playground</title>");
+      await writeFile(
+        path.join(publicDir, "index.html"),
+        "<!doctype html><title>Playground</title>",
+      );
       await writeFile(path.join(publicDir, "assets", "app.js"), "console.log('ok');");
 
       const transportFetch = vi.fn(async (request: Request) => {

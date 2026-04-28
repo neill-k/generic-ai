@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isIP } from "node:net";
 import { resolve } from "node:path";
 
 import {
@@ -61,6 +62,7 @@ const EVENTS_COLLECTION = "chat_events";
 const IDEMPOTENCY_COLLECTION = "idempotency";
 const DEFAULT_ROUTE_PREFIX = "/console/api";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const TRUSTED_PEER_ADDRESS_SYMBOL = Symbol.for("@generic-ai/http.peerAddress");
 
 function formatRunnerFailure(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -84,7 +86,9 @@ class MemoryStorageContract implements StorageContract {
     return this.#records.delete(formatStorageKey(key));
   }
 
-  async list(filter: Parameters<StorageContract["list"]>[0] = {}): Promise<readonly StorageRecord[]> {
+  async list(
+    filter: Parameters<StorageContract["list"]>[0] = {},
+  ): Promise<readonly StorageRecord[]> {
     return [...this.#records.values()].filter((record) => {
       if (filter.namespace !== undefined && record.key.namespace !== filter.namespace) {
         return false;
@@ -164,6 +168,8 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
   const sessionToken = options.sessionToken ?? randomUUID();
   const subscribers = new Map<string, Set<AsyncEventQueue<WebUiChatEvent>>>();
   const activeRuns = new Map<string, AbortController>();
+  const eventSequenceByThread = new Map<string, number>();
+  const eventSequenceLocks = new Map<string, Promise<void>>();
 
   function now(): string {
     const value = options.now?.() ?? new Date();
@@ -215,9 +221,40 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
     };
   }
 
+  async function withEventSequenceLock<TValue>(
+    threadId: string,
+    callback: () => Promise<TValue>,
+  ): Promise<TValue> {
+    const previous = eventSequenceLocks.get(threadId)?.catch(() => undefined) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolveCurrent) => {
+      release = resolveCurrent;
+    });
+    const chained = previous.then(() => current);
+    eventSequenceLocks.set(threadId, chained);
+
+    await previous;
+    try {
+      return await callback();
+    } finally {
+      release();
+      if (eventSequenceLocks.get(threadId) === chained) {
+        eventSequenceLocks.delete(threadId);
+      }
+    }
+  }
+
   async function nextEventSequence(threadId: string): Promise<number> {
+    const cached = eventSequenceByThread.get(threadId);
+    if (cached !== undefined) {
+      eventSequenceByThread.set(threadId, cached + 1);
+      return cached;
+    }
+
     const events = await list<StoredEvent>(EVENTS_COLLECTION, `${threadId}:`);
-    return events.length + 1;
+    const nextSequence = events.reduce((max, event) => Math.max(max, event.sequence), 0) + 1;
+    eventSequenceByThread.set(threadId, nextSequence + 1);
+    return nextSequence;
   }
 
   async function emitEvent(
@@ -225,16 +262,19 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
     type: WebUiChatEvent["type"],
     data: Record<string, unknown>,
   ): Promise<WebUiChatEvent> {
-    const sequence = await nextEventSequence(threadId);
-    const event: WebUiChatEvent = {
-      id: `${threadId}:${String(sequence).padStart(6, "0")}`,
-      sequence,
-      threadId,
-      type,
-      occurredAt: now(),
-      data,
-    };
-    await store(EVENTS_COLLECTION, event.id, event);
+    const event = await withEventSequenceLock(threadId, async () => {
+      const sequence = await nextEventSequence(threadId);
+      const nextEvent: WebUiChatEvent = {
+        id: `${threadId}:${String(sequence).padStart(6, "0")}`,
+        sequence,
+        threadId,
+        type,
+        occurredAt: now(),
+        data,
+      };
+      await store(EVENTS_COLLECTION, nextEvent.id, nextEvent);
+      return nextEvent;
+    });
 
     for (const queue of subscribers.get(threadId) ?? []) {
       queue.push(event);
@@ -254,7 +294,25 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
   ): Promise<WebUiChatThread> {
     const existing = await get<StoredThread>(THREADS_COLLECTION, threadId);
     if (existing !== undefined) {
-      return existing;
+      const nextThread = {
+        ...existing,
+        ...(input.selectedAgentId === undefined ? {} : { selectedAgentId: input.selectedAgentId }),
+        ...(input.selectedHarnessId === undefined
+          ? {}
+          : { selectedHarnessId: input.selectedHarnessId }),
+      };
+
+      if (
+        nextThread.selectedAgentId === existing.selectedAgentId &&
+        nextThread.selectedHarnessId === existing.selectedHarnessId
+      ) {
+        return existing;
+      }
+
+      return await saveThread({
+        ...nextThread,
+        updatedAt: now(),
+      });
     }
 
     const createdAt = now();
@@ -265,7 +323,9 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
       createdAt,
       updatedAt: createdAt,
       ...(input.selectedAgentId === undefined ? {} : { selectedAgentId: input.selectedAgentId }),
-      ...(input.selectedHarnessId === undefined ? {} : { selectedHarnessId: input.selectedHarnessId }),
+      ...(input.selectedHarnessId === undefined
+        ? {}
+        : { selectedHarnessId: input.selectedHarnessId }),
     };
     await saveThread(thread);
     await emitEvent(thread.id, "thread.created", { thread });
@@ -347,7 +407,9 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
     async previewConfig(input: WebUiConfigPreviewInput): Promise<WebUiConfigMutationResult> {
       const result = await previewCanonicalConfigTransaction(workspaceRoot, {
         edits: input.edits,
-        ...(input.expectedRevision === undefined ? {} : { expectedRevision: input.expectedRevision }),
+        ...(input.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: input.expectedRevision }),
       });
       return result.ok ? { ok: true, plan: result.plan, failures: [] } : result;
     },
@@ -364,7 +426,9 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
 
       const result = await applyCanonicalConfigTransaction(workspaceRoot, {
         edits: input.edits,
-        ...(input.expectedRevision === undefined ? {} : { expectedRevision: input.expectedRevision }),
+        ...(input.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: input.expectedRevision }),
       });
       const normalized: WebUiConfigMutationResult = result.ok
         ? { ok: true, plan: result.plan, config: result.config, failures: [] }
@@ -408,7 +472,9 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
       if (input.dryRun ?? true) {
         const result = await previewCanonicalConfigTransaction(workspaceRoot, {
           edits: template.edits,
-          ...(input.expectedRevision === undefined ? {} : { expectedRevision: input.expectedRevision }),
+          ...(input.expectedRevision === undefined
+            ? {}
+            : { expectedRevision: input.expectedRevision }),
         });
         return result.ok ? { ok: true, plan: result.plan, failures: [] } : result;
       }
@@ -435,7 +501,9 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
 
       const result = await applyCanonicalConfigTransaction(workspaceRoot, {
         edits: template.edits,
-        ...(input.expectedRevision === undefined ? {} : { expectedRevision: input.expectedRevision }),
+        ...(input.expectedRevision === undefined
+          ? {}
+          : { expectedRevision: input.expectedRevision }),
       });
       const normalized: WebUiConfigMutationResult = result.ok
         ? { ok: true, plan: result.plan, config: result.config, failures: [] }
@@ -468,14 +536,19 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
 
       const message = await addMessage(thread.id, "user", input.content);
       const runAbort = new AbortController();
+      const runSignal = combineAbortSignals(signal, runAbort.signal);
       activeRuns.set(thread.id, runAbort);
       thread = await setThreadStatus(thread, "running");
       await emitEvent(thread.id, "run.started", { messageId: message.id });
 
       try {
         const config = await getConfig();
-        const agentId = input.selectedAgentId ?? config.config?.framework.primaryAgent;
-        const harnessId = input.selectedHarnessId ?? config.config?.framework.primaryHarness;
+        const agentId =
+          input.selectedAgentId ?? thread.selectedAgentId ?? config.config?.framework.primaryAgent;
+        const harnessId =
+          input.selectedHarnessId ??
+          thread.selectedHarnessId ??
+          config.config?.framework.primaryHarness;
         const runnerResult =
           options.harnessRunner === undefined
             ? {
@@ -493,7 +566,7 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
                 ...(harnessId === undefined || config.config?.harnesses?.[harnessId] === undefined
                   ? {}
                   : { harness: config.config.harnesses[harnessId] }),
-                signal: signal.aborted ? signal : runAbort.signal,
+                signal: runSignal,
               });
 
         await addMessage(thread.id, "assistant", runnerResult.content);
@@ -505,10 +578,14 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
       } catch (error) {
         const failureMessage = formatRunnerFailure(error);
         await addMessage(thread.id, "assistant", failureMessage);
-        thread = await setThreadStatus(thread, signal.aborted || runAbort.signal.aborted ? "interrupted" : "failed");
-        await emitEvent(thread.id, thread.status === "interrupted" ? "run.interrupted" : "run.failed", {
-          message: failureMessage,
-        });
+        thread = await setThreadStatus(thread, runSignal.aborted ? "interrupted" : "failed");
+        await emitEvent(
+          thread.id,
+          thread.status === "interrupted" ? "run.interrupted" : "run.failed",
+          {
+            message: failureMessage,
+          },
+        );
       } finally {
         activeRuns.delete(thread.id);
       }
@@ -526,10 +603,7 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
       await emitEvent(threadId, "run.interrupted", {});
       return await detail(updated);
     },
-    async *streamThreadEvents(
-      threadId: string,
-      fromSequence = 0,
-    ): AsyncIterable<WebUiChatEvent> {
+    async *streamThreadEvents(threadId: string, fromSequence = 0): AsyncIterable<WebUiChatEvent> {
       const existing = (await list<StoredEvent>(EVENTS_COLLECTION, `${threadId}:`))
         .filter((event) => event.sequence > fromSequence)
         .sort((left, right) => left.sequence - right.sequence);
@@ -577,7 +651,9 @@ export function createHonoWebUiTransport(
     return await next();
   });
 
-  app.get(`${routePrefix}/health`, async (context) => context.json(await plugin.health(routePrefix)));
+  app.get(`${routePrefix}/health`, async (context) =>
+    context.json(await plugin.health(routePrefix)),
+  );
   app.get(`${routePrefix}/session`, (context) =>
     context.json({ sessionToken: options.security?.sessionToken ?? plugin.sessionToken }),
   );
@@ -587,50 +663,57 @@ export function createHonoWebUiTransport(
     if (blocked !== undefined) {
       return blocked;
     }
-    return context.json(await plugin.previewConfig(await readJsonBody<WebUiConfigPreviewInput>(context.req.raw)));
+    const input = await readJsonBodyOrError<WebUiConfigPreviewInput>(context.req.raw);
+    return input instanceof Response ? input : context.json(await plugin.previewConfig(input));
   });
   app.post(`${routePrefix}/config/apply`, async (context) => {
     const blocked = await authorizeMutation(context.req.raw, plugin.sessionToken, options.security);
     if (blocked !== undefined) {
       return blocked;
     }
-    return context.json(await plugin.applyConfig(await readJsonBody<WebUiConfigApplyInput>(context.req.raw)));
+    const input = await readJsonBodyOrError<WebUiConfigApplyInput>(context.req.raw);
+    return input instanceof Response ? input : context.json(await plugin.applyConfig(input));
   });
-  app.get(`${routePrefix}/templates`, (context) => context.json({ templates: plugin.listTemplates() }));
+  app.get(`${routePrefix}/templates`, (context) =>
+    context.json({ templates: plugin.listTemplates() }),
+  );
   app.get(`${routePrefix}/templates/:id`, (context) => {
     const template = plugin.getTemplate(context.req.param("id"));
-    return template === undefined ? context.json({ error: "Template not found." }, 404) : context.json(template);
+    return template === undefined
+      ? context.json({ error: "Template not found." }, 404)
+      : context.json(template);
   });
   app.post(`${routePrefix}/templates/:id/apply`, async (context) => {
     const blocked = await authorizeMutation(context.req.raw, plugin.sessionToken, options.security);
     if (blocked !== undefined) {
       return blocked;
     }
-    return context.json(
-      await plugin.applyTemplate(
-        context.req.param("id"),
-        await readJsonBody<WebUiTemplateApplyInput>(context.req.raw),
-      ),
-    );
+    const input = await readJsonBodyOrError<WebUiTemplateApplyInput>(context.req.raw);
+    if (input instanceof Response) {
+      return input;
+    }
+    return context.json(await plugin.applyTemplate(context.req.param("id"), input));
   });
   app.get(`${routePrefix}/chat/threads`, async (context) =>
     context.json({ threads: await plugin.listThreads() }),
   );
   app.get(`${routePrefix}/chat/threads/:id`, async (context) => {
     const thread = await plugin.getThread(context.req.param("id"));
-    return thread === undefined ? context.json({ error: "Thread not found." }, 404) : context.json(thread);
+    return thread === undefined
+      ? context.json({ error: "Thread not found." }, 404)
+      : context.json(thread);
   });
   app.post(`${routePrefix}/chat/threads/:id/messages`, async (context) => {
     const blocked = await authorizeMutation(context.req.raw, plugin.sessionToken, options.security);
     if (blocked !== undefined) {
       return blocked;
     }
+    const input = await readJsonBodyOrError<WebUiPostMessageInput>(context.req.raw);
+    if (input instanceof Response) {
+      return input;
+    }
     return context.json(
-      await plugin.postMessage(
-        context.req.param("id"),
-        await readJsonBody<WebUiPostMessageInput>(context.req.raw),
-        context.req.raw.signal,
-      ),
+      await plugin.postMessage(context.req.param("id"), input, context.req.raw.signal),
     );
   });
   app.post(`${routePrefix}/chat/threads/:id/interrupt`, async (context) => {
@@ -639,7 +722,9 @@ export function createHonoWebUiTransport(
       return blocked;
     }
     const thread = await plugin.interruptThread(context.req.param("id"));
-    return thread === undefined ? context.json({ error: "Thread not found." }, 404) : context.json(thread);
+    return thread === undefined
+      ? context.json({ error: "Thread not found." }, 404)
+      : context.json(thread);
   });
   app.get(`${routePrefix}/chat/threads/:id/events`, async (context) => {
     const lastEventId = context.req.raw.headers.get("last-event-id");
@@ -675,7 +760,25 @@ async function* toSseChunks(events: AsyncIterable<WebUiChatEvent>): AsyncIterabl
 
 async function readJsonBody<TValue>(request: Request): Promise<TValue> {
   const raw = await request.text();
-  return (raw.trim().length === 0 ? {} : JSON.parse(raw)) as TValue;
+  try {
+    return (raw.trim().length === 0 ? {} : JSON.parse(raw)) as TValue;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new InvalidJsonBodyError("Invalid JSON request body.");
+    }
+    throw error;
+  }
+}
+
+async function readJsonBodyOrError<TValue>(request: Request): Promise<TValue | Response> {
+  try {
+    return await readJsonBody<TValue>(request);
+  } catch (error) {
+    if (error instanceof InvalidJsonBodyError) {
+      return jsonError(error.message, 400);
+    }
+    throw error;
+  }
 }
 
 async function authorizeMutation(
@@ -706,16 +809,110 @@ function validateExposure(
   request: Request,
   security: WebUiTransportSecurityOptions,
 ): Response | undefined {
-  const url = new URL(request.url);
-  if (isLoopbackHostname(url.hostname)) {
+  const trustedPeerAddress = trustedPeerAddressForRequest(request);
+  if (trustedPeerAddress !== undefined && isLoopbackHostname(trustedPeerAddress)) {
     return undefined;
+  }
+
+  if (trustedPeerAddress === undefined && security.trustRequestUrlLoopback === true) {
+    const url = new URL(request.url);
+    if (isLoopbackHostname(url.hostname)) {
+      return undefined;
+    }
   }
 
   if (security.allowRemote === true && security.authorize !== undefined) {
     return undefined;
   }
 
-  return jsonError("Web UI refuses non-loopback requests without explicit authorize and allowRemote.", 403);
+  return jsonError(
+    "Web UI refuses non-loopback requests without explicit authorize and allowRemote.",
+    403,
+  );
+}
+
+function combineAbortSignals(...signals: readonly AbortSignal[]): AbortSignal {
+  if (signals.length === 1) {
+    return signals[0] as AbortSignal;
+  }
+
+  const controller = new AbortController();
+  const abort = () => {
+    controller.abort();
+  };
+
+  for (const signal of signals) {
+    if (signal.aborted) {
+      abort();
+      break;
+    }
+    signal.addEventListener("abort", abort, { once: true });
+  }
+
+  return controller.signal;
+}
+
+class InvalidJsonBodyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidJsonBodyError";
+  }
+}
+
+function trustedPeerAddressForRequest(request: Request): string | undefined {
+  const value = Reflect.get(request, TRUSTED_PEER_ADDRESS_SYMBOL);
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value;
+  }
+
+  return undefined;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = normalizeAddress(hostname);
+  if (normalized === "localhost") {
+    return true;
+  }
+
+  if (normalized.startsWith("127.") && isIP(normalized) === 4) {
+    return true;
+  }
+
+  const ipv4MappedPrefix = "::ffff:";
+  if (
+    normalized.startsWith(ipv4MappedPrefix) &&
+    normalized.slice(ipv4MappedPrefix.length).startsWith("127.") &&
+    isIP(normalized.slice(ipv4MappedPrefix.length)) === 4
+  ) {
+    return true;
+  }
+
+  if (isIP(normalized) !== 6) {
+    return false;
+  }
+
+  const compressedParts = normalized.split("::");
+  if (compressedParts.length > 2) {
+    return false;
+  }
+
+  const head = compressedParts[0]?.length === 0 ? [] : (compressedParts[0]?.split(":") ?? []);
+  const tail =
+    compressedParts.length === 1 || compressedParts[1]?.length === 0
+      ? []
+      : (compressedParts[1]?.split(":") ?? []);
+  const zeroFill =
+    compressedParts.length === 1 ? [] : Array(8 - head.length - tail.length).fill("0");
+  const groups = [...head, ...zeroFill, ...tail];
+
+  if (groups.length !== 8) {
+    return false;
+  }
+
+  return (
+    groups.slice(0, 7).every((group) => Number.parseInt(group || "0", 16) === 0) &&
+    Number.parseInt(groups[7] || "0", 16) === 1
+  );
 }
 
 function validateOrigin(request: Request): Response | undefined {
@@ -746,14 +943,9 @@ function jsonError(message: string, status: number): Response {
   });
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase();
-  return (
-    normalized === "localhost" ||
-    normalized === "::1" ||
-    normalized === "[::1]" ||
-    normalized.startsWith("127.")
-  );
+function normalizeAddress(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.startsWith("[") && trimmed.endsWith("]") ? trimmed.slice(1, -1) : trimmed;
 }
 
 function normalizeRoutePrefix(routePrefix: string): string {

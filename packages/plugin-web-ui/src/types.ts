@@ -14,7 +14,12 @@ export const name = "@generic-ai/plugin-web-ui" as const;
 export const kind = "web-ui" as const;
 
 export type WebUiTemplateStatus = "runnable" | "preview";
-export type WebUiTemplateEffect = "fs.read" | "fs.write" | "process.spawn" | "network.egress" | "mcp.read";
+export type WebUiTemplateEffect =
+  | "fs.read"
+  | "fs.write"
+  | "process.spawn"
+  | "network.egress"
+  | "mcp.read";
 export type WebUiChatThreadStatus = "idle" | "running" | "interrupted" | "failed" | "completed";
 export type WebUiChatRole = "user" | "assistant" | "system";
 
@@ -207,7 +212,11 @@ export interface WebUiPlugin {
   applyTemplate(id: string, input: WebUiTemplateApplyInput): Promise<WebUiConfigMutationResult>;
   listThreads(): Promise<readonly WebUiChatThread[]>;
   getThread(threadId: string): Promise<WebUiChatThreadDetail | undefined>;
-  postMessage(threadId: string, input: WebUiPostMessageInput, signal: AbortSignal): Promise<WebUiChatThreadDetail>;
+  postMessage(
+    threadId: string,
+    input: WebUiPostMessageInput,
+    signal: AbortSignal,
+  ): Promise<WebUiChatThreadDetail>;
   interruptThread(threadId: string): Promise<WebUiChatThreadDetail | undefined>;
   streamThreadEvents(threadId: string, fromSequence?: number): AsyncIterable<WebUiChatEvent>;
 }
@@ -216,4 +225,5 @@ export interface WebUiTransportSecurityOptions {
   readonly sessionToken?: string;
   readonly allowRemote?: boolean;
   readonly authorize?: (request: Request) => Promise<Response | undefined> | Response | undefined;
+  readonly trustRequestUrlLoopback?: boolean;
 }

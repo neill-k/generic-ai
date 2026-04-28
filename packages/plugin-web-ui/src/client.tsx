@@ -21,20 +21,10 @@ import {
   ConversationContent,
   ConversationScrollButton,
 } from "./components/ai-elements/conversation.js";
-import {
-  Message,
-  MessageContent,
-  MessageResponse,
-} from "./components/ai-elements/message.js";
+import { Message, MessageContent, MessageResponse } from "./components/ai-elements/message.js";
 import { Badge } from "./components/ui/badge.js";
 import { Button } from "./components/ui/button.js";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "./components/ui/card.js";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card.js";
 import { cn } from "./lib/utils.js";
 import type {
   WebUiChatThread,
@@ -71,8 +61,16 @@ const tabs: readonly { id: ConsoleTab; label: string; icon: typeof BotIcon }[] =
 ];
 
 export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
-  const apiBase = normalizeApiBase(props.apiBase ?? "/console/api");
-  const [uncontrolledTab, setUncontrolledTab] = useState<ConsoleTab>(props.defaultTab ?? "chat");
+  const {
+    activeTab,
+    apiBase: apiBaseInput = "/console/api",
+    defaultTab = "chat",
+    onTabChange,
+    sessionToken: sessionTokenInput,
+    shell = "full",
+  } = props;
+  const apiBase = normalizeApiBase(apiBaseInput);
+  const [uncontrolledTab, setUncontrolledTab] = useState<ConsoleTab>(defaultTab);
   const [health, setHealth] = useState<WebUiHealth | undefined>();
   const [config, setConfig] = useState<WebUiConfigSnapshot | undefined>();
   const [templates, setTemplates] = useState<readonly WebUiTemplateSummary[]>([]);
@@ -81,19 +79,18 @@ export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
   const [thread, setThread] = useState<WebUiChatThreadDetail | undefined>();
   const [prompt, setPrompt] = useState("");
   const [error, setError] = useState<string | undefined>();
-  const [sessionToken, setSessionToken] = useState<string | undefined>(props.sessionToken);
+  const [sessionToken, setSessionToken] = useState<string | undefined>(sessionTokenInput);
   const [isSubmittingMessage, setIsSubmittingMessage] = useState(false);
   const openThreadId = thread?.thread.id;
-  const tab = props.activeTab ?? uncontrolledTab;
-  const shell = props.shell ?? "full";
+  const tab = activeTab ?? uncontrolledTab;
   const setTab = useCallback(
     (nextTab: ConsoleTab) => {
-      props.onTabChange?.(nextTab);
-      if (props.activeTab === undefined) {
+      onTabChange?.(nextTab);
+      if (activeTab === undefined) {
         setUncontrolledTab(nextTab);
       }
     },
-    [props],
+    [activeTab, onTabChange],
   );
 
   const headers = useMemo(() => {
@@ -118,7 +115,9 @@ export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
       setTemplates(nextTemplates.templates);
       setThreads(nextThreads.threads);
       if (openThreadId !== undefined) {
-        setThread(await fetchJson<WebUiChatThreadDetail>(`${apiBase}/chat/threads/${openThreadId}`));
+        setThread(
+          await fetchJson<WebUiChatThreadDetail>(`${apiBase}/chat/threads/${openThreadId}`),
+        );
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
@@ -126,15 +125,15 @@ export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
   }, [apiBase, openThreadId]);
 
   useEffect(() => {
-    if (props.sessionToken !== undefined) {
-      setSessionToken(props.sessionToken);
+    if (sessionTokenInput !== undefined) {
+      setSessionToken(sessionTokenInput);
       return;
     }
 
     void fetchJson<{ readonly sessionToken: string }>(`${apiBase}/session`)
       .then((payload) => setSessionToken(payload.sessionToken))
       .catch(() => undefined);
-  }, [apiBase, props.sessionToken]);
+  }, [apiBase, sessionTokenInput]);
 
   useEffect(() => {
     void refresh();
@@ -215,35 +214,35 @@ export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
       >
         {shell === "full" ? (
           <aside className="min-w-0 border-r bg-card/40 p-4 max-lg:border-b max-lg:border-r-0">
-          <div className="mb-5 flex items-center gap-3">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-secondary">
-              <WorkflowIcon className="size-5" />
+            <div className="mb-5 flex items-center gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-secondary">
+                <WorkflowIcon className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-sm font-semibold">Generic AI Console</h1>
+                <p className="truncate text-xs text-muted-foreground">
+                  {health?.config.primaryAgent ?? "Loading"}
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold">Generic AI Console</h1>
-              <p className="truncate text-xs text-muted-foreground">
-                {health?.config.primaryAgent ?? "Loading"}
-              </p>
-            </div>
-          </div>
-          <nav aria-label="Console sections" className="grid gap-2">
-            {tabs.map((item) => {
-              const Icon = item.icon;
-              return (
-                <Button
-                  aria-pressed={tab === item.id}
-                  className="justify-start"
-                  key={item.id}
-                  onClick={() => setTab(item.id)}
-                  type="button"
-                  variant={tab === item.id ? "default" : "ghost"}
-                >
-                  <Icon className="size-4" />
-                  {item.label}
-                </Button>
-              );
-            })}
-          </nav>
+            <nav aria-label="Console sections" className="grid gap-2">
+              {tabs.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <Button
+                    aria-pressed={tab === item.id}
+                    className="justify-start"
+                    key={item.id}
+                    onClick={() => setTab(item.id)}
+                    type="button"
+                    variant={tab === item.id ? "default" : "ghost"}
+                  >
+                    <Icon className="size-4" />
+                    {item.label}
+                  </Button>
+                );
+              })}
+            </nav>
           </aside>
         ) : null}
 
@@ -258,7 +257,10 @@ export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
             <Metric label="Workspace" value={health?.workspaceRoot ?? "Loading"} />
             <Metric label="Primary Agent" value={health?.config.primaryAgent ?? "None"} />
             <Metric label="Primary Harness" value={health?.config.primaryHarness ?? "None"} />
-            <Metric label="Config Revision" value={health?.config.revision?.slice(0, 12) ?? "Unknown"} />
+            <Metric
+              label="Config Revision"
+              value={health?.config.revision?.slice(0, 12) ?? "Unknown"}
+            />
           </section>
 
           {tab === "chat" ? (
@@ -270,7 +272,9 @@ export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
               onPromptChange={setPrompt}
               onSubmit={submitMessage}
               onOpenThread={async (threadId) => {
-                setThread(await fetchJson<WebUiChatThreadDetail>(`${apiBase}/chat/threads/${threadId}`));
+                setThread(
+                  await fetchJson<WebUiChatThreadDetail>(`${apiBase}/chat/threads/${threadId}`),
+                );
               }}
             />
           ) : null}
@@ -432,7 +436,11 @@ function TemplatesPanel(props: {
               <CardDescription>{template.summary}</CardDescription>
             </CardHeader>
             <CardContent className="grid gap-2 pt-3">
-              <Button type="button" variant="outline" onClick={() => props.onOpenTemplate(template.id)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => props.onOpenTemplate(template.id)}
+              >
                 Open
               </Button>
               {template.status === "runnable" ? (
