@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createCanonicalEvent, type AgentHarnessRunResult } from "@generic-ai/sdk";
-import { createObservabilityAgentTools } from "./agent-tools.js";
-import { getObservabilityMetricCatalog, assertMetricAttributesAreBounded } from "./metrics.js";
-import { MemoryObservabilityRepository, SqliteObservabilityRepository } from "./repository.js";
-import { redactJsonValue, summarizePayload } from "./redaction.js";
-import { createGenericAIObservabilityRoutes, ingestObservabilityEvent } from "./server.js";
-import { createObservabilityLiveEventBus } from "./sse.js";
-import type { ObservabilityMetricPoint } from "./types.js";
+import { createObservabilityAgentTools } from "../src/agent-tools.js";
+import { getObservabilityMetricCatalog, assertMetricAttributesAreBounded } from "../src/metrics.js";
+import { MemoryObservabilityRepository, SqliteObservabilityRepository } from "../src/repository.js";
+import { redactJsonValue, summarizePayload } from "../src/redaction.js";
+import { createGenericAIObservabilityRoutes, ingestObservabilityEvent } from "../src/server.js";
+import { createObservabilityLiveEventBus } from "../src/sse.js";
+import type { ObservabilityMetricPoint } from "../src/types.js";
 
 const workspaceId = "workspace-a";
 
