@@ -6,7 +6,7 @@
   "scripts": {
     "check:node": "node ../../scripts/check-node-version.mjs",
     "predev": "node ../../scripts/check-node-version.mjs",
-    "dev": "node --watch --experimental-strip-types src/run.ts",
+    "dev": "node scripts/dev.mjs",
     "dev:ui": "vite --host 127.0.0.1 --port 3001",
     "prestart": "node ../../scripts/check-node-version.mjs",
     "start": "node dist/run.js",

@@ -13,9 +13,9 @@ import {
   createStarterExampleFetch,
   createStarterExampleServer,
   loadStarterExampleEnvironment,
-} from "./index.js";
-import { startFetchServer } from "./node-server.js";
-import { runStarterExampleCli } from "./run.js";
+} from "./index.ts";
+import { startFetchServer } from "./node-server.ts";
+import { runStarterExampleCli } from "./run.ts";
 
 const openServers: Array<() => Promise<void>> = [];
 type HarnessRunInput = Parameters<ReturnType<typeof createAgentHarness>["run"]>[0];
@@ -40,13 +40,45 @@ function createFakeRuntime(outputText: string): GenericAILlmRuntime {
         model: "gpt-5.5",
         outputText: `${outputText}: ${input}`,
       }) satisfies GenericAILlmRunResult,
-    stream: async function* () {
+    stream: async function* (input) {
+      yield {
+        type: "event",
+        event: {
+          name: "pi.turn_start",
+          data: {
+            type: "turn_start",
+          },
+        },
+      };
+      yield {
+        type: "event",
+        event: {
+          name: "pi.tool_execution_start",
+          data: {
+            type: "tool_execution_start",
+            toolCallId: "call-1",
+            toolName: "workspace_read",
+          },
+        },
+      };
+      yield {
+        type: "event",
+        event: {
+          name: "pi.tool_execution_end",
+          data: {
+            type: "tool_execution_end",
+            isError: false,
+            toolCallId: "call-1",
+            toolName: "workspace_read",
+          },
+        },
+      };
       yield {
         type: "response",
         response: {
           adapter: "openai-codex",
           model: "gpt-5.5",
-          outputText,
+          outputText: `${outputText}: ${input}`,
         },
       };
     },
@@ -151,6 +183,8 @@ describe("@generic-ai/example-starter-hono", () => {
 
       expect(streamedText).toContain("event: run.created");
       expect(streamedText).toContain("event: run.started");
+      expect(streamedText).toContain("event: pi.tool_execution_start");
+      expect(streamedText).toContain("workspace_read");
       expect(streamedText).toContain("event: run.completed");
       expect(streamedText).toContain("event: run.envelope");
       expect(streamedText).toContain("streamed result: stream me");

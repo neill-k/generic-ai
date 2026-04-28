@@ -17,10 +17,19 @@ export interface GenericAILlmRunResult {
   readonly requestId?: string;
 }
 
+export interface GenericAILlmRuntimeEvent {
+  readonly name: string;
+  readonly data: unknown;
+}
+
 export type GenericAILlmStreamChunk =
   | {
       readonly type: "text-delta";
       readonly delta: string;
+    }
+  | {
+      readonly type: "event";
+      readonly event: GenericAILlmRuntimeEvent;
     }
   | {
       readonly type: "response";

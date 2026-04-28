@@ -78,6 +78,8 @@ Open `http://127.0.0.1:3000/` for the playground UI. It includes:
 
 - a prompt input seeded for a real single-file Three.js game generation workflow
 - sync and streaming run modes
+- an immediate conversation trail with a compact running indicator while the preview updates
+- a live activity rail for streamed runtime/session events such as turns, messages, and tool calls
 - optional bearer-token entry for protected remote runs
 - a sandboxed HTML preview, raw HTML view, downloadable artifact, and run-event log
 
@@ -106,7 +108,8 @@ export GENERIC_AI_UNSAFE_EXPOSE=1
 npm run -w @generic-ai/example-starter-hono start
 ```
 
-For local iteration without a build:
+For local iteration, the dev script builds the server references, keeps TypeScript
+watching, and runs the built server with Node watch mode:
 
 ```bash
 export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
@@ -170,7 +173,7 @@ curl -N -X POST http://127.0.0.1:3000/starter/run/stream \
   -d '{"input":"Summarize the starter stack in three bullets."}'
 ```
 
-The stream endpoint emits canonical run lifecycle events followed by a terminal `run.envelope` event that contains the real provider response payload.
+The stream endpoint emits canonical run lifecycle events, forwards runtime activity events such as `pi.tool_execution_start` and `pi.tool_execution_end` when the provider session reports them, and finishes with a terminal `run.envelope` event that contains the real provider response payload.
 
 ## Live provider smoke test
 

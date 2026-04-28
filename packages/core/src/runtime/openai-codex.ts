@@ -14,6 +14,7 @@ import {
   type GenericAILlmRunOptions,
   type GenericAILlmRunResult,
   type GenericAILlmRuntime,
+  type GenericAILlmStreamChunk,
 } from "./types.js";
 import {
   createStopAndRespondTool,
@@ -43,9 +44,16 @@ type PiSession = {
     text: string,
     options?: { readonly source?: string; readonly signal?: AbortSignal },
   ) => Promise<void>;
+  readonly subscribe?: (listener: (event: unknown) => void) => () => void;
   readonly getLastAssistantText?: () => string | undefined;
   readonly dispose?: () => void;
 };
+
+interface AsyncEventQueue<T> {
+  readonly push: (value: T) => void;
+  readonly close: () => void;
+  readonly next: () => Promise<IteratorResult<T>>;
+}
 
 export interface OpenAICodexRuntimeDependencies {
   readonly createAgentSession?: typeof createPiAgentSession;
@@ -74,6 +82,10 @@ function isTextPart(value: unknown): value is { readonly type: "text"; readonly 
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 function isAssistantLikeMessage(value: unknown): value is {
   readonly role: "assistant";
   readonly content: unknown;
@@ -85,6 +97,185 @@ function isAssistantLikeMessage(value: unknown): value is {
     value.role === "assistant" &&
     "content" in value
   );
+}
+
+function createAsyncEventQueue<T>(): AsyncEventQueue<T> {
+  const values: T[] = [];
+  const waiters: Array<(result: IteratorResult<T>) => void> = [];
+  let closed = false;
+
+  return {
+    push(value) {
+      if (closed) {
+        return;
+      }
+
+      const waiter = waiters.shift();
+      if (waiter !== undefined) {
+        waiter({ done: false, value });
+        return;
+      }
+
+      values.push(value);
+    },
+    close() {
+      if (closed) {
+        return;
+      }
+
+      closed = true;
+      for (const waiter of waiters.splice(0)) {
+        waiter({ done: true, value: undefined });
+      }
+    },
+    async next() {
+      if (values.length > 0) {
+        const value = values.shift() as T;
+        return { done: false, value };
+      }
+
+      if (closed) {
+        return { done: true, value: undefined };
+      }
+
+      return await new Promise<IteratorResult<T>>((resolve) => {
+        waiters.push(resolve);
+      });
+    },
+  };
+}
+
+function readStringField(value: Record<string, unknown>, key: string): string | undefined {
+  const field = value[key];
+  return typeof field === "string" ? field : undefined;
+}
+
+function readBooleanField(value: Record<string, unknown>, key: string): boolean | undefined {
+  const field = value[key];
+  return typeof field === "boolean" ? field : undefined;
+}
+
+function readNumberField(value: Record<string, unknown>, key: string): number | undefined {
+  const field = value[key];
+  return typeof field === "number" ? field : undefined;
+}
+
+function readArrayLength(value: Record<string, unknown>, key: string): number | undefined {
+  const field = value[key];
+  return Array.isArray(field) ? field.length : undefined;
+}
+
+function writeIfDefined(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown | undefined,
+): void {
+  if (value !== undefined) {
+    target[key] = value;
+  }
+}
+
+function serializePiSessionEvent(event: unknown): Record<string, unknown> {
+  if (!isRecord(event)) {
+    return { type: "unknown" };
+  }
+
+  const eventType = readStringField(event, "type") ?? "unknown";
+  const serialized: Record<string, unknown> = { type: eventType };
+
+  switch (eventType) {
+    case "queue_update": {
+      const steering = event["steering"];
+      const followUp = event["followUp"];
+      if (Array.isArray(steering)) {
+        serialized["steering"] = [...steering];
+      }
+      if (Array.isArray(followUp)) {
+        serialized["followUp"] = [...followUp];
+      }
+      break;
+    }
+
+    case "compaction_start":
+      writeIfDefined(serialized, "reason", readStringField(event, "reason"));
+      break;
+
+    case "compaction_end":
+      writeIfDefined(serialized, "reason", readStringField(event, "reason"));
+      writeIfDefined(serialized, "aborted", readBooleanField(event, "aborted"));
+      writeIfDefined(serialized, "willRetry", readBooleanField(event, "willRetry"));
+      writeIfDefined(serialized, "errorMessage", readStringField(event, "errorMessage"));
+      break;
+
+    case "auto_retry_start":
+      writeIfDefined(serialized, "attempt", readNumberField(event, "attempt"));
+      writeIfDefined(serialized, "maxAttempts", readNumberField(event, "maxAttempts"));
+      writeIfDefined(serialized, "delayMs", readNumberField(event, "delayMs"));
+      writeIfDefined(serialized, "errorMessage", readStringField(event, "errorMessage"));
+      break;
+
+    case "auto_retry_end":
+      writeIfDefined(serialized, "success", readBooleanField(event, "success"));
+      writeIfDefined(serialized, "attempt", readNumberField(event, "attempt"));
+      writeIfDefined(serialized, "finalError", readStringField(event, "finalError"));
+      break;
+
+    case "message_start":
+    case "message_end": {
+      const message = event["message"];
+      if (isRecord(message)) {
+        writeIfDefined(serialized, "role", readStringField(message, "role"));
+      }
+      break;
+    }
+
+    case "message_update": {
+      const assistantEvent = event["assistantMessageEvent"];
+      if (isRecord(assistantEvent)) {
+        writeIfDefined(
+          serialized,
+          "assistantMessageEventType",
+          readStringField(assistantEvent, "type"),
+        );
+        writeIfDefined(serialized, "delta", readStringField(assistantEvent, "delta"));
+      }
+      break;
+    }
+
+    case "tool_execution_start":
+    case "tool_execution_update":
+      writeIfDefined(serialized, "toolCallId", readStringField(event, "toolCallId"));
+      writeIfDefined(serialized, "toolName", readStringField(event, "toolName"));
+      break;
+
+    case "tool_execution_end":
+      writeIfDefined(serialized, "toolCallId", readStringField(event, "toolCallId"));
+      writeIfDefined(serialized, "toolName", readStringField(event, "toolName"));
+      writeIfDefined(serialized, "isError", readBooleanField(event, "isError"));
+      break;
+
+    case "turn_end":
+      writeIfDefined(serialized, "toolResultCount", readArrayLength(event, "toolResults"));
+      break;
+
+    case "agent_end":
+      writeIfDefined(serialized, "messageCount", readArrayLength(event, "messages"));
+      break;
+  }
+
+  return serialized;
+}
+
+function createRuntimeEventChunk(event: unknown): GenericAILlmStreamChunk {
+  const eventType =
+    isRecord(event) && typeof event["type"] === "string" ? event["type"] : "unknown";
+  return {
+    type: "event",
+    event: {
+      name: `pi.${eventType}`,
+      data: serializePiSessionEvent(event),
+    },
+  };
 }
 
 function extractLatestAssistantText(session: PiSession): string {
@@ -309,10 +500,56 @@ export function createOpenAICodexRuntime(
     ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
     run,
     async *stream(prompt: string, options?: GenericAILlmRunOptions) {
-      yield {
-        type: "response",
-        response: await run(prompt, options),
-      } as const;
+      if (options?.signal?.aborted) {
+        throw createAbortError("before");
+      }
+
+      const { modelId, session } = await createSession(input, dependencies);
+      const queue = createAsyncEventQueue<GenericAILlmStreamChunk>();
+      const unsubscribe = session.subscribe?.((event) => {
+        queue.push(createRuntimeEventChunk(event));
+      });
+      let promptError: unknown;
+      const promptPromise = awaitPromptWithAbort(
+        session.prompt(prompt, {
+          source: "extension",
+          ...(options?.signal === undefined ? {} : { signal: options.signal }),
+        }),
+        options?.signal,
+        () => session.dispose?.(),
+      ).then(
+        () => {
+          queue.close();
+        },
+        (error: unknown) => {
+          promptError = error;
+          queue.close();
+        },
+      );
+
+      try {
+        while (true) {
+          const next = await queue.next();
+          if (next.done) {
+            break;
+          }
+
+          yield next.value;
+        }
+
+        await promptPromise;
+        if (promptError !== undefined) {
+          throw promptError;
+        }
+
+        yield {
+          type: "response",
+          response: toRunResult(modelId, extractLatestAssistantText(session), undefined),
+        } as const;
+      } finally {
+        unsubscribe?.();
+        session.dispose?.();
+      }
     },
   });
 }
