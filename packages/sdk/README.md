@@ -33,6 +33,7 @@ The SDK defines the contract families planned in
 - storage contracts
 - workspace contracts
 - queue contracts
+- memory service contracts
 - output-plugin contracts
 - sandbox execution contracts for container-backed terminal backends, including policy ceilings, per-stream output truncation, and execution resource reporting
 - agents-as-code contracts for declaring, compiling, benchmarking, tracing, and
@@ -56,6 +57,7 @@ The helper layer is intentionally small and mostly ergonomic:
 - `defineStorage`
 - `defineWorkspace`
 - `defineQueue`
+- `defineMemory`
 - `defineOutputPlugin`
 - `withAgentHarnessToolEffects`
 

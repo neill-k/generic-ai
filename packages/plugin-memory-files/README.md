@@ -6,6 +6,8 @@ Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin
 
 - Provide file-backed persistent agent memory
 - Support persistent read, write, and search operations
+- Implement the SDK `MemoryService` contract while preserving the file-store
+  API as the local-first reference behavior
 - Depend on `@generic-ai/plugin-workspace-fs` for filesystem access instead of re-implementing path handling
 - Document its file layout and retrieval behavior so alternate memory plugins can follow the same contract
 

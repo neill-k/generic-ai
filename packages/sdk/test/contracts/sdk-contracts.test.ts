@@ -3,9 +3,17 @@ import { createRegistry } from "../../src/helpers/create-registry.js";
 import { createScope } from "../../src/helpers/create-scope.js";
 import { defineConfigSchema } from "../../src/helpers/define-config-schema.js";
 import { defineLifecycle } from "../../src/helpers/define-lifecycle.js";
+import { defineMemory } from "../../src/helpers/define-memory.js";
 import { defineOutputPlugin } from "../../src/helpers/define-output-plugin.js";
 import { definePlugin } from "../../src/helpers/define-plugin.js";
 import type { ConfigSchemaContract } from "../../src/contracts/config-schema.js";
+import type {
+  MemoryRecord,
+  MemoryRecordInput,
+  MemorySearchQuery,
+  MemorySearchResult,
+  MemoryService,
+} from "../../src/contracts/memory.js";
 import type { OutputPluginContract } from "../../src/contracts/output.js";
 import type { PluginContract, PluginRuntimeContext } from "../../src/contracts/plugin.js";
 import type { QueueContract, QueueJob, QueueLease } from "../../src/contracts/queue.js";
@@ -193,6 +201,80 @@ function createMemoryWorkspace(): WorkspaceContract {
   };
 }
 
+function createMemoryService(): MemoryService {
+  const records = new Map<string, MemoryRecord>();
+
+  function recordKey(agentId: string, id: string): string {
+    return `${agentId}:${id}`;
+  }
+
+  function matchesQuery(record: MemoryRecord, query: MemorySearchQuery): boolean {
+    if (query.kind !== undefined && record.kind !== query.kind) {
+      return false;
+    }
+    if (query.tags !== undefined && !query.tags.every((tag) => record.tags.includes(tag))) {
+      return false;
+    }
+
+    return true;
+  }
+
+  return defineMemory({
+    capability: "memory",
+    driver: "test-memory",
+    async remember(agentId: string, entry: MemoryRecordInput) {
+      const record: MemoryRecord = {
+        id: entry.id ?? `memory-${records.size + 1}`,
+        agentId,
+        text: entry.text,
+        tags: [...(entry.tags ?? [])],
+        metadata: entry.metadata ?? {},
+        createdAt: "2026-04-28T00:00:00.000Z",
+        updatedAt: "2026-04-28T00:00:00.000Z",
+        ...(entry.namespace === undefined ? {} : { namespace: entry.namespace }),
+        ...(entry.kind === undefined ? {} : { kind: entry.kind }),
+        ...(entry.importance === undefined ? {} : { importance: entry.importance }),
+        ...(entry.salience === undefined ? {} : { salience: entry.salience }),
+        ...(entry.validFrom === undefined ? {} : { validFrom: entry.validFrom }),
+        ...(entry.validTo === undefined ? {} : { validTo: entry.validTo }),
+        ...(entry.provenance === undefined ? {} : { provenance: entry.provenance }),
+        ...(entry.supersedes === undefined ? {} : { supersedes: entry.supersedes }),
+      };
+
+      records.set(recordKey(agentId, record.id), record);
+      return record;
+    },
+    async get(agentId: string, id: string) {
+      return records.get(recordKey(agentId, id));
+    },
+    async list(agentId: string) {
+      return Array.from(records.values()).filter((record) => record.agentId === agentId);
+    },
+    async search(agentId: string, query: string | MemorySearchQuery, limit = 5) {
+      const searchQuery: MemorySearchQuery = typeof query === "string" ? { text: query } : query;
+      const tokens = searchQuery.text.toLowerCase().split(/\W+/).filter(Boolean);
+
+      return Array.from(records.values())
+        .filter((record) => record.agentId === agentId && matchesQuery(record, searchQuery))
+        .map((entry): MemorySearchResult => {
+          const haystack = `${entry.text} ${entry.tags.join(" ")}`.toLowerCase();
+          const matches = tokens.filter((token) => haystack.includes(token));
+
+          return {
+            entry,
+            score: matches.length,
+            matches,
+          };
+        })
+        .filter((result) => result.score > 0)
+        .slice(0, searchQuery.limit ?? limit);
+    },
+    async forget(agentId: string, id: string) {
+      return records.delete(recordKey(agentId, id));
+    },
+  });
+}
+
 describe("@generic-ai/sdk contracts", () => {
   it("lets a sample plugin implement the public contracts without kernel internals", async () => {
     const pluginRegistry = createRegistry<PluginContract<SampleConfig>>("plugins");
@@ -201,6 +283,7 @@ describe("@generic-ai/sdk contracts", () => {
     const storage = createMemoryStorage();
     const workspace = createMemoryWorkspace();
     const queue = createMemoryQueue();
+    const memory = createMemoryService();
 
     const sampleOutputPlugin = defineOutputPlugin<SampleRun, SampleOutput>({
       kind: "output-plugin",
@@ -308,6 +391,7 @@ describe("@generic-ai/sdk contracts", () => {
     expectTypeOf(samplePlugin).toMatchTypeOf<PluginContract<SampleConfig>>();
     expectTypeOf(sampleSchema).toMatchTypeOf<ConfigSchemaContract<SampleConfig>>();
     expectTypeOf(scope).toMatchTypeOf<Scope>();
+    expectTypeOf(memory).toMatchTypeOf<MemoryService>();
 
     pluginRegistry.register(samplePlugin.manifest.id, samplePlugin);
     outputRegistry.register(sampleOutputPlugin.manifest.id, sampleOutputPlugin);
@@ -363,6 +447,23 @@ describe("@generic-ai/sdk contracts", () => {
     expect(await workspace.readText("/workspace/workspace/agents/run-001/memory/note.txt")).toBe(
       "hello from sdk",
     );
+
+    const remembered = await memory.remember("coordinator", {
+      id: "memory-001",
+      kind: "fact",
+      text: "The SDK memory contract keeps memory implementations replaceable.",
+      tags: ["sdk", "memory"],
+      metadata: { source: "contract-test" },
+    });
+
+    expect(await memory.get("coordinator", remembered.id)).toEqual(remembered);
+    expect(await memory.search("coordinator", { text: "replaceable memory", tags: ["sdk"] })).toEqual([
+      {
+        entry: remembered,
+        score: 2,
+        matches: ["replaceable", "memory"],
+      },
+    ]);
 
     const lease = await queue.lease();
     expect(lease?.state).toBe("leased");

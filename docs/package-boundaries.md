@@ -73,6 +73,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Allowed deps: `pi`.
 - Not responsible for: plugin implementations, config discovery, kernel internals, live provider execution, or report hosting.
 - Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
+- Memory note: owns the public `MemoryService` contract and `defineMemory` helper so alternate memory plugins share the same read/write/search/forget baseline plus optional consolidation, provenance, timeline, and graph extensions.
 - Publishes as: `@generic-ai/sdk` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/preset-starter-hono`
@@ -194,9 +195,9 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/plugin-memory-files`
 
-- Role: file-backed persistent agent memory with read, write, and search.
+- Role: file-backed persistent agent memory with read, write, and search. It is the local-first reference implementation of the SDK `MemoryService` contract.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
-- Not responsible for: durable non-file memory backends (a future memory plugin can own that).
+- Not responsible for: semantic vector retrieval, temporal reasoning, memory consolidation, graph memory, hosted memory backends, or durable non-file storage. Future memory plugins can own those behaviors while conforming to `MemoryService`.
 
 ### `@generic-ai/plugin-output-default`
 
@@ -237,6 +238,54 @@ layer when the roadmap resumes.
 - Notes: the deferred roadmap and Hono integration implications live in
   `docs/identity-auth.md`; the framework-level decision record is
   `docs/decisions/0019-identity-auth-plugin-boundary.md`.
+
+### Future `@generic-ai/plugin-memory-vector-hybrid`
+
+- Role: local-first semantic memory implementation that combines raw records,
+  lexical search, dense embeddings, metadata filters, and optional reranking.
+- Allowed deps: `@generic-ai/sdk`, `pi`, storage/workspace/queue contracts,
+  embedding/reranking libraries or provider clients, and optional vector-store
+  adapters.
+- Not responsible for: kernel session orchestration, temporal interval
+  semantics beyond base metadata, graph traversal, or making hosted vector
+  infrastructure mandatory for the starter preset.
+- Notes: this should be the first richer memory plugin after
+  `@generic-ai/plugin-memory-files`; see `docs/memory-plugins.md` and
+  `docs/decisions/0029-memory-service-contract-and-roadmap.md`.
+
+### Future `@generic-ai/plugin-memory-temporal`
+
+- Role: temporal semantic memory with point events, durative states, validity
+  intervals, supersession, and `asOf`/timeline queries.
+- Allowed deps: `@generic-ai/sdk`, `pi`, storage/workspace/queue contracts, and
+  optional semantic retrieval adapters.
+- Not responsible for: graph entity extraction, summary/profile consolidation,
+  or replacing the base `MemoryService` CRUD/search shape.
+- Notes: should layer on the shared record vocabulary and preserve provenance
+  for corrected or superseded facts.
+
+### Future `@generic-ai/plugin-memory-hierarchy`
+
+- Role: layered working, episodic, summary, semantic-profile, and procedural
+  memory with queue-backed consolidation.
+- Allowed deps: `@generic-ai/sdk`, `pi`, storage/workspace/queue contracts,
+  output/model helper libraries used for summarization, and optional Hono admin
+  adapters.
+- Not responsible for: graph database ownership, kernel prompt construction,
+  or treating derived summaries as source-of-truth without provenance.
+- Notes: consolidation outputs must point back to lower-layer evidence and
+  support rollback or regeneration.
+
+### Future `@generic-ai/plugin-memory-graph`
+
+- Role: entity-centric and multi-hop memory over episodes, entities, relation
+  edges, temporal edges, and community summaries.
+- Allowed deps: `@generic-ai/sdk`, `pi`, storage/workspace/queue contracts,
+  extraction/linking libraries, and optional graph/vector backend adapters.
+- Not responsible for: making graph infrastructure mandatory, replacing raw
+  episode provenance, or hiding extraction confidence from callers.
+- Notes: should ship after hybrid retrieval, provenance, and temporal semantics
+  are stable enough to make graph edges explainable.
 
 ## Examples, Contracts, And Specs
 

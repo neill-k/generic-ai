@@ -14,6 +14,7 @@ It mirrors the public contract families implemented in
 - storage contract
 - workspace contract
 - queue contract
+- memory service contract
 - output-plugin contract
 
 ## Freeze rule
