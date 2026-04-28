@@ -1,0 +1,76 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.dag-navigation",
+  "objective": "Solve a deterministic fork-merge tool workflow by visiting the root node, collecting facts from the alpha and beta branches, clearing the roadblock transform, and merging the branch outputs into the final route answer.",
+  "objectiveClass": "analysis",
+  "fixtureRefs": ["fixtures/dag-navigation/fork-merge-route.json"],
+  "reset": {
+    "workspace": "snapshot",
+    "storage": "clean",
+    "messages": "clean",
+    "memory": "clean"
+  },
+  "allowedPackages": [
+    "capability.files",
+    "capability.terminal",
+    "grader.dag-navigation",
+    "protocol.pipeline",
+    "protocol.verifier-loop",
+    "protocol.squad"
+  ],
+  "constraints": [
+    "Use only the deterministic fixture data; do not call external network resources.",
+    "Visit both branch nodes before attempting the merge node.",
+    "Record each graph node visit as trace evidence.",
+    "Keep wrong-branch navigation separate from bad tool-output diagnosis in the report."
+  ],
+  "expectedArtifacts": [
+    {
+      "id": "artifact.dag-route",
+      "name": "dag-route.json",
+      "kind": "metric",
+      "producedBy": ["navigator"],
+      "reviewedBy": ["verifier"]
+    },
+    {
+      "id": "artifact.branch-observations",
+      "name": "branch-observations.json",
+      "kind": "metric",
+      "producedBy": ["branch-worker-alpha", "branch-worker-beta"],
+      "reviewedBy": ["aggregator"]
+    },
+    {
+      "id": "artifact.aggregation-proof",
+      "name": "aggregation-proof.md",
+      "kind": "report",
+      "producedBy": ["aggregator"],
+      "reviewedBy": ["verifier"]
+    }
+  ],
+  "graders": [
+    {
+      "id": "grader.dag-navigation-v0",
+      "metricRefs": [
+        "final_success",
+        "navigation_progress",
+        "branch_visit_completeness",
+        "tool_correctness",
+        "aggregation_correctness",
+        "trace_completeness"
+      ],
+      "packageRef": "grader.dag-navigation",
+      "deterministic": true
+    }
+  ],
+  "successCriteria": {
+    "requiredSubstrings": ["DAG_ROUTE_DONE"],
+    "requiredArtifacts": ["dag-route.json", "branch-observations.json", "aggregation-proof.md"]
+  },
+  "providerPolicy": {
+    "adapter": "openai-codex",
+    "model": "gpt-5.5",
+    "cache": "deny",
+    "network": "isolated"
+  }
+}
