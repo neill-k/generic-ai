@@ -222,7 +222,16 @@ export interface RunCapabilityPiAgentSessionResult extends CreateCapabilityPiAge
   readonly eventStream: CanonicalEventStream;
   readonly events: readonly CanonicalEvent[];
   readonly outputText?: string;
+  readonly terminalStatus?: StopAndRespondState["status"];
   readonly failureMessage?: string;
+}
+
+function stopToolFailureMessage(status: StopAndRespondState["status"] | undefined): string | undefined {
+  if (status === "blocked" || status === "failed") {
+    return `Agent stopped with terminal status "${status}".`;
+  }
+
+  return undefined;
 }
 
 export interface CapabilityPiSessionEventContext {
@@ -967,23 +976,41 @@ export async function runCapabilityPiAgentSession(
         `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop?.turnCount ?? 0} turn(s).`,
       );
     }
+    const terminalStatus = loop?.status;
+    const terminalFailureMessage = stopToolFailureMessage(terminalStatus);
     unsubscribe();
     await forwarder;
 
     const completedAt = new Date().toISOString();
     await eventStream.emit({
       ...eventContext,
-      name: "session.completed",
-      data: {
-        messageCount: sessionResult.session.messages.length,
-      },
+      name: terminalFailureMessage === undefined ? "session.completed" : "session.failed",
+      data:
+        terminalFailureMessage === undefined
+          ? {
+              messageCount: sessionResult.session.messages.length,
+              ...(terminalStatus === undefined ? {} : { terminalStatus }),
+            }
+          : {
+              error: terminalFailureMessage,
+              messageCount: sessionResult.session.messages.length,
+              terminalStatus,
+            },
     });
     await eventStream.emit({
       ...eventContext,
-      name: "run.completed",
-      data: {
-        messageCount: sessionResult.session.messages.length,
-      },
+      name: terminalFailureMessage === undefined ? "run.completed" : "run.failed",
+      data:
+        terminalFailureMessage === undefined
+          ? {
+              messageCount: sessionResult.session.messages.length,
+              ...(terminalStatus === undefined ? {} : { terminalStatus }),
+            }
+          : {
+              error: terminalFailureMessage,
+              messageCount: sessionResult.session.messages.length,
+              terminalStatus,
+            },
     });
 
     const events = eventStream.snapshot();
@@ -994,12 +1021,14 @@ export async function runCapabilityPiAgentSession(
       eventStream,
       events,
       ...(loop?.outputText === undefined ? {} : { outputText: loop.outputText }),
+      ...(terminalStatus === undefined ? {} : { terminalStatus }),
+      ...(terminalFailureMessage === undefined ? {} : { failureMessage: terminalFailureMessage }),
       envelope: createRunEnvelope({
         runId,
         rootScopeId: scopeId,
         ...(options.rootAgentId === undefined ? {} : { rootAgentId: options.rootAgentId }),
         mode: options.mode ?? "sync",
-        status: "succeeded",
+        status: terminalFailureMessage === undefined ? "succeeded" : "failed",
         timestamps: {
           createdAt,
           startedAt,

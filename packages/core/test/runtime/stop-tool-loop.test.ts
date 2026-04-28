@@ -2,12 +2,36 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createStopAndRespondTool,
+  DEFAULT_STOP_TOOL_MAX_TURNS,
   runStopToolLoop,
   STOP_AND_RESPOND_TOOL_NAME,
   type StopAndRespondState,
 } from "../../src/runtime/index.js";
 
 describe("@generic-ai/core stop-tool loop", () => {
+  it("defaults to an unbounded loop until the stop tool state is set", async () => {
+    const state: StopAndRespondState = { stopped: false };
+    const runPrompt = vi.fn(async () => {
+      if (runPrompt.mock.calls.length === 2) {
+        state.stopped = true;
+        state.response = "done";
+        state.status = "completed";
+      }
+    });
+
+    const result = await runStopToolLoop({
+      prompt: "finish the task",
+      state,
+      runPrompt,
+    });
+
+    expect(DEFAULT_STOP_TOOL_MAX_TURNS).toBe(Number.POSITIVE_INFINITY);
+    expect(result.turnCount).toBe(2);
+    expect(runPrompt.mock.calls[1]?.[0]).toContain(
+      "no maximum turn limit is configured",
+    );
+  });
+
   it("marks the stop tool result terminal for Pi's per-prompt tool loop", async () => {
     const state: StopAndRespondState = { stopped: false };
     const tool = createStopAndRespondTool(state);

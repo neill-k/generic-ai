@@ -3,7 +3,7 @@ import type { AgentHarnessRole } from "@generic-ai/sdk";
 import type { WebUiTemplateDefinition, WebUiTemplateRegistry } from "./types.js";
 
 const readOnlyTools = ["workspace.read", "repo.inspect"] as const;
-const stopToolExecution = { turnMode: "stop-tool-loop", maxTurns: 8 } as const;
+const stopToolExecution = { turnMode: "stop-tool-loop" } as const;
 
 function role(
   id: string,

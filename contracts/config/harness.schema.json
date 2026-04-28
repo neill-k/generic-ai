@@ -84,6 +84,7 @@
           "enum": ["stop-tool-loop", "single-turn"]
         },
         "maxTurns": {
+          "description": "Optional finite stop-tool loop cap. Omit for unbounded execution.",
           "type": "integer",
           "minimum": 1
         }

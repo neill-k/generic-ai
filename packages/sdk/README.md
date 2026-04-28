@@ -19,7 +19,8 @@ Current SDK contents:
 - AgentHarness contracts, adapter run context, capability-effect descriptors,
   URI/hash artifact references, and typed harness event projections
 - Agent execution config for the default stop-tool loop and the
-  `single-turn` opt-out used when a caller truly wants one provider turn.
+  `single-turn` opt-out used when a caller truly wants one provider turn. When
+  `maxTurns` is omitted, stop-tool loop execution is unbounded by default.
 - Deterministic Harness DSL compiler and evidence report helpers
 
 ## Contract surface

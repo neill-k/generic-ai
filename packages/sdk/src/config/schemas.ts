@@ -74,6 +74,14 @@ const oneOfRegex = (values: readonly string[]): RegExp =>
     `^(?:${values.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`,
   );
 
+const allowedValuesMessage = (fieldName: string, values: readonly string[]): string => {
+  if (values.length <= 2) {
+    return `${fieldName} must be ${values.join(" or ")}`;
+  }
+
+  return `${fieldName} must be ${values.slice(0, -1).join(", ")}, or ${values.at(-1)}`;
+};
+
 export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConfigSchemaBundle => {
   const packageName = z
     .string()
@@ -89,14 +97,13 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
       .string()
       .regex(
         oneOfRegex(AGENT_TURN_MODES),
-        "execution.turnMode must be stop-tool-loop or single-turn",
+        allowedValuesMessage("execution.turnMode", AGENT_TURN_MODES),
       )
       .optional(),
     maxTurns: z
       .number()
       .int("execution.maxTurns must be an integer")
-      .nonnegative("execution.maxTurns must be positive")
-      .refine((value) => value > 0, "execution.maxTurns must be positive")
+      .refine((value) => value > 0, "execution.maxTurns must be a positive integer")
       .optional(),
   });
 

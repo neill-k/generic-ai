@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://generic-ai.dev/contracts/config/resolved.schema.json",
   "title": "Generic AI Resolved Config Contract",
-  "description": "Composed runtime config after canonical framework/agent/plugin YAML concerns are loaded and preset metadata is applied.",
+  "description": "Composed runtime config after canonical framework/agent/harness/plugin YAML concerns are loaded and preset metadata is applied.",
   "type": "object",
   "additionalProperties": false,
   "required": ["framework", "agents", "harnesses", "plugins"],

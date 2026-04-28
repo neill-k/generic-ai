@@ -149,6 +149,7 @@ async function callStopTool(
     }[];
   },
   response: string,
+  status: "completed" | "blocked" | "failed" = "completed",
 ) {
   const stopTool = options.customTools?.find(
     (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
@@ -164,9 +165,9 @@ async function callStopTool(
   await (
     stopTool.execute as (
       toolCallId: string,
-      params: { readonly response: string },
+      params: { readonly response: string; readonly status: string },
     ) => Promise<unknown> | unknown
-  )("stop-1", { response });
+  )("stop-1", { response, status });
 }
 
 describe("@generic-ai/core capability pi runtime bridge", () => {
@@ -344,6 +345,57 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
         streamId: result.envelope.runId,
         sequence: result.events.at(-1)?.sequence,
       });
+    });
+  });
+
+  it("preserves blocked stop-tool status as a failed run result", async () => {
+    await withTempRoot(async (root) => {
+      await seedSkillFile(root);
+
+      const result = await runCapabilityPiAgentSession(
+        {
+          cwd: root,
+          sessionManager: SessionManager.inMemory(),
+          capabilities: createCapabilityBindings(root),
+          prompt: "Summarize the starter stack",
+          resourceLoaderOptions: {
+            noExtensions: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            noSkills: true,
+          },
+        },
+        {
+          createAgentSession: async (options) =>
+            ({
+              session: {
+                sessionId: "session-003",
+                messages: [{ role: "assistant" }],
+                subscribe() {
+                  return () => undefined;
+                },
+                async prompt() {
+                  await callStopTool(options, "blocked by missing context", "blocked");
+                },
+              },
+              extensionsResult: {
+                extensionCount: 0,
+                loadErrors: [],
+                loadedExtensions: [],
+                commands: [],
+                tools: [],
+              },
+            }) as never,
+        },
+      );
+
+      expect(result.outputText).toBe("blocked by missing context");
+      expect(result.terminalStatus).toBe("blocked");
+      expect(result.failureMessage).toBe('Agent stopped with terminal status "blocked".');
+      expect(result.envelope.status).toBe("failed");
+      expect(result.events.map((event) => event.name)).toEqual(
+        expect.arrayContaining(["session.failed", "run.failed"]),
+      );
     });
   });
 });

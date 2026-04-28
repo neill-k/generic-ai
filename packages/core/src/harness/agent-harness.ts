@@ -58,6 +58,7 @@ export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilit
 }
 
 type AgentHarnessRolePolicy = "coordinator" | "read-only" | "build" | "verify";
+type AgentHarnessTurnMode = NonNullable<NonNullable<AgentHarnessConfig["execution"]>["turnMode"]>;
 type PiSessionInputs = ReturnType<typeof resolvePiSessionInputs>;
 
 interface EffectPolicy {
@@ -536,10 +537,27 @@ function roleDirectory(roles: readonly AgentHarnessRole[]): string {
     .join("\n");
 }
 
+function stopToolRunInstruction(turnMode: AgentHarnessTurnMode | undefined): string {
+  if (turnMode === "single-turn") {
+    return "This run is configured for single-turn compatibility. Finish with a concise assistant response; do not call a terminal stop tool.";
+  }
+
+  return "The runtime loops until you call stop_and_respond. Use that tool for the final response once the task is complete, blocked, or failed.";
+}
+
+function stopToolHandoffInstruction(turnMode: AgentHarnessTurnMode | undefined): string {
+  if (turnMode === "single-turn") {
+    return "This delegated run is configured for single-turn compatibility. Return the handoff as a normal assistant response.";
+  }
+
+  return "The runtime loops until you call stop_and_respond. Use that tool to return your handoff.";
+}
+
 function buildRootPrompt(input: {
   readonly instruction: string;
   readonly roles: readonly AgentHarnessRole[];
   readonly policyProfile: AgentHarnessPolicyProfileId;
+  readonly turnMode?: AgentHarnessTurnMode;
 }): string {
   return [
     "You are the root coordinator for a Generic AI composable agent harness run.",
@@ -548,7 +566,7 @@ function buildRootPrompt(input: {
     "Before finishing, delegate a verifier pass that reruns the important command from the final state instead of trusting stale builder logs.",
     "Keep durable handoffs in the delegation messages and preserve concrete evidence from tools.",
     `Policy profile: ${input.policyProfile}.`,
-    "The runtime loops until you call stop_and_respond. Use that tool for the final response once the task is complete, blocked, or failed.",
+    stopToolRunInstruction(input.turnMode),
     "",
     "Available roles:",
     roleDirectory(input.roles),
@@ -564,6 +582,7 @@ function buildRolePrompt(input: {
   readonly role: AgentHarnessRole;
   readonly instruction: string;
   readonly parentTask: string;
+  readonly turnMode?: AgentHarnessTurnMode;
 }): string {
   return [
     `You are role "${input.role.id}" (${input.role.kind}) inside a Generic AI harness run.`,
@@ -580,7 +599,7 @@ function buildRolePrompt(input: {
     input.parentTask,
     "",
     "Return a concise handoff with actions taken, evidence, blockers, and recommended next step.",
-    "The runtime loops until you call stop_and_respond. Use that tool to return your handoff.",
+    stopToolHandoffInstruction(input.turnMode),
   ]
     .filter((line) => line.length > 0)
     .join("\n");
@@ -928,6 +947,7 @@ function createDelegateTool(input: {
             role,
             instruction: params.task,
             parentTask: input.instruction,
+            ...(input.turnMode === undefined ? {} : { turnMode: input.turnMode }),
           }),
           ...(input.turnMode === undefined ? {} : { turnMode: input.turnMode }),
           ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
@@ -1299,6 +1319,7 @@ function createPiAgentHarnessAdapter(
             instruction: input.instruction,
             roles,
             policyProfile: profile,
+            ...(turnMode === undefined ? {} : { turnMode }),
           }),
           ...(turnMode === undefined ? {} : { turnMode }),
           ...(maxTurns === undefined ? {} : { maxTurns }),

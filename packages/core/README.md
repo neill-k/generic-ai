@@ -44,7 +44,9 @@ Current runtime bridge:
   tool result as terminal for Pi, re-enters the same conversation if the model
   finishes with a plain assistant message, and only returns once the stop tool
   is called. Set `execution.turnMode: single-turn` in agent or harness config
-  for deliberately one-shot behavior.
+  for deliberately one-shot behavior. `execution.maxTurns` is optional; when
+  omitted, the stop-tool loop is unbounded and relies on the stop tool,
+  cancellation, or provider/session failure to end the run.
 - Pi-owned auto-compaction remains enabled by the underlying session settings;
   the bridge forwards Pi `compaction_start` / `compaction_end` events into the
   canonical event stream instead of replacing Pi's compactor.

@@ -2,7 +2,7 @@ import { defineTool } from "@generic-ai/sdk";
 import { Type } from "@sinclair/typebox";
 
 export const STOP_AND_RESPOND_TOOL_NAME = "stop_and_respond" as const;
-export const DEFAULT_STOP_TOOL_MAX_TURNS = 8;
+export const DEFAULT_STOP_TOOL_MAX_TURNS = Number.POSITIVE_INFINITY;
 
 export type AgentTurnMode = "stop-tool-loop" | "single-turn";
 
@@ -30,6 +30,10 @@ export interface StopToolLoopOptions<TPromptOptions> {
 function normalizeMaxTurns(value: number | undefined): number {
   if (value === undefined) {
     return DEFAULT_STOP_TOOL_MAX_TURNS;
+  }
+
+  if (value === Number.POSITIVE_INFINITY) {
+    return value;
   }
 
   if (!Number.isInteger(value) || value < 1) {
@@ -108,8 +112,12 @@ export function wrapStopToolPrompt(prompt: string): string {
 }
 
 export function stopToolContinuationPrompt(turn: number, maxTurns: number): string {
+  const turnLabel = Number.isFinite(maxTurns)
+    ? `This is loop turn ${turn} of ${maxTurns}.`
+    : `This is loop turn ${turn}; no maximum turn limit is configured.`;
+
   return [
-    `Continue the same task. This is loop turn ${turn} of ${maxTurns}.`,
+    `Continue the same task. ${turnLabel}`,
     `Review the conversation so far. If the task is complete, blocked, or failed, call ${STOP_AND_RESPOND_TOOL_NAME} with the final response.`,
     `Do not finish with a plain assistant message; only ${STOP_AND_RESPOND_TOOL_NAME} stops this run.`,
   ].join("\n");

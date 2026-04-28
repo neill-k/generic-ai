@@ -41,6 +41,8 @@ Default model behavior:
 - agent and harness configs default to `execution.turnMode: stop-tool-loop`;
   set `execution.turnMode: single-turn` only for deliberately one-turn demos or
   compatibility tests
+- omit `execution.maxTurns` for the default unbounded stop-tool loop, or set a
+  positive integer only when a demo needs a finite safety cap
 
 Security posture:
 

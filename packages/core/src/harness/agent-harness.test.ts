@@ -199,4 +199,65 @@ describe("createAgentHarness", () => {
       ]),
     );
   });
+
+  it("does not mention the stop tool when single-turn execution is configured", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-single-turn-"));
+    const prompts: string[] = [];
+    const toolSets: string[][] = [];
+    const harness = createAgentHarness(
+      {
+        id: "single-turn-harness",
+        adapter: "pi",
+        model: "fake-model",
+        policyProfile: "benchmark-container",
+        allowMcp: false,
+        execution: {
+          turnMode: "single-turn",
+        },
+      },
+      {
+        sessionInputs: {
+          agentDir: root,
+          authStorage: {} as never,
+          modelRegistry: {} as never,
+          model: {} as never,
+          sessionManager: SessionManager.inMemory(),
+          settingsManager: SettingsManager.inMemory(),
+        },
+        factories: {
+          createAgentSession: async (options) => {
+            if (options === undefined) {
+              throw new Error("Expected createAgentSession options.");
+            }
+            toolSets.push([...(options.tools ?? [])]);
+            const messages: unknown[] = [{ role: "assistant", content: "single turn done" }];
+            return {
+              session: {
+                sessionId: "session-single-turn",
+                messages,
+                subscribe() {
+                  return () => undefined;
+                },
+                async prompt(prompt: string) {
+                  prompts.push(prompt);
+                },
+              },
+            } as never;
+          },
+        },
+      },
+    );
+
+    const result = await harness.run({
+      instruction: "Answer in one turn.",
+      workspaceRoot: root,
+      artifactDir: join(root, "artifacts"),
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toBe("single turn done");
+    expect(toolSets[0]).not.toContain("stop_and_respond");
+    expect(prompts[0]).not.toContain("stop_and_respond");
+    expect(prompts[0]).toContain("single-turn compatibility");
+  });
 });

@@ -72,7 +72,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
   Generic AI terminal contract around Pi sessions: it injects the
   runtime-control `stop_and_respond` tool, lets that tool terminate Pi's
   current loop, and honors SDK config that opts a specific agent or harness
-  into `single-turn` behavior.
+  into `single-turn` behavior or sets an optional finite `maxTurns` cap.
 - Publishes as: `@generic-ai/core` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/sdk`

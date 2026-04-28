@@ -95,7 +95,8 @@ The kernel should own the framework control plane, not the business capabilities
   terminal contract: inject `stop_and_respond`, mark that tool result terminal
   for Pi, and re-enter the same conversation only when the model stops with a
   plain assistant message; use `execution.turnMode: single-turn` only for
-  explicit one-shot compatibility paths
+  explicit one-shot compatibility paths, and omit `execution.maxTurns` for the
+  default unbounded loop
 
 ### Streaming Events
 

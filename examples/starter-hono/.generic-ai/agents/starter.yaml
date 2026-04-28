@@ -7,4 +7,3 @@ tools: []
 plugins: []
 execution:
   turnMode: stop-tool-loop
-  maxTurns: 8

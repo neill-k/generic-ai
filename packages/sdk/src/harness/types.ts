@@ -87,6 +87,7 @@ export interface AgentHarnessRole {
 
 export interface AgentExecutionConfig {
   readonly turnMode?: AgentTurnMode;
+  /** Optional finite stop-tool loop cap. Omit for unbounded execution. */
   readonly maxTurns?: number;
 }
 
