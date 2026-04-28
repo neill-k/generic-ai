@@ -14,6 +14,16 @@ export const AGENT_HARNESS_ROLE_KINDS = [
   "verifier",
   "custom",
 ] as const;
+export const AGENT_HARNESS_LOOP_STAGE_KINDS = [
+  "state",
+  "context-builder",
+  "controller",
+  "tool-router",
+  "policy-gate",
+  "executor",
+  "verifier",
+  "custom",
+] as const;
 export const AGENT_HARNESS_POLICY_PROFILES = ["local-dev-full", "benchmark-container"] as const;
 export const AGENT_HARNESS_CAPABILITY_EFFECTS = [
   "fs.read",
@@ -58,6 +68,9 @@ export const AGENT_HARNESS_EVENT_TYPES = [
 export type AgentHarnessAdapterKind = (typeof AGENT_HARNESS_ADAPTER_KINDS)[number];
 export type AgentHarnessController = "model-directed";
 export type AgentHarnessRoleKind = (typeof AGENT_HARNESS_ROLE_KINDS)[number];
+export type AgentHarnessLoopStageKind = (typeof AGENT_HARNESS_LOOP_STAGE_KINDS)[number];
+export type AgentHarnessLoopPattern = "thread-turn-tool-policy" | `custom.${string}`;
+export type AgentHarnessLoopStateModel = "thread-turn-item" | `custom.${string}`;
 export type AgentHarnessPolicyProfileId = (typeof AGENT_HARNESS_POLICY_PROFILES)[number];
 export type AgentHarnessCapabilityEffect =
   | (typeof AGENT_HARNESS_CAPABILITY_EFFECTS)[number]
@@ -81,6 +94,36 @@ export interface AgentHarnessRole {
   readonly metadata?: JsonObject;
 }
 
+export interface AgentHarnessLoopStage {
+  readonly id: string;
+  readonly kind: AgentHarnessLoopStageKind;
+  readonly roleRef?: string;
+  readonly description?: string;
+  readonly tools?: readonly string[];
+  readonly effects?: readonly AgentHarnessCapabilityEffect[];
+  readonly readOnly?: boolean;
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessLoopTransition {
+  readonly from: string;
+  readonly to: string;
+  readonly label?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface AgentHarnessLoopConfig {
+  readonly id?: string;
+  readonly pattern?: AgentHarnessLoopPattern;
+  readonly stateModel?: AgentHarnessLoopStateModel;
+  readonly entryStage?: string;
+  readonly terminalStages?: readonly string[];
+  readonly stages: readonly AgentHarnessLoopStage[];
+  readonly transitions?: readonly AgentHarnessLoopTransition[];
+  readonly invariants?: readonly string[];
+  readonly metadata?: JsonObject;
+}
+
 export interface AgentHarnessPolicyProfile {
   readonly id: AgentHarnessPolicyProfileId;
   readonly description: string;
@@ -101,6 +144,7 @@ export interface AgentHarnessConfig {
   readonly primaryAgent?: string;
   readonly policyProfile?: AgentHarnessPolicyProfileId;
   readonly roles?: readonly AgentHarnessRole[];
+  readonly loop?: AgentHarnessLoopConfig;
   readonly tools?: readonly string[];
   readonly allowNetwork?: boolean;
   readonly allowMcp?: boolean;

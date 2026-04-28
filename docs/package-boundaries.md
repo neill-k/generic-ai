@@ -72,7 +72,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: public framework-facing SDK. Defines the contracts plugin authors and preset authors compile against.
 - Allowed deps: `pi`.
 - Not responsible for: plugin implementations, config discovery, kernel internals, live provider execution, or report hosting.
-- Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
+- Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, native agent-loop structure, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
 - Publishes as: `@generic-ai/sdk` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/preset-starter-hono`

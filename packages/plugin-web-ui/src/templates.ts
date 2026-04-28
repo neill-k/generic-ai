@@ -1,8 +1,107 @@
-import type { AgentHarnessRole } from "@generic-ai/sdk";
+import type { AgentHarnessLoopConfig, AgentHarnessRole } from "@generic-ai/sdk";
 
 import type { WebUiTemplateDefinition, WebUiTemplateRegistry } from "./types.js";
 
 const readOnlyTools = ["workspace.read", "repo.inspect"] as const;
+const codexReadTools = [
+  "workspace.read",
+  "workspace.find",
+  "workspace.grep",
+  "repo.inspect",
+  "lsp",
+] as const;
+const codexExecutionTools = [
+  ...codexReadTools,
+  "workspace.write",
+  "workspace.edit",
+  "terminal.run",
+] as const;
+
+const codexAgentLoop = {
+  pattern: "thread-turn-tool-policy",
+  stateModel: "thread-turn-item",
+  entryStage: "thread-log",
+  terminalStages: ["thread-log"],
+  stages: [
+    {
+      id: "thread-log",
+      kind: "state",
+      description: "Durable conversation, tool, and evidence history.",
+      effects: ["memory.read", "memory.write", "artifact.write"],
+    },
+    {
+      id: "context-builder",
+      kind: "context-builder",
+      roleRef: "context-builder",
+      description: "Assembles instructions, config, repo facts, skills, and runtime affordances.",
+      tools: [...codexReadTools],
+      effects: ["fs.read", "repo.inspect", "lsp.read"],
+      readOnly: true,
+    },
+    {
+      id: "controller",
+      kind: "controller",
+      roleRef: "controller",
+      description: "Owns the single active turn, interruptions, compaction, and final synthesis.",
+      tools: [...codexExecutionTools],
+      effects: ["handoff.read", "handoff.write", "artifact.write"],
+    },
+    {
+      id: "tool-router",
+      kind: "tool-router",
+      roleRef: "tool-router",
+      description: "Resolves model tool calls into typed local, MCP, terminal, or config actions.",
+      tools: [...codexExecutionTools],
+      effects: ["fs.read", "fs.write", "process.spawn", "repo.inspect", "lsp.read"],
+    },
+    {
+      id: "permission-gate",
+      kind: "policy-gate",
+      roleRef: "permission-gate",
+      description: "Checks mutating effects before writes, terminal commands, and network access.",
+      tools: [...codexReadTools],
+      effects: ["fs.read", "repo.inspect", "lsp.read"],
+      readOnly: true,
+    },
+    {
+      id: "executor",
+      kind: "executor",
+      roleRef: "executor",
+      description: "Runs approved edits and commands while streaming events.",
+      tools: [...codexExecutionTools],
+      effects: ["fs.read", "fs.write", "process.spawn", "repo.inspect", "lsp.read"],
+    },
+    {
+      id: "verifier",
+      kind: "verifier",
+      roleRef: "verifier",
+      description: "Reads artifacts, runs checks, and decides if evidence is sufficient.",
+      tools: [...codexReadTools, "terminal.run"],
+      effects: ["fs.read", "process.spawn", "repo.inspect", "lsp.read"],
+    },
+  ],
+  transitions: [
+    { from: "thread-log", to: "context-builder", label: "replay" },
+    { from: "context-builder", to: "controller", label: "turn context" },
+    { from: "controller", to: "tool-router", label: "tool calls" },
+    { from: "tool-router", to: "permission-gate", label: "effects" },
+    { from: "permission-gate", to: "executor", label: "approved" },
+    { from: "executor", to: "thread-log", label: "events" },
+    { from: "executor", to: "verifier", label: "artifacts" },
+    { from: "verifier", to: "controller", label: "evidence" },
+    { from: "controller", to: "thread-log", label: "messages" },
+  ],
+  invariants: [
+    "Assemble turn context before routing tools.",
+    "Route mutating actions through policy before execution.",
+    "Persist execution evidence before verification.",
+    "Finalize only after verification or an explicit blocker.",
+  ],
+  metadata: {
+    source: "openai/codex",
+    sourceCommit: "4e05f3053c840fc77321bfab0aef65ec50448a9e",
+  },
+} as const satisfies AgentHarnessLoopConfig;
 
 function role(
   id: string,
@@ -20,11 +119,16 @@ function role(
   };
 }
 
-function runnableTemplate(input: Omit<WebUiTemplateDefinition, "status" | "effects">): WebUiTemplateDefinition {
+function runnableTemplate(
+  input: Omit<WebUiTemplateDefinition, "status" | "effects"> & {
+    readonly effects?: WebUiTemplateDefinition["effects"];
+  },
+): WebUiTemplateDefinition {
+  const { effects = ["fs.read"], ...template } = input;
   return {
-    ...input,
+    ...template,
     status: "runnable",
-    effects: ["fs.read"],
+    effects,
   };
 }
 
@@ -45,7 +149,8 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
   runnableTemplate({
     id: "hierarchical",
     label: "Hierarchical",
-    summary: "A planner decomposes work, specialists investigate, and a verifier checks the final answer.",
+    summary:
+      "A planner decomposes work, specialists investigate, and a verifier checks the final answer.",
     sampleTask: "Plan a small release and identify the verification steps.",
     topology: {
       nodes: [
@@ -80,7 +185,8 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
         value: {
           displayName: "Hierarchical Planner",
           model: "gpt-5.5",
-          instructions: "Break the user request into specialist work, coordinate results, and produce a concise final plan.",
+          instructions:
+            "Break the user request into specialist work, coordinate results, and produce a concise final plan.",
           tools: [...readOnlyTools],
           plugins: [],
         },
@@ -97,10 +203,30 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           primaryAgent: "hierarchical-planner",
           policyProfile: "local-dev-full",
           roles: [
-            role("planner", "planner", "Owns decomposition and final synthesis.", "Decompose the request and coordinate read-only specialists."),
-            role("researcher", "explorer", "Finds relevant facts and constraints.", "Inspect available context and return evidence-backed notes."),
-            role("builder", "builder", "Drafts the proposed solution.", "Create a solution proposal from planner and researcher inputs without mutating files."),
-            role("verifier", "verifier", "Checks completeness and risks.", "Verify the proposal against the request and list residual risks."),
+            role(
+              "planner",
+              "planner",
+              "Owns decomposition and final synthesis.",
+              "Decompose the request and coordinate read-only specialists.",
+            ),
+            role(
+              "researcher",
+              "explorer",
+              "Finds relevant facts and constraints.",
+              "Inspect available context and return evidence-backed notes.",
+            ),
+            role(
+              "builder",
+              "builder",
+              "Drafts the proposed solution.",
+              "Create a solution proposal from planner and researcher inputs without mutating files.",
+            ),
+            role(
+              "verifier",
+              "verifier",
+              "Checks completeness and risks.",
+              "Verify the proposal against the request and list residual risks.",
+            ),
           ],
           tools: [...readOnlyTools],
           allowNetwork: false,
@@ -148,7 +274,8 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
         value: {
           displayName: "Pipeline Intake",
           model: "gpt-5.5",
-          instructions: "Convert the user request into ordered stage inputs and preserve stage boundaries.",
+          instructions:
+            "Convert the user request into ordered stage inputs and preserve stage boundaries.",
           tools: [...readOnlyTools],
           plugins: [],
         },
@@ -165,10 +292,30 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           primaryAgent: "pipeline-intake",
           policyProfile: "local-dev-full",
           roles: [
-            role("intake", "planner", "Normalizes the request.", "Identify inputs, constraints, and success criteria."),
-            role("draft", "builder", "Produces the candidate answer.", "Draft the requested output using the intake notes."),
-            role("review", "verifier", "Reviews the draft.", "Check the draft for gaps, risks, and unsupported claims."),
-            role("final", "custom", "Finalizes the answer.", "Merge the reviewed draft into a crisp final response."),
+            role(
+              "intake",
+              "planner",
+              "Normalizes the request.",
+              "Identify inputs, constraints, and success criteria.",
+            ),
+            role(
+              "draft",
+              "builder",
+              "Produces the candidate answer.",
+              "Draft the requested output using the intake notes.",
+            ),
+            role(
+              "review",
+              "verifier",
+              "Reviews the draft.",
+              "Check the draft for gaps, risks, and unsupported claims.",
+            ),
+            role(
+              "final",
+              "custom",
+              "Finalizes the answer.",
+              "Merge the reviewed draft into a crisp final response.",
+            ),
           ],
           tools: [...readOnlyTools],
           allowNetwork: false,
@@ -182,7 +329,8 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
   runnableTemplate({
     id: "critic-verifier",
     label: "Critic Verifier",
-    summary: "A builder proposes, a critic challenges, and a verifier decides when evidence is sufficient.",
+    summary:
+      "A builder proposes, a critic challenges, and a verifier decides when evidence is sufficient.",
     sampleTask: "Evaluate a proposed refactor and decide whether it is ready.",
     topology: {
       nodes: [
@@ -215,7 +363,8 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
         value: {
           displayName: "Critic-Verifier Builder",
           model: "gpt-5.5",
-          instructions: "Propose a solution, respond to critique, and wait for verifier acceptance before finalizing.",
+          instructions:
+            "Propose a solution, respond to critique, and wait for verifier acceptance before finalizing.",
           tools: [...readOnlyTools],
           plugins: [],
         },
@@ -232,9 +381,24 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           primaryAgent: "critic-verifier-builder",
           policyProfile: "local-dev-full",
           roles: [
-            role("builder", "builder", "Creates the candidate answer.", "Draft the answer and explicitly state assumptions."),
-            role("critic", "custom", "Challenges weak spots.", "Find missing evidence, brittle assumptions, and likely failure modes."),
-            role("verifier", "verifier", "Accepts or rejects the result.", "Decide whether the response meets the task and name remaining risk."),
+            role(
+              "builder",
+              "builder",
+              "Creates the candidate answer.",
+              "Draft the answer and explicitly state assumptions.",
+            ),
+            role(
+              "critic",
+              "custom",
+              "Challenges weak spots.",
+              "Find missing evidence, brittle assumptions, and likely failure modes.",
+            ),
+            role(
+              "verifier",
+              "verifier",
+              "Accepts or rejects the result.",
+              "Decide whether the response meets the task and name remaining risk.",
+            ),
           ],
           tools: [...readOnlyTools],
           allowNetwork: false,
@@ -285,7 +449,8 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
         value: {
           displayName: "Hub-Spoke Coordinator",
           model: "gpt-5.5",
-          instructions: "Route subquestions to specialists, merge findings, and produce an evidence-weighted recommendation.",
+          instructions:
+            "Route subquestions to specialists, merge findings, and produce an evidence-weighted recommendation.",
           tools: [...readOnlyTools],
           plugins: [],
         },
@@ -302,10 +467,30 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
           primaryAgent: "hub-spoke-coordinator",
           policyProfile: "local-dev-full",
           roles: [
-            role("hub", "planner", "Routes and synthesizes work.", "Break the question into specialist reads and merge the findings."),
-            role("spoke-a", "explorer", "Investigates option A.", "Inspect the context for the first plausible option."),
-            role("spoke-b", "explorer", "Investigates option B.", "Inspect the context for the second plausible option."),
-            role("spoke-c", "explorer", "Investigates option C.", "Inspect the context for the third plausible option."),
+            role(
+              "hub",
+              "planner",
+              "Routes and synthesizes work.",
+              "Break the question into specialist reads and merge the findings.",
+            ),
+            role(
+              "spoke-a",
+              "explorer",
+              "Investigates option A.",
+              "Inspect the context for the first plausible option.",
+            ),
+            role(
+              "spoke-b",
+              "explorer",
+              "Investigates option B.",
+              "Inspect the context for the second plausible option.",
+            ),
+            role(
+              "spoke-c",
+              "explorer",
+              "Investigates option C.",
+              "Inspect the context for the third plausible option.",
+            ),
           ],
           tools: [...readOnlyTools],
           allowNetwork: false,
@@ -316,11 +501,198 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
       },
     ],
   }),
+  runnableTemplate({
+    id: "codex-cli-agent-loop",
+    label: "Codex CLI Agent Loop",
+    summary:
+      "A thread-backed controller assembles context, routes typed tools through policy, records evidence, and verifies before final output.",
+    sampleTask:
+      "Implement a small code change, preserve evidence, and report exactly what was verified.",
+    effects: ["fs.read", "fs.write", "process.spawn"],
+    topology: {
+      nodes: [
+        {
+          id: "thread-log",
+          label: "Thread/Turn/Item Log",
+          kind: "state",
+          description: "Durable conversation, tool, and evidence history.",
+        },
+        {
+          id: "context-builder",
+          label: "Context Builder",
+          kind: "planner",
+          description:
+            "Assembles instructions, config, repo facts, skills, and runtime affordances.",
+        },
+        {
+          id: "controller",
+          label: "Session Controller",
+          kind: "root",
+          description:
+            "Owns the single active turn, interruptions, compaction, and final synthesis.",
+        },
+        {
+          id: "tool-router",
+          label: "Tool Router",
+          kind: "custom",
+          description:
+            "Resolves model tool calls into typed local, MCP, terminal, or config actions.",
+        },
+        {
+          id: "permission-gate",
+          label: "Permission Gate",
+          kind: "verifier",
+          description:
+            "Checks mutating effects before writes, terminal commands, and network access.",
+        },
+        {
+          id: "executor",
+          label: "Executor",
+          kind: "builder",
+          description: "Runs approved edits and commands while streaming events.",
+        },
+        {
+          id: "verifier",
+          label: "Verifier",
+          kind: "verifier",
+          description: "Reads artifacts, runs checks, and decides if evidence is sufficient.",
+        },
+      ],
+      edges: [
+        { from: "thread-log", to: "context-builder", label: "replay" },
+        { from: "context-builder", to: "controller", label: "turn context" },
+        { from: "controller", to: "tool-router", label: "tool calls" },
+        { from: "tool-router", to: "permission-gate", label: "effects" },
+        { from: "permission-gate", to: "executor", label: "approved" },
+        { from: "executor", to: "thread-log", label: "events" },
+        { from: "executor", to: "verifier", label: "artifacts" },
+        { from: "verifier", to: "controller", label: "evidence" },
+        { from: "controller", to: "thread-log", label: "messages" },
+      ],
+    },
+    edits: [
+      {
+        action: "set",
+        concern: "framework",
+        value: {
+          schemaVersion: "v1",
+          name: "Generic AI Codex CLI agent-loop console template",
+          primaryAgent: "codex-cli-controller",
+          primaryHarness: "codex-cli-agent-loop",
+          metadata: {
+            webUiTemplate: "codex-cli-agent-loop",
+            inspiredBy: "openai/codex",
+          },
+        },
+      },
+      {
+        action: "set",
+        concern: "agent",
+        key: "codex-cli-controller",
+        value: {
+          displayName: "Codex CLI Controller",
+          model: "gpt-5.5",
+          instructions:
+            "Run each request as a durable thread/turn loop: assemble context first, route every action through typed tools, enforce policy before mutation, persist evidence, and verify before final output.",
+          tools: [...codexExecutionTools],
+          plugins: [],
+          metadata: {
+            pattern: "thread-turn-item-control-plane",
+          },
+        },
+      },
+      {
+        action: "set",
+        concern: "harness",
+        key: "codex-cli-agent-loop",
+        value: {
+          displayName: "Codex CLI Agent Loop Harness",
+          adapter: "pi",
+          controller: "model-directed",
+          model: "gpt-5.5",
+          primaryAgent: "codex-cli-controller",
+          policyProfile: "local-dev-full",
+          loop: codexAgentLoop,
+          roles: [
+            {
+              id: "controller",
+              kind: "root",
+              description:
+                "Owns the thread lifecycle, interrupts, compaction, and final synthesis.",
+              instructions:
+                "Keep one active turn at a time, preserve evidence, and decide when to delegate, continue, compact, or finish.",
+              tools: [...codexExecutionTools],
+            },
+            {
+              id: "context-builder",
+              kind: "planner",
+              description: "Builds a turn-specific context pack before model sampling.",
+              instructions:
+                "Read the repo, instructions, config, available tools, and relevant prior state before proposing actions.",
+              tools: [...codexReadTools],
+              readOnly: true,
+            },
+            {
+              id: "tool-router",
+              kind: "custom",
+              description: "Maps requested actions onto typed tools and declared effects.",
+              instructions:
+                "Classify each action by tool, effect, mutability, and whether parallel execution is safe.",
+              tools: [...codexExecutionTools],
+            },
+            {
+              id: "permission-gate",
+              kind: "verifier",
+              description:
+                "Checks effects, sandbox policy, and approval requirements before mutation.",
+              instructions:
+                "Require explicit evidence that every mutating or process-spawning action is allowed by the active policy profile.",
+              tools: [...codexReadTools],
+              readOnly: true,
+            },
+            {
+              id: "executor",
+              kind: "builder",
+              description: "Runs approved file and terminal actions while emitting evidence.",
+              instructions:
+                "Apply approved edits and commands, keep outputs attached to the turn, and stop cleanly on policy or runtime failure.",
+              tools: [...codexExecutionTools],
+            },
+            {
+              id: "verifier",
+              kind: "verifier",
+              description: "Validates artifacts and run evidence before completion.",
+              instructions:
+                "Run the smallest sufficient checks, inspect outputs, and return whether the turn is ready to finalize.",
+              tools: [...codexReadTools, "terminal.run"],
+            },
+          ],
+          tools: [...codexExecutionTools],
+          allowNetwork: false,
+          allowMcp: false,
+          artifactDir: ".generic-ai/artifacts/codex-cli-agent-loop",
+          metadata: {
+            protocol: "hierarchy",
+            source: "openai/codex",
+            sourceCommit: "4e05f3053c840fc77321bfab0aef65ec50448a9e",
+            lessons: [
+              "Keep protocol types small and business-logic-free so multiple UIs can share the same core.",
+              "Persist thread, turn, item, tool, and evidence events so runs can resume, fork, compact, and replay.",
+              "Assemble context explicitly before sampling instead of letting each tool call rediscover state.",
+              "Route all tools through effect-aware handlers with policy, hooks, telemetry, and cancellation.",
+              "Treat subagents as thread-backed workers with registry, mailbox, depth, and status controls.",
+            ],
+          },
+        },
+      },
+    ],
+  }),
   previewTemplate({
     id: "star-router",
     label: "Star Router",
     summary: "A router chooses one or more specialists for each turn.",
-    previewReason: "Router selection needs an SDK protocol contract before this can be generated as runnable YAML.",
+    previewReason:
+      "Router selection needs an SDK protocol contract before this can be generated as runnable YAML.",
     sampleTask: "Route product, code, and verification questions to different specialists.",
     topology: {
       nodes: [
@@ -358,8 +730,10 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
   previewTemplate({
     id: "blackboard",
     label: "Blackboard",
-    summary: "Agents coordinate through shared artifacts and update the shared board as they learn.",
-    previewReason: "Blackboard state requires a shared state contract before runnable YAML can be honest.",
+    summary:
+      "Agents coordinate through shared artifacts and update the shared board as they learn.",
+    previewReason:
+      "Blackboard state requires a shared state contract before runnable YAML can be honest.",
     topology: {
       nodes: [
         { id: "board", label: "Shared Board", kind: "state" },
@@ -416,7 +790,8 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
     id: "map-reduce",
     label: "Map Reduce",
     summary: "Shard a task across workers and reduce the outputs into one answer.",
-    previewReason: "Shard/reduce semantics are not yet represented in the harness protocol surface.",
+    previewReason:
+      "Shard/reduce semantics are not yet represented in the harness protocol surface.",
     topology: {
       nodes: [
         { id: "mapper-a", label: "Mapper A", kind: "custom" },

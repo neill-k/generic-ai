@@ -8,6 +8,7 @@ What this example does now:
 - validates runtime environment at startup
 - exposes `/starter/health`, `/starter/run`, and `/starter/run/stream`
 - serves a production-built prompt playground at `/`
+- mounts the local web console and architecture template catalog at `/console`
 - uses a runtime adapter boundary in `@generic-ai/core`
 - defaults to Pi's OpenAI Codex provider path for `gpt-5.5`
 - keeps `pi` available as an explicit compatibility adapter
@@ -73,6 +74,13 @@ Open `http://127.0.0.1:3000/` for the playground UI. It includes:
 - sync and streaming run modes
 - optional bearer-token entry for protected remote runs
 - a sandboxed HTML preview, raw HTML view, downloadable artifact, and run-event log
+
+Open `http://127.0.0.1:3000/console` for the local Generic AI web console. It
+includes config snapshots, chat threads, and the architecture template catalog.
+The catalog includes a Codex CLI Agent Loop example that uses the native
+`AgentHarnessConfig.loop` contract to demonstrate a thread/turn/item control
+plane, explicit context assembly, guarded tool routing, streamed execution
+evidence, and verification before final output.
 
 Remote exposure with a token:
 

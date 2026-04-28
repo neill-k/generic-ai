@@ -12,6 +12,7 @@ describe("createAgentHarness", () => {
   it("passes role-filtered tools into root and delegated Pi sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-"));
     const toolSets: string[][] = [];
+    const rootPrompts: string[] = [];
     let sessionIndex = 0;
     const harness = createAgentHarness(
       {
@@ -20,6 +21,38 @@ describe("createAgentHarness", () => {
         model: "fake-model",
         policyProfile: "benchmark-container",
         allowMcp: false,
+        loop: {
+          pattern: "thread-turn-tool-policy",
+          stateModel: "thread-turn-item",
+          entryStage: "thread-log",
+          terminalStages: ["thread-log"],
+          stages: [
+            {
+              id: "thread-log",
+              kind: "state",
+              description: "Durable turn history.",
+            },
+            {
+              id: "context-builder",
+              kind: "context-builder",
+              roleRef: "planner",
+              description: "Assemble the turn context.",
+              readOnly: true,
+            },
+            {
+              id: "controller",
+              kind: "controller",
+              roleRef: "planner",
+              description: "Choose the next action.",
+            },
+          ],
+          transitions: [
+            { from: "thread-log", to: "context-builder", label: "replay" },
+            { from: "context-builder", to: "controller", label: "context" },
+            { from: "controller", to: "thread-log", label: "record" },
+          ],
+          invariants: ["Build context before routing tools."],
+        },
       },
       {
         sessionInputs: {
@@ -48,6 +81,9 @@ describe("createAgentHarness", () => {
                   return () => undefined;
                 },
                 async prompt(prompt: string) {
+                  if (prompt.startsWith("You are the root coordinator")) {
+                    rootPrompts.push(prompt);
+                  }
                   for (const listener of listeners) {
                     listener({
                       type: "turn_start",
@@ -117,6 +153,12 @@ describe("createAgentHarness", () => {
 
     expect(result.status).toBe("succeeded");
     expect(result.outputText).toBe("root done");
+    expect(rootPrompts[0]).toContain("Native agent loop structure:");
+    expect(rootPrompts[0]).toContain("Pattern: thread-turn-tool-policy.");
+    expect(rootPrompts[0]).toContain("State model: thread-turn-item.");
+    expect(rootPrompts[0]).toContain(
+      "- context-builder (context-builder -> role planner read-only)",
+    );
     expect(toolSets[0]).toContain("read");
     expect(toolSets[0]).toContain("delegate_agent");
     expect(toolSets[0]).not.toContain("bash");

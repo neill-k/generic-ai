@@ -54,7 +54,9 @@ describe("canonical config transactions", () => {
     }
     expect(preview.plan.files[0]?.content).toContain("displayName: Researcher");
     expect(preview.plan.files[0]?.content).not.toContain("id:");
-    expect(await readFile(join(root, ".generic-ai", "agents", "starter.yaml"), "utf8")).toBe(before);
+    expect(await readFile(join(root, ".generic-ai", "agents", "starter.yaml"), "utf8")).toBe(
+      before,
+    );
   });
 
   it("applies edits atomically and verifies by resolving the canonical config", async () => {
@@ -74,6 +76,26 @@ describe("canonical config transactions", () => {
             model: "gpt-5.5",
             primaryAgent: "starter",
             policyProfile: "local-dev-full",
+            loop: {
+              pattern: "thread-turn-tool-policy",
+              stateModel: "thread-turn-item",
+              entryStage: "thread-log",
+              terminalStages: ["thread-log"],
+              stages: [
+                {
+                  id: "thread-log",
+                  kind: "state",
+                  description: "Durable turn history.",
+                },
+                {
+                  id: "context-builder",
+                  kind: "context-builder",
+                  roleRef: "starter",
+                  readOnly: true,
+                },
+              ],
+              transitions: [{ from: "thread-log", to: "context-builder", label: "replay" }],
+            },
           },
         },
       ],
@@ -84,7 +106,39 @@ describe("canonical config transactions", () => {
       return;
     }
     expect(applied.config.harnesses?.["default"]?.id).toBe("default");
-    expect(await readFile(join(root, ".generic-ai", "harnesses", "default.yaml"), "utf8")).not.toContain("id:");
+    expect(applied.config.harnesses?.["default"]?.loop?.stateModel).toBe("thread-turn-item");
+    expect(
+      await readFile(join(root, ".generic-ai", "harnesses", "default.yaml"), "utf8"),
+    ).not.toMatch(/^id:/m);
+  });
+
+  it("rejects invalid native agent loop references", async () => {
+    const root = await seedConfig();
+    const rejected = await previewCanonicalConfigTransaction(root, {
+      edits: [
+        {
+          action: "set",
+          concern: "harness",
+          key: "broken-loop",
+          value: {
+            displayName: "Broken Loop",
+            adapter: "pi",
+            loop: {
+              pattern: "thread-turn-tool-policy",
+              stateModel: "thread-turn-item",
+              entryStage: "missing",
+              stages: [{ id: "thread-log", kind: "state" }],
+            },
+          },
+        },
+      ],
+    });
+
+    expect(rejected.ok).toBe(false);
+    if (rejected.ok) {
+      return;
+    }
+    expect(rejected.failures[0]?.message).toContain("loop references");
   });
 
   it("rejects stale revisions before writing", async () => {

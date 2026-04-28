@@ -1,6 +1,10 @@
 import type { JsonSchema, JsonSchemaEmitter } from "./json-schema.js";
 import type { ZodNamespaceLike, ZodTypeLike } from "./zod-like.js";
 import {
+  AGENT_HARNESS_CAPABILITY_EFFECTS,
+  AGENT_HARNESS_LOOP_STAGE_KINDS,
+} from "../harness/types.js";
+import {
   AGENT_ID_PATTERN,
   CONFIG_SCHEMA_VERSION,
   PACKAGE_NAME_PATTERN,
@@ -68,6 +72,22 @@ const ensureUniqueStrings = <TOutput extends string[]>(
     `${fieldName} entries must be unique`,
   );
 
+const ensureUniqueIds = <TOutput extends { id: string }[]>(
+  schema: ZodTypeLike<TOutput>,
+  fieldName: string,
+): ZodTypeLike<TOutput> =>
+  schema.refine(
+    (values) => new Set(values.map((value) => value.id)).size === values.length,
+    `${fieldName} ids must be unique`,
+  );
+
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const oneOfRegex = (values: readonly string[], extraPattern?: string): RegExp =>
+  new RegExp(
+    `^(?:${[...values.map(escapeRegex), ...(extraPattern ? [extraPattern] : [])].join("|")})$`,
+  );
+
 export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConfigSchemaBundle => {
   const packageName = z
     .string()
@@ -78,6 +98,18 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
     .string()
     .min(1, "agent id cannot be empty")
     .regex(new RegExp(AGENT_ID_PATTERN), "must be a valid agent identifier");
+  const loopStageKind = z
+    .string()
+    .regex(
+      oneOfRegex(AGENT_HARNESS_LOOP_STAGE_KINDS),
+      "loop stage kind must be state/context-builder/controller/tool-router/policy-gate/executor/verifier/custom",
+    );
+  const capabilityEffect = z
+    .string()
+    .regex(
+      oneOfRegex(AGENT_HARNESS_CAPABILITY_EFFECTS, "custom\\.[A-Za-z0-9._-]+"),
+      "loop stage effects must be known harness capability effects or custom.*",
+    );
 
   const framework = z
     .object({
@@ -162,6 +194,77 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
       "Canonical YAML concern schema for .generic-ai/plugins/*.yaml",
     ) as ZodTypeLike<PluginConfig>;
 
+  const harnessLoop = z
+    .object({
+      id: agentId.optional(),
+      pattern: z
+        .string()
+        .regex(
+          /^(thread-turn-tool-policy|custom\.[A-Za-z0-9._-]+)$/,
+          "loop.pattern must be thread-turn-tool-policy or custom.*",
+        )
+        .optional(),
+      stateModel: z
+        .string()
+        .regex(
+          /^(thread-turn-item|custom\.[A-Za-z0-9._-]+)$/,
+          "loop.stateModel must be thread-turn-item or custom.*",
+        )
+        .optional(),
+      entryStage: agentId.optional(),
+      terminalStages: ensureUniqueStrings(z.array(agentId), "loop.terminalStages").optional(),
+      stages: ensureUniqueIds(
+        z
+          .array(
+            z.object({
+              id: agentId,
+              kind: loopStageKind,
+              roleRef: agentId.optional(),
+              description: z.string().min(1, "loop stage description cannot be empty").optional(),
+              tools: ensureUniqueStrings(
+                z.array(z.string().min(1, "loop stage tool id cannot be empty")),
+                "loop stage tools",
+              ).optional(),
+              effects: ensureUniqueStrings(
+                z.array(capabilityEffect),
+                "loop stage effects",
+              ).optional(),
+              readOnly: z.boolean().optional(),
+              metadata: z.record(z.unknown()).optional(),
+            }),
+          )
+          .min(1, "loop.stages must include at least one stage"),
+        "loop.stages",
+      ),
+      transitions: z
+        .array(
+          z.object({
+            from: agentId,
+            to: agentId,
+            label: z.string().min(1, "loop transition label cannot be empty").optional(),
+            metadata: z.record(z.unknown()).optional(),
+          }),
+        )
+        .optional(),
+      invariants: ensureUniqueStrings(
+        z.array(z.string().min(1, "loop invariant cannot be empty")),
+        "loop.invariants",
+      ).optional(),
+      metadata: z.record(z.unknown()).optional(),
+    })
+    .refine((loop) => {
+      const stageIds = new Set(loop.stages.map((stage) => stage.id));
+      if (loop.entryStage !== undefined && !stageIds.has(loop.entryStage)) {
+        return false;
+      }
+      if (loop.terminalStages?.some((stageId) => !stageIds.has(stageId))) {
+        return false;
+      }
+      return (loop.transitions ?? []).every(
+        (transition) => stageIds.has(transition.from) && stageIds.has(transition.to),
+      );
+    }, "loop references must point to declared stages");
+
   const harness = z
     .object({
       id: agentId,
@@ -205,6 +308,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
           }),
         )
         .optional(),
+      loop: harnessLoop.optional(),
       tools: ensureUniqueStrings(
         z.array(z.string().min(1, "harness tool id cannot be empty")),
         "harness.tools",

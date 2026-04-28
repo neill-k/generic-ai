@@ -15,6 +15,7 @@ import {
   type AgentHarnessEventSink,
   type AgentHarnessEventProjection,
   type AgentHarnessEventType,
+  type AgentHarnessLoopConfig,
   type AgentHarnessPolicyEvaluationInput,
   type AgentHarnessPolicyEvaluator,
   type AgentHarnessPolicyProfileId,
@@ -337,7 +338,9 @@ function filterToolsByEffect<TTool extends { readonly name?: string }>(input: {
     const deniedEffects =
       effects.length === 0 && policy.denyUnknown
         ? ["custom.unknown" as AgentHarnessCapabilityEffect]
-        : effects.filter((effect) => !allowedEffects.has(effect) || input.deniedEffects.has(effect));
+        : effects.filter(
+            (effect) => !allowedEffects.has(effect) || input.deniedEffects.has(effect),
+          );
 
     if (deniedEffects.length > 0) {
       decisions.push(
@@ -536,11 +539,52 @@ function roleDirectory(roles: readonly AgentHarnessRole[]): string {
     .join("\n");
 }
 
+function loopDirectory(loop: AgentHarnessLoopConfig | undefined): string | undefined {
+  if (loop === undefined) {
+    return undefined;
+  }
+
+  const stages = loop.stages
+    .map((stage) => {
+      const roleRef = stage.roleRef ? ` -> role ${stage.roleRef}` : "";
+      const readOnly = stage.readOnly ? " read-only" : "";
+      const description = stage.description ? `: ${stage.description}` : "";
+      return `- ${stage.id} (${stage.kind}${roleRef}${readOnly})${description}`;
+    })
+    .join("\n");
+  const transitions = (loop.transitions ?? [])
+    .map((transition) => {
+      const label = transition.label ? ` (${transition.label})` : "";
+      return `- ${transition.from} -> ${transition.to}${label}`;
+    })
+    .join("\n");
+  const invariants = (loop.invariants ?? []).map((invariant) => `- ${invariant}`).join("\n");
+
+  return [
+    `Pattern: ${loop.pattern ?? "custom"}.`,
+    `State model: ${loop.stateModel ?? "custom"}.`,
+    loop.entryStage ? `Entry stage: ${loop.entryStage}.` : "",
+    loop.terminalStages && loop.terminalStages.length > 0
+      ? `Terminal stage(s): ${loop.terminalStages.join(", ")}.`
+      : "",
+    "Stages:",
+    stages,
+    transitions.length > 0 ? "Transitions:" : "",
+    transitions,
+    invariants.length > 0 ? "Invariants:" : "",
+    invariants,
+  ]
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
 function buildRootPrompt(input: {
   readonly instruction: string;
   readonly roles: readonly AgentHarnessRole[];
   readonly policyProfile: AgentHarnessPolicyProfileId;
+  readonly loop?: AgentHarnessLoopConfig;
 }): string {
+  const loop = loopDirectory(input.loop);
   return [
     "You are the root coordinator for a Generic AI composable agent harness run.",
     "Use model-directed Plan/Explore/Build/Verify topology. Delegate whenever another role should do focused work.",
@@ -551,6 +595,15 @@ function buildRootPrompt(input: {
     "",
     "Available roles:",
     roleDirectory(input.roles),
+    loop === undefined
+      ? ""
+      : [
+          "",
+          "Native agent loop structure:",
+          loop,
+          "",
+          "Follow this loop shape unless the task is blocked by missing capabilities or policy.",
+        ].join("\n"),
     "",
     "Use delegate_agent with roleId and task to hand work to a role. Finish only after useful verification or a clear blocker.",
     "",
@@ -837,9 +890,7 @@ function createDelegateTool(input: {
   readonly deniedEffects: ReadonlySet<AgentHarnessCapabilityEffect>;
   readonly eventStream: CanonicalEventStream;
   readonly getRootSessionId: () => string | undefined;
-  readonly recordPolicyDecisions: (
-    decisions: readonly PolicyDecisionRecord[],
-  ) => void;
+  readonly recordPolicyDecisions: (decisions: readonly PolicyDecisionRecord[]) => void;
   readonly factories?: PiRuntimeFactories;
 }): ToolDefinition {
   const rolesById = new Map(input.roles.map((role) => [role.id, role]));
@@ -1282,6 +1333,7 @@ function createPiAgentHarnessAdapter(
             instruction: input.instruction,
             roles,
             policyProfile: profile,
+            ...(input.harness.loop === undefined ? {} : { loop: input.harness.loop }),
           }),
           runId,
           rootScopeId,

@@ -10,7 +10,7 @@ The existing package boundary already says the SDK owns public contracts, core o
 
 Generic AI will expose a public SDK-level `AgentHarness` contract family and a core Pi-backed implementation.
 
-- `@generic-ai/sdk` owns `AgentHarness`, `AgentHarnessAdapter`, `AgentHarnessRunInput`, `AgentHarnessRunResult`, `AgentHarnessRole`, `AgentHarnessPolicyProfile`, adapter run context, capability-effect descriptors, artifact references, and typed harness event projections.
+- `@generic-ai/sdk` owns `AgentHarness`, `AgentHarnessAdapter`, `AgentHarnessRunInput`, `AgentHarnessRunResult`, `AgentHarnessRole`, `AgentHarnessPolicyProfile`, native agent-loop structure, adapter run context, capability-effect descriptors, artifact references, and typed harness event projections.
 - Canonical config supports top-level `harnesses` plus `framework.primaryHarness`.
 - `@generic-ai/core` exposes `createAgentHarness()` and `runAgentHarness()` as the runtime control-plane above Pi.
 - The first implementation is Pi-backed. Pi provides session and tool-loop mechanics; Generic AI owns capability composition by declared effects, role policy, delegation, canonical events, policy decisions, artifact writing, and the final run result envelope.

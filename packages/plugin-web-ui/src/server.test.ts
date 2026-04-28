@@ -56,8 +56,8 @@ describe("@generic-ai/plugin-web-ui server", () => {
         primaryAgent: "starter",
       },
       templates: {
-        total: 10,
-        runnable: 4,
+        total: 11,
+        runnable: 5,
         preview: 6,
       },
     });
@@ -70,6 +70,9 @@ describe("@generic-ai/plugin-web-ui server", () => {
     expect(templates.templates.find((template) => template.id === "hierarchical")?.status).toBe(
       "runnable",
     );
+    expect(
+      templates.templates.find((template) => template.id === "codex-cli-agent-loop")?.status,
+    ).toBe("runnable");
     expect(templates.templates.find((template) => template.id === "blackboard")?.status).toBe(
       "preview",
     );
@@ -138,6 +141,17 @@ describe("@generic-ai/plugin-web-ui server", () => {
 
     const missingKey = await plugin.applyTemplate("hierarchical", { dryRun: false });
     expect(missingKey.ok).toBe(false);
+
+    const codexDryRun = await plugin.applyTemplate("codex-cli-agent-loop", { dryRun: true });
+    expect(codexDryRun.ok).toBe(true);
+    if (!codexDryRun.ok) {
+      return;
+    }
+    expect(
+      codexDryRun.plan.files.some((file) =>
+        file.relativePath.endsWith(join(".generic-ai", "harnesses", "codex-cli-agent-loop.yaml")),
+      ),
+    ).toBe(true);
 
     const applied = await plugin.applyTemplate("hierarchical", {
       dryRun: false,

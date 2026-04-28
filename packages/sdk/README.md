@@ -18,6 +18,8 @@ Current SDK contents:
   TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch contracts
 - AgentHarness contracts, adapter run context, capability-effect descriptors,
   URI/hash artifact references, and typed harness event projections
+- Native agent-loop structure contracts for thread/turn/tool-policy harnesses,
+  including stages, transitions, invariants, and state model metadata
 - Deterministic Harness DSL compiler and evidence report helpers
 
 ## Contract surface
@@ -38,7 +40,8 @@ The SDK defines the contract families planned in
 - agents-as-code contracts for declaring, compiling, benchmarking, tracing, and
   reporting on package-composed agent systems
 - composable agent harness contracts for adapters, role policy profiles,
-  effect-described tools, artifact stores, and canonical harness events
+  effect-described tools, artifact stores, native agent-loop structure, and
+  canonical harness events
 
 The contract modules are intentionally kernel-agnostic. They do not import
 `@generic-ai/core`, and they do not require private kernel knowledge to
