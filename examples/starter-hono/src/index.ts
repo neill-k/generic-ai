@@ -331,6 +331,12 @@ async function runConfiguredConsoleHarness(input: {
   if (input.request.harness === undefined) {
     const result = await input.runtime.run(input.request.message.content, {
       signal: input.request.signal,
+      ...(input.request.agent?.execution?.turnMode === undefined
+        ? {}
+        : { turnMode: input.request.agent.execution.turnMode }),
+      ...(input.request.agent?.execution?.maxTurns === undefined
+        ? {}
+        : { maxTurns: input.request.agent.execution.maxTurns }),
     });
     return {
       content: result.outputText,
@@ -347,7 +353,12 @@ async function runConfiguredConsoleHarness(input: {
     throw new Error("Console harness run was aborted before dispatch.");
   }
 
-  const harness = input.createHarness(input.request.harness as AgentHarnessConfig);
+  const inheritedExecution = input.request.harness.execution ?? input.request.agent?.execution;
+  const harnessConfig = {
+    ...(input.request.harness as AgentHarnessConfig),
+    ...(inheritedExecution === undefined ? {} : { execution: inheritedExecution }),
+  } satisfies AgentHarnessConfig;
+  const harness = input.createHarness(harnessConfig);
   const artifactDir = resolve(
     input.workspaceRoot,
     input.request.harness.artifactDir ?? ".generic-ai/artifacts/web-ui",
@@ -544,6 +555,12 @@ export async function createStarterExampleServer(
         ...(input.runtimePlan.primaryAgent.instructions === undefined
           ? {}
           : { instructions: input.runtimePlan.primaryAgent.instructions }),
+        ...(input.runtimePlan.primaryAgent.execution?.turnMode === undefined
+          ? {}
+          : { turnMode: input.runtimePlan.primaryAgent.execution.turnMode }),
+        ...(input.runtimePlan.primaryAgent.execution?.maxTurns === undefined
+          ? {}
+          : { maxTurns: input.runtimePlan.primaryAgent.execution.maxTurns }),
       });
     },
   });

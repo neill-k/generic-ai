@@ -1,10 +1,12 @@
 import {
+  withAgentHarnessToolEffects,
+} from "@generic-ai/sdk";
+import {
   createBashTool,
   createLocalBashOperations,
-  withAgentHarnessToolEffects,
   type BashOperations,
   type BashSpawnHook,
-} from "@generic-ai/sdk";
+} from "@generic-ai/sdk/pi";
 import {
   createWorkspaceLayout,
   resolveSafeWorkspacePath,

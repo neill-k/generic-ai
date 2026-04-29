@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://generic-ai.dev/contracts/config/harness.schema.json",
+  "title": "Generic AI Harness Config (YAML Concern)",
+  "description": "Canonical schema for .generic-ai/harnesses/*.yaml.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "displayName": {
+      "type": "string"
+    },
+    "adapter": {
+      "type": "string",
+      "enum": ["pi", "external"]
+    },
+    "controller": {
+      "type": "string",
+      "enum": ["model-directed"]
+    },
+    "model": {
+      "type": "string"
+    },
+    "primaryAgent": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "policyProfile": {
+      "type": "string",
+      "enum": ["local-dev-full", "benchmark-container"]
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["root", "planner", "explorer", "builder", "verifier", "custom"]
+          },
+          "description": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "readOnly": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "turnMode": {
+          "type": "string",
+          "enum": ["stop-tool-loop", "single-turn"]
+        },
+        "maxTurns": {
+          "description": "Optional finite stop-tool loop cap. Omit for unbounded execution.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "tools": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "allowNetwork": {
+      "type": "boolean"
+    },
+    "allowMcp": {
+      "type": "boolean"
+    },
+    "artifactDir": {
+      "type": "string"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

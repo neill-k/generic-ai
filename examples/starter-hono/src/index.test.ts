@@ -66,7 +66,7 @@ describe("@generic-ai/example-starter-hono", () => {
         expect(options.model).toBe("gpt-5.5");
         expect(options.cwd).toContain(path.join("examples", "starter-hono"));
         expect(options.agentDir).toBeUndefined();
-        expect(options.instructions).toContain("Generic AI starter example agent");
+        expect(options.instructions).toContain("Break the user request into specialist work");
         return createFakeRuntime("runtime result");
       },
     );
@@ -121,7 +121,7 @@ describe("@generic-ai/example-starter-hono", () => {
         plugin: "@generic-ai/plugin-web-ui",
         config: {
           ok: true,
-          primaryAgent: "starter",
+          primaryAgent: "hierarchical-planner",
         },
       });
     } finally {

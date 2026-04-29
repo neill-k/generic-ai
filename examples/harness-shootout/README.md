@@ -29,6 +29,11 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
 - [`sample-report.md`](sample-report.md): example of bounded interpretation.
 - [`dag-navigation/`](dag-navigation/): deterministic fork-merge benchmark
   profile for non-linear tool-workflow diagnostics.
+- [`reliability/`](reliability/): repeated-run reliability fixture showing how
+  equal average task success can hide different consistency, retry, and bounded
+  failure-severity profiles.
+- [`fault-injection/`](fault-injection/): deterministic boundary-fault profile
+  for tool and memory degradation evidence.
 
 ## Programmatic Shape
 
@@ -58,6 +63,12 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
 - Underpowered runs produce `insufficient_evidence`.
 - Separate benchmark profiles can use the same report contracts for native
   Generic AI failure modes such as DAG navigation.
+- Repeated-run reports can expose pass rate, pass@k, consistency, variance,
+  retries, skipped/excluded trials, perturbation labels, and failure severity
+  without hiding failed attempts.
+- Fault-injection profiles can represent boundary degradation, containment,
+  first violated contracts, and overclaim-prevention evidence without making
+  core import plugin-specific injectors.
 
 ## What It Does Not Prove Yet
 
@@ -65,3 +76,4 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
 - Autonomous self-mutation.
 - Statistical confidence beyond the configured trial population.
 - A full workflow engine independent of the protocol ABI.
+- External benchmark score movement from evidence-surface fixtures alone.

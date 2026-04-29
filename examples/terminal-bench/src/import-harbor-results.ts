@@ -20,6 +20,11 @@ import {
   type TraceEvent,
   type TraceEventType,
 } from "@generic-ai/sdk";
+import {
+  createCommandTranscriptFromTraceEvents,
+  renderCommandTranscriptsMarkdown,
+  type CommandTranscript,
+} from "./command-transcript.js";
 
 export interface HarborImportOptions {
   readonly jobDir: string;
@@ -33,6 +38,7 @@ export interface HarborImportResult {
   readonly mission: MissionSpec;
   readonly benchmark: BenchmarkSpec;
   readonly trialResults: readonly BenchmarkTrialResult[];
+  readonly trialTranscripts: readonly CommandTranscript[];
   readonly report: BenchmarkReport;
 }
 
@@ -482,11 +488,25 @@ export async function importHarborResults(
     generatedAt: timestamp,
     results: trialResults,
   });
+  const trialTranscripts = trialResults.map((trialResult) =>
+    createCommandTranscriptFromTraceEvents({
+      runId,
+      trialId: trialResult.trialId,
+      generatedAt: timestamp,
+      events: trialResult.traceEvents,
+    }),
+  );
 
   await mkdir(outputDir, { recursive: true });
   await writeJson(join(outputDir, "mission.json"), mission);
   await writeJson(join(outputDir, "benchmark.json"), benchmark);
   await writeJson(join(outputDir, "trial-results.json"), trialResults);
+  await writeJson(join(outputDir, "trial-command-transcripts.json"), trialTranscripts);
+  await writeFile(
+    join(outputDir, "trial-command-transcripts.md"),
+    renderCommandTranscriptsMarkdown(trialTranscripts),
+    "utf-8",
+  );
   await writeJson(join(outputDir, "benchmark-report.json"), report);
   await writeFile(join(outputDir, "benchmark-report.md"), renderBenchmarkReportMarkdown(report));
 
@@ -496,6 +516,7 @@ export async function importHarborResults(
     mission,
     benchmark,
     trialResults: Object.freeze(trialResults),
+    trialTranscripts: Object.freeze(trialTranscripts),
     report,
   });
 }

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-
+import { describe, expect, it } from "vitest";
 import {
   compileHarnessDsl,
   createBenchmarkReport,
@@ -11,25 +11,176 @@ import {
   type HarnessDsl,
   type MissionSpec,
 } from "@generic-ai/sdk";
-import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const dagProfileRoot = resolve(repoRoot, "examples/harness-shootout/dag-navigation");
 
-async function readJson<T>(...segments: readonly string[]): Promise<T> {
-  const text = await readFile(resolve(dagProfileRoot, ...segments), "utf8");
-  return JSON.parse(text) as T;
+async function readJson<T>(relativePath: string): Promise<T> {
+  const contents = await readFile(resolve(repoRoot, relativePath), "utf8");
+  return JSON.parse(contents) as T;
 }
 
-describe("harness-shootout DAG navigation profile", () => {
-  it("compiles the DAG navigation candidate harnesses", async () => {
-    const benchmark = await readJson<BenchmarkSpec>("benchmark.json");
-    const candidateFiles = [
-      "candidates/linear-chain.json",
-      "candidates/dag-aware-planner.json",
-      "candidates/squad-branch-workers.json",
+describe("harness shootout fixtures", () => {
+  it("keeps package-composed candidate harnesses compilable", async () => {
+    const candidatePaths = [
+      "examples/harness-shootout/candidates/pipeline.json",
+      "examples/harness-shootout/candidates/verifier-loop.json",
+      "examples/harness-shootout/candidates/hierarchy.json",
+      "examples/harness-shootout/candidates/squad.json",
     ];
-    const candidates = await Promise.all(candidateFiles.map((path) => readJson<HarnessDsl>(path)));
+
+    for (const path of candidatePaths) {
+      const result = compileHarnessDsl(await readJson<HarnessDsl>(path));
+
+      expect(result.diagnostics).toEqual([]);
+      expect(result.compiled?.id).toBeDefined();
+    }
+  });
+
+  it("distinguishes average score from repeated-run reliability", async () => {
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/reliability/benchmark.json",
+    );
+    const mission = await readJson<MissionSpec>("examples/harness-shootout/mission.json");
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/reliability/trial-results.json",
+    );
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-04-29T00:00:00.000Z",
+      results,
+    });
+    const bursty = report.candidates.find(
+      (candidate) => candidate.candidateId === "pipeline-bursty",
+    );
+    const steady = report.candidates.find(
+      (candidate) => candidate.candidateId === "verifier-loop-steady",
+    );
+
+    expect(bursty?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
+      0.5,
+    );
+    expect(steady?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
+      0.5,
+    );
+    expect(bursty?.reliability?.passRate).toBe(0.5);
+    expect(bursty?.reliability?.maxFailureSeverity).toBe("critical");
+    expect(bursty?.reliability?.retriedTrials).toBe(1);
+    expect(steady?.reliability?.passRate).toBe(1);
+    expect(steady?.reliability?.maxFailureSeverity).toBe("low");
+    expect(renderBenchmarkReportMarkdown(report)).toContain("## Reliability");
+  });
+
+  it("compiles the fault-injection fixture and reports containment evidence", async () => {
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/fault-injection/mission.json",
+    );
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/fault-injection/benchmark.json",
+    );
+    const harness = await readJson<HarnessDsl>(
+      "examples/harness-shootout/fault-injection/candidates/fault-aware-verifier.json",
+    );
+
+    const compiled = compileHarnessDsl(harness);
+    expect(compiled.diagnostics).toEqual([]);
+    expect(compiled.compiled?.sourceId).toBe("harness.fault-aware-verifier");
+    expect(benchmark.missionRef).toBe(mission.id);
+    expect(benchmark.faultInjections).toHaveLength(2);
+
+    const trial: BenchmarkTrialResult = {
+      candidateId: "fault-aware-verifier",
+      harnessId: "harness.fault-aware-verifier:compiled",
+      trialId: "fault-aware-verifier:trial:1",
+      metrics: [
+        {
+          metricId: "fault_containment",
+          value: 1,
+          evidenceRefs: ["trace.tool-timeout", "trace.stale-memory"],
+        },
+        {
+          metricId: "fault_recovery",
+          value: 1,
+          evidenceRefs: ["trace.tool-timeout", "trace.stale-memory"],
+        },
+        {
+          metricId: "overclaim_prevented",
+          value: 1,
+          evidenceRefs: ["artifact.fault-report"],
+        },
+        {
+          metricId: "trace_completeness",
+          value: 1,
+          evidenceRefs: ["trace.tool-timeout", "trace.stale-memory"],
+        },
+      ],
+      traceEvents: [],
+      artifacts: [
+        {
+          id: "artifact.fault-report",
+          kind: "report",
+          uri: "memory:///fault-injection-report.json",
+          redaction: "metadata_only",
+          summary: "Fault-injection containment report.",
+        },
+      ],
+      diagnostics: {
+        completeness: 1,
+        missingRequiredEventTypes: [],
+        handoffCount: 0,
+        reworkCount: 0,
+        policyDecisionCount: 0,
+        artifactCount: 1,
+      },
+      faultInjections: [
+        {
+          specRef: "tool-shell-timeout",
+          boundary: "tool",
+          perturbation: "timeout",
+          contained: true,
+          recovered: true,
+          overclaimPrevented: true,
+          firstViolatedContract: "tool.result.deadline",
+          recoveryPath: ["deadline-detected", "fallback-recorded"],
+          evidenceRefs: ["trace.tool-timeout"],
+        },
+        {
+          specRef: "memory-profile-stale-context",
+          boundary: "memory",
+          perturbation: "stale_context",
+          contained: true,
+          recovered: true,
+          overclaimPrevented: true,
+          firstViolatedContract: "memory.provenance",
+          recoveryPath: ["provenance-missing", "insufficient-evidence"],
+          evidenceRefs: ["trace.stale-memory"],
+        },
+      ],
+    };
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-04-29T00:00:00.000Z",
+      results: [trial],
+    });
+
+    expect(report.faultInjection?.plannedCaseCount).toBe(2);
+    expect(report.faultInjection?.observedCaseCount).toBe(2);
+    expect(report.faultInjection?.containmentRate).toBe(1);
+    expect(report.candidates[0]?.recommendation).toBe("recommended");
+  });
+
+  it("compiles the DAG navigation candidate harnesses", async () => {
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/dag-navigation/benchmark.json",
+    );
+    const candidatePaths = [
+      "examples/harness-shootout/dag-navigation/candidates/linear-chain.json",
+      "examples/harness-shootout/dag-navigation/candidates/dag-aware-planner.json",
+      "examples/harness-shootout/dag-navigation/candidates/squad-branch-workers.json",
+    ];
+    const candidates = await Promise.all(candidatePaths.map((path) => readJson<HarnessDsl>(path)));
 
     expect(benchmark.id).toBe("benchmark.dag-navigation.v0");
     expect(benchmark.candidates.map((candidate) => candidate.id)).toEqual([
@@ -55,15 +206,19 @@ describe("harness-shootout DAG navigation profile", () => {
   });
 
   it("renders separate navigation and tool-output failure evidence", async () => {
-    const benchmark = await readJson<BenchmarkSpec>("benchmark.json");
-    const mission = await readJson<MissionSpec>("mission.json");
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/dag-navigation/benchmark.json",
+    );
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/dag-navigation/mission.json",
+    );
     const failureExamples = await readJson<{
       readonly cases: readonly {
         readonly id: string;
         readonly diagnosis: string;
         readonly trialResult: BenchmarkTrialResult;
       }[];
-    }>("failure-examples.json");
+    }>("examples/harness-shootout/dag-navigation/failure-examples.json");
 
     const report = createBenchmarkReport({
       benchmark,

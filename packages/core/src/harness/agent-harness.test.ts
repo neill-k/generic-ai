@@ -7,8 +7,88 @@ import { type PolicyDecisionRecord, withAgentHarnessToolEffects } from "@generic
 import { describe, expect, it } from "vitest";
 
 import { createAgentHarness } from "./agent-harness.js";
+import { STOP_AND_RESPOND_TOOL_NAME } from "../runtime/index.js";
+
+async function callStopTool(
+  options: {
+    readonly customTools?: readonly {
+      readonly name?: string;
+      readonly execute?: unknown;
+    }[];
+  },
+  response: string,
+) {
+  const stopTool = options.customTools?.find(
+    (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
+  );
+  if (stopTool === undefined) {
+    throw new Error("Expected stop_and_respond tool to be registered.");
+  }
+
+  if (typeof stopTool.execute !== "function") {
+    throw new Error("Expected stop_and_respond tool to be executable.");
+  }
+
+  await (
+    stopTool.execute as (
+      toolCallId: string,
+      params: { readonly response: string },
+    ) => Promise<unknown> | unknown
+  )("stop-1", { response });
+}
 
 describe("createAgentHarness", () => {
+  it("can run with a non-pi adapter when registered explicitly", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-external-"));
+    const harness = createAgentHarness(
+      {
+        id: "external-harness",
+        adapter: "external",
+      },
+      {
+        adapters: {
+          external: {
+            id: "mock-external-adapter",
+            kind: "external",
+            run: async (input) => ({
+              harnessId: input.harness.id,
+              adapter: "external",
+              status: "succeeded",
+              outputText: "external adapter output",
+              envelope: {
+                kind: "run-envelope",
+                runId: input.runId ?? "run-external",
+                rootScopeId: input.rootScopeId ?? "scope/root",
+                rootAgentId: input.rootAgentId ?? "root",
+                mode: "sync",
+                status: "succeeded",
+                timestamps: {
+                  createdAt: new Date().toISOString(),
+                  startedAt: new Date().toISOString(),
+                  completedAt: new Date().toISOString(),
+                },
+                eventStream: { kind: "event-stream-reference", streamId: input.runId ?? "run-external" },
+              },
+              events: [],
+              projections: [],
+              artifacts: [],
+              policyDecisions: [],
+            }),
+          },
+        },
+      },
+    );
+
+    const result = await harness.run({
+      instruction: "Run externally",
+      workspaceRoot: root,
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.adapter).toBe("external");
+    expect(result.outputText).toBe("external adapter output");
+  });
+
   it("passes role-filtered tools into root and delegated Pi sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-"));
     const toolSets: string[][] = [];
@@ -71,9 +151,9 @@ describe("createAgentHarness", () => {
                       undefined,
                       {} as never,
                     );
-                    messages.push({ role: "assistant", content: "root done" });
+                    await callStopTool(options, "root done");
                   } else {
-                    messages.push({ role: "assistant", content: "builder done" });
+                    await callStopTool(options, "builder done");
                   }
                   for (const listener of listeners) {
                     listener({
@@ -119,6 +199,7 @@ describe("createAgentHarness", () => {
     expect(result.outputText).toBe("root done");
     expect(toolSets[0]).toContain("read");
     expect(toolSets[0]).toContain("delegate_agent");
+    expect(toolSets[0]).toContain("stop_and_respond");
     expect(toolSets[0]).not.toContain("bash");
     expect(toolSets[0]).not.toContain("write");
     expect(toolSets[1]).toEqual(expect.arrayContaining(["bash", "read", "write"]));
@@ -168,5 +249,66 @@ describe("createAgentHarness", () => {
         }),
       ]),
     );
+  });
+
+  it("does not mention the stop tool when single-turn execution is configured", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-single-turn-"));
+    const prompts: string[] = [];
+    const toolSets: string[][] = [];
+    const harness = createAgentHarness(
+      {
+        id: "single-turn-harness",
+        adapter: "pi",
+        model: "fake-model",
+        policyProfile: "benchmark-container",
+        allowMcp: false,
+        execution: {
+          turnMode: "single-turn",
+        },
+      },
+      {
+        sessionInputs: {
+          agentDir: root,
+          authStorage: {} as never,
+          modelRegistry: {} as never,
+          model: {} as never,
+          sessionManager: SessionManager.inMemory(),
+          settingsManager: SettingsManager.inMemory(),
+        },
+        factories: {
+          createAgentSession: async (options) => {
+            if (options === undefined) {
+              throw new Error("Expected createAgentSession options.");
+            }
+            toolSets.push([...(options.tools ?? [])]);
+            const messages: unknown[] = [{ role: "assistant", content: "single turn done" }];
+            return {
+              session: {
+                sessionId: "session-single-turn",
+                messages,
+                subscribe() {
+                  return () => undefined;
+                },
+                async prompt(prompt: string) {
+                  prompts.push(prompt);
+                },
+              },
+            } as never;
+          },
+        },
+      },
+    );
+
+    const result = await harness.run({
+      instruction: "Answer in one turn.",
+      workspaceRoot: root,
+      artifactDir: join(root, "artifacts"),
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toBe("single turn done");
+    expect(toolSets[0]).not.toContain("stop_and_respond");
+    expect(prompts[0]).not.toContain("stop_and_respond");
+    expect(prompts[0]).toContain("single-turn compatibility");
   });
 });

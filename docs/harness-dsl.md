@@ -19,7 +19,8 @@ Harness DSL -> Generic Agent IR -> runtime/packages -> traces/evals/reports
 - `runHarnessBenchmark()` in `@generic-ai/core` consumes compiled harnesses and
   runs trials through `GenericAILlmRuntime`.
 - The default `openai-codex` runtime path uses Pi's `openai-codex` provider
-  machinery: `AuthStorage`, `ModelRegistry`, and `createAgentSession`.
+  machinery exposed through `@generic-ai/sdk/pi`: `AuthStorage`,
+  `ModelRegistry`, and `createAgentSession`.
 - `examples/harness-shootout` provides the first package-composed benchmark
   fixture and walkthrough.
 
@@ -40,6 +41,28 @@ when choosing bounded recommendations, and a missing primary metric sample stays
 Single-run smoke results are allowed for wiring checks, but they cannot produce a
 confident architecture recommendation unless the BenchmarkSpec explicitly opts
 into that behavior.
+
+BenchmarkSpec can also attach a repeated-run reliability profile. The profile is
+optional and report-only: it records success thresholds, pass@k cuts,
+perturbation labels, retry accounting, skipped/excluded trials, and bounded
+failure severity without replacing the primary metric. Reports use it to make
+consistency, variance, robustness, and failure severity visible when two
+candidates have similar average scores.
+
+## Fault-Injection Benchmarks
+
+`BenchmarkSpec.faultInjections` describes degraded boundary cases a benchmark
+run should exercise. Each `FaultInjectionSpec` names the boundary, perturbation,
+target reference, expected behavior, and optional first violated contract. The
+SDK report helper aggregates matching trial observations into planned case
+count, observed case count, containment rate, recovery rate,
+overclaim-prevention rate, and first violated contracts.
+
+Fault injection is a contract and evidence surface in v0.1. Plugin-owned
+injectors for terminal tools, retrieval, memory, web, MCP, messaging, and
+storage should implement this contract in their own packages or harness
+adapters. Core may pass configured cases into benchmark prompts and reports, but
+it must not import plugin-specific fault hooks.
 
 ## Authority Boundary
 
