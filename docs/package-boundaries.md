@@ -52,7 +52,7 @@ Anything outside these rules needs an entry in `docs/decisions/` explaining the 
 
 Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and the repo root itself are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
-- **Public (25 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
+- **Public (26 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
 - **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. Any new workspace under `examples/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
@@ -228,6 +228,30 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Not responsible for: kernel execution, preset composition, hosted multi-tenant auth, raw terminal proxying, or inventing config persistence outside `@generic-ai/plugin-config-yaml`.
 - Notes: server, client, agent-tools, and CSS are exported from separate subpaths. Browser code must not import Node built-ins, `@generic-ai/core`, presets, or server entrypoints. Mutating Hono routes require same-origin checks plus a local session token. See `docs/decisions/0028-web-ui-plugin-console.md`.
 
+### `@generic-ai/plugin-repo-map`
+
+- Role: deterministic compact repository map and repo-orientation tool for harness roles.
+- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
+- Not responsible for: semantic code navigation, diagnostics, or long-running indexing. Those belong to LSP or future search/index plugins.
+- Notes: declares `repo.inspect` and `fs.read` effects so it is safe for read-only planner and explorer roles and stable enough for trace-backed benchmark artifacts.
+- Publishes as: `@generic-ai/plugin-repo-map` — public, independent versioning, `publishConfig.access: public`, provenance on.
+
+### `@generic-ai/plugin-lsp`
+
+- Role: configurable stdio Language Server Protocol client exposing diagnostics, document symbols, definitions, and references as harness tools.
+- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, and language-server protocol/client libraries if the package later adopts one.
+- Not responsible for: repository-wide indexing beyond server-backed LSP calls, file mutation, or installing language servers.
+- Notes: declares `lsp.read`, `fs.read`, and `process.spawn` effects. It is part of the local starter stack, but benchmark profiles should gate or omit it unless language-server spawning is explicitly allowed.
+- Publishes as: `@generic-ai/plugin-lsp` — public, independent versioning, `publishConfig.access: public`, provenance on.
+
+### `@generic-ai/plugin-web-ui`
+
+- Role: local-first web console plugin. Owns the browser client, Hono console adapter, guarded composer surface, chat/run viewer, and multi-agent architecture template catalog.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-config-yaml`, `@generic-ai/plugin-hono`, `pi`, Hono, React, and browser-build helper libraries used only by the client entrypoint.
+- Not responsible for: kernel execution, preset composition, hosted multi-tenant auth, raw terminal proxying, or inventing config persistence outside `@generic-ai/plugin-config-yaml`.
+- Notes: server, client, agent-tools, and CSS are exported from separate subpaths. Browser code must not import Node built-ins, `@generic-ai/core`, presets, or server entrypoints. Mutating Hono routes require same-origin checks plus a local session token. See `docs/decisions/0028-web-ui-plugin-console.md`.
+- Publishes as: `@generic-ai/plugin-web-ui` — public, independent versioning, `publishConfig.access: public`, provenance on.
+
 ### `@generic-ai/observability`
 
 - Role: public local-first observability surface. Owns run/trace repositories, metadata-only ingestion, metric catalog/query, read-only Hono routes, live event replay, deterministic evidence reports, read-only React panels, and read-only agent convenience tools.
@@ -316,6 +340,12 @@ layer when the roadmap resumes.
 
 - Role: v0.1 package-composed harness shootout fixture. Demonstrates Harness DSL, MissionSpec, BenchmarkSpec, four candidate harnesses, and bounded report interpretation.
 - Allowed deps: public packages for demonstration code if a runnable script is added later.
+- Not responsible for: defining the SDK contract surface or being imported by any package inside `packages/`.
+
+### `examples/terminal-bench/`
+
+- Role: private Harbor and Terminal-Bench integration example for benchmark runs with harness projections, artifact imports, and validation gates.
+- Allowed deps: public packages and Harbor tooling for demonstration code.
 - Not responsible for: defining the SDK contract surface or being imported by any package inside `packages/`.
 
 ### `contracts/`

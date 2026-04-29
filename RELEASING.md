@@ -117,6 +117,10 @@ The complete public list:
 | `@generic-ai/plugin-messaging`        | durable storage-backed messaging            |
 | `@generic-ai/plugin-memory-files`     | file-backed persistent memory               |
 | `@generic-ai/plugin-output-default`   | default output and finalization plugin      |
+| `@generic-ai/plugin-lsp`              | LSP client tools for harness runs           |
+| `@generic-ai/plugin-repo-map`         | deterministic repository maps and orientation |
+| `@generic-ai/plugin-web-ui`            | local-first web console plugin                |
+| `@generic-ai/observability`           | local-first observability surface           |
 | `@generic-ai/plugin-hono`             | official Hono integration plugin            |
 | `@generic-ai/plugin-web-ui`           | local-first web console plugin              |
 
