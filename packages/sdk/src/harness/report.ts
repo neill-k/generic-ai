@@ -7,6 +7,9 @@ import type {
   BenchmarkSpec,
   BenchmarkTrialResult,
   BenchmarkTrialOutcomeStatus,
+  FaultInjectionObservation,
+  FaultInjectionReportSummary,
+  FaultInjectionSpec,
   MetricDefinition,
   MetricValue,
   MissionSpec,
@@ -92,6 +95,50 @@ function metricDirection(
 
 function metricValue(result: BenchmarkTrialResult, metricId: string): number | undefined {
   return result.metrics.find((metric) => metric.metricId === metricId)?.value;
+}
+
+function rate(count: number, total: number): number {
+  return total === 0 ? 0 : count / total;
+}
+
+function faultInjectionObservations(
+  results: readonly BenchmarkTrialResult[],
+): readonly FaultInjectionObservation[] {
+  return Object.freeze(results.flatMap((result) => result.faultInjections ?? []));
+}
+
+function faultInjectionSummary(input: {
+  readonly planned: readonly FaultInjectionSpec[];
+  readonly observations: readonly FaultInjectionObservation[];
+}): FaultInjectionReportSummary | undefined {
+  if (input.planned.length === 0 && input.observations.length === 0) {
+    return undefined;
+  }
+
+  const containedCaseCount = input.observations.filter(
+    (observation) => observation.contained,
+  ).length;
+  const recoveredCaseCount = input.observations.filter(
+    (observation) => observation.recovered,
+  ).length;
+  const overclaimPreventedCount = input.observations.filter(
+    (observation) => observation.overclaimPrevented,
+  ).length;
+  const firstViolatedContracts = input.observations
+    .map((observation) => observation.firstViolatedContract)
+    .filter((contract): contract is string => contract !== undefined);
+
+  return Object.freeze({
+    plannedCaseCount: input.planned.length,
+    observedCaseCount: input.observations.length,
+    containedCaseCount,
+    recoveredCaseCount,
+    overclaimPreventedCount,
+    containmentRate: rate(containedCaseCount, input.observations.length),
+    recoveryRate: rate(recoveredCaseCount, input.observations.length),
+    overclaimPreventionRate: rate(overclaimPreventedCount, input.observations.length),
+    firstViolatedContracts: Object.freeze([...new Set(firstViolatedContracts)]),
+  });
 }
 
 function bestMetricValue(
@@ -366,6 +413,10 @@ function candidateReport(input: {
     primaryMetricDirection: input.primaryMetricDirection,
     bestPrimaryMetricValue: input.bestPrimaryMetricValue,
   });
+  const faultInjection = faultInjectionSummary({
+    planned: input.benchmark.faultInjections ?? [],
+    observations: faultInjectionObservations(input.results),
+  });
   const rationale = [
     primaryMetric === undefined
       ? `${input.benchmark.primaryMetric} average: missing`
@@ -384,6 +435,12 @@ function candidateReport(input: {
           }`,
           `max failure severity: ${reliability.maxFailureSeverity}`,
         ]),
+    ...(faultInjection === undefined
+      ? []
+      : [
+          `fault injections observed: ${faultInjection.observedCaseCount}/${faultInjection.plannedCaseCount}`,
+          `fault containment rate: ${faultInjection.containmentRate}`,
+        ]),
   ];
 
   return Object.freeze({
@@ -398,6 +455,7 @@ function candidateReport(input: {
     recommendation,
     ...(reliability === undefined ? {} : { reliability }),
     rationale: Object.freeze(rationale),
+    ...(faultInjection === undefined ? {} : { faultInjection }),
   });
 }
 
@@ -441,6 +499,15 @@ export function createBenchmarkReport(input: {
   const insufficientEvidence = candidates
     .filter((candidate) => candidate.recommendation === "insufficient_evidence")
     .map((candidate) => `${candidate.candidateId}: ${candidate.rationale.join("; ")}`);
+  const faultInjection = faultInjectionSummary({
+    planned: input.benchmark.faultInjections ?? [],
+    observations: faultInjectionObservations(input.results),
+  });
+  const faultInjectionEvidenceGap =
+    (input.benchmark.faultInjections ?? []).length > 0 &&
+    (faultInjection?.observedCaseCount ?? 0) === 0
+      ? ["Fault injections were configured but no trial observations recorded their outcomes."]
+      : [];
   const traceEventCount = input.results.reduce(
     (total, result) => total + result.traceEvents.length,
     0,
@@ -470,12 +537,22 @@ export function createBenchmarkReport(input: {
               0,
             )} scored trial outcomes without hiding skips, exclusions, or retries.`,
           ]),
+      ...(faultInjection === undefined
+        ? []
+        : [
+            `Observed ${faultInjection.observedCaseCount}/${faultInjection.plannedCaseCount} planned fault-injection cases.`,
+          ]),
     ]),
     inferences: Object.freeze(
       [
-        ...(insufficientEvidence.length > 0
+        ...(insufficientEvidence.length > 0 || faultInjectionEvidenceGap.length > 0
           ? ["At least one candidate lacks enough evidence for a confident recommendation."]
-          : ["Trial evidence is sufficient for the configured recommendation threshold."]),
+          : [
+              "Trial evidence is sufficient for the configured recommendation threshold.",
+              ...(faultInjection === undefined
+                ? []
+                : ["Fault-injection observations are included in the evidence boundary."]),
+            ]),
         ...reliabilityCandidates.flatMap((candidate) =>
           candidate.reliability.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
         ),
@@ -502,7 +579,8 @@ export function createBenchmarkReport(input: {
       artifactCount,
       metricCount,
     }),
-    insufficientEvidence: Object.freeze(insufficientEvidence),
+    insufficientEvidence: Object.freeze([...insufficientEvidence, ...faultInjectionEvidenceGap]),
+    ...(faultInjection === undefined ? {} : { faultInjection }),
   });
 }
 
@@ -572,6 +650,24 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
       "## Insufficient Evidence",
       "",
       ...report.insufficientEvidence.map((item) => `- ${item}`),
+      "",
+    );
+  }
+
+  if (report.faultInjection !== undefined) {
+    lines.push(
+      "## Fault Injection",
+      "",
+      `- Planned cases: ${report.faultInjection.plannedCaseCount}`,
+      `- Observed cases: ${report.faultInjection.observedCaseCount}`,
+      `- Containment rate: ${report.faultInjection.containmentRate}`,
+      `- Recovery rate: ${report.faultInjection.recoveryRate}`,
+      `- Overclaim prevention rate: ${report.faultInjection.overclaimPreventionRate}`,
+      `- First violated contracts: ${
+        report.faultInjection.firstViolatedContracts.length === 0
+          ? "none recorded"
+          : report.faultInjection.firstViolatedContracts.join(", ")
+      }`,
       "",
     );
   }

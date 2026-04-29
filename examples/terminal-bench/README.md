@@ -91,6 +91,8 @@ Inside each Harbor task container, Generic AI writes:
   trace-diagnostics.json
   policy-decisions.json
   integrity.json
+  command-transcript.json
+  command-transcript.md
   trajectory.json
   harness/
     canonical-events.json
@@ -114,9 +116,13 @@ examples/terminal-bench/reports/imported/<job-name>/
   mission.json
   benchmark.json
   trial-results.json
+  trial-command-transcripts.json
+  trial-command-transcripts.md
   benchmark-report.json
   benchmark-report.md
 ```
+
+`command-transcript.*` normalizes command, tool, and handoff projections into a replayable per-run action timeline with redacted output excerpts and artifact references. The importer also renders `trial-command-transcripts.*` from imported `TraceEvent[]` alone so a Harbor result can be debugged even when only trace files and collected artifacts are available.
 
 Single-task smoke reports should usually remain `insufficient_evidence`; quick runs prove several real task containers without repeated attempts, and calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
 

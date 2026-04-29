@@ -551,6 +551,83 @@ describe("Benchmark reports", () => {
     );
     expect(renderBenchmarkReportMarkdown(report)).toContain("1 skipped trial(s) remain visible.");
   });
+
+  it("aggregates fault-injection containment evidence into reports", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+        faultInjections: [
+          {
+            id: "memory-stale-context",
+            boundary: "memory",
+            perturbation: "stale_context",
+            targetRef: "memory.user-profile",
+            expectedBehavior: "mark_insufficient_evidence",
+            firstViolatedContract: "memory.provenance",
+          },
+        ],
+      },
+      mission,
+      generatedAt: "2026-04-25T00:00:00.000Z",
+      results: [
+        {
+          ...trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1),
+          faultInjections: [
+            {
+              specRef: "memory-stale-context",
+              boundary: "memory",
+              perturbation: "stale_context",
+              contained: true,
+              recovered: true,
+              overclaimPrevented: true,
+              firstViolatedContract: "memory.provenance",
+              recoveryPath: ["detected-stale-fact", "asked-for-verification"],
+              evidenceRefs: ["trace-1", "artifact-1"],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(report.faultInjection?.plannedCaseCount).toBe(1);
+    expect(report.faultInjection?.observedCaseCount).toBe(1);
+    expect(report.faultInjection?.containmentRate).toBe(1);
+    expect(report.candidates[0]?.faultInjection?.overclaimPreventionRate).toBe(1);
+    expect(report.faultInjection?.firstViolatedContracts).toEqual(["memory.provenance"]);
+    expect(renderBenchmarkReportMarkdown(report)).toContain("## Fault Injection");
+  });
+
+  it("records a fault-injection evidence gap when configured cases have no observations", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+        faultInjections: [
+          {
+            id: "tool-timeout",
+            boundary: "tool",
+            perturbation: "timeout",
+            targetRef: "tool.shell",
+            expectedBehavior: "fallback",
+          },
+        ],
+      },
+      mission,
+      generatedAt: "2026-04-25T00:00:00.000Z",
+      results: [trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1)],
+    });
+
+    expect(report.faultInjection?.plannedCaseCount).toBe(1);
+    expect(report.faultInjection?.observedCaseCount).toBe(0);
+    expect(report.insufficientEvidence).toContain(
+      "Fault injections were configured but no trial observations recorded their outcomes.",
+    );
+  });
 });
 
 function trialResult(

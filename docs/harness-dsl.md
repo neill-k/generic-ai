@@ -49,6 +49,21 @@ failure severity without replacing the primary metric. Reports use it to make
 consistency, variance, robustness, and failure severity visible when two
 candidates have similar average scores.
 
+## Fault-Injection Benchmarks
+
+`BenchmarkSpec.faultInjections` describes degraded boundary cases a benchmark
+run should exercise. Each `FaultInjectionSpec` names the boundary, perturbation,
+target reference, expected behavior, and optional first violated contract. The
+SDK report helper aggregates matching trial observations into planned case
+count, observed case count, containment rate, recovery rate,
+overclaim-prevention rate, and first violated contracts.
+
+Fault injection is a contract and evidence surface in v0.1. Plugin-owned
+injectors for terminal tools, retrieval, memory, web, MCP, messaging, and
+storage should implement this contract in their own packages or harness
+adapters. Core may pass configured cases into benchmark prompts and reports, but
+it must not import plugin-specific fault hooks.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a
