@@ -116,7 +116,16 @@ examples/terminal-bench/reports/imported/<job-name>/
   trial-results.json
   benchmark-report.json
   benchmark-report.md
+  smoke-artifact-proof.json
+  smoke-artifact-proof.md
 ```
+
+The smoke artifact proof checks each imported trial for the live-smoke artifact
+set required by the benchmark gate: `summary.json`, `trace-events.json`,
+`trace-diagnostics.json`, `policy-decisions.json`, `integrity.json`,
+`trajectory.json`, and at least one collected `harness/*` artifact reference.
+It reports reward and success only as smoke evidence; those fields are not a
+validation-quality or SOTA claim.
 
 Single-task smoke reports should usually remain `insufficient_evidence`; quick runs prove several real task containers without repeated attempts, and calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
 

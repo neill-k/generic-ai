@@ -33,6 +33,7 @@ export interface HarborImportResult {
   readonly mission: MissionSpec;
   readonly benchmark: BenchmarkSpec;
   readonly trialResults: readonly BenchmarkTrialResult[];
+  readonly smokeArtifactProof: SmokeArtifactProof;
   readonly report: BenchmarkReport;
 }
 
@@ -40,6 +41,42 @@ type JsonRecord = Record<string, unknown>;
 
 const EXAMPLE_ROOT = resolve(import.meta.dirname, "..");
 const DEFAULT_REPORTS_ROOT = resolve(EXAMPLE_ROOT, "reports", "imported");
+const REQUIRED_SMOKE_ARTIFACTS = Object.freeze([
+  "summary.json",
+  "trace-events.json",
+  "trace-diagnostics.json",
+  "policy-decisions.json",
+  "integrity.json",
+  "trajectory.json",
+]);
+
+export interface SmokeArtifactFileCheck {
+  readonly path: string;
+  readonly present: boolean;
+  readonly artifactId?: string;
+}
+
+export interface SmokeArtifactTrialProof {
+  readonly trialId: string;
+  readonly complete: boolean;
+  readonly requiredArtifacts: readonly SmokeArtifactFileCheck[];
+  readonly harnessArtifactRefs: readonly string[];
+  readonly traceEventCount: number;
+  readonly traceCompleteness: number;
+  readonly reward?: number;
+  readonly success?: number;
+}
+
+export interface SmokeArtifactProof {
+  readonly kind: "generic-ai.terminal-bench-smoke-artifact-proof";
+  readonly jobDir: string;
+  readonly generatedAt: string;
+  readonly requiredArtifacts: readonly string[];
+  readonly completeTrialCount: number;
+  readonly trialCount: number;
+  readonly trials: readonly SmokeArtifactTrialProof[];
+  readonly decisionBoundary: string;
+}
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -450,6 +487,98 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 }
 
+function metricValue(
+  trial: BenchmarkTrialResult,
+  metricId: string,
+): number | undefined {
+  return trial.metrics.find((metric) => metric.metricId === metricId)?.value;
+}
+
+function createSmokeArtifactProof(input: {
+  readonly jobDir: string;
+  readonly generatedAt: string;
+  readonly trialResults: readonly BenchmarkTrialResult[];
+}): SmokeArtifactProof {
+  const trials = input.trialResults.map((trial) => {
+    const artifactByUri = new Map(trial.artifacts.map((artifact) => [artifact.uri, artifact]));
+    const requiredArtifacts = REQUIRED_SMOKE_ARTIFACTS.map((name) => {
+      const uri = `${trial.trialId}/artifacts/generic-ai/${name}`;
+      const artifact = artifactByUri.get(uri);
+      return Object.freeze({
+        path: uri,
+        present: artifact !== undefined,
+        ...(artifact === undefined ? {} : { artifactId: artifact.id }),
+      });
+    });
+    const harnessArtifactRefs = trial.artifacts
+      .filter((artifact) => artifact.uri.startsWith(`${trial.trialId}/artifacts/generic-ai/harness/`))
+      .map((artifact) => artifact.id);
+    const reward = metricValue(trial, "reward");
+    const success = metricValue(trial, "success");
+
+    return Object.freeze({
+      trialId: trial.trialId,
+      complete:
+        requiredArtifacts.every((artifact) => artifact.present) && harnessArtifactRefs.length > 0,
+      requiredArtifacts: Object.freeze(requiredArtifacts),
+      harnessArtifactRefs: Object.freeze(harnessArtifactRefs),
+      traceEventCount: trial.traceEvents.length,
+      traceCompleteness: trial.diagnostics.completeness,
+      ...(reward === undefined ? {} : { reward }),
+      ...(success === undefined ? {} : { success }),
+    });
+  });
+
+  return Object.freeze({
+    kind: "generic-ai.terminal-bench-smoke-artifact-proof",
+    jobDir: input.jobDir,
+    generatedAt: input.generatedAt,
+    requiredArtifacts: REQUIRED_SMOKE_ARTIFACTS,
+    completeTrialCount: trials.filter((trial) => trial.complete).length,
+    trialCount: trials.length,
+    trials: Object.freeze(trials),
+    decisionBoundary:
+      "Smoke proof records live artifact completeness only; reward and success are smoke evidence, not validation-quality or SOTA claims.",
+  });
+}
+
+function renderSmokeArtifactProofMarkdown(proof: SmokeArtifactProof): string {
+  const lines = [
+    "# Terminal-Bench Smoke Artifact Proof",
+    "",
+    `Job directory: \`${proof.jobDir}\``,
+    `Generated at: \`${proof.generatedAt}\``,
+    "",
+    `Complete trials: ${proof.completeTrialCount}/${proof.trialCount}`,
+    "",
+    proof.decisionBoundary,
+    "",
+    "| Trial | Complete | Reward | Success | Trace events | Trace completeness | Harness refs | Missing required artifacts |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+  ];
+
+  for (const trial of proof.trials) {
+    const missing = trial.requiredArtifacts
+      .filter((artifact) => !artifact.present)
+      .map((artifact) => basename(artifact.path));
+    lines.push(
+      [
+        `\`${trial.trialId}\``,
+        trial.complete ? "yes" : "no",
+        trial.reward ?? "n/a",
+        trial.success ?? "n/a",
+        trial.traceEventCount,
+        trial.traceCompleteness.toFixed(2),
+        trial.harnessArtifactRefs.length,
+        missing.length === 0 ? "none" : missing.join(", "),
+      ].join(" | "),
+    );
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
 async function readJobName(jobDir: string): Promise<string> {
   const config = await readJsonIfExists(join(jobDir, "config.json"));
   if (isRecord(config) && typeof config["job_name"] === "string") {
@@ -482,6 +611,11 @@ export async function importHarborResults(
     generatedAt: timestamp,
     results: trialResults,
   });
+  const smokeArtifactProof = createSmokeArtifactProof({
+    jobDir,
+    generatedAt: timestamp,
+    trialResults,
+  });
 
   await mkdir(outputDir, { recursive: true });
   await writeJson(join(outputDir, "mission.json"), mission);
@@ -489,6 +623,11 @@ export async function importHarborResults(
   await writeJson(join(outputDir, "trial-results.json"), trialResults);
   await writeJson(join(outputDir, "benchmark-report.json"), report);
   await writeFile(join(outputDir, "benchmark-report.md"), renderBenchmarkReportMarkdown(report));
+  await writeJson(join(outputDir, "smoke-artifact-proof.json"), smokeArtifactProof);
+  await writeFile(
+    join(outputDir, "smoke-artifact-proof.md"),
+    renderSmokeArtifactProofMarkdown(smokeArtifactProof),
+  );
 
   return Object.freeze({
     jobDir,
@@ -496,6 +635,7 @@ export async function importHarborResults(
     mission,
     benchmark,
     trialResults: Object.freeze(trialResults),
+    smokeArtifactProof,
     report,
   });
 }

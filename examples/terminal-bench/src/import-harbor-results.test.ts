@@ -13,7 +13,7 @@ describe("importHarborResults", () => {
     const jobDir = join(tmpdir(), `generic-ai-harbor-job-${Date.now()}`);
     const trialDir = join(jobDir, "task-one__abc1234");
     await mkdir(join(trialDir, "verifier"), { recursive: true });
-    await mkdir(join(trialDir, "artifacts", "generic-ai"), { recursive: true });
+    await mkdir(join(trialDir, "artifacts", "generic-ai", "harness"), { recursive: true });
     await writeJson(join(jobDir, "config.json"), { job_name: "smoke" });
     await writeJson(join(trialDir, "result.json"), {
       n_trials: 1,
@@ -21,6 +21,17 @@ describe("importHarborResults", () => {
       verifier_result: { rewards: { reward: 0 } },
       duration_sec: 12,
     });
+    for (const artifactName of [
+      "summary.json",
+      "trace-diagnostics.json",
+      "policy-decisions.json",
+      "integrity.json",
+      "trajectory.json",
+    ]) {
+      await writeJson(join(trialDir, "artifacts", "generic-ai", artifactName), {
+        artifactName,
+      });
+    }
     await writeJson(join(trialDir, "artifacts", "generic-ai", "trace-events.json"), [
       {
         id: "event-1",
@@ -31,6 +42,9 @@ describe("importHarborResults", () => {
         summary: "Agent completed.",
       },
     ]);
+    await writeJson(join(trialDir, "artifacts", "generic-ai", "harness", "summary.json"), {
+      artifactCount: 1,
+    });
     await writeFile(join(trialDir, "verifier", "reward.txt"), "1\n", "utf-8");
 
     const outputDir = join(jobDir, "generic-ai-report");
@@ -45,9 +59,14 @@ describe("importHarborResults", () => {
       .toBe(0);
     expect(result.trialResults[0]?.metrics.find((metric) => metric.metricId === "success")?.value)
       .toBe(0);
+    expect(result.smokeArtifactProof.completeTrialCount).toBe(1);
+    expect(result.smokeArtifactProof.trials[0]?.harnessArtifactRefs).toHaveLength(1);
     expect(result.report.insufficientEvidence).toHaveLength(1);
     await expect(readFile(join(outputDir, "benchmark-report.md"), "utf-8")).resolves.toContain(
       "## Insufficient Evidence",
+    );
+    await expect(readFile(join(outputDir, "smoke-artifact-proof.md"), "utf-8")).resolves.toContain(
+      "Complete trials: 1/1",
     );
   });
 });
