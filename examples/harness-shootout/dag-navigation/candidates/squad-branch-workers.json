@@ -1,0 +1,124 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.dag.squad-branch-workers",
+  "name": "Squad Branch Workers",
+  "packages": [
+    {
+      "id": "protocol.squad",
+      "package": "@generic-ai/protocol-squad",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.terminal",
+      "package": "@generic-ai/plugin-tools-terminal-sandbox",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.dag-navigation",
+      "package": "@generic-ai/grader-dag-navigation",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "coordinator",
+      "role": "coordinator",
+      "instructions": "Assign branch workers, track graph dependencies, and merge only after every branch result is present.",
+      "packageRefs": ["protocol.squad", "capability.files"],
+      "readableSpaces": ["shared-graph-state"],
+      "writableSpaces": ["shared-graph-state"],
+      "artifactRefs": ["artifact.dag-route"]
+    },
+    {
+      "id": "branch-worker-alpha",
+      "role": "branch-worker-alpha",
+      "instructions": "Collect and validate the alpha branch result from the deterministic fixture.",
+      "packageRefs": ["protocol.squad", "capability.files", "capability.terminal"],
+      "readableSpaces": ["shared-graph-state"],
+      "writableSpaces": ["shared-graph-state"],
+      "artifactRefs": ["artifact.branch-observations"]
+    },
+    {
+      "id": "branch-worker-beta",
+      "role": "branch-worker-beta",
+      "instructions": "Collect and validate the beta branch result from the deterministic fixture.",
+      "packageRefs": ["protocol.squad", "capability.files", "capability.terminal"],
+      "readableSpaces": ["shared-graph-state"],
+      "writableSpaces": ["shared-graph-state"],
+      "artifactRefs": ["artifact.branch-observations"]
+    },
+    {
+      "id": "aggregator",
+      "role": "aggregator",
+      "instructions": "Merge alpha and beta results, apply the roadblock transform, and explain every input used.",
+      "packageRefs": ["protocol.squad", "grader.dag-navigation"],
+      "readableSpaces": ["shared-graph-state"],
+      "artifactRefs": ["artifact.aggregation-proof"]
+    }
+  ],
+  "spaces": [
+    {
+      "id": "shared-graph-state",
+      "kind": "workspace",
+      "visibility": "shared"
+    }
+  ],
+  "relationships": [
+    {
+      "id": "coordinator-alpha",
+      "kind": "delegates_to",
+      "fromAgentRef": "coordinator",
+      "toAgentRef": "branch-worker-alpha"
+    },
+    {
+      "id": "coordinator-beta",
+      "kind": "delegates_to",
+      "fromAgentRef": "coordinator",
+      "toAgentRef": "branch-worker-beta"
+    },
+    {
+      "id": "workers-aggregate",
+      "kind": "reports_to",
+      "fromAgentRef": "aggregator",
+      "toAgentRef": "coordinator"
+    }
+  ],
+  "protocols": [
+    {
+      "id": "squad",
+      "protocol": "squad",
+      "packageRef": "protocol.squad",
+      "actorRefs": ["coordinator", "branch-worker-alpha", "branch-worker-beta", "aggregator"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.dag-route",
+      "name": "dag-route.json",
+      "kind": "metric",
+      "producedBy": ["coordinator"]
+    },
+    {
+      "id": "artifact.branch-observations",
+      "name": "branch-observations.json",
+      "kind": "metric",
+      "producedBy": ["branch-worker-alpha", "branch-worker-beta"],
+      "reviewedBy": ["aggregator"]
+    },
+    {
+      "id": "artifact.aggregation-proof",
+      "name": "aggregation-proof.md",
+      "kind": "report",
+      "producedBy": ["aggregator"],
+      "reviewedBy": ["coordinator"]
+    }
+  ],
+  "missionRefs": ["mission.dag-navigation"],
+  "evalRefs": ["benchmark.dag-navigation.v0"]
+}
