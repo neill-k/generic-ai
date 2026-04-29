@@ -12,7 +12,7 @@ Every pull request to `main` should pass:
 - `Quality Gate / build`
 - `Docs as Code / docs-check`
 
-The four quality-gate jobs intentionally match the local commands in `CONTRIBUTING.md`:
+The four baseline quality-gate jobs match the first four local commands in `CONTRIBUTING.md`:
 
 ```bash
 npm run typecheck
@@ -36,7 +36,7 @@ Configure the `main` branch protection rule in GitHub with:
 - block force pushes,
 - block deletions.
 
-The `Security Baseline / dependency-audit` job is intentionally advisory for now because existing advisories are being handled by Dependabot PRs. Make it required once the dependency backlog is green.
+The `Security Baseline / dependency-audit` job blocks its own workflow on moderate-or-higher production dependency advisories. Keep branch protection focused on the five checks above unless the team decides dependency audit should also become a required merge check.
 
 ## Workflow Permissions
 

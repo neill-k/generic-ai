@@ -1,0 +1,22 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.fault-injection-boundary",
+  "objective": "Diagnose an agent workflow when one tool times out and one memory fact is stale. Complete only if the agent localizes the first violated contract, contains the degraded dependency, and avoids overclaiming unsupported state.",
+  "objectiveClass": "analysis",
+  "constraints": [
+    "Do not treat stale memory as current evidence.",
+    "Do not claim task success when the injected boundary fault prevents verification.",
+    "Record the first violated contract before attempting recovery."
+  ],
+  "successCriteria": {
+    "requiredSubstrings": ["FAULT_CONTAINED", "INSUFFICIENT_EVIDENCE"]
+  },
+  "expectedArtifacts": [
+    {
+      "id": "artifact.fault-report",
+      "name": "fault-injection-report.json",
+      "kind": "report"
+    }
+  ]
+}

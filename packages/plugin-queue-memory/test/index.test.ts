@@ -171,7 +171,7 @@ describe("@generic-ai/plugin-queue-memory", () => {
 
   it("emits lifecycle events through the typed listener API", async () => {
     const seen: string[] = [];
-    const queue = createInMemoryQueue(async (job) => job.payload);
+    const queue = createInMemoryQueue<string, string>(async (job) => job.payload);
     const onCompleted = (job: { id: string }, result: string) => {
       seen.push(`${job.id}:${result}`);
     };

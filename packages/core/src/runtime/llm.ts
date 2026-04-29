@@ -10,6 +10,12 @@ import {
 import { createPiAgentSession } from "./pi.js";
 import { createOpenAICodexRuntime } from "./openai-codex.js";
 import {
+  createStopAndRespondTool,
+  type StopAndRespondState,
+  runStopToolLoop,
+  STOP_AND_RESPOND_TOOL_NAME,
+} from "./stop-tool-loop.js";
+import {
   DEFAULT_GENERIC_AI_RUNTIME_ADAPTER,
   DEFAULT_OPENAI_CODEX_MODEL,
   type CreateGenericAILlmRuntimeOptions,
@@ -32,7 +38,10 @@ type PiResourceLoader = {
 
 type PiSession = {
   readonly messages: readonly unknown[];
-  readonly prompt: (text: string, options?: { readonly source?: string }) => Promise<void>;
+  readonly prompt: (
+    text: string,
+    options?: { readonly source?: string; readonly signal?: AbortSignal },
+  ) => Promise<void>;
 };
 
 export interface GenericAILlmRuntimeDependencies {
@@ -65,9 +74,7 @@ function isTextPart(value: unknown): value is { readonly type: "text"; readonly 
   );
 }
 
-function isAssistantLikeMessage(
-  value: unknown,
-): value is {
+function isAssistantLikeMessage(value: unknown): value is {
   readonly role: "assistant";
   readonly content: unknown;
 } {
@@ -92,7 +99,10 @@ function extractLatestAssistantText(messages: readonly unknown[]): string {
     }
 
     if (Array.isArray(message.content)) {
-      return message.content.filter(isTextPart).map((part) => part.text).join("");
+      return message.content
+        .filter(isTextPart)
+        .map((part) => part.text)
+        .join("");
     }
   }
 
@@ -114,12 +124,14 @@ async function createPiCompatibilityRuntime(
   const modelId = input.model ?? DEFAULT_OPENAI_CODEX_MODEL;
   const createAgentSession = dependencies.createAgentSession ?? createPiAgentSession;
 
-  async function createSession(): Promise<PiSession> {
+  async function createSession(stopState?: StopAndRespondState): Promise<PiSession> {
     const cwd = input.cwd ?? process.cwd();
     const agentDir = input.agentDir ?? getAgentDir();
     const authStorage =
       dependencies.authStorageFactory?.(input.agentDir) ??
-      AuthStorage.create(input.agentDir === undefined ? undefined : join(input.agentDir, "auth.json"));
+      AuthStorage.create(
+        input.agentDir === undefined ? undefined : join(input.agentDir, "auth.json"),
+      );
     const apiKey = input.apiKey?.trim();
     if (apiKey !== undefined && apiKey.length > 0) {
       authStorage.setRuntimeApiKey("openai", apiKey);
@@ -155,32 +167,59 @@ async function createPiCompatibilityRuntime(
       });
     await resourceLoader.reload?.();
 
+    const stopTool = stopState === undefined ? undefined : createStopAndRespondTool(stopState);
     const result = await createAgentSession({
       cwd,
       agentDir,
       authStorage: authStorage as never,
       modelRegistry: modelRegistry as never,
       model: model as never,
-      tools: [],
+      tools: stopTool === undefined ? [] : [STOP_AND_RESPOND_TOOL_NAME],
+      ...(stopTool === undefined ? {} : { customTools: [stopTool] as never }),
       resourceLoader: resourceLoader as never,
-      sessionManager: (dependencies.sessionManagerFactory?.() ?? SessionManager.inMemory()) as never,
-      settingsManager:
-        (dependencies.settingsManagerFactory?.() ?? SettingsManager.inMemory()) as never,
+      sessionManager: (dependencies.sessionManagerFactory?.() ??
+        SessionManager.inMemory()) as never,
+      settingsManager: (dependencies.settingsManagerFactory?.() ??
+        SettingsManager.inMemory()) as never,
     });
 
     return result.session as unknown as PiSession;
   }
 
-  async function run(prompt: string, options?: GenericAILlmRunOptions): Promise<GenericAILlmRunResult> {
+  async function run(
+    prompt: string,
+    options?: GenericAILlmRunOptions,
+  ): Promise<GenericAILlmRunResult> {
     if (options?.signal?.aborted) {
       throw new Error("pi compatibility runtime aborted before prompt dispatch.");
     }
 
-    const session = await createSession();
-    await session.prompt(prompt, {
-      source: "extension",
+    const turnMode = options?.turnMode ?? input.turnMode ?? "stop-tool-loop";
+    const stopState: StopAndRespondState = { stopped: false };
+    const session = await createSession(turnMode === "single-turn" ? undefined : stopState);
+    const promptOptions = {
+      source: "extension" as const,
+      ...(options?.signal === undefined ? {} : { signal: options.signal }),
+    };
+    if (turnMode === "single-turn") {
+      await session.prompt(prompt, promptOptions);
+      return toRunResult("pi", modelId, extractLatestAssistantText(session.messages));
+    }
+
+    const loop = await runStopToolLoop({
+      prompt,
+      state: stopState,
+      maxTurns: options?.maxTurns ?? input.maxTurns,
+      promptOptions,
+      runPrompt: (loopPrompt, promptOptions) => session.prompt(loopPrompt, promptOptions),
     });
-    return toRunResult("pi", modelId, extractLatestAssistantText(session.messages));
+    if (!loop.stopped || loop.outputText === undefined) {
+      throw new Error(
+        `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop.turnCount} turn(s).`,
+      );
+    }
+
+    return toRunResult("pi", modelId, loop.outputText);
   }
 
   return Object.freeze({

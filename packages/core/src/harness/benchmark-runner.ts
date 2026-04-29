@@ -75,6 +75,7 @@ function buildMissionPrompt(input: {
   ];
   const constraints = input.mission.constraints ?? [];
   const expectedArtifacts = input.mission.expectedArtifacts ?? [];
+  const faultInjections = input.benchmark.faultInjections ?? [];
 
   if (constraints.length > 0) {
     lines.push("", "Constraints:", ...constraints.map((constraint) => `- ${constraint}`));
@@ -85,6 +86,25 @@ function buildMissionPrompt(input: {
       "",
       "Expected artifacts:",
       ...expectedArtifacts.map((artifact) => `- ${artifact.name} (${artifact.kind})`),
+    );
+  }
+
+  if (faultInjections.length > 0) {
+    lines.push(
+      "",
+      "Fault injections:",
+      ...faultInjections.map((fault) => {
+        const details = [
+          `boundary=${fault.boundary}`,
+          `perturbation=${fault.perturbation}`,
+          `target=${fault.targetRef}`,
+          `expected=${fault.expectedBehavior}`,
+          ...(fault.firstViolatedContract === undefined
+            ? []
+            : [`first violated contract=${fault.firstViolatedContract}`]),
+        ].join(", ");
+        return `- ${fault.id}: ${details}`;
+      }),
     );
   }
 
@@ -178,6 +198,11 @@ function scoreMission(input: {
       evidenceRefs: Object.freeze([input.artifact.id]),
     },
     {
+      metricId: "tests_passed",
+      value: taskSuccess,
+      evidenceRefs: Object.freeze([input.artifact.id]),
+    },
+    {
       metricId: "trace_completeness",
       value: diagnostics.completeness,
       evidenceRefs: Object.freeze(input.traceEvents.map((event) => event.id)),
@@ -195,6 +220,16 @@ function scoreMission(input: {
     {
       metricId: "handoff_count",
       value: diagnostics.handoffCount,
+      evidenceRefs: Object.freeze(input.traceEvents.map((event) => event.id)),
+    },
+    {
+      metricId: "rework_count",
+      value: diagnostics.reworkCount,
+      evidenceRefs: Object.freeze(input.traceEvents.map((event) => event.id)),
+    },
+    {
+      metricId: "rework_rate",
+      value: diagnostics.reworkCount / Math.max(1, diagnostics.handoffCount),
       evidenceRefs: Object.freeze(input.traceEvents.map((event) => event.id)),
     },
     {
@@ -271,15 +306,34 @@ async function runTrial(input: {
   ];
 
   try {
-    const response = await runtime.run(prompt);
+    let outputText = "";
+    let artifactSummary = "Assistant final output captured as benchmark evidence.";
+    let completedSummary: string;
+
+    try {
+      const response = await runtime.run(prompt);
+      outputText = response.outputText;
+      completedSummary = `Runtime completed with adapter ${response.adapter}/${response.model}.`;
+    } catch (error) {
+      outputText = "";
+      artifactSummary = `Runtime failed: ${error instanceof Error ? error.message : String(error)}`;
+      completedSummary = artifactSummary;
+      traceEvents.push(
+        createEvent({
+          type: "diagnostic",
+          summary: artifactSummary,
+        }),
+      );
+    }
+
     const latencyMs = Date.now() - startedAt;
     const artifact: ArtifactReference = Object.freeze({
       id: `${input.trialId}:assistant-output`,
       kind: "message",
       uri: memoryArtifactUri(input.runId, input.trialId, "assistant-output"),
-      sha256: createStableFingerprint(response.outputText),
+      sha256: createStableFingerprint(outputText),
       redaction: "metadata_only",
-      summary: "Assistant final output captured as benchmark evidence.",
+      summary: artifactSummary,
     });
 
     traceEvents.push(
@@ -289,7 +343,7 @@ async function runTrial(input: {
           ? {}
           : { actorId: input.compiled.agents[0].id }),
         latencyMs,
-        summary: `Runtime completed with adapter ${response.adapter}/${response.model}.`,
+        summary: completedSummary,
       }),
       createEvent({
         type: "artifact.created",
@@ -315,7 +369,7 @@ async function runTrial(input: {
       trialId: input.trialId,
       metrics: scoreMission({
         mission: input.options.mission,
-        outputText: response.outputText,
+        outputText,
         traceEvents,
         artifact,
         latencyMs,

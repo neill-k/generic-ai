@@ -12,7 +12,7 @@ Artifacts:
 - `framework.schema.json` - `.generic-ai/framework.yaml`
 - `hooks.schema.json` - `.generic-ai/hooks.yaml`
 - `agent.schema.json` - `.generic-ai/agents/*.yaml`
-- `harness.schema.json` - `.generic-ai/harnesses/*.yaml` when harness declarations are frozen as external JSON Schema
+- `harness.schema.json` - `.generic-ai/harnesses/*.yaml`
 - `plugin.schema.json` - `.generic-ai/plugins/*.yaml`
 - `preset.schema.json` - preset package metadata (not a dedicated user-facing `preset.yaml`)
 - `resolved.schema.json` - single resolved config layer composed from concerns above

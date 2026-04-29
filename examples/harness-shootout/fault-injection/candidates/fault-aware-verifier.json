@@ -1,0 +1,48 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.fault-aware-verifier",
+  "name": "Fault-aware verifier loop",
+  "description": "A deterministic fixture harness that treats injected boundary faults as first-class evidence rather than generic task failures.",
+  "packages": [
+    {
+      "id": "protocol.verifier-loop",
+      "package": "@generic-ai/protocol-verifier-loop",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "builder",
+      "role": "builder",
+      "instructions": "Attempt the mission while preserving trace evidence for every boundary fault.",
+      "packageRefs": ["protocol.verifier-loop"],
+      "artifactRefs": ["artifact.fault-report"]
+    },
+    {
+      "id": "verifier",
+      "role": "verifier",
+      "instructions": "Localize the first violated contract and prevent unsupported final claims.",
+      "readOnly": true,
+      "packageRefs": ["protocol.verifier-loop"],
+      "artifactRefs": ["artifact.fault-report"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "fault-aware-verifier-loop",
+      "protocol": "verifier-loop",
+      "packageRef": "protocol.verifier-loop",
+      "actorRefs": ["builder", "verifier"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.fault-report",
+      "name": "fault-injection-report.json",
+      "kind": "report",
+      "producedBy": ["builder"],
+      "reviewedBy": ["verifier"]
+    }
+  ]
+}

@@ -3,8 +3,8 @@ import { pathToFileURL } from "node:url";
 import {
   createStarterExampleServer,
   type StarterExampleServerOptions,
-} from "./index.js";
-import { startFetchServer, type StartedFetchServer } from "./node-server.js";
+} from "./index.ts";
+import { startFetchServer, type StartedFetchServer } from "./node-server.ts";
 
 export interface StarterExampleCliRun {
   readonly server: StartedFetchServer;

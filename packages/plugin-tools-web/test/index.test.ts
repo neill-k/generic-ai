@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import { getAgentHarnessToolEffects } from "@generic-ai/sdk";
 
 import {
   createWebToolsPlugin,
@@ -65,6 +66,10 @@ describe("@generic-ai/plugin-tools-web", () => {
       expect(plugin.kind).toBe("tools-web");
       expect(plugin.root).toBe(root);
       expect(plugin.piTools.map((tool) => tool.name)).toEqual(["web_fetch", "web_search"]);
+      expect(plugin.piTools.map((tool) => getAgentHarnessToolEffects(tool))).toEqual([
+        ["network.egress"],
+        ["network.egress"],
+      ]);
     });
   });
 

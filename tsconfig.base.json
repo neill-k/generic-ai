@@ -41,5 +41,6 @@
     "skipLibCheck": true,
 
     "newLine": "lf"
-  }
+  },
+  "exclude": ["**/*.test.ts", "**/*.spec.ts", "**/*.test.tsx", "**/*.spec.tsx"]
 }

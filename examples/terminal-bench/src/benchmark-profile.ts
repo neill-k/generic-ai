@@ -26,6 +26,11 @@ import type {
   TraceEventType,
 } from "@generic-ai/sdk";
 import { createStableFingerprint } from "@generic-ai/sdk";
+import {
+  createCommandTranscriptFromProjections,
+  renderCommandTranscriptMarkdown,
+  type CommandTranscript,
+} from "./command-transcript.js";
 
 export const DEFAULT_BENCHMARK_ARTIFACT_DIR = "/logs/artifacts/generic-ai";
 export const DEFAULT_IMMUTABLE_PATHS = ["/tests", "/solution", "task.toml"] as const;
@@ -70,6 +75,7 @@ export interface BenchmarkProfileResult {
   readonly traceEvents: readonly TraceEvent[];
   readonly integrity: IntegrityReport;
   readonly policyDecisions: readonly PolicyDecisionRecord[];
+  readonly commandTranscript: CommandTranscript;
   readonly trajectory: unknown;
 }
 
@@ -573,6 +579,12 @@ export async function runBenchmarkProfile(
       completedAt,
     }),
   );
+  const commandTranscript = createCommandTranscriptFromProjections({
+    runId,
+    trialId: runId,
+    generatedAt: completedAt,
+    projections: response?.projections ?? [],
+  });
 
   traceEvents.push(
     addTraceEvent({
@@ -592,6 +604,18 @@ export async function runBenchmarkProfile(
         summary: `Wrote harness artifact ${artifact.uri}.`,
       }),
     ),
+    addTraceEvent({
+      type: "artifact.created",
+      timestamp: completedAt,
+      artifactId: "command-transcript-json",
+      summary: "Wrote replayable command transcript JSON.",
+    }),
+    addTraceEvent({
+      type: "artifact.created",
+      timestamp: completedAt,
+      artifactId: "command-transcript-md",
+      summary: "Wrote replayable command transcript Markdown.",
+    }),
     addTraceEvent({
       type: "artifact.created",
       timestamp: completedAt,
@@ -642,6 +666,12 @@ export async function runBenchmarkProfile(
   await writeJson(join(outputDir, "trace-diagnostics.json"), traceDiagnostics(traceEvents));
   await writeJson(join(outputDir, "policy-decisions.json"), policyDecisions);
   await writeJson(join(outputDir, "integrity.json"), integrity);
+  await writeJson(join(outputDir, "command-transcript.json"), commandTranscript);
+  await writeFile(
+    join(outputDir, "command-transcript.md"),
+    renderCommandTranscriptMarkdown(commandTranscript),
+    "utf-8",
+  );
   await writeJson(join(outputDir, "trajectory.json"), trajectory);
 
   return Object.freeze({
@@ -649,6 +679,7 @@ export async function runBenchmarkProfile(
     traceEvents: Object.freeze(traceEvents),
     integrity,
     policyDecisions,
+    commandTranscript,
     trajectory,
   });
 }

@@ -11,7 +11,7 @@ import {
   LIVE_SMOKE_ENABLE_ENV,
   type LiveProviderSmokeCompletedResult,
   runLiveProviderSmoke,
-} from "./live-smoke.js";
+} from "./live-smoke.ts";
 
 const tempRoots: string[] = [];
 

@@ -1,10 +1,12 @@
 import {
+  withAgentHarnessToolEffects,
+} from "@generic-ai/sdk";
+import {
   createBashTool,
   createLocalBashOperations,
-  withAgentHarnessToolEffects,
   type BashOperations,
   type BashSpawnHook,
-} from "@generic-ai/sdk";
+} from "@generic-ai/sdk/pi";
 import {
   createWorkspaceLayout,
   resolveSafeWorkspacePath,
@@ -20,6 +22,7 @@ export interface TerminalToolOptions {
   readonly commandPrefix?: string;
   readonly spawnHook?: BashSpawnHook;
   readonly env?: NodeJS.ProcessEnv;
+  readonly inheritProcessEnv?: boolean;
   readonly defaultTimeoutMs?: number;
   readonly unrestrictedLocal?: boolean;
 }
@@ -51,12 +54,54 @@ export interface TerminalToolPlugin {
   run(request: TerminalRunRequest): Promise<TerminalRunResult>;
 }
 
+const MINIMAL_PROCESS_ENV_KEYS = new Set([
+  "CI",
+  "COMSPEC",
+  "ComSpec",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "PATH",
+  "PATHEXT",
+  "Path",
+  "SHELL",
+  "SystemRoot",
+  "TEMP",
+  "TMP",
+  "USERPROFILE",
+  "WINDIR",
+  "windir",
+]);
+
+function processEnvSnapshot(inheritProcessEnv: boolean): NodeJS.ProcessEnv {
+  if (inheritProcessEnv) {
+    return { ...process.env };
+  }
+
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of MINIMAL_PROCESS_ENV_KEYS) {
+    const value = process.env[key];
+    if (value !== undefined) {
+      env[key] = value;
+    }
+  }
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith("LC_") && value !== undefined) {
+      env[key] = value;
+    }
+  }
+
+  return env;
+}
+
 function mergeEnv(
   baseEnv: NodeJS.ProcessEnv | undefined,
   overrideEnv: NodeJS.ProcessEnv | undefined,
+  inheritProcessEnv: boolean,
 ): NodeJS.ProcessEnv {
   return {
-    ...process.env,
+    ...processEnvSnapshot(inheritProcessEnv),
     ...(baseEnv ?? {}),
     ...(overrideEnv ?? {}),
   };
@@ -65,15 +110,16 @@ function mergeEnv(
 function buildSpawnHook(
   baseEnv: NodeJS.ProcessEnv | undefined,
   spawnHook: BashSpawnHook | undefined,
+  inheritProcessEnv: boolean,
 ): BashSpawnHook | undefined {
-  if (baseEnv === undefined && spawnHook === undefined) {
+  if (baseEnv === undefined && spawnHook === undefined && inheritProcessEnv) {
     return undefined;
   }
 
   return (context) => {
     const mergedContext = {
       ...context,
-      env: mergeEnv(baseEnv, context.env),
+      env: mergeEnv(baseEnv, context.env, inheritProcessEnv),
     };
 
     return spawnHook ? spawnHook(mergedContext) : mergedContext;
@@ -103,7 +149,8 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
   const layout = createWorkspaceLayout(options.root);
   const operations = options.operations ?? createLocalBashOperations();
   const commandPrefix = options.commandPrefix;
-  const spawnHook = buildSpawnHook(options.env, options.spawnHook);
+  const inheritProcessEnv = options.inheritProcessEnv ?? false;
+  const spawnHook = buildSpawnHook(options.env, options.spawnHook, inheritProcessEnv);
   const unrestrictedLocal = options.unrestrictedLocal ?? true;
   const tool = withAgentHarnessToolEffects(
     createBashTool(layout.root, {
@@ -111,7 +158,7 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
       ...(commandPrefix === undefined ? {} : { commandPrefix }),
       ...(spawnHook === undefined ? {} : { spawnHook }),
     }),
-    ["process.spawn", "fs.read", "fs.write"],
+    ["process.spawn", "fs.read", "fs.write", "network.egress"],
   );
 
   return Object.freeze({
@@ -137,7 +184,7 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
         onData: (data: Buffer) => {
           outputChunks.push(data.toString("utf8"));
         },
-        env: mergeEnv(options.env, request.env),
+        env: mergeEnv(options.env, request.env, inheritProcessEnv),
         ...(request.signal === undefined ? {} : { signal: request.signal }),
         ...(timeoutSeconds === undefined ? {} : { timeout: timeoutSeconds }),
       };

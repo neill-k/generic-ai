@@ -74,6 +74,10 @@ describe("canonical config transactions", () => {
             model: "gpt-5.5",
             primaryAgent: "starter",
             policyProfile: "local-dev-full",
+            execution: {
+              turnMode: "single-turn",
+              maxTurns: 1,
+            },
           },
         },
       ],
@@ -84,7 +88,12 @@ describe("canonical config transactions", () => {
       return;
     }
     expect(applied.config.harnesses?.["default"]?.id).toBe("default");
-    expect(await readFile(join(root, ".generic-ai", "harnesses", "default.yaml"), "utf8")).not.toContain("id:");
+    const harnessYaml = await readFile(
+      join(root, ".generic-ai", "harnesses", "default.yaml"),
+      "utf8",
+    );
+    expect(harnessYaml).not.toContain("id:");
+    expect(harnessYaml).toContain("turnMode: single-turn");
   });
 
   it("rejects stale revisions before writing", async () => {

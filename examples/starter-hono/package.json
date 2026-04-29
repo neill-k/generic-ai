@@ -6,7 +6,7 @@
   "scripts": {
     "check:node": "node ../../scripts/check-node-version.mjs",
     "predev": "node ../../scripts/check-node-version.mjs",
-    "dev": "node --watch --experimental-strip-types src/run.ts",
+    "dev": "node scripts/dev.mjs",
     "dev:ui": "vite --host 127.0.0.1 --port 3001",
     "prestart": "node ../../scripts/check-node-version.mjs",
     "start": "node dist/run.js",
@@ -37,8 +37,7 @@
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.1.1",
     "@streamdown/math": "^1.0.2",
-    "@streamdown/mermaid": "^1.0.2",
-    "streamdown": "^2.5.0"
+    "streamdown": "2.4.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.4",
@@ -50,7 +49,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "lucide-react": "^1.11.0",
-    "nanoid": "^3.3.11",
+    "nanoid": "^5.1.9",
     "radix-ui": "^1.4.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

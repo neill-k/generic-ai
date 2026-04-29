@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { SessionManager } from "@generic-ai/sdk";
+import { SessionManager } from "@generic-ai/sdk/pi";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -10,6 +10,7 @@ import {
   type PiCapabilityBindings,
   resolveCapabilityPiToolRegistry,
   runCapabilityPiAgentSession,
+  STOP_AND_RESPOND_TOOL_NAME,
 } from "../../src/runtime/index.js";
 
 const tempRoots: string[] = [];
@@ -99,7 +100,14 @@ function createCapabilityBindings(root = "/virtual"): PiCapabilityBindings {
             description: "explain the starter stack",
             filePath: skillFilePath,
             baseDir: skillDir,
-            source: "project",
+            sourceInfo: {
+              path: skillFilePath,
+              source: "project",
+              scope: "project",
+              origin: "top-level",
+              baseDir: skillDir,
+            },
+            disableModelInvocation: false,
           },
         ],
         diagnostics: [],
@@ -138,6 +146,35 @@ function createCapabilityBindings(root = "/virtual"): PiCapabilityBindings {
       forget: async () => false,
     },
   };
+}
+
+async function callStopTool(
+  options: {
+    readonly customTools?: readonly {
+      readonly name?: string;
+      readonly execute?: unknown;
+    }[];
+  } | undefined,
+  response: string,
+  status: "completed" | "blocked" | "failed" = "completed",
+) {
+  const stopTool = options?.customTools?.find(
+    (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
+  );
+  if (stopTool === undefined) {
+    throw new Error("Expected stop_and_respond tool to be registered.");
+  }
+
+  if (typeof stopTool.execute !== "function") {
+    throw new Error("Expected stop_and_respond tool to be executable.");
+  }
+
+  await (
+    stopTool.execute as (
+      toolCallId: string,
+      params: { readonly response: string; readonly status: string },
+    ) => Promise<unknown> | unknown
+  )("stop-1", { response, status });
 }
 
 describe("@generic-ai/core capability pi runtime bridge", () => {
@@ -204,7 +241,7 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
         },
       );
 
-      expect(capturedOptions?.tools).toEqual([
+      expect(capturedOptions?.["tools"]).toEqual([
         "bash",
         "read",
         "write",
@@ -216,7 +253,9 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
         "agent_messages",
         "agent_memory",
       ]);
-      expect((capturedOptions?.customTools as { name: string }[]).map((tool) => tool.name)).toEqual([
+      expect(
+        (capturedOptions?.["customTools"] as { name: string }[]).map((tool) => tool.name),
+      ).toEqual([
         "bash",
         "read",
         "write",
@@ -253,7 +292,7 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
           },
         },
         {
-          createAgentSession: async () =>
+          createAgentSession: async (options) =>
             ({
               session: {
                 sessionId: "session-002",
@@ -283,6 +322,7 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
                     toolName: "agent_memory",
                     isError: false,
                   });
+                  await callStopTool(options, "starter stack");
                 },
               },
               extensionsResult: {
@@ -314,6 +354,57 @@ describe("@generic-ai/core capability pi runtime bridge", () => {
         streamId: result.envelope.runId,
         sequence: result.events.at(-1)?.sequence,
       });
+    });
+  });
+
+  it("preserves blocked stop-tool status as a failed run result", async () => {
+    await withTempRoot(async (root) => {
+      await seedSkillFile(root);
+
+      const result = await runCapabilityPiAgentSession(
+        {
+          cwd: root,
+          sessionManager: SessionManager.inMemory(),
+          capabilities: createCapabilityBindings(root),
+          prompt: "Summarize the starter stack",
+          resourceLoaderOptions: {
+            noExtensions: true,
+            noPromptTemplates: true,
+            noThemes: true,
+            noSkills: true,
+          },
+        },
+        {
+          createAgentSession: async (options) =>
+            ({
+              session: {
+                sessionId: "session-003",
+                messages: [{ role: "assistant" }],
+                subscribe() {
+                  return () => undefined;
+                },
+                async prompt() {
+                  await callStopTool(options, "blocked by missing context", "blocked");
+                },
+              },
+              extensionsResult: {
+                extensionCount: 0,
+                loadErrors: [],
+                loadedExtensions: [],
+                commands: [],
+                tools: [],
+              },
+            }) as never,
+        },
+      );
+
+      expect(result.outputText).toBe("blocked by missing context");
+      expect(result.terminalStatus).toBe("blocked");
+      expect(result.failureMessage).toBe('Agent stopped with terminal status "blocked".');
+      expect(result.envelope.status).toBe("failed");
+      expect(result.events.map((event) => event.name)).toEqual(
+        expect.arrayContaining(["session.failed", "run.failed"]),
+      );
     });
   });
 });

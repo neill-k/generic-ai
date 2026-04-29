@@ -1,0 +1,7 @@
+displayName: Hierarchical Planner
+model: gpt-5.5
+instructions: Break the user request into specialist work, coordinate results, and produce a concise final plan.
+tools:
+  - workspace.read
+  - repo.inspect
+plugins: []

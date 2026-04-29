@@ -10,6 +10,7 @@ import {
   DEFAULT_OPENAI_CODEX_MODEL,
   type CreateGenericAILlmRuntimeOptions,
   type GenericAIConfiguredBootstrap,
+  type GenericAILlmRunResult,
   type GenericAILlmRuntime,
   type GenericAILlmRuntimeAdapter,
 } from "@generic-ai/core";
@@ -278,6 +279,215 @@ function normalizePrompt(input: unknown): string {
   return JSON.stringify(input, null, 2);
 }
 
+interface StarterRuntimeActivityEvent {
+  readonly event: string;
+  readonly data: unknown;
+}
+
+interface StarterAsyncQueue<T> {
+  readonly push: (value: T) => void;
+  readonly close: () => void;
+  readonly next: () => Promise<IteratorResult<T>>;
+}
+
+type StarterBootstrapStreamChunk =
+  | {
+      readonly type: "event";
+      readonly event: {
+        readonly name: string;
+      };
+    }
+  | {
+      readonly type: "envelope";
+      readonly envelope: unknown;
+    };
+
+type StarterMergedStreamRead =
+  | {
+      readonly source: "bootstrap";
+      readonly result: IteratorResult<StarterBootstrapStreamChunk>;
+    }
+  | {
+      readonly source: "runtime";
+      readonly result: IteratorResult<StarterRuntimeActivityEvent>;
+    };
+
+function createStarterAsyncQueue<T>(): StarterAsyncQueue<T> {
+  const values: T[] = [];
+  const waiters: Array<(result: IteratorResult<T>) => void> = [];
+  let closed = false;
+
+  return {
+    push(value) {
+      if (closed) {
+        return;
+      }
+
+      const waiter = waiters.shift();
+      if (waiter !== undefined) {
+        waiter({ done: false, value });
+        return;
+      }
+
+      values.push(value);
+    },
+    close() {
+      if (closed) {
+        return;
+      }
+
+      closed = true;
+      for (const waiter of waiters.splice(0)) {
+        waiter({ done: true, value: undefined });
+      }
+    },
+    async next() {
+      if (values.length > 0) {
+        const value = values.shift() as T;
+        return { done: false, value };
+      }
+
+      if (closed) {
+        return { done: true, value: undefined };
+      }
+
+      return await new Promise<IteratorResult<T>>((resolve) => {
+        waiters.push(resolve);
+      });
+    },
+  };
+}
+
+function queueStarterRuntimeActivity(
+  runtimeEvents: StarterAsyncQueue<StarterRuntimeActivityEvent>,
+  event: StarterRuntimeActivityEvent,
+): void {
+  runtimeEvents.push(event);
+}
+
+async function collectRuntimeStream(
+  runtime: GenericAILlmRuntime,
+  prompt: string,
+  signal: AbortSignal,
+  runtimeEvents: StarterAsyncQueue<StarterRuntimeActivityEvent>,
+): Promise<GenericAILlmRunResult> {
+  let response: GenericAILlmRunResult | undefined;
+
+  try {
+    for await (const chunk of runtime.stream(prompt, { signal })) {
+      switch (chunk.type) {
+        case "event":
+          queueStarterRuntimeActivity(runtimeEvents, {
+            event: chunk.event.name,
+            data: chunk.event.data,
+          });
+          break;
+
+        case "text-delta":
+          queueStarterRuntimeActivity(runtimeEvents, {
+            event: "runtime.text.delta",
+            data: { delta: chunk.delta },
+          });
+          break;
+
+        case "response":
+          response = chunk.response;
+          break;
+
+        default: {
+          const exhaustive: never = chunk;
+          throw new Error(`Unsupported runtime stream chunk: ${JSON.stringify(exhaustive)}`);
+        }
+      }
+    }
+  } finally {
+    runtimeEvents.close();
+  }
+
+  if (response === undefined) {
+    throw new Error("Runtime stream completed without a response.");
+  }
+
+  return response;
+}
+
+function readStarterBootstrapStream(
+  iterator: AsyncIterator<StarterBootstrapStreamChunk>,
+): Promise<StarterMergedStreamRead> {
+  return iterator.next().then((result) => ({
+    source: "bootstrap",
+    result,
+  }));
+}
+
+function readStarterRuntimeActivity(
+  runtimeEvents: StarterAsyncQueue<StarterRuntimeActivityEvent>,
+): Promise<StarterMergedStreamRead> {
+  return runtimeEvents.next().then((result) => ({
+    source: "runtime",
+    result,
+  }));
+}
+
+async function* mergeStarterStreams(
+  bootstrapStream: AsyncIterable<StarterBootstrapStreamChunk>,
+  runtimeEvents: StarterAsyncQueue<StarterRuntimeActivityEvent>,
+): AsyncIterable<StarterRuntimeActivityEvent> {
+  const iterator = bootstrapStream[Symbol.asyncIterator]();
+  let bootstrapDone = false;
+  let runtimeDone = false;
+  let bootstrapNext: Promise<StarterMergedStreamRead> | undefined =
+    readStarterBootstrapStream(iterator);
+  let runtimeNext: Promise<StarterMergedStreamRead> | undefined =
+    readStarterRuntimeActivity(runtimeEvents);
+
+  try {
+    while (!bootstrapDone || !runtimeDone) {
+      const pending = [bootstrapNext, runtimeNext].filter(
+        (promise): promise is Promise<StarterMergedStreamRead> => promise !== undefined,
+      );
+      if (pending.length === 0) {
+        break;
+      }
+
+      const next = await Promise.race(pending);
+      if (next.source === "bootstrap") {
+        if (next.result.done) {
+          bootstrapDone = true;
+          bootstrapNext = undefined;
+          runtimeEvents.close();
+          continue;
+        }
+
+        const chunk = next.result.value;
+        bootstrapNext = readStarterBootstrapStream(iterator);
+        yield chunk.type === "event"
+          ? {
+              event: chunk.event.name,
+              data: chunk.event,
+            }
+          : {
+              event: "run.envelope",
+              data: chunk.envelope,
+            };
+        continue;
+      }
+
+      if (next.result.done) {
+        runtimeDone = true;
+        runtimeNext = undefined;
+        continue;
+      }
+
+      runtimeNext = readStarterRuntimeActivity(runtimeEvents);
+      yield next.result.value;
+    }
+  } finally {
+    runtimeEvents.close();
+    await iterator.return?.();
+  }
+}
+
 function createReadOnlyHarnessCapabilities(workspaceRoot: string) {
   const files = createWorkspaceFileTools({ root: workspaceRoot });
   return {
@@ -331,6 +541,12 @@ async function runConfiguredConsoleHarness(input: {
   if (input.request.harness === undefined) {
     const result = await input.runtime.run(input.request.message.content, {
       signal: input.request.signal,
+      ...(input.request.agent?.execution?.turnMode === undefined
+        ? {}
+        : { turnMode: input.request.agent.execution.turnMode }),
+      ...(input.request.agent?.execution?.maxTurns === undefined
+        ? {}
+        : { maxTurns: input.request.agent.execution.maxTurns }),
     });
     return {
       content: result.outputText,
@@ -347,7 +563,12 @@ async function runConfiguredConsoleHarness(input: {
     throw new Error("Console harness run was aborted before dispatch.");
   }
 
-  const harness = input.createHarness(input.request.harness as AgentHarnessConfig);
+  const inheritedExecution = input.request.harness.execution ?? input.request.agent?.execution;
+  const harnessConfig = {
+    ...(input.request.harness as AgentHarnessConfig),
+    ...(inheritedExecution === undefined ? {} : { execution: inheritedExecution }),
+  } satisfies AgentHarnessConfig;
+  const harness = input.createHarness(harnessConfig);
   const artifactDir = resolve(
     input.workspaceRoot,
     input.request.harness.artifactDir ?? ".generic-ai/artifacts/web-ui",
@@ -544,6 +765,12 @@ export async function createStarterExampleServer(
         ...(input.runtimePlan.primaryAgent.instructions === undefined
           ? {}
           : { instructions: input.runtimePlan.primaryAgent.instructions }),
+        ...(input.runtimePlan.primaryAgent.execution?.turnMode === undefined
+          ? {}
+          : { turnMode: input.runtimePlan.primaryAgent.execution.turnMode }),
+        ...(input.runtimePlan.primaryAgent.execution?.maxTurns === undefined
+          ? {}
+          : { maxTurns: input.runtimePlan.primaryAgent.execution.maxTurns }),
       });
     },
   });
@@ -570,24 +797,13 @@ export async function createStarterExampleServer(
       ),
     stream: async function* (payload, context) {
       const prompt = normalizePrompt(payload.input);
+      const runtimeEvents = createStarterAsyncQueue<StarterRuntimeActivityEvent>();
+      const stream = bootstrap.stream(() =>
+        collectRuntimeStream(runtime, prompt, context.signal, runtimeEvents),
+      );
 
-      for await (const chunk of bootstrap.stream(() =>
-        runtime.run(prompt, {
-          signal: context.signal,
-        }),
-      )) {
-        if (chunk.type === "event") {
-          yield {
-            event: chunk.event.name,
-            data: chunk.event,
-          };
-          continue;
-        }
-
-        yield {
-          event: "run.envelope",
-          data: chunk.envelope,
-        };
+      for await (const chunk of mergeStarterStreams(stream, runtimeEvents)) {
+        yield chunk;
       }
     },
   });

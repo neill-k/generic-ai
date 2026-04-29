@@ -4,6 +4,7 @@
     "paths": {
       "@/*": ["./ui/src/*"]
     },
+    "rewriteRelativeImportExtensions": true,
     "rootDir": "src",
     "outDir": "dist"
   },

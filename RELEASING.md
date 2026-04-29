@@ -95,6 +95,7 @@ The complete public list:
 | Package                               | Role                                        |
 | ------------------------------------- | ------------------------------------------- |
 | `@generic-ai/core`                    | kernel                                      |
+| `@generic-ai/observability`           | local observability surface                 |
 | `@generic-ai/sdk`                     | framework-facing SDK contracts              |
 | `@generic-ai/preset-starter-hono`     | default starter preset                      |
 | `@generic-ai/plugin-config-yaml`      | canonical YAML config plugin                |
@@ -107,6 +108,8 @@ The complete public list:
 | `@generic-ai/plugin-tools-terminal-sandbox` | sandboxed terminal tool                     |
 | `@generic-ai/plugin-tools-files`      | local file tools                            |
 | `@generic-ai/plugin-tools-web`        | web fetch and search tools                  |
+| `@generic-ai/plugin-repo-map`         | repository map and orientation tools        |
+| `@generic-ai/plugin-lsp`              | stdio LSP client tools                      |
 | `@generic-ai/plugin-mcp`              | embedded MCP plugin                         |
 | `@generic-ai/plugin-agent-skills`     | Agent Skills compatibility plugin           |
 | `@generic-ai/plugin-delegation`       | delegation business-model plugin            |
@@ -115,6 +118,7 @@ The complete public list:
 | `@generic-ai/plugin-memory-files`     | file-backed persistent memory               |
 | `@generic-ai/plugin-output-default`   | default output and finalization plugin      |
 | `@generic-ai/plugin-hono`             | official Hono integration plugin            |
+| `@generic-ai/plugin-web-ui`           | local-first web console plugin              |
 
 ### Internal (never published)
 
@@ -209,6 +213,7 @@ npm run typecheck
 npm run lint
 npm run test
 npm run build
+npm run docs:check
 
 # 2. Apply pending changesets.
 npm run changeset:version
@@ -333,7 +338,7 @@ contracts land in Epic 1 (`KRN-*`). The first real publish will be a
 
 - Monorepo scaffold, package layout, and workspaces:
   [`docs/decisions/0001-monorepo-scaffold.md`](docs/decisions/0001-monorepo-scaffold.md)
-- Base toolchain, the four-command quality gate, and devDep pins:
+- Base toolchain, quality gate, and devDep pins:
   [`docs/decisions/0002-base-toolchain.md`](docs/decisions/0002-base-toolchain.md)
 - Release and publishing conventions (this document's source of truth):
   [`docs/decisions/0003-release-and-publishing.md`](docs/decisions/0003-release-and-publishing.md)

@@ -27,7 +27,7 @@
     "artifacts": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["framework", "hooks", "agent", "plugin", "preset", "resolved"],
+      "required": ["framework", "hooks", "agent", "harness", "plugin", "preset", "resolved"],
       "properties": {
         "framework": {
           "type": "string",
@@ -40,6 +40,10 @@
         "agent": {
           "type": "string",
           "const": "agent.schema.json"
+        },
+        "harness": {
+          "type": "string",
+          "const": "harness.schema.json"
         },
         "plugin": {
           "type": "string",

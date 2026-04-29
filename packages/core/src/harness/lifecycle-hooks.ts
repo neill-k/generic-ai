@@ -13,8 +13,8 @@ import type {
   AgentLifecycleInProcessHookHandler,
   JsonObject,
   JsonValue,
-  ToolDefinition,
 } from "@generic-ai/sdk";
+import type { ToolDefinition } from "@generic-ai/sdk/pi";
 
 import type { CanonicalEventStream } from "../events/index.js";
 

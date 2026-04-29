@@ -1,0 +1,47 @@
+displayName: Hierarchical Multi-Agent Harness
+adapter: pi
+controller: model-directed
+model: gpt-5.5
+primaryAgent: hierarchical-planner
+policyProfile: local-dev-full
+roles:
+  - id: planner
+    kind: planner
+    description: Owns decomposition and final synthesis.
+    instructions: Decompose the request and coordinate read-only specialists.
+    tools:
+      - workspace.read
+      - repo.inspect
+    readOnly: true
+  - id: researcher
+    kind: explorer
+    description: Finds relevant facts and constraints.
+    instructions: Inspect available context and return evidence-backed notes.
+    tools:
+      - workspace.read
+      - repo.inspect
+    readOnly: true
+  - id: builder
+    kind: builder
+    description: Drafts the proposed solution.
+    instructions: Create a solution proposal from planner and researcher inputs without mutating files.
+    tools:
+      - workspace.read
+      - repo.inspect
+    readOnly: true
+  - id: verifier
+    kind: verifier
+    description: Checks completeness and risks.
+    instructions: Verify the proposal against the request and list residual risks.
+    tools:
+      - workspace.read
+      - repo.inspect
+    readOnly: true
+tools:
+  - workspace.read
+  - repo.inspect
+allowNetwork: false
+allowMcp: false
+artifactDir: .generic-ai/artifacts/hierarchical
+metadata:
+  protocol: hierarchy

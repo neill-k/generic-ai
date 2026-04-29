@@ -264,5 +264,6 @@ function fakeRunResult(runId: string): AgentHarnessRunResult {
     projections: [],
     artifacts: [],
     policyDecisions: [],
+    hookDecisions: [],
   };
 }

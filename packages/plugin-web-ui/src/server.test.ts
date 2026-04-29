@@ -60,10 +60,22 @@ describe("@generic-ai/plugin-web-ui server", () => {
         runnable: 4,
         preview: 6,
       },
+      security: {
+        requiresSessionTokenForRead: true,
+      },
     });
 
+    const session = (await (
+      await transport.app.request(localRequest("/console/api/session"))
+    ).json()) as { readonly sessionToken: string };
     const templates = (await (
-      await transport.app.request(localRequest("/console/api/templates"))
+      await transport.app.request(
+        localRequest("/console/api/templates", {
+          headers: {
+            "x-generic-ai-web-ui-token": session.sessionToken,
+          },
+        }),
+      )
     ).json()) as {
       templates: Array<{ id: string; status: string }>;
     };
@@ -73,6 +85,9 @@ describe("@generic-ai/plugin-web-ui server", () => {
     expect(templates.templates.find((template) => template.id === "blackboard")?.status).toBe(
       "preview",
     );
+
+    const missingReadToken = await transport.app.request(localRequest("/console/api/config"));
+    expect(missingReadToken.status).toBe(403);
   });
 
   it("requires token and same-origin headers for mutating routes", async () => {

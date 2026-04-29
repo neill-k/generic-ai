@@ -52,7 +52,7 @@ async function forwardFetch(handler: FetchHandler, request: Request, response: S
   }
 
   await new Promise<void>((resolve, reject) => {
-    const body = Readable.fromWeb(responseBody);
+    const body = Readable.fromWeb(responseBody as Parameters<typeof Readable.fromWeb>[0]);
     body.on("error", reject);
     response.on("error", reject);
     response.on("finish", () => resolve());

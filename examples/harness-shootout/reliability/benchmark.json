@@ -1,0 +1,65 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.repeated-run-reliability.v0",
+  "missionRef": "mission.oauth-login",
+  "hypothesis": "Two harnesses can have the same average task-success score while differing sharply in repeated-run reliability, retry visibility, and bounded failure severity.",
+  "candidates": [
+    {
+      "id": "pipeline-bursty",
+      "harnessRef": "harness.pipeline"
+    },
+    {
+      "id": "verifier-loop-steady",
+      "harnessRef": "harness.verifier-loop"
+    }
+  ],
+  "primaryMetric": "task_success",
+  "metricDefinitions": [
+    {
+      "id": "task_success",
+      "name": "Task success",
+      "unit": "boolean",
+      "direction": "higher_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "bounded_failure_severity",
+      "name": "Bounded failure severity",
+      "unit": "custom",
+      "direction": "lower_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "trace_completeness",
+      "name": "Trace completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace"
+    }
+  ],
+  "guardrailMetrics": ["bounded_failure_severity", "trace_completeness"],
+  "trials": {
+    "count": 4,
+    "pairing": "paired",
+    "seed": "repeated-run-reliability-v0"
+  },
+  "reliability": {
+    "id": "repeated-run-reliability-v0",
+    "successMetric": "task_success",
+    "successThreshold": 0.5,
+    "minimumScoredTrials": 4,
+    "passAt": [1, 2, 4],
+    "failureSeverityMetric": "bounded_failure_severity",
+    "perturbationLabels": ["clean", "retry", "network-noise", "tool-timeout"]
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 4,
+    "requireTraceCompleteness": true,
+    "allowSingleRunRecommendation": false
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

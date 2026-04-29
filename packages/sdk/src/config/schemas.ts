@@ -1,5 +1,6 @@
 import type { JsonSchema, JsonSchemaEmitter } from "./json-schema.js";
 import type { ZodNamespaceLike, ZodTypeLike } from "./zod-like.js";
+import { AGENT_TURN_MODES } from "../harness/types.js";
 import type { AgentLifecycleHooksConfig } from "../contracts/agent-lifecycle.js";
 import {
   AGENT_ID_PATTERN,
@@ -72,6 +73,19 @@ const ensureUniqueStrings = <TOutput extends string[]>(
     `${fieldName} entries must be unique`,
   );
 
+const oneOfRegex = (values: readonly string[]): RegExp =>
+  new RegExp(
+    `^(?:${values.map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`,
+  );
+
+const allowedValuesMessage = (fieldName: string, values: readonly string[]): string => {
+  if (values.length <= 2) {
+    return `${fieldName} must be ${values.join(" or ")}`;
+  }
+
+  return `${fieldName} must be ${values.slice(0, -1).join(", ")}, or ${values.at(-1)}`;
+};
+
 export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConfigSchemaBundle => {
   const packageName = z
     .string()
@@ -82,6 +96,20 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
     .string()
     .min(1, "agent id cannot be empty")
     .regex(new RegExp(AGENT_ID_PATTERN), "must be a valid agent identifier");
+  const execution = z.object({
+    turnMode: z
+      .string()
+      .regex(
+        oneOfRegex(AGENT_TURN_MODES),
+        allowedValuesMessage("execution.turnMode", AGENT_TURN_MODES),
+      )
+      .optional(),
+    maxTurns: z
+      .number()
+      .int("execution.maxTurns must be an integer")
+      .refine((value) => value > 0, "execution.maxTurns must be a positive integer")
+      .optional(),
+  });
 
   const framework = z
     .object({
@@ -226,6 +254,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
             .optional(),
         })
         .optional(),
+      execution: execution.optional(),
       metadata: z.record(z.unknown()).optional(),
     })
     .describe(
@@ -288,6 +317,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
           }),
         )
         .optional(),
+      execution: execution.optional(),
       tools: ensureUniqueStrings(
         z.array(z.string().min(1, "harness tool id cannot be empty")),
         "harness.tools",
@@ -394,7 +424,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
         metadata: z.record(z.unknown()).optional(),
       })
       .describe(
-        "Resolved config layer composed from framework/agent/plugin YAML concerns plus preset metadata",
+        "Resolved config layer composed from framework/agent/harness/plugin YAML concerns plus preset metadata",
       ) as ZodTypeLike<ResolvedConfig>;
 
   return {

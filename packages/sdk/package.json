@@ -5,10 +5,33 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./pi": {
+      "types": "./dist/pi/index.d.ts",
+      "default": "./dist/pi/index.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "pi": [
+        "dist/pi/index.d.ts"
+      ]
+    }
+  },
   "files": [
     "dist",
     "README.md"
   ],
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "dependencies": {
     "zod": "^4.3.6",
     "@mariozechner/pi-coding-agent": "0.70.2"

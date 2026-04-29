@@ -46,6 +46,7 @@ lerna-debug.log*
 .DS_Store
 .AppleDouble
 .LSOverride
+%SystemDrive%/
 Thumbs.db
 Thumbs.db:encryptable
 ehthumbs.db
@@ -59,8 +60,8 @@ temp/
 *.tmp
 
 # Agent scratch and local helper worktrees
-.agents/scratch/
-.agents/worktrees/
+.agents/
 .claude/
 .codex/
+.oz/
 .pi/

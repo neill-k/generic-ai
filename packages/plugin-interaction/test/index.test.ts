@@ -24,10 +24,7 @@ describe("@generic-ai/plugin-interaction", () => {
 
     expect(interaction.name).toBe(name);
     expect(interaction.kind).toBe(kind);
-    expect(interaction.piTools.map((tool) => tool.name)).toEqual([
-      "ask_user",
-      "task_write",
-    ]);
+    expect(interaction.piTools.map((tool) => tool.name)).toEqual(["ask_user", "task_write"]);
   });
 
   it("waits for askUser answers and publishes transport events", async () => {
@@ -151,10 +148,7 @@ describe("@generic-ai/plugin-interaction", () => {
 
   it("updates visible task lists through the service and tool definition", async () => {
     const interaction = createInteractionPlugin();
-    const taskWriteTool = interaction.piTools.find((tool) => tool.name === "task_write");
-
-    expect(taskWriteTool).toBeDefined();
-    const definedTaskWriteTool = assertDefined(taskWriteTool, "task_write tool");
+    const definedTaskWriteTool = interaction.piTools[1];
 
     const taskList = interaction.taskWrite({
       listId: "build",
@@ -180,7 +174,7 @@ describe("@generic-ai/plugin-interaction", () => {
 
     expect(result.details.listId).toBe("default");
     expect(result.content[0]?.type).toBe("text");
-    expect(interaction.getTaskList().tasks).toEqual([
+    expect(assertDefined(interaction.getTaskList(), "default task list").tasks).toEqual([
       { id: "t3", description: "Open PR", status: "pending" },
     ]);
   });
@@ -257,9 +251,7 @@ describe("@generic-ai/plugin-interaction", () => {
     });
     interaction.attachTransport(transport);
 
-    const askUserTool = interaction.piTools.find((tool) => tool.name === "ask_user");
-    expect(askUserTool).toBeDefined();
-    const definedAskUserTool = assertDefined(askUserTool, "ask_user tool");
+    const definedAskUserTool = interaction.piTools[0];
 
     const execution = definedAskUserTool.execute(
       "tool-call-2",

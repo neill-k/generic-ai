@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
+import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
 import { createWorkspaceLayout, type WorkspaceRootInput } from "@generic-ai/plugin-workspace-fs";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 
@@ -1114,45 +1115,51 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
     }
   };
 
-  const webFetchTool: WebFetchTool = Object.freeze({
-    name: "web_fetch",
-    label: "Web Fetch",
-    description:
-      "Fetch an HTTP(S) URL, enforce host policy rules, and return normalized text content.",
-    parameters: WEB_FETCH_PARAMETERS,
-    async execute(
-      _toolCallId: string,
-      params: Static<typeof WEB_FETCH_PARAMETERS>,
-      signal?: AbortSignal,
-      _onUpdate?: ToolUpdateCallback<WebFetchResult>,
-    ): Promise<ToolResult<WebFetchResult>> {
-      const result = await fetchImpl(params, signal);
-      return Object.freeze({
-        content: Object.freeze([textContent(renderFetchToolContent(result))]),
-        details: result,
-      });
-    },
-  });
+  const webFetchTool: WebFetchTool = withAgentHarnessToolEffects(
+    Object.freeze({
+      name: "web_fetch",
+      label: "Web Fetch",
+      description:
+        "Fetch an HTTP(S) URL, enforce host policy rules, and return normalized text content.",
+      parameters: WEB_FETCH_PARAMETERS,
+      async execute(
+        _toolCallId: string,
+        params: Static<typeof WEB_FETCH_PARAMETERS>,
+        signal?: AbortSignal,
+        _onUpdate?: ToolUpdateCallback<WebFetchResult>,
+      ): Promise<ToolResult<WebFetchResult>> {
+        const result = await fetchImpl(params, signal);
+        return Object.freeze({
+          content: Object.freeze([textContent(renderFetchToolContent(result))]),
+          details: result,
+        });
+      },
+    }),
+    ["network.egress"],
+  );
 
-  const webSearchTool: WebSearchTool = Object.freeze({
-    name: "web_search",
-    label: "Web Search",
-    description:
-      "Run a provider-backed web search query, filter results through host policy rules, and return structured matches.",
-    parameters: WEB_SEARCH_PARAMETERS,
-    async execute(
-      _toolCallId: string,
-      params: Static<typeof WEB_SEARCH_PARAMETERS>,
-      signal?: AbortSignal,
-      _onUpdate?: ToolUpdateCallback<WebSearchResponse>,
-    ): Promise<ToolResult<WebSearchResponse>> {
-      const result = await searchImpl(params, signal);
-      return Object.freeze({
-        content: Object.freeze([textContent(renderSearchToolContent(result))]),
-        details: result,
-      });
-    },
-  });
+  const webSearchTool: WebSearchTool = withAgentHarnessToolEffects(
+    Object.freeze({
+      name: "web_search",
+      label: "Web Search",
+      description:
+        "Run a provider-backed web search query, filter results through host policy rules, and return structured matches.",
+      parameters: WEB_SEARCH_PARAMETERS,
+      async execute(
+        _toolCallId: string,
+        params: Static<typeof WEB_SEARCH_PARAMETERS>,
+        signal?: AbortSignal,
+        _onUpdate?: ToolUpdateCallback<WebSearchResponse>,
+      ): Promise<ToolResult<WebSearchResponse>> {
+        const result = await searchImpl(params, signal);
+        return Object.freeze({
+          content: Object.freeze([textContent(renderSearchToolContent(result))]),
+          details: result,
+        });
+      },
+    }),
+    ["network.egress"],
+  );
 
   const piTools = Object.freeze([webFetchTool, webSearchTool]) as readonly [
     WebFetchTool,

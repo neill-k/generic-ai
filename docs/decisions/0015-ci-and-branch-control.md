@@ -11,7 +11,7 @@
 
 ## Context
 
-The repo has a documented four-command quality gate, but `main` only had the live-provider smoke workflow. That left pull requests dependent on local discipline and made branch protection impossible to configure around stable check names.
+The repo has a documented baseline quality gate, but `main` only had the live-provider smoke workflow. That left pull requests dependent on local discipline and made branch protection impossible to configure around stable check names.
 
 ## Decision
 
