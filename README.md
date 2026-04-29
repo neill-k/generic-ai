@@ -7,6 +7,145 @@ and evidence harness. Developers describe an agent system once, install reusable
 capability packages, compile the harness into Generic Agent IR, run missions,
 trace behavior, evaluate outcomes, and publish evidence-backed reports.
 
+## Getting Started
+
+The fastest way to try Generic AI is the Hono starter example in
+[`examples/starter-hono`](examples/starter-hono). It boots the starter preset
+from canonical `.generic-ai/` config, exposes the `/starter/*` API routes, and
+serves the local web UI from the same Hono process.
+
+### Prerequisites
+
+- Node 24 LTS and npm 11. The repo checks this at install and script time.
+- Provider credentials. The default adapter is Pi's `openai-codex` provider path
+  for `gpt-5.5`; use existing Pi auth or set `GENERIC_AI_PROVIDER_API_KEY`.
+- Optional Docker, only if you want to exercise the sandbox terminal plugin.
+
+### Run The Starter
+
+From a fresh clone:
+
+```bash
+git clone <repo-url> generic-ai
+cd generic-ai
+corepack enable
+npm install
+npm run -w @generic-ai/example-starter-hono build
+export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
+npm run -w @generic-ai/example-starter-hono start
+```
+
+PowerShell:
+
+```powershell
+git clone <repo-url> generic-ai
+cd generic-ai
+corepack enable
+npm install
+npm run -w @generic-ai/example-starter-hono build
+$env:GENERIC_AI_PROVIDER_API_KEY = "<provider-key>"
+npm run -w @generic-ai/example-starter-hono start
+```
+
+Then open [`http://127.0.0.1:3000/`](http://127.0.0.1:3000/). The root page
+links into the two main local surfaces:
+
+- [`/studio`](http://127.0.0.1:3000/studio) - the starter playground for prompt
+  runs, with sync/stream modes, health status, generated output preview, raw
+  code view, and run-event log.
+- [`/console`](http://127.0.0.1:3000/console) - the `@generic-ai/plugin-web-ui`
+  console with chat, canonical config inspection, and multi-agent template
+  previews.
+
+The server binds to `127.0.0.1:3000` by default. For a different port, set
+`GENERIC_AI_PORT` or `PORT`.
+
+### Use The Web UI
+
+Use `/studio` when you want a quick end-to-end provider run. Pick `Stream` or
+`Sync`, submit a prompt, and inspect the assistant response alongside the
+generated preview, source output, and event trail. The starter playground calls
+`/starter/run` or `/starter/run/stream` behind the scenes.
+
+Use `/console` when you want to work with the framework console. The `Chat` tab
+stores threads through the web UI plugin and dispatches them to the configured
+runtime or selected harness. The `Config` tab reads the canonical `.generic-ai/`
+configuration. The `Templates` tab previews and applies the built-in
+multi-agent architecture templates supported by the current plugin contracts.
+
+If you configure `GENERIC_AI_AUTH_TOKEN`, enter the same token in the UI or send
+it as `Authorization: Bearer <token>` / `x-generic-ai-token: <token>` when
+calling the API routes directly.
+
+### Iterate On The Starter
+
+For server-only iteration without a production build:
+
+```bash
+export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
+npm run -w @generic-ai/example-starter-hono dev
+```
+
+For frontend work, run the API server and Vite UI in separate terminals:
+
+```bash
+export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
+npm run -w @generic-ai/example-starter-hono dev
+```
+
+```bash
+npm run -w @generic-ai/example-starter-hono dev:ui
+```
+
+Vite serves the UI at [`http://127.0.0.1:3001/`](http://127.0.0.1:3001/) and
+proxies `/starter/*` and `/console/api/*` to the Hono server on port `3000`.
+
+When you edit [`examples/starter-hono/ui/`](examples/starter-hono/ui), rebuild
+the production UI bundle before using `start` or doing browser verification:
+
+```bash
+npm run -w @generic-ai/example-starter-hono build:ui
+```
+
+Common starter edit points:
+
+- [`examples/starter-hono/.generic-ai/framework.yaml`](examples/starter-hono/.generic-ai/framework.yaml)
+  - preset, primary agent, runtime mode, and workspace root.
+- [`examples/starter-hono/.generic-ai/agents/starter.yaml`](examples/starter-hono/.generic-ai/agents/starter.yaml)
+  - starter agent display name, model, instructions, tools, and plugins.
+- [`examples/starter-hono/src/index.ts`](examples/starter-hono/src/index.ts)
+  - environment parsing, runtime adapter selection, Hono routes, and web UI
+  transport mounting.
+- [`examples/starter-hono/ui/src/App.tsx`](examples/starter-hono/ui/src/App.tsx)
+  - the starter landing page, playground, and embedded console shell.
+
+### Call The API Directly
+
+Health:
+
+```bash
+curl http://127.0.0.1:3000/starter/health
+```
+
+Sync run:
+
+```bash
+curl -X POST http://127.0.0.1:3000/starter/run \
+  -H "content-type: application/json" \
+  -d '{"input":"Explain what the Generic AI starter stack is."}'
+```
+
+Stream run:
+
+```bash
+curl -N -X POST http://127.0.0.1:3000/starter/run/stream \
+  -H "content-type: application/json" \
+  -d '{"input":"Summarize the starter stack in three bullets."}'
+```
+
+For deeper starter details, see
+[`examples/starter-hono/README.md`](examples/starter-hono/README.md).
+
 ## How Generic AI Relates To `pi`
 
 Generic AI is not a replacement for `pi`; it is a framework layer built on top of `pi`.
@@ -128,7 +267,7 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 - [`@generic-ai/plugin-delegation`](packages/plugin-delegation) — delegation business model; kernel retains child-session lifecycle.
 - [`@generic-ai/plugin-interaction`](packages/plugin-interaction) — blocking user questions plus visible task-list publishing through standard `pi` tools.
 - [`@generic-ai/plugin-messaging`](packages/plugin-messaging) — durable, storage-backed inter-agent messaging.
-- [`@generic-ai/plugin-memory-files`](packages/plugin-memory-files) — file-backed persistent agent memory with search.
+- [`@generic-ai/plugin-memory-files`](packages/plugin-memory-files) — file-backed persistent agent memory with search; the reference `MemoryService` implementation for richer memory plugins.
 
 ### Transport and preset
 
@@ -164,7 +303,7 @@ The sandbox stack has its own operator and API docs pack:
 
 Remaining tracked work:
 
-- **Epic 7 - Deferred but planned tracks:** `DEF-02` Postgres storage and `DEF-03` external queueing remain open. Identity/auth posture is captured in [`docs/identity-auth.md`](docs/identity-auth.md), runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md), and advanced observability is captured in [`docs/advanced-observability.md`](docs/advanced-observability.md).
+- **Epic 7 - Deferred but planned tracks:** `DEF-02` Postgres storage and `DEF-03` external queueing remain open. Identity/auth posture is captured in [`docs/identity-auth.md`](docs/identity-auth.md), runtime governance posture is captured in [`docs/runtime-governance.md`](docs/runtime-governance.md), advanced observability is captured in [`docs/advanced-observability.md`](docs/advanced-observability.md), and richer memory plugin sequencing is captured in [`docs/memory-plugins.md`](docs/memory-plugins.md).
 - **Sandbox plugin P2 hardening (`NEI-383`):** DNS-rebinding defense in the allowlist proxy, proxy readiness probe, writable-rootfs tightening, and the rest of the deferred bot findings from the NEI-372 rollup.
 
 See [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) for full scope and dependency links.

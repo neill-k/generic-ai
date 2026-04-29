@@ -1,5 +1,6 @@
 import type { AgentHarnessConfig } from "../harness/types.js";
-export type { AgentHarnessConfig } from "../harness/types.js";
+import type { AgentExecutionConfig } from "../harness/types.js";
+export type { AgentExecutionConfig, AgentHarnessConfig } from "../harness/types.js";
 
 export const CONFIG_SCHEMA_VERSION = "v1" as const;
 
@@ -49,6 +50,7 @@ export interface AgentConfig {
   plugins?: string[];
   tools?: string[];
   memory?: AgentMemoryConfig;
+  execution?: AgentExecutionConfig;
   metadata?: Record<string, unknown>;
 }
 

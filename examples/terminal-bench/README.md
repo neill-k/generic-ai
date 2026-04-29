@@ -25,9 +25,9 @@ Harbor currently documents `harbor run -c <job.yaml>` for config-backed jobs, cu
 - `harbor/install-generic-ai.sh.j2`: task-container install template for Node 24 and this workspace.
 - `src/benchmark-agent.ts`: headless Generic AI benchmark profile invoked inside the task container.
 - `src/run-terminal-bench.ts`: host-side Harbor launcher.
-- `src/import-harbor-results.ts`: Harbor job importer that writes Generic AI-native reports and validation-gate summaries.
+- `src/import-harbor-results.ts`: Harbor job importer that writes Generic AI-native reports.
 - `src/render-benchmark-report.ts`: report JSON to markdown renderer.
-- `configs/*.job.yaml`: smoke, quick, validation, calibration, and full Harbor job configs.
+- `configs/*.job.yaml`: smoke, quick, calibration, and full Harbor job configs.
 - `skills/terminal-bench/*`: benchmark-local behavioral guidance loaded by the benchmark profile, including clean verification before finish.
 - `reports/`: ignored local output area for imported Generic AI reports.
 
@@ -63,13 +63,7 @@ Run the repeated calibration subset:
 npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile calibration
 ```
 
-Run the pinned repeated validation gate before making recommendation-quality claims:
-
-```bash
-npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile validation
-```
-
-Run the full dataset only after smoke, calibration, and validation are stable:
+Run the full dataset only after smoke and calibration are stable:
 
 ```bash
 npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile full
@@ -97,6 +91,8 @@ Inside each Harbor task container, Generic AI writes:
   trace-diagnostics.json
   policy-decisions.json
   integrity.json
+  command-transcript.json
+  command-transcript.md
   trajectory.json
   harness/
     canonical-events.json
@@ -120,20 +116,45 @@ examples/terminal-bench/reports/imported/<job-name>/
   mission.json
   benchmark.json
   trial-results.json
+  trial-harness-projections.json
+  trial-harness-projections.md
+  trial-command-transcripts.json
+  trial-command-transcripts.md
   benchmark-report.json
   benchmark-report.md
   validation-summary.json
+  smoke-artifact-proof.json
+  smoke-artifact-proof.md
 ```
 
-Single-task smoke reports should usually remain `insufficient_evidence`; quick runs prove several real task containers without repeated attempts, and calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
+The validation summary appends a Terminal-Bench validation-gate section to the
+benchmark report. It records the profile kind, pinned task set, reward and
+success distributions, trace completeness, flake rerun signals, limitations,
+and next actions. Smoke and quick profiles still stay below
+recommendation-quality evidence unless repeated validation trials support that
+claim.
 
-Validation imports also write `validation-summary.json` and append a `Terminal-Bench Validation Gate` section to `benchmark-report.md`. That summary records the gate type, pinned task set when Harbor exposes `dataset.task_names`, trial count, reward and success distributions, reward standard deviation, trace-completeness statistics, flake rerun signals for mixed pass/fail task evidence, insufficient-evidence reasons, and the next action needed before claiming benchmark movement.
+The smoke artifact proof checks each imported trial for the live-smoke artifact
+set required by the benchmark gate: `summary.json`, `trace-events.json`,
+`trace-diagnostics.json`, `policy-decisions.json`, `integrity.json`,
+`trajectory.json`, and at least one collected `harness/*` artifact reference.
+It reports reward and success only as smoke evidence; those fields are not a
+validation-quality or SOTA claim.
+
+The imported projection files summarize Harbor-collected canonical harness projections per
+trial. The importer also derives missing report `TraceEvent` inputs from those projections
+so tool calls, policy decisions, handoffs, and artifact writes survive even when a Harbor
+trial only collected `harness/harness-projections.json`.
+
+`command-transcript.*` normalizes command, tool, and handoff projections into a replayable per-run action timeline with redacted output excerpts and artifact references. The importer also renders `trial-command-transcripts.*` from imported `TraceEvent[]` alone so a Harbor result can be debugged even when only trace files and collected artifacts are available.
+
+Single-task smoke reports should usually remain `insufficient_evidence`; quick runs prove several real task containers without repeated attempts, and calibration is the first rung intended to produce averages with enough evidence for stronger interpretation.
 
 ## Gates
 
 Smoke gate means the harness launches in Harbor, the Pi-backed run completes or fails with categorized evidence, required artifacts are written, trace projections include policy/tool/handoff/artifact evidence where applicable, and at least one nonzero reward on smoke or quick is treated only as smoke evidence.
 
-Validation gate means a pinned task set, at least five trials per configuration, flake rerun signals for surprising flips, and trace-completeness checks. Only validation evidence should support benchmark-quality recommendations, and even then only after a same-profile baseline/after comparison.
+Validation gate means a pinned task set, at least five trials per configuration, flake reruns for surprising flips, and trace-completeness checks. Only validation evidence should support benchmark-quality recommendations.
 
 ## Current MVP Boundary
 

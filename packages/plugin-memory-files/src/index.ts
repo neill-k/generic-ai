@@ -6,28 +6,23 @@ import {
   createWorkspaceFs,
   type WorkspaceRootInput,
 } from "@generic-ai/plugin-workspace-fs";
+import type {
+  MemoryListFilter,
+  MemoryRecord,
+  MemoryRecordInput,
+  MemorySearchQuery,
+  MemorySearchResult as SdkMemorySearchResult,
+  MemoryService,
+} from "@generic-ai/sdk";
 
 export const name = "@generic-ai/plugin-memory-files" as const;
 export const kind = "memory-files" as const;
 
-export interface MemoryEntryInput {
-  readonly id?: string;
-  readonly text: string;
-  readonly tags?: readonly string[];
-  readonly metadata?: Readonly<Record<string, unknown>>;
-}
+export interface MemoryEntryInput extends MemoryRecordInput {}
 
-export interface MemoryEntry {
-  readonly id: string;
-  readonly agentId: string;
-  readonly text: string;
-  readonly tags: readonly string[];
-  readonly metadata: Readonly<Record<string, unknown>>;
-  readonly createdAt: string;
-  readonly updatedAt: string;
-}
+export interface MemoryEntry extends MemoryRecord {}
 
-export interface MemorySearchResult {
+export interface MemorySearchResult extends SdkMemorySearchResult<MemoryEntry> {
   readonly entry: MemoryEntry;
   readonly score: number;
   readonly matches: readonly string[];
@@ -39,14 +34,20 @@ export interface FileMemoryStoreOptions {
   readonly now?: () => string | number | Date;
 }
 
-export interface FileMemoryStore {
+export interface FileMemoryStore extends MemoryService<MemoryEntry, MemoryEntryInput, MemorySearchResult> {
+  readonly capability: "memory";
   readonly name: typeof name;
   readonly kind: typeof kind;
+  readonly driver: "files";
   readonly root: string;
   remember(agentId: string, entry: MemoryEntryInput): Promise<MemoryEntry>;
   get(agentId: string, id: string): Promise<MemoryEntry | undefined>;
-  list(agentId: string): Promise<readonly MemoryEntry[]>;
-  search(agentId: string, query: string, limit?: number): Promise<readonly MemorySearchResult[]>;
+  list(agentId: string, filter?: MemoryListFilter): Promise<readonly MemoryEntry[]>;
+  search(
+    agentId: string,
+    query: string | MemorySearchQuery,
+    limit?: number,
+  ): Promise<readonly MemorySearchResult[]>;
   forget(agentId: string, id: string): Promise<boolean>;
 }
 
@@ -80,6 +81,41 @@ function scoreEntry(entry: MemoryEntry, queryTokens: readonly string[]): MemoryS
     entry,
     score: matches.length,
     matches,
+  };
+}
+
+function matchesFilter(entry: MemoryEntry, filter: MemoryListFilter | undefined): boolean {
+  if (filter?.namespace !== undefined && entry.namespace !== filter.namespace) {
+    return false;
+  }
+  if (filter?.kind !== undefined && entry.kind !== filter.kind) {
+    return false;
+  }
+  if (filter?.tags !== undefined && !filter.tags.every((tag) => entry.tags.includes(tag))) {
+    return false;
+  }
+  if (
+    filter?.metadata !== undefined &&
+    !Object.entries(filter.metadata).every(([key, value]) => entry.metadata[key] === value)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function normalizeSearchRequest(
+  query: string | MemorySearchQuery,
+  limit: number | undefined,
+): { readonly text: string; readonly limit: number; readonly filter?: MemoryListFilter } {
+  if (typeof query === "string") {
+    return { text: query, limit: limit ?? 5 };
+  }
+
+  return {
+    text: query.text,
+    limit: query.limit ?? limit ?? 5,
+    filter: query,
   };
 }
 
@@ -131,8 +167,10 @@ export function createFileMemoryStore(options: FileMemoryStoreOptions): FileMemo
   }
 
   return Object.freeze({
+    capability: "memory",
     name,
     kind,
+    driver: "files",
     root: workspace.root,
     async remember(agentId: string, entry: MemoryEntryInput): Promise<MemoryEntry> {
       const id = entry.id ?? idFactory();
@@ -158,18 +196,25 @@ export function createFileMemoryStore(options: FileMemoryStoreOptions): FileMemo
     async get(agentId: string, id: string): Promise<MemoryEntry | undefined> {
       return readEntry(agentId, id);
     },
-    async list(agentId: string): Promise<readonly MemoryEntry[]> {
-      return loadEntries(agentId);
+    async list(agentId: string, filter?: MemoryListFilter): Promise<readonly MemoryEntry[]> {
+      const entries = await loadEntries(agentId);
+      return entries.filter((entry) => matchesFilter(entry, filter));
     },
-    async search(agentId: string, query: string, limit = 5): Promise<readonly MemorySearchResult[]> {
-      const queryTokens = tokenize(query);
+    async search(
+      agentId: string,
+      query: string | MemorySearchQuery,
+      limit?: number,
+    ): Promise<readonly MemorySearchResult[]> {
+      const request = normalizeSearchRequest(query, limit);
+      const queryTokens = tokenize(request.text);
       const entries = await loadEntries(agentId);
 
       return entries
+        .filter((entry) => matchesFilter(entry, request.filter))
         .map((entry) => scoreEntry(entry, queryTokens))
         .filter((result): result is MemorySearchResult => result !== undefined)
         .sort((left, right) => right.score - left.score || right.entry.updatedAt.localeCompare(left.entry.updatedAt))
-        .slice(0, limit);
+        .slice(0, request.limit);
     },
     async forget(agentId: string, id: string): Promise<boolean> {
       try {

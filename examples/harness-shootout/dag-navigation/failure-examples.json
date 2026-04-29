@@ -1,0 +1,247 @@
+{
+  "benchmarkId": "benchmark.dag-navigation.v0",
+  "missionId": "mission.dag-navigation",
+  "cases": [
+    {
+      "id": "wrong-branch-selection",
+      "description": "The harness reaches a merge node after visiting only the alpha branch. Tool outputs are correct for visited nodes, but navigation evidence shows the beta branch was skipped.",
+      "diagnosis": "navigation_error",
+      "trialResult": {
+        "candidateId": "linear-chain",
+        "harnessId": "harness.dag.linear-chain:compiled",
+        "trialId": "linear-chain:trial:wrong-branch-selection",
+        "metrics": [
+          {
+            "metricId": "final_success",
+            "value": 0,
+            "evidenceRefs": ["artifact.dag-route.wrong-branch"]
+          },
+          {
+            "metricId": "navigation_progress",
+            "value": 0.5,
+            "evidenceRefs": ["event.alpha", "event.merge"]
+          },
+          {
+            "metricId": "branch_visit_completeness",
+            "value": 0.5,
+            "evidenceRefs": ["event.alpha"]
+          },
+          {
+            "metricId": "tool_correctness",
+            "value": 1,
+            "evidenceRefs": ["event.alpha"]
+          },
+          {
+            "metricId": "aggregation_correctness",
+            "value": 0,
+            "evidenceRefs": ["artifact.aggregation-proof.wrong-branch"]
+          },
+          {
+            "metricId": "trace_completeness",
+            "value": 1,
+            "evidenceRefs": ["event.start", "event.alpha", "event.merge", "event.end"]
+          }
+        ],
+        "traceEvents": [
+          {
+            "id": "event.start",
+            "type": "trial.started",
+            "sequence": 1,
+            "timestamp": "2026-04-28T00:00:00.000Z",
+            "runId": "dag-example",
+            "harnessId": "harness.dag.linear-chain:compiled",
+            "candidateId": "linear-chain",
+            "trialId": "linear-chain:trial:wrong-branch-selection",
+            "summary": "Started DAG navigation trial."
+          },
+          {
+            "id": "event.alpha",
+            "type": "tool.invoked",
+            "sequence": 2,
+            "timestamp": "2026-04-28T00:00:01.000Z",
+            "runId": "dag-example",
+            "harnessId": "harness.dag.linear-chain:compiled",
+            "candidateId": "linear-chain",
+            "trialId": "linear-chain:trial:wrong-branch-selection",
+            "summary": "Visited alpha branch and returned correct alpha fact."
+          },
+          {
+            "id": "event.merge",
+            "type": "diagnostic",
+            "sequence": 3,
+            "timestamp": "2026-04-28T00:00:02.000Z",
+            "runId": "dag-example",
+            "harnessId": "harness.dag.linear-chain:compiled",
+            "candidateId": "linear-chain",
+            "trialId": "linear-chain:trial:wrong-branch-selection",
+            "summary": "Merge attempted before beta branch visit."
+          },
+          {
+            "id": "event.end",
+            "type": "trial.completed",
+            "sequence": 4,
+            "timestamp": "2026-04-28T00:00:03.000Z",
+            "runId": "dag-example",
+            "harnessId": "harness.dag.linear-chain:compiled",
+            "candidateId": "linear-chain",
+            "trialId": "linear-chain:trial:wrong-branch-selection",
+            "summary": "Completed with incomplete branch coverage."
+          }
+        ],
+        "artifacts": [
+          {
+            "id": "artifact.dag-route.wrong-branch",
+            "kind": "metric",
+            "uri": "memory:///dag-example/wrong-branch/dag-route.json",
+            "redaction": "none",
+            "summary": "Route contains root, alpha, and merge; beta is missing."
+          },
+          {
+            "id": "artifact.aggregation-proof.wrong-branch",
+            "kind": "report",
+            "uri": "memory:///dag-example/wrong-branch/aggregation-proof.md",
+            "redaction": "none",
+            "summary": "Proof excludes beta branch input."
+          }
+        ],
+        "diagnostics": {
+          "completeness": 1,
+          "missingRequiredEventTypes": [],
+          "handoffCount": 0,
+          "reworkCount": 0,
+          "policyDecisionCount": 0,
+          "artifactCount": 2
+        }
+      }
+    },
+    {
+      "id": "bad-tool-output",
+      "description": "The harness visits every required branch, but one branch output is wrong. Navigation evidence is complete while tool correctness and aggregation correctness fail.",
+      "diagnosis": "tool_output_error",
+      "trialResult": {
+        "candidateId": "dag-aware-planner",
+        "harnessId": "harness.dag.dag-aware-planner:compiled",
+        "trialId": "dag-aware-planner:trial:bad-tool-output",
+        "metrics": [
+          {
+            "metricId": "final_success",
+            "value": 0,
+            "evidenceRefs": ["artifact.dag-route.bad-tool"]
+          },
+          {
+            "metricId": "navigation_progress",
+            "value": 1,
+            "evidenceRefs": ["event.alpha.bad-tool", "event.beta.bad-tool", "event.merge.bad-tool"]
+          },
+          {
+            "metricId": "branch_visit_completeness",
+            "value": 1,
+            "evidenceRefs": ["event.alpha.bad-tool", "event.beta.bad-tool"]
+          },
+          {
+            "metricId": "tool_correctness",
+            "value": 0.5,
+            "evidenceRefs": ["event.alpha.bad-tool", "event.beta.bad-tool"]
+          },
+          {
+            "metricId": "aggregation_correctness",
+            "value": 0,
+            "evidenceRefs": ["artifact.aggregation-proof.bad-tool"]
+          },
+          {
+            "metricId": "trace_completeness",
+            "value": 1,
+            "evidenceRefs": [
+              "event.start.bad-tool",
+              "event.alpha.bad-tool",
+              "event.beta.bad-tool",
+              "event.merge.bad-tool",
+              "event.end.bad-tool"
+            ]
+          }
+        ],
+        "traceEvents": [
+          {
+            "id": "event.start.bad-tool",
+            "type": "trial.started",
+            "sequence": 1,
+            "timestamp": "2026-04-28T00:01:00.000Z",
+            "runId": "dag-example",
+            "harnessId": "harness.dag.dag-aware-planner:compiled",
+            "candidateId": "dag-aware-planner",
+            "trialId": "dag-aware-planner:trial:bad-tool-output",
+            "summary": "Started DAG navigation trial."
+          },
+          {
+            "id": "event.alpha.bad-tool",
+            "type": "tool.invoked",
+            "sequence": 2,
+            "timestamp": "2026-04-28T00:01:01.000Z",
+            "runId": "dag-example",
+            "harnessId": "harness.dag.dag-aware-planner:compiled",
+            "candidateId": "dag-aware-planner",
+            "trialId": "dag-aware-planner:trial:bad-tool-output",
+            "summary": "Visited alpha branch and returned correct alpha fact."
+          },
+          {
+            "id": "event.beta.bad-tool",
+            "type": "tool.invoked",
+            "sequence": 3,
+            "timestamp": "2026-04-28T00:01:02.000Z",
+            "runId": "dag-example",
+            "harnessId": "harness.dag.dag-aware-planner:compiled",
+            "candidateId": "dag-aware-planner",
+            "trialId": "dag-aware-planner:trial:bad-tool-output",
+            "summary": "Visited beta branch but returned an oracle mismatch."
+          },
+          {
+            "id": "event.merge.bad-tool",
+            "type": "grader.completed",
+            "sequence": 4,
+            "timestamp": "2026-04-28T00:01:03.000Z",
+            "runId": "dag-example",
+            "harnessId": "harness.dag.dag-aware-planner:compiled",
+            "candidateId": "dag-aware-planner",
+            "trialId": "dag-aware-planner:trial:bad-tool-output",
+            "summary": "Aggregation failed because beta branch fact was wrong."
+          },
+          {
+            "id": "event.end.bad-tool",
+            "type": "trial.completed",
+            "sequence": 5,
+            "timestamp": "2026-04-28T00:01:04.000Z",
+            "runId": "dag-example",
+            "harnessId": "harness.dag.dag-aware-planner:compiled",
+            "candidateId": "dag-aware-planner",
+            "trialId": "dag-aware-planner:trial:bad-tool-output",
+            "summary": "Completed with full navigation but failed tool-output evidence."
+          }
+        ],
+        "artifacts": [
+          {
+            "id": "artifact.dag-route.bad-tool",
+            "kind": "metric",
+            "uri": "memory:///dag-example/bad-tool/dag-route.json",
+            "redaction": "none",
+            "summary": "Route contains all required graph nodes."
+          },
+          {
+            "id": "artifact.aggregation-proof.bad-tool",
+            "kind": "report",
+            "uri": "memory:///dag-example/bad-tool/aggregation-proof.md",
+            "redaction": "none",
+            "summary": "Proof contains a wrong beta input."
+          }
+        ],
+        "diagnostics": {
+          "completeness": 1,
+          "missingRequiredEventTypes": [],
+          "handoffCount": 0,
+          "reworkCount": 0,
+          "policyDecisionCount": 0,
+          "artifactCount": 2
+        }
+      }
+    }
+  ]
+}

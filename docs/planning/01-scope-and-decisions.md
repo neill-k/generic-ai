@@ -205,6 +205,7 @@ These areas should exist in the roadmap, but not in the first detailed implement
 - identity/auth
 - governance and security policy runtime
 - richer observability surfaces beyond the base OTEL/logging path
+- richer memory systems beyond the file-backed baseline
 - Postgres storage
 - BullMQ or external queueing
 - TUI
@@ -218,6 +219,8 @@ The concrete resumption plan for the deferred runtime-governance/security track
 now lives in [`docs/runtime-governance.md`](../runtime-governance.md).
 The concrete resumption plan for the deferred advanced-observability track now
 lives in [`docs/advanced-observability.md`](../advanced-observability.md).
+The concrete resumption plan for richer memory plugins now lives in
+[`docs/memory-plugins.md`](../memory-plugins.md).
 
 The concrete resumption plan for the deferred identity/auth track now lives in
 [`docs/identity-auth.md`](../identity-auth.md). The web UI track resumes as the

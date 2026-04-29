@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageAliases = [
   "core",
   "sdk",
+  "observability",
   "preset-starter-hono",
   "plugin-config-yaml",
   "plugin-workspace-fs",
@@ -31,6 +32,10 @@ export default defineConfig({
       find: new RegExp(`^@generic-ai/${packageName}$`),
       replacement: resolve(__dirname, `packages/${packageName}/src/index.ts`),
     })).concat([
+      {
+        find: /^@generic-ai\/sdk\/pi$/,
+        replacement: resolve(__dirname, "packages/sdk/src/pi/index.ts"),
+      },
       {
         find: /^@generic-ai\/plugin-web-ui\/client$/,
         replacement: resolve(__dirname, "packages/plugin-web-ui/src/client.tsx"),

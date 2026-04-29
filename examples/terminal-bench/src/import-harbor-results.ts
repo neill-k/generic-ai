@@ -10,6 +10,7 @@ import {
   createStableFingerprint,
   HARNESS_SCHEMA_VERSION,
   renderBenchmarkReportMarkdown,
+  type AgentHarnessEventProjection,
   type ArtifactReference,
   type BenchmarkReport,
   type BenchmarkSpec,
@@ -20,6 +21,11 @@ import {
   type TraceEvent,
   type TraceEventType,
 } from "@generic-ai/sdk";
+import {
+  createCommandTranscriptFromTraceEvents,
+  renderCommandTranscriptsMarkdown,
+  type CommandTranscript,
+} from "./command-transcript.js";
 
 export interface HarborImportOptions {
   readonly jobDir: string;
@@ -33,12 +39,53 @@ export interface HarborImportResult {
   readonly mission: MissionSpec;
   readonly benchmark: BenchmarkSpec;
   readonly trialResults: readonly BenchmarkTrialResult[];
+  readonly trialTranscripts: readonly CommandTranscript[];
+  readonly smokeArtifactProof: SmokeArtifactProof;
   readonly report: BenchmarkReport;
   readonly validation: HarborValidationSummary;
 }
 
 type JsonRecord = Record<string, unknown>;
 type ValidationGateKind = "smoke" | "quick" | "validation" | "full" | "custom";
+
+const EXAMPLE_ROOT = resolve(import.meta.dirname, "..");
+const DEFAULT_REPORTS_ROOT = resolve(EXAMPLE_ROOT, "reports", "imported");
+const REQUIRED_SMOKE_ARTIFACTS = Object.freeze([
+  "summary.json",
+  "trace-events.json",
+  "trace-diagnostics.json",
+  "policy-decisions.json",
+  "integrity.json",
+  "trajectory.json",
+]);
+
+export interface SmokeArtifactFileCheck {
+  readonly path: string;
+  readonly present: boolean;
+  readonly artifactId?: string;
+}
+
+export interface SmokeArtifactTrialProof {
+  readonly trialId: string;
+  readonly complete: boolean;
+  readonly requiredArtifacts: readonly SmokeArtifactFileCheck[];
+  readonly harnessArtifactRefs: readonly string[];
+  readonly traceEventCount: number;
+  readonly traceCompleteness: number;
+  readonly reward?: number;
+  readonly success?: number;
+}
+
+export interface SmokeArtifactProof {
+  readonly kind: "generic-ai.terminal-bench-smoke-artifact-proof";
+  readonly jobDir: string;
+  readonly generatedAt: string;
+  readonly requiredArtifacts: readonly string[];
+  readonly completeTrialCount: number;
+  readonly trialCount: number;
+  readonly trials: readonly SmokeArtifactTrialProof[];
+  readonly decisionBoundary: string;
+}
 
 export interface MetricDistributionSummary {
   readonly samples: number;
@@ -89,9 +136,6 @@ export interface HarborValidationSummary {
   readonly limitations: readonly string[];
   readonly nextActions: readonly string[];
 }
-
-const EXAMPLE_ROOT = resolve(import.meta.dirname, "..");
-const DEFAULT_REPORTS_ROOT = resolve(EXAMPLE_ROOT, "reports", "imported");
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -230,6 +274,23 @@ function isTraceEvent(value: unknown): value is TraceEvent {
   );
 }
 
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isAgentHarnessEventProjection(value: unknown): value is AgentHarnessEventProjection {
+  return (
+    isRecord(value) &&
+    typeof value["id"] === "string" &&
+    typeof value["sequence"] === "number" &&
+    typeof value["type"] === "string" &&
+    typeof value["eventName"] === "string" &&
+    typeof value["occurredAt"] === "string" &&
+    typeof value["summary"] === "string" &&
+    isRecord(value["data"])
+  );
+}
+
 function eventFactory(input: {
   readonly runId: string;
   readonly trialId: string;
@@ -291,6 +352,25 @@ async function loadTraceEvents(trialDir: string): Promise<readonly TraceEvent[]>
   for (const candidate of candidates) {
     const json = await readJsonIfExists(candidate);
     if (Array.isArray(json) && json.every(isTraceEvent)) {
+      return json;
+    }
+  }
+
+  return [];
+}
+
+async function loadHarnessProjections(
+  trialDir: string,
+): Promise<readonly AgentHarnessEventProjection[]> {
+  const candidates = [
+    join(trialDir, "artifacts", "generic-ai", "harness", "harness-projections.json"),
+    join(trialDir, "agent", "generic-ai", "harness", "harness-projections.json"),
+    join(trialDir, "agent", "harness", "harness-projections.json"),
+  ];
+
+  for (const candidate of candidates) {
+    const json = await readJsonIfExists(candidate);
+    if (Array.isArray(json) && json.every(isAgentHarnessEventProjection)) {
       return json;
     }
   }
@@ -519,6 +599,92 @@ function flakeSignals(
   return Object.freeze(signals.sort((left, right) => left.taskId.localeCompare(right.taskId)));
 }
 
+function traceEventTypeFromProjection(
+  projection: AgentHarnessEventProjection,
+): TraceEventType | undefined {
+  if (projection.type === "policy.decision") {
+    return "policy.decision";
+  }
+
+  if (projection.type === "artifact.created") {
+    return "artifact.created";
+  }
+
+  if (projection.type.startsWith("tool.call.") || projection.type.startsWith("terminal.command.")) {
+    return "tool.invoked";
+  }
+
+  if (projection.type.startsWith("handoff.")) {
+    return "protocol.action.planned";
+  }
+
+  if (projection.type === "session.completed" || projection.type === "session.failed") {
+    return "actor.completed";
+  }
+
+  return undefined;
+}
+
+function hasEquivalentProjectionEvent(
+  events: readonly TraceEvent[],
+  projection: AgentHarnessEventProjection,
+  type: TraceEventType,
+): boolean {
+  const artifactId = projection.data["artifactId"];
+  const policyDecisionId = projection.data["policyDecisionId"];
+
+  return events.some((event) => {
+    if (event.type !== type) {
+      return false;
+    }
+
+    if (type === "artifact.created" && isString(artifactId)) {
+      return event.artifactId === artifactId;
+    }
+
+    if (type === "policy.decision" && isString(policyDecisionId)) {
+      return event.policyDecisionId === policyDecisionId;
+    }
+
+    return event.summary === projection.summary;
+  });
+}
+
+function traceEventsFromHarnessProjections(input: {
+  readonly projections: readonly AgentHarnessEventProjection[];
+  readonly existingEvents: readonly TraceEvent[];
+  readonly addEvent: ReturnType<typeof eventFactory>;
+}): readonly TraceEvent[] {
+  const traceEvents: TraceEvent[] = [];
+
+  for (const projection of input.projections) {
+    const type = traceEventTypeFromProjection(projection);
+    if (
+      type === undefined ||
+      hasEquivalentProjectionEvent(input.existingEvents, projection, type)
+    ) {
+      continue;
+    }
+
+    const artifactId = projection.data["artifactId"];
+    const policyDecisionId = projection.data["policyDecisionId"];
+    traceEvents.push(
+      Object.freeze({
+        ...input.addEvent({
+          type,
+          summary: projection.summary,
+        }),
+        timestamp: projection.occurredAt,
+        actorId: projection.roleId ?? "generic-ai",
+        ...(isString(artifactId) ? { artifactId } : {}),
+        ...(isString(policyDecisionId) ? { policyDecisionId } : {}),
+      }),
+    );
+  }
+
+  return Object.freeze(traceEvents);
+}
+
 async function listTrialDirs(jobDir: string): Promise<readonly string[]> {
   const dirs: string[] = [];
   for (const entry of await readdir(jobDir, { withFileTypes: true })) {
@@ -550,6 +716,7 @@ async function importTrial(input: {
   ];
   const artifactRefs = artifacts.map((artifact) => artifact.id);
   const loadedEvents = await loadTraceEvents(input.trialDir);
+  const harnessProjections = await loadHarnessProjections(input.trialDir);
   const addEvent = eventFactory({
     runId: input.runId,
     trialId,
@@ -557,6 +724,13 @@ async function importTrial(input: {
     timestamp: input.timestamp,
   });
   const events: TraceEvent[] = [...loadedEvents];
+  events.push(
+    ...traceEventsFromHarnessProjections({
+      projections: harnessProjections,
+      existingEvents: events,
+      addEvent,
+    }),
+  );
   const reward = findFirstNumber(resultJson, new Set(["reward", "score"]));
   const duration = findFirstNumber(resultJson, new Set(["duration_sec", "duration_seconds"]));
 
@@ -600,6 +774,66 @@ async function importTrial(input: {
     artifacts: Object.freeze(artifacts),
     diagnostics: traceDiagnostics(events, artifacts.length),
   });
+}
+
+function projectionCounts(
+  projections: readonly AgentHarnessEventProjection[],
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const projection of projections) {
+    counts.set(projection.type, (counts.get(projection.type) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+function renderHarnessProjectionsMarkdown(
+  rows: readonly {
+    readonly trialId: string;
+    readonly projections: readonly AgentHarnessEventProjection[];
+  }[],
+): string {
+  const lines = ["# Terminal-Bench Harness Projections", ""];
+
+  if (rows.length === 0) {
+    lines.push("No Harbor-collected Generic AI harness projections were found.", "");
+    return lines.join("\n");
+  }
+
+  lines.push("| Trial | Projection type | Count |", "| --- | --- | --- |");
+  for (const row of rows) {
+    const counts = projectionCounts(row.projections);
+    if (counts.size === 0) {
+      lines.push(`| ${row.trialId} | none | 0 |`);
+      continue;
+    }
+
+    for (const [type, count] of [...counts.entries()].sort(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
+      lines.push(`| ${row.trialId} | ${type} | ${count} |`);
+    }
+  }
+
+  lines.push("", "## Timeline", "");
+  for (const row of rows) {
+    lines.push(`### ${row.trialId}`, "");
+    if (row.projections.length === 0) {
+      lines.push("- No projections found.", "");
+      continue;
+    }
+
+    for (const projection of row.projections) {
+      const role = projection.roleId === undefined ? "" : ` role=${projection.roleId}`;
+      const tool = projection.toolName === undefined ? "" : ` tool=${projection.toolName}`;
+      lines.push(
+        `- ${projection.occurredAt} ${projection.type}${role}${tool}: ${projection.summary}`,
+      );
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
 
 function createMission(): MissionSpec {
@@ -866,6 +1100,98 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 }
 
+function metricValue(
+  trial: BenchmarkTrialResult,
+  metricId: string,
+): number | undefined {
+  return trial.metrics.find((metric) => metric.metricId === metricId)?.value;
+}
+
+function createSmokeArtifactProof(input: {
+  readonly jobDir: string;
+  readonly generatedAt: string;
+  readonly trialResults: readonly BenchmarkTrialResult[];
+}): SmokeArtifactProof {
+  const trials = input.trialResults.map((trial) => {
+    const artifactByUri = new Map(trial.artifacts.map((artifact) => [artifact.uri, artifact]));
+    const requiredArtifacts = REQUIRED_SMOKE_ARTIFACTS.map((name) => {
+      const uri = `${trial.trialId}/artifacts/generic-ai/${name}`;
+      const artifact = artifactByUri.get(uri);
+      return Object.freeze({
+        path: uri,
+        present: artifact !== undefined,
+        ...(artifact === undefined ? {} : { artifactId: artifact.id }),
+      });
+    });
+    const harnessArtifactRefs = trial.artifacts
+      .filter((artifact) => artifact.uri.startsWith(`${trial.trialId}/artifacts/generic-ai/harness/`))
+      .map((artifact) => artifact.id);
+    const reward = metricValue(trial, "reward");
+    const success = metricValue(trial, "success");
+
+    return Object.freeze({
+      trialId: trial.trialId,
+      complete:
+        requiredArtifacts.every((artifact) => artifact.present) && harnessArtifactRefs.length > 0,
+      requiredArtifacts: Object.freeze(requiredArtifacts),
+      harnessArtifactRefs: Object.freeze(harnessArtifactRefs),
+      traceEventCount: trial.traceEvents.length,
+      traceCompleteness: trial.diagnostics.completeness,
+      ...(reward === undefined ? {} : { reward }),
+      ...(success === undefined ? {} : { success }),
+    });
+  });
+
+  return Object.freeze({
+    kind: "generic-ai.terminal-bench-smoke-artifact-proof",
+    jobDir: input.jobDir,
+    generatedAt: input.generatedAt,
+    requiredArtifacts: REQUIRED_SMOKE_ARTIFACTS,
+    completeTrialCount: trials.filter((trial) => trial.complete).length,
+    trialCount: trials.length,
+    trials: Object.freeze(trials),
+    decisionBoundary:
+      "Smoke proof records live artifact completeness only; reward and success are smoke evidence, not validation-quality or SOTA claims.",
+  });
+}
+
+function renderSmokeArtifactProofMarkdown(proof: SmokeArtifactProof): string {
+  const lines = [
+    "# Terminal-Bench Smoke Artifact Proof",
+    "",
+    `Job directory: \`${proof.jobDir}\``,
+    `Generated at: \`${proof.generatedAt}\``,
+    "",
+    `Complete trials: ${proof.completeTrialCount}/${proof.trialCount}`,
+    "",
+    proof.decisionBoundary,
+    "",
+    "| Trial | Complete | Reward | Success | Trace events | Trace completeness | Harness refs | Missing required artifacts |",
+    "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |",
+  ];
+
+  for (const trial of proof.trials) {
+    const missing = trial.requiredArtifacts
+      .filter((artifact) => !artifact.present)
+      .map((artifact) => basename(artifact.path));
+    lines.push(
+      [
+        `\`${trial.trialId}\``,
+        trial.complete ? "yes" : "no",
+        trial.reward ?? "n/a",
+        trial.success ?? "n/a",
+        trial.traceEventCount,
+        trial.traceCompleteness.toFixed(2),
+        trial.harnessArtifactRefs.length,
+        missing.length === 0 ? "none" : missing.join(", "),
+      ].join(" | "),
+    );
+  }
+
+  lines.push("");
+  return lines.join("\n");
+}
+
 function readJobNameFromConfig(config: unknown, fallback: string): string {
   if (isRecord(config) && typeof config["job_name"] === "string") {
     return config["job_name"];
@@ -887,6 +1213,14 @@ export async function importHarborResults(
   const trialResults = await Promise.all(
     trialDirs.map((trialDir) => importTrial({ jobDir, trialDir, runId, timestamp })),
   );
+  const harnessProjectionRows = await Promise.all(
+    trialDirs.map(async (trialDir) =>
+      Object.freeze({
+        trialId: basename(trialDir),
+        projections: await loadHarnessProjections(trialDir),
+      }),
+    ),
+  );
   const mission = createMission();
   const benchmark = createBenchmark({
     jobName,
@@ -897,6 +1231,19 @@ export async function importHarborResults(
     mission,
     generatedAt: timestamp,
     results: trialResults,
+  });
+  const trialTranscripts = trialResults.map((trialResult) =>
+    createCommandTranscriptFromTraceEvents({
+      runId,
+      trialId: trialResult.trialId,
+      generatedAt: timestamp,
+      events: trialResult.traceEvents,
+    }),
+  );
+  const smokeArtifactProof = createSmokeArtifactProof({
+    jobDir,
+    generatedAt: timestamp,
+    trialResults,
   });
   const validation = createValidationSummary({
     jobName,
@@ -910,11 +1257,28 @@ export async function importHarborResults(
   await writeJson(join(outputDir, "mission.json"), mission);
   await writeJson(join(outputDir, "benchmark.json"), benchmark);
   await writeJson(join(outputDir, "trial-results.json"), trialResults);
+  await writeJson(join(outputDir, "trial-harness-projections.json"), harnessProjectionRows);
+  await writeFile(
+    join(outputDir, "trial-harness-projections.md"),
+    renderHarnessProjectionsMarkdown(harnessProjectionRows),
+    "utf-8",
+  );
+  await writeJson(join(outputDir, "trial-command-transcripts.json"), trialTranscripts);
+  await writeFile(
+    join(outputDir, "trial-command-transcripts.md"),
+    renderCommandTranscriptsMarkdown(trialTranscripts),
+    "utf-8",
+  );
   await writeJson(join(outputDir, "benchmark-report.json"), report);
   await writeJson(join(outputDir, "validation-summary.json"), validation);
   await writeFile(
     join(outputDir, "benchmark-report.md"),
     `${renderBenchmarkReportMarkdown(report)}${renderValidationSummaryMarkdown(validation)}`,
+  );
+  await writeJson(join(outputDir, "smoke-artifact-proof.json"), smokeArtifactProof);
+  await writeFile(
+    join(outputDir, "smoke-artifact-proof.md"),
+    renderSmokeArtifactProofMarkdown(smokeArtifactProof),
   );
 
   return Object.freeze({
@@ -923,6 +1287,8 @@ export async function importHarborResults(
     mission,
     benchmark,
     trialResults: Object.freeze(trialResults),
+    trialTranscripts: Object.freeze(trialTranscripts),
+    smokeArtifactProof,
     report,
     validation,
   });

@@ -46,12 +46,27 @@ describe("@generic-ai/plugin-memory-files", () => {
 
       expect(memory.name).toBe(name);
       expect(memory.kind).toBe(kind);
+      expect(memory.capability).toBe("memory");
+      expect(memory.driver).toBe("files");
       expect(await memory.get("coordinator", stored.id)).toEqual(stored);
       expect(await memory.search("coordinator", "skills messaging")).toEqual([
         {
           entry: stored,
           score: 2,
           matches: ["skills", "messaging"],
+        },
+      ]);
+      expect(
+        await memory.search("coordinator", {
+          text: "demo",
+          tags: ["starter"],
+          limit: 1,
+        }),
+      ).toEqual([
+        {
+          entry: stored,
+          score: 1,
+          matches: ["demo"],
         },
       ]);
 

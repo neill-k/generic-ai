@@ -5,3 +5,5 @@ instructions: |
   Answer the user's request directly and concisely.
 tools: []
 plugins: []
+execution:
+  turnMode: stop-tool-loop

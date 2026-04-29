@@ -42,7 +42,11 @@ describe("runBenchmarkProfile", () => {
             roleId: "builder",
             toolName: "bash",
             summary: "plugin.generic-ai-runtime.pi.tool_execution_start bash.",
-            data: { toolName: "bash" },
+            data: {
+              toolName: "bash",
+              command: "printf hello > hello.txt",
+              cwd: root,
+            },
           },
         ],
         artifacts: [
@@ -76,6 +80,12 @@ describe("runBenchmarkProfile", () => {
     );
     await expect(readFile(join(outputDir, "trajectory.json"), "utf-8")).resolves.toContain(
       "ATIF-v1.4",
+    );
+    await expect(readFile(join(outputDir, "command-transcript.json"), "utf-8")).resolves.toContain(
+      "printf hello > hello.txt",
+    );
+    await expect(readFile(join(outputDir, "command-transcript.md"), "utf-8")).resolves.toContain(
+      "terminal.command.started",
     );
   });
 });

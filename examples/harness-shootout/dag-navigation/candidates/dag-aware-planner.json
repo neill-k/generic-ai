@@ -1,0 +1,84 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.dag.dag-aware-planner",
+  "name": "DAG-Aware Planner",
+  "packages": [
+    {
+      "id": "protocol.verifier-loop",
+      "package": "@generic-ai/protocol-verifier-loop",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.terminal",
+      "package": "@generic-ai/plugin-tools-terminal-sandbox",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.dag-navigation",
+      "package": "@generic-ai/grader-dag-navigation",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "planner",
+      "role": "planner",
+      "instructions": "Build an explicit graph plan, identify fork branches, and refuse to merge until every required branch has trace evidence.",
+      "packageRefs": ["protocol.verifier-loop", "capability.files"],
+      "artifactRefs": ["artifact.dag-route"]
+    },
+    {
+      "id": "navigator",
+      "role": "navigator",
+      "instructions": "Execute the graph plan and record each node visit, branch result, and roadblock transform.",
+      "packageRefs": ["protocol.verifier-loop", "capability.files", "capability.terminal"],
+      "artifactRefs": ["artifact.branch-observations"]
+    },
+    {
+      "id": "verifier",
+      "role": "verifier",
+      "instructions": "Check that branch coverage, tool outputs, aggregation inputs, and trace events match the deterministic oracle.",
+      "packageRefs": ["protocol.verifier-loop", "grader.dag-navigation"],
+      "artifactRefs": ["artifact.aggregation-proof"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "verifier-loop",
+      "protocol": "verifier-loop",
+      "packageRef": "protocol.verifier-loop",
+      "actorRefs": ["planner", "navigator", "verifier"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.dag-route",
+      "name": "dag-route.json",
+      "kind": "metric",
+      "producedBy": ["planner"],
+      "reviewedBy": ["verifier"]
+    },
+    {
+      "id": "artifact.branch-observations",
+      "name": "branch-observations.json",
+      "kind": "metric",
+      "producedBy": ["navigator"],
+      "reviewedBy": ["verifier"]
+    },
+    {
+      "id": "artifact.aggregation-proof",
+      "name": "aggregation-proof.md",
+      "kind": "report",
+      "producedBy": ["verifier"],
+      "reviewedBy": ["verifier"]
+    }
+  ],
+  "missionRefs": ["mission.dag-navigation"],
+  "evalRefs": ["benchmark.dag-navigation.v0"]
+}

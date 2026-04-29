@@ -11,11 +11,19 @@
     "noEmit": true,
     "outDir": "dist/ui-typecheck",
     "paths": {
+      "@generic-ai/plugin-config-yaml": [
+        "../../packages/plugin-config-yaml/src/index.ts"
+      ],
+      "@generic-ai/plugin-web-ui/client": [
+        "../../packages/plugin-web-ui/src/client.tsx"
+      ],
+      "@generic-ai/sdk": ["../../packages/sdk/src/index.ts"],
+      "@generic-ai/sdk/pi": ["../../packages/sdk/src/pi/index.ts"],
       "@/*": ["./ui/src/*"]
     },
-    "rootDir": "ui/src",
+    "rootDir": "../..",
     "sourceMap": false,
-    "types": ["vite/client"]
+    "types": ["vite/client", "node"]
   },
   "include": ["ui/src"]
 }

@@ -1,6 +1,7 @@
 export * from "./delegation.js";
 export * from "./config-schema.js";
 export * from "./lifecycle.js";
+export * from "./memory.js";
 export * from "./output.js";
 export * from "./plugin.js";
 export * from "./queue.js";
