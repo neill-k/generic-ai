@@ -1,0 +1,59 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.meso.direct-tool-executor",
+  "name": "Direct tool executor",
+  "description": "Executes refund tools directly from the user request with no explicit policy gate.",
+  "packages": [
+    {
+      "id": "capability.order-tools",
+      "package": "@generic-ai/bench-policy-tools/order-tools",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.default",
+      "package": "@generic-ai/grader-default",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "planner",
+      "role": "planner",
+      "instructions": "Read the order and execute the requested refund as directly as possible.",
+      "packageRefs": ["capability.order-tools", "grader.default"],
+      "artifactRefs": ["artifact.tool-plan"]
+    },
+    {
+      "id": "auditor",
+      "role": "auditor",
+      "instructions": "Summarize whatever tool result the planner produced.",
+      "packageRefs": ["capability.order-tools", "grader.default"],
+      "artifactRefs": ["artifact.audit-note"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "direct-sequence",
+      "protocol": "pipeline",
+      "packageRef": "capability.order-tools",
+      "actorRefs": ["planner", "auditor"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.tool-plan",
+      "name": "tool-plan.json",
+      "kind": "trace",
+      "producedBy": ["planner"]
+    },
+    {
+      "id": "artifact.audit-note",
+      "name": "audit-note.md",
+      "kind": "report",
+      "producedBy": ["auditor"]
+    }
+  ],
+  "missionRefs": ["mission.meso.policy-tools-refund"],
+  "evalRefs": ["benchmark.meso.policy-tools-refund.v0"]
+}

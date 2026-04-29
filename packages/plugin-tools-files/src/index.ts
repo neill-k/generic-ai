@@ -160,12 +160,48 @@ function toSearchExpression(pattern: string, options: FileGrepOptions): RegExp {
 export function createWorkspaceFileTools(options: WorkspaceFileToolsOptions): WorkspaceFileTools {
   const workspace = createWorkspaceFs(options.root);
   const piTools = Object.freeze([
-    withAgentHarnessToolEffects(createReadTool(workspace.root), ["fs.read"]),
-    withAgentHarnessToolEffects(createWriteTool(workspace.root), ["fs.write"]),
-    withAgentHarnessToolEffects(createEditTool(workspace.root), ["fs.read", "fs.write"]),
-    withAgentHarnessToolEffects(createFindTool(workspace.root), ["fs.read"]),
-    withAgentHarnessToolEffects(createGrepTool(workspace.root), ["fs.read"]),
-    withAgentHarnessToolEffects(createLsTool(workspace.root), ["fs.read"]),
+    withAgentHarnessToolEffects(createReadTool(workspace.root), {
+      id: "files.read",
+      label: "Read file",
+      effects: ["fs.read"],
+      reversibility: "reversible-cheap",
+      retrySemantics: "safe-to-retry",
+    }),
+    withAgentHarnessToolEffects(createWriteTool(workspace.root), {
+      id: "files.write",
+      label: "Write file",
+      effects: ["fs.write"],
+      reversibility: "irreversible",
+      retrySemantics: "retry-may-duplicate",
+    }),
+    withAgentHarnessToolEffects(createEditTool(workspace.root), {
+      id: "files.edit",
+      label: "Edit file",
+      effects: ["fs.read", "fs.write"],
+      reversibility: "reversible-with-cost",
+      retrySemantics: "idempotency-key-required",
+    }),
+    withAgentHarnessToolEffects(createFindTool(workspace.root), {
+      id: "files.find",
+      label: "Find files",
+      effects: ["fs.read"],
+      reversibility: "reversible-cheap",
+      retrySemantics: "safe-to-retry",
+    }),
+    withAgentHarnessToolEffects(createGrepTool(workspace.root), {
+      id: "files.grep",
+      label: "Search file contents",
+      effects: ["fs.read"],
+      reversibility: "reversible-cheap",
+      retrySemantics: "safe-to-retry",
+    }),
+    withAgentHarnessToolEffects(createLsTool(workspace.root), {
+      id: "files.list",
+      label: "List files",
+      effects: ["fs.read"],
+      reversibility: "reversible-cheap",
+      retrySemantics: "safe-to-retry",
+    }),
   ]);
 
   async function resolveExistingPath(targetPath?: string): Promise<string> {

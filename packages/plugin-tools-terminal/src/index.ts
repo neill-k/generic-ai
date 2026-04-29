@@ -1,6 +1,4 @@
-import {
-  withAgentHarnessToolEffects,
-} from "@generic-ai/sdk";
+import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
 import {
   createBashTool,
   createLocalBashOperations,
@@ -113,7 +111,14 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
       ...(commandPrefix === undefined ? {} : { commandPrefix }),
       ...(spawnHook === undefined ? {} : { spawnHook }),
     }),
-    ["process.spawn", "fs.read", "fs.write"],
+    {
+      id: "terminal.bash",
+      label: "Local bash",
+      description: "Executes local workspace commands through the configured pi bash backend.",
+      effects: ["process.spawn", "fs.read", "fs.write"],
+      reversibility: "irreversible",
+      retrySemantics: "retry-may-duplicate",
+    },
   );
 
   return Object.freeze({

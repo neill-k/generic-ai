@@ -21,6 +21,11 @@ The initial event type set includes:
 
 Core maps Pi session events by structured event payload fields such as `type`, `toolName`, and `isError`, not by substring matching the emitted plugin event name.
 
+Effect-bearing events may include `reversibility` and `supersedesEventId`.
+Reports treat those fields as optional evidence metadata: when they are present,
+they can support rollback/recovery analysis; when they are absent, the report
+must not infer cheap reversibility.
+
 ## Consequences
 
 ATIF and Generic AI benchmark reports can depend on stable event semantics.

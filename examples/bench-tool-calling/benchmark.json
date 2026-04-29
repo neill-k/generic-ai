@@ -1,0 +1,70 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.micro.tool-calling-retrieval.v0",
+  "missionRef": "mission.micro.tool-calling-retrieval",
+  "hypothesis": "A retrieval-grounded function-calling harness should produce better grounded answers than a direct function caller on policy lookup tasks.",
+  "candidates": [
+    {
+      "id": "direct-function-caller",
+      "harnessRef": "harness.micro.direct-function-caller"
+    },
+    {
+      "id": "retrieval-grounded-tool-caller",
+      "harnessRef": "harness.micro.retrieval-grounded-tool-caller"
+    }
+  ],
+  "primaryMetric": "task_success",
+  "metricDefinitions": [
+    {
+      "id": "task_success",
+      "name": "Task success",
+      "unit": "boolean",
+      "direction": "higher_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "artifact_completeness",
+      "name": "Artifact completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "trace_completeness",
+      "name": "Trace completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace"
+    },
+    {
+      "id": "wall_time",
+      "name": "Wall time",
+      "unit": "seconds",
+      "direction": "lower_is_better",
+      "source": "runtime"
+    },
+    {
+      "id": "cost_usd",
+      "name": "Cost",
+      "unit": "usd",
+      "direction": "lower_is_better",
+      "source": "runtime"
+    }
+  ],
+  "guardrailMetrics": ["artifact_completeness", "trace_completeness", "wall_time", "cost_usd"],
+  "trials": {
+    "count": 2,
+    "pairing": "paired",
+    "seed": "micro-tool-calling-v0"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 2,
+    "requireTraceCompleteness": true,
+    "allowSingleRunRecommendation": false
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

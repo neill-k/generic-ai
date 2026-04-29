@@ -1,0 +1,70 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.meso.policy-tools-refund.v0",
+  "missionRef": "mission.meso.policy-tools-refund",
+  "hypothesis": "A policy-gated tool planner should outperform a direct tool executor when success depends on policy ordering, allowed actions, and audit evidence.",
+  "candidates": [
+    {
+      "id": "direct-tool-executor",
+      "harnessRef": "harness.meso.direct-tool-executor"
+    },
+    {
+      "id": "policy-gated-tool-planner",
+      "harnessRef": "harness.meso.policy-gated-tool-planner"
+    }
+  ],
+  "primaryMetric": "task_success",
+  "metricDefinitions": [
+    {
+      "id": "task_success",
+      "name": "Task success",
+      "unit": "boolean",
+      "direction": "higher_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "artifact_completeness",
+      "name": "Artifact completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "trace_completeness",
+      "name": "Trace completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace"
+    },
+    {
+      "id": "policy_violations",
+      "name": "Policy violations",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "trace"
+    },
+    {
+      "id": "handoff_count",
+      "name": "Handoff count",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "trace"
+    }
+  ],
+  "guardrailMetrics": ["artifact_completeness", "trace_completeness", "policy_violations", "handoff_count"],
+  "trials": {
+    "count": 2,
+    "pairing": "paired",
+    "seed": "meso-policy-tools-v0"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 2,
+    "requireTraceCompleteness": true,
+    "allowSingleRunRecommendation": false
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

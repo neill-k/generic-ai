@@ -1,9 +1,11 @@
-# 0004 — SDK contract surface for plugins, registries, and lifecycle
+# 0035 — SDK contract surface for plugins, registries, and lifecycle
 
 - Status: accepted
 - Date: 2026-04-13
 - Linear: `NEI-308` (KRN-01)
 - Supersedes: none
+- Renumbered from: `0004-sdk-contracts.md` to keep ADR numbers unique after
+  Plan 05 W1.5.
 - Related planning docs:
   - `docs/planning/01-scope-and-decisions.md`
   - `docs/planning/02-architecture.md`

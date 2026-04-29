@@ -1,0 +1,60 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.micro.tool-calling-retrieval",
+  "objective": "Answer the employee-benefits question by selecting the right lookup function, retrieving the matching policy chunk, and citing the tool result.",
+  "objectiveClass": "research",
+  "fixtureRefs": ["fixtures/benefits-policy-mini-corpus"],
+  "reset": {
+    "workspace": "clean",
+    "storage": "clean",
+    "messages": "clean",
+    "memory": "clean"
+  },
+  "allowedPackages": [
+    "capability.retrieval",
+    "capability.function-calling",
+    "grader.default"
+  ],
+  "constraints": [
+    "Use only the provided mini corpus.",
+    "Do not invent a benefits limit that is not present in the retrieved chunk.",
+    "Final answers must include the retrieval chunk id and the called function name."
+  ],
+  "expectedArtifacts": [
+    {
+      "id": "artifact.tool-call-trace",
+      "name": "tool-call-trace.json",
+      "kind": "trace",
+      "producedBy": ["solver"]
+    },
+    {
+      "id": "artifact.answer",
+      "name": "grounded-answer.md",
+      "kind": "report",
+      "producedBy": ["solver"]
+    }
+  ],
+  "graders": [
+    {
+      "id": "grader.micro-tool-calling-v0",
+      "metricRefs": ["task_success", "artifact_completeness", "trace_completeness"],
+      "packageRef": "grader.default",
+      "deterministic": true
+    }
+  ],
+  "successCriteria": {
+    "requiredSubstrings": [
+      "TOOL_CALL_OK",
+      "RETRIEVAL_CHUNK:benefits-pto-2026",
+      "ANSWER: 15 days"
+    ],
+    "requiredArtifacts": ["tool-call-trace.json", "grounded-answer.md"]
+  },
+  "providerPolicy": {
+    "adapter": "openai-codex",
+    "model": "deterministic-micro-adapter",
+    "cache": "deny",
+    "network": "isolated"
+  }
+}

@@ -10,6 +10,11 @@
     "README.md"
   ],
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "category": "transport",
+    "method": "mcp-embedded.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

@@ -24,6 +24,11 @@
     "node": ">=24.0.0"
   },
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "category": "infra",
+    "method": "sqlite-storage.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

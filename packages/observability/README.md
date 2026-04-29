@@ -21,6 +21,7 @@ V1 follows ADR 0030:
   routes, SSE, reports, redaction, and metric query helpers.
 - `@generic-ai/observability/agent-tools` - read-only agent convenience tools.
 - `@generic-ai/observability/otel` - metric descriptors only.
+- `@generic-ai/observability/provenance` - PROV-style evidence bundle exporter.
 - `@generic-ai/observability/styles.css` - package stylesheet.
 
 ## Server Routes
@@ -33,6 +34,7 @@ V1 follows ADR 0030:
 - `GET /runs/:id/events`
 - `GET /runs/:id/trace`
 - `GET /runs/:id/report`
+- `GET /runs/:id/provenance`
 - `GET /metrics/catalog`
 - `GET /metrics/query`
 - `GET /events/live`
@@ -42,3 +44,11 @@ When no `authorize` hook is supplied, routes require a local session token via
 helper returns the generated token so local launchers can surface it.
 
 Payload, OTEL export, and mutating report/pin routes are disabled by default.
+
+## Provenance
+
+`createProvenanceBundle()` converts an observability trace plus an optional
+deterministic report into a JSON-LD-like evidence artifact with entities,
+activities, agents, and derivations. The exporter is metadata-only: it carries
+payload posture, counts, artifact references, policy decisions, and report lines
+without embedding raw prompt, model, file, environment, or tool payload content.

@@ -4,8 +4,10 @@ import {
   createPipelineProtocol,
   createSquadProtocol,
   createBenchmarkReport,
+  getAgentHarnessToolReversibility,
   HARNESS_SCHEMA_VERSION,
   renderBenchmarkReportMarkdown,
+  withAgentHarnessToolEffects,
   type BenchmarkSpec,
   type BenchmarkTrialResult,
   type HarnessDsl,
@@ -231,6 +233,26 @@ describe("standard protocol planners", () => {
   });
 });
 
+describe("tool effect descriptors", () => {
+  it("keeps reversibility metadata next to declared authority effects", () => {
+    const tool = withAgentHarnessToolEffects(
+      {
+        name: "write_file",
+      },
+      {
+        id: "files.write",
+        effects: ["fs.write"],
+        reversibility: "irreversible",
+        retrySemantics: "retry-may-duplicate",
+      },
+    );
+
+    expect(tool.genericAi?.effects).toEqual(["fs.write"]);
+    expect(getAgentHarnessToolReversibility(tool)).toBe("irreversible");
+    expect(tool.genericAi?.descriptor?.retrySemantics).toBe("retry-may-duplicate");
+  });
+});
+
 describe("Benchmark reports", () => {
   it("separates observations, inferences, recommendations, and insufficient evidence", () => {
     const report = createBenchmarkReport({
@@ -265,7 +287,73 @@ describe("Benchmark reports", () => {
 
     expect(report.observations[0]).toContain("trace events");
     expect(report.insufficientEvidence[0]).toContain("verifier-loop");
+    expect(report.confidence.level).toBe("insufficient_evidence");
     expect(renderBenchmarkReportMarkdown(report)).toContain("## Recommendations");
+    expect(renderBenchmarkReportMarkdown(report)).toContain("pass^");
+  });
+
+  it("reports pass^k reliability and confidence for repeated trials", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        minTrials: 5,
+        trials: {
+          count: 5,
+          pairing: "paired",
+          seed: "docs-v0",
+          passK: 5,
+        },
+      },
+      mission,
+      generatedAt: "2026-04-25T00:00:00.000Z",
+      results: [1, 0, 1, 0, 0].map((value, index) => ({
+        ...trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", value),
+        trialId: `verifier-loop:trial-${index + 1}`,
+      })),
+    });
+
+    expect(report.confidence.level).toBe("confident_recommendation");
+    expect(report.candidates[0]?.passK?.k).toBe(5);
+    expect(report.candidates[0]?.passK?.passCount).toBe(2);
+    expect(report.candidates[0]?.passK?.value).toBeCloseTo(0.92224);
+    expect(renderBenchmarkReportMarkdown(report)).toContain("Confidence: confident_recommendation");
+  });
+
+  it("lets smoke checks stay bounded instead of confident", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        smoke: true,
+        minTrials: 1,
+      },
+      mission,
+      generatedAt: "2026-04-25T00:00:00.000Z",
+      results: [trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1)],
+    });
+
+    expect(report.candidates[0]?.recommendation).toBe("recommended");
+    expect(report.confidence.level).toBe("bounded_recommendation");
+    expect(report.confidence.reasons[0]).toContain("smoke");
+  });
+
+  it("does not let legacy single-run overrides bypass explicit minTrials", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        minTrials: 3,
+        validity: {
+          minimumTrialsForRecommendation: 1,
+          allowSingleRunRecommendation: true,
+        },
+      },
+      mission,
+      generatedAt: "2026-04-25T00:00:00.000Z",
+      results: [trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1)],
+    });
+
+    expect(report.candidates[0]?.recommendation).toBe("insufficient_evidence");
+    expect(report.confidence.level).toBe("insufficient_evidence");
+    expect(report.insufficientEvidence[0]).toContain("minTrials: 3");
   });
 
   it("honors lower-is-better primary metrics and compiled harness ids", () => {

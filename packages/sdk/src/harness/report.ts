@@ -4,6 +4,9 @@ import type {
   BenchmarkReliabilitySummary,
   BenchmarkReport,
   BenchmarkReportCandidate,
+  BenchmarkReportConfidence,
+  BenchmarkReversibilitySummary,
+  BenchmarkPassKSummary,
   BenchmarkSpec,
   BenchmarkTrialResult,
   BenchmarkTrialOutcomeStatus,
@@ -49,6 +52,37 @@ function average(values: readonly number[]): number | undefined {
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
 
+function positiveIntegerOrDefault(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value) || value < 1) {
+    return fallback;
+  }
+
+  return Math.floor(value);
+}
+
+function configuredTrialCount(benchmark: BenchmarkSpec): number {
+  return positiveIntegerOrDefault(benchmark.trials?.count, 1);
+}
+
+function isSmokeBenchmark(benchmark: BenchmarkSpec): boolean {
+  return benchmark.smoke === true || benchmark.trials?.smoke === true;
+}
+
+function explicitMinTrials(benchmark: BenchmarkSpec): number | undefined {
+  return benchmark.minTrials ?? benchmark.trials?.minTrials;
+}
+
+function minTrialsForRecommendation(benchmark: BenchmarkSpec): number {
+  return positiveIntegerOrDefault(
+    explicitMinTrials(benchmark) ?? benchmark.validity?.minimumTrialsForRecommendation,
+    3,
+  );
+}
+
+function passKHorizon(benchmark: BenchmarkSpec): number {
+  return positiveIntegerOrDefault(benchmark.trials?.passK, configuredTrialCount(benchmark));
+}
+
 function aggregateMetric(
   metricId: string,
   results: readonly BenchmarkTrialResult[],
@@ -79,6 +113,15 @@ function metricSampleCount(metricId: string, results: readonly BenchmarkTrialRes
     .length;
 }
 
+function metricValues(
+  metricId: string,
+  results: readonly BenchmarkTrialResult[],
+): readonly MetricValue[] {
+  return Object.freeze(
+    results.flatMap((result) => result.metrics.filter((metric) => metric.metricId === metricId)),
+  );
+}
+
 function metricDirection(
   benchmark: BenchmarkSpec,
   metricId: string,
@@ -105,6 +148,44 @@ function faultInjectionObservations(
   results: readonly BenchmarkTrialResult[],
 ): readonly FaultInjectionObservation[] {
   return Object.freeze(results.flatMap((result) => result.faultInjections ?? []));
+}
+
+function reversibilitySummary(
+  results: readonly BenchmarkTrialResult[],
+): BenchmarkReversibilitySummary | undefined {
+  const events = results.flatMap((result) =>
+    result.traceEvents.filter((event) => event.reversibility !== undefined),
+  );
+  if (events.length === 0) {
+    return undefined;
+  }
+
+  const evidenceRefs = events.map((event) => event.id);
+
+  return Object.freeze({
+    totalEventCount: events.length,
+    irreversibleCount: events.filter((event) => event.reversibility === "irreversible").length,
+    reversibleWithCostCount: events.filter(
+      (event) => event.reversibility === "reversible-with-cost",
+    ).length,
+    reversibleCheapCount: events.filter((event) => event.reversibility === "reversible-cheap")
+      .length,
+    supersededEventCount: events.filter((event) => event.supersedesEventId !== undefined).length,
+    evidenceRefs: Object.freeze([...new Set(evidenceRefs)]),
+  });
+}
+
+function formatReversibility(summary: BenchmarkReversibilitySummary | undefined): string {
+  if (summary === undefined) {
+    return "not recorded";
+  }
+
+  return [
+    `irreversible=${summary.irreversibleCount}`,
+    `with-cost=${summary.reversibleWithCostCount}`,
+    `cheap=${summary.reversibleCheapCount}`,
+    `superseded=${summary.supersededEventCount}`,
+  ].join(", ");
 }
 
 function faultInjectionSummary(input: {
@@ -141,6 +222,32 @@ function faultInjectionSummary(input: {
   });
 }
 
+function passKSummary(input: {
+  readonly benchmark: BenchmarkSpec;
+  readonly results: readonly BenchmarkTrialResult[];
+}): BenchmarkPassKSummary | undefined {
+  const values = metricValues(input.benchmark.primaryMetric, input.results);
+  if (values.length === 0) {
+    return undefined;
+  }
+
+  const passCount = values.filter((metric) => metric.value >= 1).length;
+  const observedPassRate = rate(passCount, values.length);
+  const k = passKHorizon(input.benchmark);
+  const evidenceRefs = values.flatMap((metric) => metric.evidenceRefs);
+
+  return Object.freeze({
+    metricId: input.benchmark.primaryMetric,
+    k,
+    passCount,
+    sampleCount: values.length,
+    trialCount: input.results.length,
+    observedPassRate,
+    value: 1 - (1 - observedPassRate) ** k,
+    evidenceRefs: Object.freeze([...new Set(evidenceRefs)]),
+  });
+}
+
 function bestMetricValue(
   values: readonly number[],
   direction: ComparableMetricDirection,
@@ -158,10 +265,12 @@ function hasSufficientRecommendationEvidence(input: {
   readonly primaryMetricSampleCount?: number;
   readonly traceCompleteness: number;
 }): boolean {
-  const minimumTrials = input.benchmark.validity?.minimumTrialsForRecommendation ?? 3;
+  const minimumTrials = minTrialsForRecommendation(input.benchmark);
+  const hasExplicitMinTrials = explicitMinTrials(input.benchmark) !== undefined;
   const singleRunOverride =
+    !hasExplicitMinTrials &&
     input.benchmark.validity?.allowSingleRunRecommendation === true &&
-    input.benchmark.trials.count === 1 &&
+    configuredTrialCount(input.benchmark) === 1 &&
     input.trialCount === 1;
 
   if (input.trialCount === 0 || (input.trialCount < minimumTrials && !singleRunOverride)) {
@@ -182,6 +291,63 @@ function hasSufficientRecommendationEvidence(input: {
   }
 
   return true;
+}
+
+function confidenceFor(input: {
+  readonly benchmark: BenchmarkSpec;
+  readonly trialCount: number;
+  readonly primaryMetricSampleCount: number;
+  readonly traceCompleteness: number;
+  readonly primaryMetric: MetricValue | undefined;
+}): BenchmarkReportConfidence {
+  const minTrials = minTrialsForRecommendation(input.benchmark);
+  const configuredTrials = configuredTrialCount(input.benchmark);
+  const smoke = isSmokeBenchmark(input.benchmark);
+  const reasons: string[] = [];
+
+  if (input.trialCount < minTrials) {
+    reasons.push(`observed trials ${input.trialCount} below minTrials ${minTrials}`);
+  }
+
+  if (input.primaryMetric === undefined) {
+    reasons.push(`primary metric ${input.benchmark.primaryMetric} missing`);
+  } else if (input.primaryMetricSampleCount < minTrials) {
+    reasons.push(
+      `${input.benchmark.primaryMetric} samples ${input.primaryMetricSampleCount} below minTrials ${minTrials}`,
+    );
+  }
+
+  if (input.benchmark.validity?.requireTraceCompleteness === true && input.traceCompleteness < 1) {
+    reasons.push(`trace completeness ${input.traceCompleteness} below required 1`);
+  }
+
+  if (reasons.length > 0) {
+    return Object.freeze({
+      level: "insufficient_evidence",
+      minTrials,
+      observedTrials: input.trialCount,
+      configuredTrials,
+      smoke,
+      reasons: Object.freeze(reasons),
+    });
+  }
+
+  if (smoke) {
+    reasons.push("benchmark is marked smoke; recommendations are wiring checks only");
+  }
+
+  if (input.trialCount < configuredTrials) {
+    reasons.push(`observed trials ${input.trialCount} below configured trials ${configuredTrials}`);
+  }
+
+  return Object.freeze({
+    level: reasons.length === 0 ? "confident_recommendation" : "bounded_recommendation",
+    minTrials,
+    observedTrials: input.trialCount,
+    configuredTrials,
+    smoke,
+    reasons: Object.freeze(reasons),
+  });
 }
 
 function recommendationFor(input: {
@@ -352,7 +518,7 @@ function reliabilitySummary(input: {
   const minimumScoredTrials =
     profile.minimumScoredTrials ??
     input.benchmark.validity?.minimumTrialsForRecommendation ??
-    input.benchmark.trials.count;
+    configuredTrialCount(input.benchmark);
   const warnings = [
     ...(scoredStatuses.length < minimumScoredTrials
       ? [
@@ -394,11 +560,18 @@ function candidateReport(input: {
 }): BenchmarkReportCandidate {
   const primaryMetric = aggregateMetric(input.benchmark.primaryMetric, input.results);
   const primaryMetricSampleCount = metricSampleCount(input.benchmark.primaryMetric, input.results);
+  const traceCompleteness =
+    average(input.results.map((result) => result.diagnostics.completeness)) ?? 0;
+  const confidence = confidenceFor({
+    benchmark: input.benchmark,
+    trialCount: input.results.length,
+    primaryMetricSampleCount,
+    traceCompleteness,
+    primaryMetric,
+  });
   const guardrails = (input.benchmark.guardrailMetrics ?? [])
     .map((metricId) => aggregateMetric(metricId, input.results))
     .filter((metric): metric is MetricValue => metric !== undefined);
-  const traceCompleteness =
-    average(input.results.map((result) => result.diagnostics.completeness)) ?? 0;
   const reliability = reliabilitySummary({
     benchmark: input.benchmark,
     candidateId: input.candidateId,
@@ -417,13 +590,21 @@ function candidateReport(input: {
     planned: input.benchmark.faultInjections ?? [],
     observations: faultInjectionObservations(input.results),
   });
+  const passK = passKSummary({ benchmark: input.benchmark, results: input.results });
+  const reversibility = reversibilitySummary(input.results);
   const rationale = [
     primaryMetric === undefined
       ? `${input.benchmark.primaryMetric} average: missing`
       : `${input.benchmark.primaryMetric} average: ${primaryMetric.value}`,
     `${input.benchmark.primaryMetric} samples: ${primaryMetricSampleCount}/${input.results.length}`,
+    `pass^${passKHorizon(input.benchmark)}: ${
+      passK === undefined ? "missing" : passK.value
+    }`,
     `trace completeness: ${traceCompleteness}`,
-    `trials: ${input.results.length}`,
+    `trials: ${input.results.length}/${configuredTrialCount(input.benchmark)}`,
+    `minTrials: ${minTrialsForRecommendation(input.benchmark)}`,
+    `confidence: ${confidence.level}`,
+    `reversibility: ${formatReversibility(reversibility)}`,
     ...(reliability === undefined
       ? []
       : [
@@ -451,11 +632,54 @@ function candidateReport(input: {
       ...(primaryMetric === undefined ? [] : [primaryMetric]),
       ...guardrails,
     ]),
+    ...(passK === undefined ? {} : { passK }),
     traceCompleteness,
     recommendation,
     ...(reliability === undefined ? {} : { reliability }),
+    confidence,
+    ...(reversibility === undefined ? {} : { reversibility }),
     rationale: Object.freeze(rationale),
     ...(faultInjection === undefined ? {} : { faultInjection }),
+  });
+}
+
+function reportConfidence(
+  candidates: readonly BenchmarkReportCandidate[],
+): BenchmarkReportConfidence {
+  if (candidates.length === 0) {
+    return Object.freeze({
+      level: "insufficient_evidence",
+      minTrials: 1,
+      observedTrials: 0,
+      configuredTrials: 1,
+      smoke: false,
+      reasons: Object.freeze(["no benchmark candidates were configured"]),
+    });
+  }
+
+  const reasons = candidates.flatMap((candidate) =>
+    candidate.confidence.reasons.map((reason) => `${candidate.candidateId}: ${reason}`),
+  );
+  const hasInsufficient = candidates.some(
+    (candidate) => candidate.confidence.level === "insufficient_evidence",
+  );
+  const hasBounded = candidates.some(
+    (candidate) => candidate.confidence.level === "bounded_recommendation",
+  );
+
+  return Object.freeze({
+    level: hasInsufficient
+      ? "insufficient_evidence"
+      : hasBounded
+        ? "bounded_recommendation"
+        : "confident_recommendation",
+    minTrials: Math.max(...candidates.map((candidate) => candidate.confidence.minTrials)),
+    observedTrials: Math.min(...candidates.map((candidate) => candidate.confidence.observedTrials)),
+    configuredTrials: Math.max(
+      ...candidates.map((candidate) => candidate.confidence.configuredTrials),
+    ),
+    smoke: candidates.some((candidate) => candidate.confidence.smoke),
+    reasons: Object.freeze(reasons),
   });
 }
 
@@ -496,6 +720,7 @@ export function createBenchmarkReport(input: {
       bestPrimaryMetricValue,
     }),
   );
+  const confidence = reportConfidence(candidates);
   const insufficientEvidence = candidates
     .filter((candidate) => candidate.recommendation === "insufficient_evidence")
     .map((candidate) => `${candidate.candidateId}: ${candidate.rationale.join("; ")}`);
@@ -503,6 +728,7 @@ export function createBenchmarkReport(input: {
     planned: input.benchmark.faultInjections ?? [],
     observations: faultInjectionObservations(input.results),
   });
+  const reversibility = reversibilitySummary(input.results);
   const faultInjectionEvidenceGap =
     (input.benchmark.faultInjections ?? []).length > 0 &&
     (faultInjection?.observedCaseCount ?? 0) === 0
@@ -542,16 +768,28 @@ export function createBenchmarkReport(input: {
         : [
             `Observed ${faultInjection.observedCaseCount}/${faultInjection.plannedCaseCount} planned fault-injection cases.`,
           ]),
+      ...(reversibility === undefined
+        ? []
+        : [
+            `Captured reversibility metadata on ${reversibility.totalEventCount} trace events.`,
+          ]),
     ]),
     inferences: Object.freeze(
       [
-        ...(insufficientEvidence.length > 0 || faultInjectionEvidenceGap.length > 0
+        ...(confidence.level === "insufficient_evidence" ||
+        insufficientEvidence.length > 0 ||
+        faultInjectionEvidenceGap.length > 0
           ? ["At least one candidate lacks enough evidence for a confident recommendation."]
           : [
-              "Trial evidence is sufficient for the configured recommendation threshold.",
+              confidence.level === "confident_recommendation"
+                ? "Trial evidence is sufficient for a confident recommendation under the configured threshold."
+                : "Trial evidence is sufficient only for a bounded recommendation.",
               ...(faultInjection === undefined
                 ? []
                 : ["Fault-injection observations are included in the evidence boundary."]),
+              ...(reversibility === undefined
+                ? []
+                : ["Reversibility metadata is included in the evidence boundary."]),
             ]),
         ...reliabilityCandidates.flatMap((candidate) =>
           candidate.reliability.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
@@ -574,6 +812,8 @@ export function createBenchmarkReport(input: {
       }),
     ),
     candidates: Object.freeze(candidates),
+    confidence,
+    ...(reversibility === undefined ? {} : { reversibility }),
     evidence: Object.freeze({
       traceEventCount,
       artifactCount,
@@ -595,6 +835,10 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
     `Mission: ${report.missionId}`,
     `Generated: ${report.generatedAt}`,
     `Primary metric: ${report.primaryMetric}`,
+    `Confidence: ${report.confidence.level}`,
+    `Trials: ${report.confidence.observedTrials}/${report.confidence.configuredTrials}`,
+    `minTrials: ${report.confidence.minTrials}`,
+    `Smoke: ${report.confidence.smoke ? "yes" : "no"}`,
     "",
     "## Observations",
     "",
@@ -610,11 +854,17 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
     "",
     "## Candidates",
     "",
-    "| Candidate | Harness | Trials | Trace completeness | Recommendation |",
-    "| --- | --- | ---: | ---: | --- |",
+    "| Candidate | Harness | Trials | pass^k | Reversibility | Trace completeness | Confidence | Recommendation |",
+    "| --- | --- | ---: | ---: | --- | ---: | --- | --- |",
     ...report.candidates.map(
       (candidate) =>
-        `| ${candidate.candidateId} | ${candidate.harnessId} | ${candidate.trialCount} | ${candidate.traceCompleteness} | ${candidate.recommendation} |`,
+        `| ${candidate.candidateId} | ${candidate.harnessId} | ${candidate.trialCount} | ${
+          candidate.passK === undefined
+            ? "missing"
+            : `pass^${candidate.passK.k}=${candidate.passK.value}`
+        } | ${formatReversibility(candidate.reversibility)} | ${candidate.traceCompleteness} | ${candidate.confidence.level} | ${
+          candidate.recommendation
+        } |`,
     ),
     "",
   ];
@@ -643,6 +893,23 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
         "",
       );
     }
+  }
+
+  if (report.reversibility !== undefined) {
+    lines.push(
+      "## Reversibility",
+      "",
+      `- Trace events with metadata: ${report.reversibility.totalEventCount}`,
+      `- Irreversible: ${report.reversibility.irreversibleCount}`,
+      `- Reversible with cost: ${report.reversibility.reversibleWithCostCount}`,
+      `- Reversible cheap: ${report.reversibility.reversibleCheapCount}`,
+      `- Superseded events: ${report.reversibility.supersededEventCount}`,
+      "",
+    );
+  }
+
+  if (report.confidence.reasons.length > 0) {
+    lines.push("## Confidence", "", ...report.confidence.reasons.map((item) => `- ${item}`), "");
   }
 
   if (report.insufficientEvidence.length > 0) {

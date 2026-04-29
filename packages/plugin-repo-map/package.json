@@ -15,6 +15,11 @@
     "@sinclair/typebox": "0.34.49"
   },
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "slot": "planning",
+    "method": "repo-map-orientation.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

@@ -15,6 +15,19 @@
     "@generic-ai/sdk": "0.0.0"
   },
   "license": "MIT",
+  "genericAi": {
+    "kind": "preset",
+    "category": "preset",
+    "method": "local-first-hono-starter.v1",
+    "composesSlots": [
+      "planning",
+      "coordination",
+      "memory",
+      "communication",
+      "tool-policy",
+      "reporting"
+    ]
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

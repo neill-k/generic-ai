@@ -1,9 +1,11 @@
+import { type AgentHarnessRunResult, createCanonicalEvent } from "@generic-ai/sdk";
 import { describe, expect, it } from "vitest";
-import { createCanonicalEvent, type AgentHarnessRunResult } from "@generic-ai/sdk";
 import { createObservabilityAgentTools } from "../src/agent-tools.js";
-import { getObservabilityMetricCatalog, assertMetricAttributesAreBounded } from "../src/metrics.js";
-import { MemoryObservabilityRepository, SqliteObservabilityRepository } from "../src/repository.js";
+import { assertMetricAttributesAreBounded, getObservabilityMetricCatalog } from "../src/metrics.js";
+import { createProvenanceBundle } from "../src/provenance.js";
 import { redactJsonValue, summarizePayload } from "../src/redaction.js";
+import { createDeterministicObservabilityReport } from "../src/reports.js";
+import { MemoryObservabilityRepository, SqliteObservabilityRepository } from "../src/repository.js";
 import { createGenericAIObservabilityRoutes, ingestObservabilityEvent } from "../src/server.js";
 import { createObservabilityLiveEventBus } from "../src/sse.js";
 import type { ObservabilityMetricPoint } from "../src/types.js";
@@ -19,7 +21,10 @@ describe("observability repositories", () => {
     const result = fakeRunResult("run-1");
     await repository.ingestRunResult({ workspaceId, result });
     await repository.ingestRunResult({ workspaceId, result });
-    await repository.ingestRunResult({ workspaceId: "workspace-b", result: fakeRunResult("run-2") });
+    await repository.ingestRunResult({
+      workspaceId: "workspace-b",
+      result: fakeRunResult("run-2"),
+    });
 
     const run = await repository.getRun(workspaceId, "run-1");
     expect(run?.eventCount).toBe(2);
@@ -149,6 +154,41 @@ describe("observability routes and live events", () => {
       }),
     );
     expect(disabled.status).toBe(403);
+  });
+
+  it("exports metadata-only PROV-style provenance bundles", async () => {
+    const repository = new MemoryObservabilityRepository();
+    await repository.ingestRunResult({ workspaceId, result: fakeRunResult("provenance-run") });
+    const trace = await repository.getTrace(workspaceId, "provenance-run");
+    if (trace === undefined) {
+      throw new Error("Expected provenance-run trace to be stored.");
+    }
+
+    const report = createDeterministicObservabilityReport(trace);
+    const bundle = createProvenanceBundle({
+      trace,
+      report,
+      generatedAt: "2026-04-27T00:00:04.000Z",
+    });
+
+    expect(bundle.schemaVersion).toBe("prov-jsonld-like.v0.1");
+    expect(bundle.entities.some((entity) => entity.type === "generic-ai.event")).toBe(true);
+    expect(
+      bundle.activities.some((activity) => activity.type === "generic-ai.report-generation"),
+    ).toBe(true);
+    expect(bundle.agents.some((agent) => agent.type === "generic-ai.observability")).toBe(true);
+    expect(bundle.derivations.some((derivation) => derivation.role === "report-source")).toBe(true);
+    expect(JSON.stringify(bundle)).not.toContain("sk-secret");
+
+    const routes = createGenericAIObservabilityRoutes({ repository, workspaceId });
+    const token = routes.localSessionToken ?? "";
+    const response = await routes.fetch(
+      new Request("http://localhost/runs/provenance-run/provenance", {
+        headers: { authorization: `Bearer ${token}`, host: "localhost" },
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toHaveProperty("provenance");
   });
 
   it("replays live events and disconnects slow subscribers", () => {

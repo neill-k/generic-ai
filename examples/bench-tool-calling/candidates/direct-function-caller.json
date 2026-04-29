@@ -1,0 +1,52 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.micro.direct-function-caller",
+  "name": "Direct function caller",
+  "description": "Calls the lookup function without a retrieval-grounding step.",
+  "packages": [
+    {
+      "id": "capability.function-calling",
+      "package": "@generic-ai/bench-tool-calling/functions",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.default",
+      "package": "@generic-ai/grader-default",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "solver",
+      "role": "solver",
+      "instructions": "Call the most likely policy lookup function and answer directly.",
+      "packageRefs": ["capability.function-calling", "grader.default"],
+      "artifactRefs": ["artifact.tool-call-trace", "artifact.answer"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "single-step",
+      "protocol": "pipeline",
+      "packageRef": "capability.function-calling",
+      "actorRefs": ["solver"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.tool-call-trace",
+      "name": "tool-call-trace.json",
+      "kind": "trace",
+      "producedBy": ["solver"]
+    },
+    {
+      "id": "artifact.answer",
+      "name": "grounded-answer.md",
+      "kind": "report",
+      "producedBy": ["solver"]
+    }
+  ],
+  "missionRefs": ["mission.micro.tool-calling-retrieval"],
+  "evalRefs": ["benchmark.micro.tool-calling-retrieval.v0"]
+}

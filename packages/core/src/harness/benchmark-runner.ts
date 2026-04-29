@@ -25,6 +25,8 @@ export interface HarnessBenchmarkRuntimeContext {
   readonly mission: MissionSpec;
   readonly candidateId: string;
   readonly trialId: string;
+  readonly seed?: string;
+  readonly replayId: string;
   readonly compiled: CompiledHarness;
   readonly prompt: string;
 }
@@ -63,6 +65,9 @@ function buildMissionPrompt(input: {
   readonly benchmark: BenchmarkSpec;
   readonly mission: MissionSpec;
   readonly candidateId: string;
+  readonly trialId: string;
+  readonly seed?: string;
+  readonly replayId: string;
   readonly compiled: CompiledHarness;
 }): string {
   const lines = [
@@ -70,6 +75,9 @@ function buildMissionPrompt(input: {
     input.mission.objective,
     "",
     `Candidate: ${input.candidateId}`,
+    `Trial: ${input.trialId}`,
+    `Replay id: ${input.replayId}`,
+    ...(input.seed === undefined ? [] : [`Seed: ${input.seed}`]),
     `Compiled harness: ${input.compiled.id}`,
     `Primary metric: ${input.benchmark.primaryMetric}`,
   ];
@@ -117,6 +125,8 @@ function eventFactory(input: {
   readonly harnessId: string;
   readonly candidateId: string;
   readonly trialId: string;
+  readonly seed?: string;
+  readonly replayId: string;
 }): (event: Omit<TraceEvent, "id" | "sequence" | "timestamp" | "runId">) => TraceEvent {
   let sequence = 0;
 
@@ -130,9 +140,49 @@ function eventFactory(input: {
       harnessId: input.harnessId,
       candidateId: input.candidateId,
       trialId: input.trialId,
+      ...(input.seed === undefined ? {} : { seed: input.seed }),
+      replayId: input.replayId,
       ...event,
     });
   };
+}
+
+function positiveIntegerOrDefault(value: number | undefined, fallback: number): number {
+  if (value === undefined || !Number.isFinite(value) || value < 1) {
+    return fallback;
+  }
+
+  return Math.floor(value);
+}
+
+function configuredTrialCount(benchmark: BenchmarkSpec): number {
+  return positiveIntegerOrDefault(benchmark.trials?.count, 1);
+}
+
+function validatePositiveInteger(name: string, value: number | undefined): void {
+  if (value === undefined) {
+    return;
+  }
+
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`Benchmark ${name} must be a positive integer.`);
+  }
+}
+
+function validateBenchmarkTrialConfig(benchmark: BenchmarkSpec): void {
+  validatePositiveInteger("trials.count", benchmark.trials?.count);
+  validatePositiveInteger("trials.minTrials", benchmark.trials?.minTrials);
+  validatePositiveInteger("trials.passK", benchmark.trials?.passK);
+  validatePositiveInteger("minTrials", benchmark.minTrials);
+  validatePositiveInteger(
+    "validity.minimumTrialsForRecommendation",
+    benchmark.validity?.minimumTrialsForRecommendation,
+  );
+}
+
+function trialSeed(benchmark: BenchmarkSpec, trialIndex: number): string | undefined {
+  const seed = benchmark.trials?.seed;
+  return seed === undefined ? undefined : `${seed}:${trialIndex + 1}`;
 }
 
 function memoryArtifactUri(...segments: readonly string[]): string {
@@ -252,6 +302,8 @@ async function runTrial(input: {
   readonly compiled: CompiledHarness;
   readonly candidateId: string;
   readonly trialId: string;
+  readonly seed?: string;
+  readonly replayId: string;
   readonly runId: string;
 }): Promise<BenchmarkTrialResult> {
   const startedAt = Date.now();
@@ -259,6 +311,9 @@ async function runTrial(input: {
     benchmark: input.options.benchmark,
     mission: input.options.mission,
     candidateId: input.candidateId,
+    trialId: input.trialId,
+    ...(input.seed === undefined ? {} : { seed: input.seed }),
+    replayId: input.replayId,
     compiled: input.compiled,
   });
   const runtime = await resolveRuntime(input.options, {
@@ -266,6 +321,8 @@ async function runTrial(input: {
     mission: input.options.mission,
     candidateId: input.candidateId,
     trialId: input.trialId,
+    ...(input.seed === undefined ? {} : { seed: input.seed }),
+    replayId: input.replayId,
     compiled: input.compiled,
     prompt,
   });
@@ -275,6 +332,8 @@ async function runTrial(input: {
     harnessId: input.compiled.id,
     candidateId: input.candidateId,
     trialId: input.trialId,
+    ...(input.seed === undefined ? {} : { seed: input.seed }),
+    replayId: input.replayId,
   });
   const traceEvents: TraceEvent[] = [
     createEvent({
@@ -333,6 +392,8 @@ async function runTrial(input: {
       candidateId: input.candidateId,
       harnessId: input.compiled.id,
       trialId: input.trialId,
+      ...(input.seed === undefined ? {} : { seed: input.seed }),
+      replayId: input.replayId,
       metrics: scoreMission({
         mission: input.options.mission,
         outputText: response.outputText,
@@ -357,6 +418,7 @@ export async function runHarnessBenchmark(
       `Benchmark missionRef "${options.benchmark.missionRef}" does not match mission "${options.mission.id}".`,
     );
   }
+  validateBenchmarkTrialConfig(options.benchmark);
 
   const compiledHarnesses: Record<string, CompiledHarness> = {};
   for (const candidate of options.benchmark.candidates) {
@@ -370,18 +432,22 @@ export async function runHarnessBenchmark(
   }).slice(0, 12);
   const runId = `${options.benchmark.id}:${runFingerprint}:${randomUUID()}`;
   const trialResults: BenchmarkTrialResult[] = [];
-  for (let trialIndex = 0; trialIndex < options.benchmark.trials.count; trialIndex += 1) {
+  for (let trialIndex = 0; trialIndex < configuredTrialCount(options.benchmark); trialIndex += 1) {
     for (const candidate of options.benchmark.candidates) {
       const compiled = compiledHarnesses[candidate.harnessRef];
       if (compiled === undefined) {
         throw new Error(`Compiled harness "${candidate.harnessRef}" was not found.`);
       }
+      const trialId = `${candidate.id}:trial:${trialIndex + 1}`;
+      const seed = trialSeed(options.benchmark, trialIndex);
       trialResults.push(
         await runTrial({
           options,
           compiled,
           candidateId: candidate.id,
-          trialId: `${candidate.id}:trial:${trialIndex + 1}`,
+          trialId,
+          ...(seed === undefined ? {} : { seed }),
+          replayId: options.benchmark.trials?.replayId ?? `${runId}:${trialId}`,
           runId,
         }),
       );

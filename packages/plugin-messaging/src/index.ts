@@ -1,7 +1,39 @@
 import { randomUUID } from "node:crypto";
+import type { AgentHarnessToolDescriptor } from "@generic-ai/sdk";
 
 export const name = "@generic-ai/plugin-messaging" as const;
 export const kind = "messaging" as const;
+
+export const messagingEffectDescriptors = Object.freeze([
+  {
+    id: "messaging.send",
+    label: "Send message",
+    effects: ["handoff.write"],
+    reversibility: "irreversible",
+    retrySemantics: "idempotency-key-required",
+  },
+  {
+    id: "messaging.read",
+    label: "Read messages",
+    effects: ["handoff.read"],
+    reversibility: "reversible-cheap",
+    retrySemantics: "safe-to-retry",
+  },
+  {
+    id: "messaging.mark-read",
+    label: "Mark message read",
+    effects: ["handoff.write"],
+    reversibility: "reversible-with-cost",
+    retrySemantics: "idempotency-key-required",
+  },
+  {
+    id: "messaging.clear",
+    label: "Clear messages",
+    effects: ["handoff.write"],
+    reversibility: "irreversible",
+    retrySemantics: "retry-may-duplicate",
+  },
+] satisfies readonly AgentHarnessToolDescriptor[]);
 
 export interface NamespaceRecord<TValue> {
   readonly key: string;

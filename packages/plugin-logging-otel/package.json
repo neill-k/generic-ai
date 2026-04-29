@@ -21,6 +21,11 @@
     "README.md"
   ],
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "slot": "reporting",
+    "method": "otel-tracing.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

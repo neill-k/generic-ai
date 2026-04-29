@@ -1,33 +1,39 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { getObservabilityMetricCatalog } from "./metrics.js";
-import {
-  MemoryObservabilityRepository,
-  SqliteObservabilityRepository,
-} from "./repository.js";
+import { createProvenanceBundle } from "./provenance.js";
 import { createDeterministicObservabilityReport } from "./reports.js";
+import { MemoryObservabilityRepository, SqliteObservabilityRepository } from "./repository.js";
 import { createObservabilityLiveEventBus } from "./sse.js";
-import type { ObservabilityEventRecord, ObservabilityMetricQuery, ObservabilityRepository, ObservabilityRunListFilter } from "./types.js";
-export {
-  BaseObservabilityRepository,
-  MemoryObservabilityRepository,
-  SqliteObservabilityRepository,
-  canonicalEventToObservabilityEvent,
-} from "./repository.js";
+import type {
+  ObservabilityEventRecord,
+  ObservabilityMetricQuery,
+  ObservabilityRepository,
+  ObservabilityRunListFilter,
+} from "./types.js";
+
 export { getObservabilityMetricCatalog } from "./metrics.js";
-export {
-  createDeterministicObservabilityReport,
-  renderObservabilityReportMarkdown,
-} from "./reports.js";
-export { createObservabilityLiveEventBus } from "./sse.js";
+export type * from "./provenance.js";
+export { createProvenanceBundle, serializeProvenanceBundle } from "./provenance.js";
 export {
   byteSize,
   metadataOnlySummary,
   redactJsonValue,
   summarizePayload,
 } from "./redaction.js";
-export type * from "./types.js";
+export {
+  createDeterministicObservabilityReport,
+  renderObservabilityReportMarkdown,
+} from "./reports.js";
+export {
+  BaseObservabilityRepository,
+  canonicalEventToObservabilityEvent,
+  MemoryObservabilityRepository,
+  SqliteObservabilityRepository,
+} from "./repository.js";
 export type { ObservabilityLiveEvent, ObservabilityLiveEventBus } from "./sse.js";
+export { createObservabilityLiveEventBus } from "./sse.js";
+export type * from "./types.js";
 
 export interface GenericAIObservabilityRoutesOptions {
   readonly repository?: ObservabilityRepository;
@@ -102,7 +108,10 @@ export function createGenericAIObservabilityRoutes(
   });
 
   routes.get("/runs/:id", async (context) => {
-    const run = await repository.getRun(context.req.query("workspaceId") ?? workspaceId, context.req.param("id"));
+    const run = await repository.getRun(
+      context.req.query("workspaceId") ?? workspaceId,
+      context.req.param("id"),
+    );
     return run ? context.json({ run }) : context.json({ error: "not_found" }, 404);
   });
 
@@ -136,6 +145,18 @@ export function createGenericAIObservabilityRoutes(
     return trace
       ? context.json({ report: createDeterministicObservabilityReport(trace) })
       : context.json({ error: "not_found" }, 404);
+  });
+
+  routes.get("/runs/:id/provenance", async (context) => {
+    const trace = await repository.getTrace(
+      context.req.query("workspaceId") ?? workspaceId,
+      context.req.param("id"),
+    );
+    if (!trace) {
+      return context.json({ error: "not_found" }, 404);
+    }
+    const report = createDeterministicObservabilityReport(trace);
+    return context.json({ provenance: createProvenanceBundle({ trace, report }) });
   });
 
   routes.get("/metrics/catalog", (context) =>
@@ -256,7 +277,10 @@ async function authorizeRequest(
     readonly localSessionToken?: string;
     readonly allowNonLoopback: boolean;
   },
-): Promise<{ readonly allowed: true } | { readonly allowed: false; readonly status: 401 | 403; readonly reason: string }> {
+): Promise<
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly status: 401 | 403; readonly reason: string }
+> {
   if (!options.allowNonLoopback && !isLoopbackRequest(request)) {
     return { allowed: false, status: 403, reason: "loopback_required" };
   }

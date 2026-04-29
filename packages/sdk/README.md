@@ -80,7 +80,7 @@ staying faithful to the public contract shape.
 
 - `contracts/sdk/README.md`
 - `specs/sdk/README.md`
-- `docs/decisions/0004-sdk-contracts.md`
+- `docs/decisions/0035-sdk-contracts.md`
 - `docs/planning/02-architecture.md`
 - `docs/package-boundaries.md`
 - `docs/harness-dsl.md`

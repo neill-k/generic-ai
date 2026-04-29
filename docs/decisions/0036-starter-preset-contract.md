@@ -1,4 +1,9 @@
-# 0005: Starter Preset Contract
+# 0036: Starter Preset Contract
+
+- Status: accepted
+- Date: 2026-04-13
+- Renumbered from: `0005-starter-preset-contract.md` to keep ADR numbers unique
+  after Plan 05 W1.5.
 
 ## Context
 

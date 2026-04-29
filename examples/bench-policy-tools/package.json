@@ -1,0 +1,24 @@
+{
+  "name": "@generic-ai/example-bench-policy-tools",
+  "version": "0.0.0",
+  "description": "Meso policy and tool-use benchmark adapter for the Generic AI harness pipeline.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "check:node": "node ../../scripts/check-node-version.mjs",
+    "pretypecheck": "node ../../scripts/check-node-version.mjs",
+    "typecheck": "tsc -b --pretty",
+    "test": "vitest run --root ../.. --config vitest.config.ts examples/bench-policy-tools/src/adapter.test.ts",
+    "smoke": "npm run build && node dist/run-smoke.js",
+    "lint": "biome lint ."
+  },
+  "dependencies": {
+    "@generic-ai/core": "0.0.0",
+    "@generic-ai/sdk": "0.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "license": "MIT",
+  "private": true
+}

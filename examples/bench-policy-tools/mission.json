@@ -1,0 +1,61 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.meso.policy-tools-refund",
+  "objective": "Resolve a refund request by checking policy, reading order state, applying the allowed refund tool, and recording an audit note.",
+  "objectiveClass": "research",
+  "fixtureRefs": ["fixtures/refund-policy-mini-crm"],
+  "reset": {
+    "workspace": "clean",
+    "storage": "clean",
+    "messages": "clean",
+    "memory": "clean"
+  },
+  "allowedPackages": [
+    "capability.policy",
+    "capability.order-tools",
+    "capability.audit-log",
+    "grader.default"
+  ],
+  "constraints": [
+    "Refund only if the order is delivered, within 30 days, and the amount is at or below the configured threshold.",
+    "Call policy_check before refund_order.",
+    "Write an audit note that includes the policy id, order id, and refund id."
+  ],
+  "expectedArtifacts": [
+    {
+      "id": "artifact.tool-plan",
+      "name": "tool-plan.json",
+      "kind": "trace",
+      "producedBy": ["planner"]
+    },
+    {
+      "id": "artifact.audit-note",
+      "name": "audit-note.md",
+      "kind": "report",
+      "producedBy": ["auditor"]
+    }
+  ],
+  "graders": [
+    {
+      "id": "grader.policy-tools-v0",
+      "metricRefs": ["task_success", "artifact_completeness", "trace_completeness"],
+      "packageRef": "grader.default",
+      "deterministic": true
+    }
+  ],
+  "successCriteria": {
+    "requiredSubstrings": [
+      "POLICY_OK:refund-30d-low-value",
+      "TOOL_SEQUENCE:policy_check>read_order>refund_order>write_audit_note",
+      "REFUND_ID:rf_2026_0429"
+    ],
+    "requiredArtifacts": ["tool-plan.json", "audit-note.md"]
+  },
+  "providerPolicy": {
+    "adapter": "openai-codex",
+    "model": "deterministic-meso-adapter",
+    "cache": "deny",
+    "network": "isolated"
+  }
+}

@@ -28,6 +28,12 @@ SDK tool metadata includes declared capability effects such as:
 
 Plugins attach effect metadata to tool descriptors. Core role policy filters by declared effects, not tool names. Tools without declared effects are denied in harness roles for P1 so missing metadata fails closed.
 
+Descriptors also carry reversibility metadata. The default is `irreversible`;
+plugins must explicitly opt into `reversible-with-cost` or `reversible-cheap`
+and may declare retry semantics. That keeps recovery claims separate from
+authority claims: a tool can be allowed while still being unsafe to retry or
+hard to roll back.
+
 Role policies may grant a different allowed effect subset for a capability class. P1 uses this for the verifier role: file write/edit tools remain denied, while the terminal capability is allowed as an explicit verification execution surface because real benchmark verification usually requires process execution.
 
 `benchmark-container` also denies selected effects at binding time, including network egress, MCP launch, secret reads, and nested sandbox creation.

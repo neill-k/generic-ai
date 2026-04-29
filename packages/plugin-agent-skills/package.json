@@ -14,6 +14,11 @@
     "@mariozechner/pi-coding-agent": "0.70.2"
   },
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "category": "transport",
+    "method": "agent-skills.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

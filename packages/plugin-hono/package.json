@@ -13,6 +13,11 @@
     "hono": "^4.12.15"
   },
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "category": "transport",
+    "method": "hono.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

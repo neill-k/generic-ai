@@ -21,6 +21,11 @@
     "README.md"
   ],
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "category": "infra",
+    "method": "in-memory-storage.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

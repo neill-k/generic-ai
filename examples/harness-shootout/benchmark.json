@@ -99,12 +99,15 @@
     "trace_completeness"
   ],
   "trials": {
-    "count": 3,
+    "count": 5,
     "pairing": "paired",
-    "seed": "shootout-v0"
+    "seed": "shootout-v0",
+    "passK": 5
   },
+  "minTrials": 5,
+  "smoke": false,
   "validity": {
-    "minimumTrialsForRecommendation": 3,
+    "minimumTrialsForRecommendation": 5,
     "requireTraceCompleteness": true,
     "allowSingleRunRecommendation": false
   },

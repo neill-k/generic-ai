@@ -125,10 +125,17 @@ describe("runHarnessBenchmark", () => {
     });
 
     expect(prompts[0]).toContain("Add a tiny OAuth login route");
+    expect(prompts[0]).toContain("Replay id:");
+    expect(prompts[0]).toContain("Seed: seed-1:1");
     expect(result.compiledHarnesses[harness.id]?.sourceId).toBe(harness.id);
     expect(result.trialResults).toHaveLength(1);
     expect(result.report.candidates[0]?.recommendation).toBe("insufficient_evidence");
+    expect(result.report.confidence.level).toBe("insufficient_evidence");
     expect(result.report.evidence.traceEventCount).toBeGreaterThan(0);
+    expect(result.trialResults[0]?.seed).toBe("seed-1:1");
+    expect(result.trialResults[0]?.replayId).toContain("pipeline:trial:1");
+    expect(result.trialResults[0]?.traceEvents[0]?.seed).toBe("seed-1:1");
+    expect(result.trialResults[0]?.traceEvents[0]?.replayId).toContain("pipeline:trial:1");
     const artifactUri = result.trialResults[0]?.artifacts[0]?.uri;
     expect(artifactUri).toBeDefined();
     if (artifactUri === undefined) {
@@ -271,6 +278,47 @@ describe("runHarnessBenchmark", () => {
     expect(firstRunId).toBeDefined();
     expect(secondRunId).toBeDefined();
     expect(firstRunId).not.toBe(secondRunId);
+  });
+
+  it("defaults missing trials to one smoke-compatible run", async () => {
+    const { trials: _trials, validity: _validity, ...benchmarkWithoutTrials } = benchmark;
+    const result = await runHarnessBenchmark({
+      benchmark: {
+        ...benchmarkWithoutTrials,
+        smoke: true,
+        minTrials: 1,
+      },
+      mission,
+      harnesses: {
+        [harness.id]: harness,
+      },
+      createRuntime: async () => fakeRuntime("LOGIN_DONE README.md"),
+    });
+
+    expect(result.trialResults).toHaveLength(1);
+    expect(result.report.confidence.level).toBe("bounded_recommendation");
+  });
+
+  it("validates benchmark trial counts before runtime execution", async () => {
+    const createRuntime = vi.fn(async () => fakeRuntime("not reached"));
+
+    await expect(
+      runHarnessBenchmark({
+        benchmark: {
+          ...benchmark,
+          trials: {
+            count: 0,
+            pairing: "paired",
+          },
+        },
+        mission,
+        harnesses: {
+          [harness.id]: harness,
+        },
+        createRuntime,
+      }),
+    ).rejects.toThrow("Benchmark trials.count must be a positive integer");
+    expect(createRuntime).not.toHaveBeenCalled();
   });
 
   it("inherits the compiled harness model when runtimeOptions omit a model", async () => {

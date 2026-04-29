@@ -14,6 +14,11 @@
     "@sinclair/typebox": "0.34.49"
   },
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "slot": "tool-policy",
+    "method": "web-fetch-search.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

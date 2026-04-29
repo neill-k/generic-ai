@@ -26,9 +26,7 @@ ADRs must be written when:
 - [`0002-base-toolchain.md`](0002-base-toolchain.md) — base toolchain for the monorepo: Node LTS, TypeScript project references, Biome, Vitest, workspace scripts, and the four-command quality gate.
 - [`0003-release-and-publishing.md`](0003-release-and-publishing.md) — release tool (changesets), independent versioning, public-vs-internal classification, `publishConfig` with npm provenance, changelog policy, and the CI/release-ownership handoff to `CTL-02` and `CTL-03`.
 - [`0004-config-contracts-and-discovery.md`](0004-config-contracts-and-discovery.md) — Zod-backed config contracts, JSON Schema artifacts in `contracts/`, deterministic `.generic-ai/` discovery, and startup-time validation/composition.
-- [`0004-sdk-contracts.md`](0004-sdk-contracts.md) — SDK-owned plugin, lifecycle, registry, storage, queue, workspace, output, and scope contracts plus the typed helper surface plugin authors build against.
 - [`0005-plugin-host.md`](0005-plugin-host.md) — deterministic plugin-host ordering, lifecycle execution, and actionable host diagnostics inside `@generic-ai/core`.
-- [`0005-starter-preset-contract.md`](0005-starter-preset-contract.md) — SDK-owned preset contracts, starter preset composition rules, and the kernel/preset boundary.
 - [`0006-scope-primitive.md`](0006-scope-primitive.md) — the framework-wide `Scope` primitive and how it flows through bootstrap, runtime, and plugin execution.
 - [`0007-session-orchestration.md`](0007-session-orchestration.md) — kernel-owned root/child session lifecycle and observability model.
 - [`0008-canonical-event-stream.md`](0008-canonical-event-stream.md) — the canonical event taxonomy and streaming surface emitted by the kernel.
@@ -56,6 +54,11 @@ ADRs must be written when:
 - [`0030-observability-surface-package.md`](0030-observability-surface-package.md) - surface-package layer, safe observability defaults, repository ownership, metric-first ordering, and OTEL export deferral.
 - [`0031-fault-injection-benchmark-contracts.md`](0031-fault-injection-benchmark-contracts.md) - SDK-owned fault-injection benchmark contracts, report aggregation, and plugin-owned injector boundaries.
 - [`0032-repeated-run-reliability-profile.md`](0032-repeated-run-reliability-profile.md) - optional SDK reliability profile contracts and report sections for repeated agent benchmark runs.
+- [`0033-research-slots.md`](0033-research-slots.md) - additive research-slot metadata for plugin discovery without package renames.
+- [`0034-reversibility-effect-descriptors.md`](0034-reversibility-effect-descriptors.md) - reversibility metadata for effect descriptors, recovery, retry, rollback, and supersession evidence.
+- [`0035-sdk-contracts.md`](0035-sdk-contracts.md) — SDK-owned plugin, lifecycle, registry, storage, queue, workspace, output, and scope contracts plus the typed helper surface plugin authors build against. Renumbered from `0004-sdk-contracts.md`.
+- [`0036-starter-preset-contract.md`](0036-starter-preset-contract.md) — SDK-owned preset contracts, starter preset composition rules, and the kernel/preset boundary. Renumbered from `0005-starter-preset-contract.md`.
+- [`0037-prov-evidence-bundles.md`](0037-prov-evidence-bundles.md) - PROV-style evidence bundles that pair semantic report evidence with OTEL runtime causality.
 
 ## Planning Baseline
 

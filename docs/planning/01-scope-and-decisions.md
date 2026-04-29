@@ -13,7 +13,9 @@ Planning should optimize for long-term maintainability and eventual public usabi
 These inputs are treated as normative during planning:
 
 - Repo entrypoint: [README.md](../../README.md)
-- Active planning baseline: this document plus `02-architecture.md`, `03-linear-issue-tree.md`, and `04-agent-ready-mapping.md`
+- Active planning baseline: this document plus `02-architecture.md`,
+  `03-linear-issue-tree.md`, `04-agent-ready-mapping.md`, and
+  `05-research-harness-plan.md`
 - `pi`/`pi-mono`: [pi-mono repository](https://github.com/badlogic/pi-mono)
 - Agent Skills: [specification](https://agentskills.io/specification) and [client implementation guide](https://agentskills.io/client-implementation/adding-skills-support)
 - Hono: [documentation](https://hono.dev/)
@@ -25,19 +27,18 @@ Anything outside that baseline should be treated as non-authoritative for reimpl
 
 ## Core Product Decision
 
-This is a package-extensible agents-as-code framework, not a reimplementation of
+This is a composable agents-as-code research harness, not a reimplementation of
 the full Generic Corp product.
 
-The framework should preserve the useful architectural lessons from the old
-system, but it should not inherit the full product surface area by default.
-Developers should be able to describe an agent system once, install reusable
-capability packages, compile that declaration into a stable runtime contract,
-run reproducible missions, trace behavior, evaluate outcomes, and publish
-evidence-backed reports.
+The harness should preserve the useful architectural lessons from the old
+system, but it should not inherit the full product surface area by default. A
+developer should be able to keep a mission stable, vary the harness
+configuration around topology, runtime constraints, plugins, evaluator choices,
+and evidence requirements, then publish a bounded comparison report.
 
 Architecture Lab is the flagship validation and demo application for this
-platform. Lab concepts must not become kernel concepts unless a later ADR makes
-that boundary explicit.
+research harness. Lab concepts must not become kernel concepts unless a later
+ADR makes that boundary explicit.
 
 ## Kernel Decision
 
@@ -77,7 +78,8 @@ Planning assumptions:
 
 ## Working Definition Of V1
 
-V1 counts as a working multi-agent framework when the standard path can do the following:
+V1 counts as a working multi-agent research harness when the standard path can
+do the following:
 
 1. A caller submits either a plain prompt or structured task input.
 2. A primary agent starts a streaming run.
@@ -87,7 +89,7 @@ V1 counts as a working multi-agent framework when the standard path can do the f
 6. Messaging between agents is durable.
 7. Agent memory is persistent, file-backed, and searchable.
 8. The run can complete synchronously or via a queue-backed asynchronous path.
-9. The framework returns a canonical run envelope plus plugin-defined output.
+9. The harness returns a canonical run envelope plus plugin-defined output.
 10. A Harness DSL declaration can compile into typed Generic Agent IR before runtime execution.
 11. A MissionSpec and BenchmarkSpec can run through the normal runtime path and produce trace-backed reports with recommendation boundaries.
 
@@ -229,7 +231,7 @@ local-first `@generic-ai/plugin-web-ui` console in
 
 Hosted package registry, marketplace behavior, visual builders, autonomous
 self-mutation, and broad workflow-engine semantics are deferred beyond the v0.1
-agents-as-code launch spine.
+agents-as-code research-harness launch spine.
 
 ## Planning Rule For Linear Issues
 
@@ -238,4 +240,5 @@ Every implementation issue should explicitly tell the assignee to:
 - research relevant current best practices on the internet before coding
 - record major decisions and trade-offs inside Linear
 - also record major decisions and trade-offs within docs/decisions/
-- update docs/contracts/examples when those decisions affect the public framework shape
+- update docs/contracts/examples when those decisions affect the public
+  research-harness shape

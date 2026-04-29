@@ -20,6 +20,10 @@
       "types": "./dist/otel.d.ts",
       "default": "./dist/otel.js"
     },
+    "./provenance": {
+      "types": "./dist/provenance.d.ts",
+      "default": "./dist/provenance.js"
+    },
     "./styles.css": "./src/styles.css"
   },
   "main": "dist/index.js",

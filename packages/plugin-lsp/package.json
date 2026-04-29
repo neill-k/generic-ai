@@ -15,6 +15,11 @@
     "@sinclair/typebox": "0.34.49"
   },
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "slot": "tool-policy",
+    "method": "lsp-read.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

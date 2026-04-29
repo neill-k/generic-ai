@@ -9,7 +9,15 @@
     "dist",
     "README.md"
   ],
+  "dependencies": {
+    "@generic-ai/sdk": "0.0.0"
+  },
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "slot": "communication",
+    "method": "storage-backed-messaging.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",

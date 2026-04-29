@@ -1,11 +1,51 @@
-# Generic AI Framework
+# Generic AI
 
-Pluggable, extensible multi-agent framework and agents-as-code substrate.
+Generic AI is a composable agents-as-code research harness for specifying,
+running, tracing, evaluating, and comparing agentic system architectures under
+controlled conditions.
 
-Generic AI is a package-extensible agents-as-code language, compiler, runtime,
-and evidence harness. Developers describe an agent system once, install reusable
-capability packages, compile the harness into Generic Agent IR, run missions,
-trace behavior, evaluate outcomes, and publish evidence-backed reports.
+Developers keep the mission stable and vary the harness: topology, runtime
+constraints, plugins, evaluator choices, and evidence requirements. The output is
+bounded comparison, not just another way to ship an agent.
+
+## First-Class Surfaces
+
+- **Harness DSL** - declarative mission and candidate-harness configuration.
+- **Generic Agent IR** - typed compiled form shared by runtime, plugins, and
+  evaluators.
+- **Runtime adapters** - the execution boundary around `pi` today, kept explicit
+  so runtime choices stay inspectable.
+- **Method plugins** - replaceable packages for planning, coordination, memory,
+  tools, policy, evaluation, reporting, and transport, cataloged in
+  [`docs/slots.md`](docs/slots.md).
+- **Benchmark suites** - repeatable mission families that run candidate
+  harnesses through the normal runtime path.
+- **Evidence reports** - trace-backed outputs that separate observations,
+  inferences, recommendations, and insufficient-evidence boundaries.
+
+## Why A Research Harness
+
+Agentic architecture choices are easy to demo and hard to compare. Generic AI
+turns those choices into package-composed harnesses so the same mission can run
+through a hierarchy, squad, pipeline, verifier loop, or future method family
+without rewriting the product code around it.
+
+The harness spine is captured in
+[`ADR 0021`](docs/decisions/0021-agents-as-code-harness-spine.md) and the
+composable control plane in
+[`ADR 0022`](docs/decisions/0022-composable-agent-harness-control-plane.md).
+The working fixture is
+[`examples/harness-shootout`](examples/harness-shootout), which compiles one
+mission into four candidate harnesses and routes them through the same report
+contract.
+
+## Sample Evidence Report
+
+[`examples/harness-shootout/sample-report.md`](examples/harness-shootout/sample-report.md)
+is the canonical product demo for the research-harness surface. It shows how a
+report keeps observations, inferences, recommendations, and evidence boundaries
+separate so a weak or underpowered run can say `insufficient_evidence` instead
+of overclaiming.
 
 ## Getting Started
 
@@ -171,6 +211,7 @@ The authoritative planning baseline for this repository is:
 3. [`docs/planning/02-architecture.md`](docs/planning/02-architecture.md)
 4. [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md)
 5. [`docs/planning/04-agent-ready-mapping.md`](docs/planning/04-agent-ready-mapping.md)
+6. [`docs/planning/05-research-harness-plan.md`](docs/planning/05-research-harness-plan.md)
 
 Use that set for scope, architecture, sequencing, and Linear sync decisions.
 

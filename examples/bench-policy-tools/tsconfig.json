@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
+    "rootDir": "src",
+    "outDir": "dist",
+    "paths": {
+      "@generic-ai/core": ["../../packages/core/src/index"],
+      "@generic-ai/sdk": ["../../packages/sdk/src/index"]
+    }
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/sdk" }
+  ]
+}

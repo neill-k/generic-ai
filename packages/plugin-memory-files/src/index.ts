@@ -13,10 +13,35 @@ import type {
   MemorySearchQuery,
   MemorySearchResult as SdkMemorySearchResult,
   MemoryService,
+  AgentHarnessToolDescriptor,
 } from "@generic-ai/sdk";
 
 export const name = "@generic-ai/plugin-memory-files" as const;
 export const kind = "memory-files" as const;
+
+export const memoryFilesEffectDescriptors = Object.freeze([
+  {
+    id: "memory-files.remember",
+    label: "Remember",
+    effects: ["memory.write"],
+    reversibility: "reversible-with-cost",
+    retrySemantics: "idempotency-key-required",
+  },
+  {
+    id: "memory-files.read",
+    label: "Read memory",
+    effects: ["memory.read"],
+    reversibility: "reversible-cheap",
+    retrySemantics: "safe-to-retry",
+  },
+  {
+    id: "memory-files.forget",
+    label: "Forget memory",
+    effects: ["memory.write"],
+    reversibility: "irreversible",
+    retrySemantics: "retry-may-duplicate",
+  },
+] satisfies readonly AgentHarnessToolDescriptor[]);
 
 export interface MemoryEntryInput extends MemoryRecordInput {}
 

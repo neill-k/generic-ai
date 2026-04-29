@@ -75,6 +75,18 @@ export type ProtocolTerminalState = "blocked" | "idle" | "ready" | "done" | "fai
 export type RecommendationBoundary = "recommended" | "not_recommended" | "insufficient_evidence";
 export type BenchmarkTrialOutcomeStatus = "passed" | "failed" | "skipped" | "excluded";
 export type BenchmarkFailureSeverity = "none" | "low" | "medium" | "high" | "critical";
+export type BenchmarkConfidenceLevel =
+  | "confident_recommendation"
+  | "bounded_recommendation"
+  | "insufficient_evidence";
+export type AgentHarnessReversibility =
+  | "irreversible"
+  | "reversible-with-cost"
+  | "reversible-cheap";
+export type AgentHarnessRetrySemantics =
+  | "safe-to-retry"
+  | "idempotency-key-required"
+  | "retry-may-duplicate";
 export type FaultInjectionBoundary =
   | "tool"
   | "retrieval"
@@ -179,6 +191,8 @@ export interface AgentHarnessToolDescriptor {
   readonly label?: string;
   readonly description?: string;
   readonly effects: readonly AgentHarnessCapabilityEffect[];
+  readonly reversibility?: AgentHarnessReversibility;
+  readonly retrySemantics?: AgentHarnessRetrySemantics;
   readonly metadata?: JsonObject;
 }
 
@@ -186,6 +200,8 @@ export interface AgentHarnessEffectMetadata {
   readonly genericAi?: {
     readonly descriptor?: AgentHarnessToolDescriptor;
     readonly effects?: readonly AgentHarnessCapabilityEffect[];
+    readonly reversibility?: AgentHarnessReversibility;
+    readonly retrySemantics?: AgentHarnessRetrySemantics;
   };
 }
 
@@ -200,6 +216,17 @@ export function getAgentHarnessToolEffects(
   return metadata?.effects ?? metadata?.descriptor?.effects ?? [];
 }
 
+export function getAgentHarnessToolReversibility(
+  tool: AgentHarnessEffectMetadata | unknown,
+): AgentHarnessReversibility | undefined {
+  if (typeof tool !== "object" || tool === null || !("genericAi" in tool)) {
+    return undefined;
+  }
+
+  const metadata = (tool as AgentHarnessEffectMetadata).genericAi;
+  return metadata?.reversibility ?? metadata?.descriptor?.reversibility;
+}
+
 export function withAgentHarnessToolEffects<TTool extends object>(
   tool: TTool,
   descriptorOrEffects: AgentHarnessToolDescriptor | readonly AgentHarnessCapabilityEffect[],
@@ -209,9 +236,13 @@ export function withAgentHarnessToolEffects<TTool extends object>(
   const effects = isDescriptor
     ? (descriptorOrEffects as AgentHarnessToolDescriptor).effects
     : descriptorOrEffects;
+  const reversibility = descriptor?.reversibility ?? "irreversible";
+  const retrySemantics = descriptor?.retrySemantics;
   const value = Object.freeze({
     ...(descriptor === undefined ? {} : { descriptor }),
     effects: Object.freeze([...effects]),
+    reversibility,
+    ...(retrySemantics === undefined ? {} : { retrySemantics }),
   });
 
   try {
@@ -264,6 +295,8 @@ export interface AgentHarnessEventProjection {
   readonly occurredAt: string;
   readonly roleId?: string;
   readonly toolName?: string;
+  readonly reversibility?: AgentHarnessReversibility;
+  readonly supersedesEventId?: string;
   readonly summary: string;
   readonly data: JsonObject;
 }
@@ -480,6 +513,7 @@ export interface CapabilityGrant {
   readonly subject: string;
   readonly resource: ResourceSelector;
   readonly effect: PolicyEffect;
+  readonly reversibility?: AgentHarnessReversibility;
   readonly budget?: {
     readonly unit: "usd" | "tokens" | "seconds" | "calls" | "bytes";
     readonly limit: number;
@@ -496,6 +530,7 @@ export interface RunScopedAuthorityGrant {
   readonly action: string;
   readonly resource: ResourceSelector;
   readonly effect: PolicyEffect;
+  readonly reversibility?: AgentHarnessReversibility;
   readonly conditions?: readonly PolicyCondition[];
   readonly budget?: CapabilityGrant["budget"];
   readonly sandboxProfile?: string;
@@ -514,10 +549,12 @@ export interface PolicyDecisionRecord {
   readonly action: string;
   readonly resource: ResourceSelector;
   readonly effect: PolicyEffect;
+  readonly reversibility?: AgentHarnessReversibility;
   readonly decision: "allowed" | "denied" | "approval_required" | "redacted" | "rewritten";
   readonly approvalState?: ApprovalState;
   readonly reason: string;
   readonly evidenceRefs: readonly string[];
+  readonly supersedesDecisionId?: string;
 }
 
 export interface ArtifactContract {
@@ -647,12 +684,23 @@ export interface BenchmarkSpec {
   readonly metricDefinitions?: readonly MetricDefinition[];
   readonly guardrailMetrics?: readonly string[];
   readonly faultInjections?: readonly FaultInjectionSpec[];
-  readonly trials: {
-    readonly count: number;
+  readonly trials?: {
+    /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
+    readonly count?: number;
     readonly pairing: "paired" | "independent";
     readonly seed?: string;
+    readonly replayId?: string;
+    /** Optional per-trial-block minimum; top-level minTrials takes precedence. */
+    readonly minTrials?: number;
+    readonly smoke?: boolean;
+    /** pass^k horizon. Defaults to the configured trial count. */
+    readonly passK?: number;
   };
   readonly reliability?: BenchmarkReliabilityProfile;
+  /** Minimum observed trials required before recommendations can be confident. */
+  readonly minTrials?: number;
+  /** Marks a benchmark as a wiring/smoke check instead of a claim-bearing comparison. */
+  readonly smoke?: boolean;
   readonly validity?: {
     readonly minimumTrialsForRecommendation?: number;
     readonly requireTraceCompleteness?: boolean;
@@ -774,6 +822,10 @@ export interface TraceEvent {
   readonly parentEventId?: string;
   readonly causedByEventId?: string;
   readonly policyDecisionId?: string;
+  readonly seed?: string;
+  readonly replayId?: string;
+  readonly reversibility?: AgentHarnessReversibility;
+  readonly supersedesEventId?: string;
   readonly latencyMs?: number;
   readonly costUsd?: number;
   readonly payloadRef?: ArtifactReference;
@@ -844,6 +896,8 @@ export interface BenchmarkTrialResult {
   readonly harnessId: string;
   readonly trialId: string;
   readonly outcome?: BenchmarkTrialOutcome;
+  readonly seed?: string;
+  readonly replayId?: string;
   readonly metrics: readonly MetricValue[];
   readonly traceEvents: readonly TraceEvent[];
   readonly artifacts: readonly ArtifactReference[];
@@ -885,14 +939,46 @@ export interface BenchmarkReliabilitySummary {
   readonly warnings: readonly string[];
 }
 
+export interface BenchmarkPassKSummary {
+  readonly metricId: string;
+  readonly k: number;
+  readonly passCount: number;
+  readonly sampleCount: number;
+  readonly trialCount: number;
+  readonly observedPassRate: number;
+  readonly value: number;
+  readonly evidenceRefs: readonly string[];
+}
+
+export interface BenchmarkReportConfidence {
+  readonly level: BenchmarkConfidenceLevel;
+  readonly minTrials: number;
+  readonly observedTrials: number;
+  readonly configuredTrials: number;
+  readonly smoke: boolean;
+  readonly reasons: readonly string[];
+}
+
+export interface BenchmarkReversibilitySummary {
+  readonly totalEventCount: number;
+  readonly irreversibleCount: number;
+  readonly reversibleWithCostCount: number;
+  readonly reversibleCheapCount: number;
+  readonly supersededEventCount: number;
+  readonly evidenceRefs: readonly string[];
+}
+
 export interface BenchmarkReportCandidate {
   readonly candidateId: string;
   readonly harnessId: string;
   readonly trialCount: number;
   readonly scorecard: readonly MetricValue[];
+  readonly passK?: BenchmarkPassKSummary;
   readonly traceCompleteness: number;
   readonly recommendation: RecommendationBoundary;
   readonly reliability?: BenchmarkReliabilitySummary;
+  readonly confidence: BenchmarkReportConfidence;
+  readonly reversibility?: BenchmarkReversibilitySummary;
   readonly rationale: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
 }
@@ -909,6 +995,8 @@ export interface BenchmarkReport {
   readonly inferences: readonly string[];
   readonly recommendations: readonly string[];
   readonly candidates: readonly BenchmarkReportCandidate[];
+  readonly confidence: BenchmarkReportConfidence;
+  readonly reversibility?: BenchmarkReversibilitySummary;
   readonly evidence: {
     readonly traceEventCount: number;
     readonly artifactCount: number;

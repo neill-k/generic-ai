@@ -84,6 +84,11 @@
     "react-dom": "^19.2.5"
   },
   "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "category": "transport",
+    "method": "local-web-console.v1"
+  },
   "private": false,
   "publishConfig": {
     "access": "public",
