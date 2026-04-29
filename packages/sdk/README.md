@@ -15,7 +15,8 @@ Current SDK contents:
 - `src/helpers/` for ergonomic contract constructors
 - package-level docs and contract tests that keep the surface honest
 - Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI,
-  TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch contracts
+  TraceEvent, BenchmarkReport, FaultInjectionSpec, PolicySpec, and HarnessPatch
+  contracts
 - AgentHarness contracts, adapter run context, capability-effect descriptors,
   URI/hash artifact references, and typed harness event projections
 - Agent execution config for the default stop-tool loop and the
@@ -41,6 +42,8 @@ The SDK defines the contract families planned in
 - sandbox execution contracts for container-backed terminal backends, including policy ceilings, per-stream output truncation, and execution resource reporting
 - agents-as-code contracts for declaring, compiling, benchmarking, tracing, and
   reporting on package-composed agent systems
+- fault-injection benchmark contracts for degraded tool, retrieval, memory,
+  web, MCP, messaging, and storage boundaries
 - composable agent harness contracts for adapters, role policy profiles,
   effect-described tools, artifact stores, and canonical harness events
 
