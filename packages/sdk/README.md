@@ -15,9 +15,12 @@ Current SDK contents:
 - `src/helpers/` for ergonomic contract constructors
 - package-level docs and contract tests that keep the surface honest
 - Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI,
-  TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch contracts
+  TraceEvent, BenchmarkReport, FaultInjectionSpec, PolicySpec, and HarnessPatch
+  contracts
 - AgentHarness contracts, adapter run context, capability-effect descriptors,
   URI/hash artifact references, and typed harness event projections
+- Repeated-run reliability profile contracts for pass@k, consistency, retry,
+  skipped/excluded-trial, perturbation, and bounded failure-severity reporting
 - Agent execution config for the default stop-tool loop and the
   `single-turn` opt-out used when a caller truly wants one provider turn. When
   `maxTurns` is omitted, stop-tool loop execution is unbounded by default.
@@ -41,12 +44,18 @@ The SDK defines the contract families planned in
 - sandbox execution contracts for container-backed terminal backends, including policy ceilings, per-stream output truncation, and execution resource reporting
 - agents-as-code contracts for declaring, compiling, benchmarking, tracing, and
   reporting on package-composed agent systems
+- fault-injection benchmark contracts for degraded tool, retrieval, memory,
+  web, MCP, messaging, and storage boundaries
 - composable agent harness contracts for adapters, role policy profiles,
   effect-described tools, artifact stores, and canonical harness events
 
 The contract modules are intentionally kernel-agnostic. They do not import
 `@generic-ai/core`, and they do not require private kernel knowledge to
 implement.
+
+Pi runtime compatibility is intentionally separated into an explicit subpath:
+`@generic-ai/sdk/pi`. Import from that subpath only when you intentionally want
+Pi-specific runtime/tool primitives.
 
 ## Helper surface
 
@@ -76,4 +85,3 @@ staying faithful to the public contract shape.
 - `docs/package-boundaries.md`
 - `docs/harness-dsl.md`
 - `specs/harness-v0.1/README.md`
-

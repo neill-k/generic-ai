@@ -38,6 +38,57 @@ async function callStopTool(
 }
 
 describe("createAgentHarness", () => {
+  it("can run with a non-pi adapter when registered explicitly", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-external-"));
+    const harness = createAgentHarness(
+      {
+        id: "external-harness",
+        adapter: "external",
+      },
+      {
+        adapters: {
+          external: {
+            id: "mock-external-adapter",
+            kind: "external",
+            run: async (input) => ({
+              harnessId: input.harness.id,
+              adapter: "external",
+              status: "succeeded",
+              outputText: "external adapter output",
+              envelope: {
+                kind: "run-envelope",
+                runId: input.runId ?? "run-external",
+                rootScopeId: input.rootScopeId ?? "scope/root",
+                rootAgentId: input.rootAgentId ?? "root",
+                mode: "sync",
+                status: "succeeded",
+                timestamps: {
+                  createdAt: new Date().toISOString(),
+                  startedAt: new Date().toISOString(),
+                  completedAt: new Date().toISOString(),
+                },
+                eventStream: { kind: "event-stream-reference", streamId: input.runId ?? "run-external" },
+              },
+              events: [],
+              projections: [],
+              artifacts: [],
+              policyDecisions: [],
+            }),
+          },
+        },
+      },
+    );
+
+    const result = await harness.run({
+      instruction: "Run externally",
+      workspaceRoot: root,
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.adapter).toBe("external");
+    expect(result.outputText).toBe("external adapter output");
+  });
+
   it("passes role-filtered tools into root and delegated Pi sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-"));
     const toolSets: string[][] = [];

@@ -3,9 +3,9 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import {
-  defineTool,
   type AgentHarness,
   type AgentHarnessAdapter,
+  type AgentHarnessAdapterKind,
   type AgentHarnessAdapterRunContext,
   type AgentHarnessArtifactRef,
   type AgentHarnessArtifactStore,
@@ -27,16 +27,17 @@ import {
   type JsonObject,
   type PolicyDecisionRecord,
   type ResourceSelector,
-  type ToolDefinition,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
   AuthStorage,
-  getAgentDir,
+  defineTool,
   ModelRegistry,
   SessionManager,
   SettingsManager,
-} from "@mariozechner/pi-coding-agent";
+  type ToolDefinition,
+} from "@generic-ai/sdk/pi";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 import { createCanonicalEventStream, type CanonicalEventStream } from "../events/index.js";
@@ -48,9 +49,14 @@ import {
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 
-export interface CreateAgentHarnessOptions {
+type AgentHarnessAdapterRegistry<TCapabilities, TOutput> = Readonly<
+  Partial<Record<AgentHarnessAdapterKind, AgentHarnessAdapter<TCapabilities, TOutput>>>
+>;
+
+export interface CreateAgentHarnessOptions<TCapabilities = PiCapabilityBindings, TOutput = unknown> {
   readonly factories?: PiRuntimeFactories;
   readonly sessionInputs?: PiSessionInputs;
+  readonly adapters?: AgentHarnessAdapterRegistry<TCapabilities, TOutput>;
 }
 
 export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilityBindings> {
@@ -1134,17 +1140,45 @@ async function writeHarnessArtifacts(input: {
   return Object.freeze(refs);
 }
 
+export function createAgentHarness<TCapabilities, TOutput>(
+  config: AgentHarnessConfig,
+  options: CreateAgentHarnessOptions<TCapabilities, TOutput> & {
+    readonly adapters: AgentHarnessAdapterRegistry<TCapabilities, TOutput>;
+  },
+): AgentHarness<TCapabilities, TOutput>;
 export function createAgentHarness(
   config: AgentHarnessConfig,
-  options: CreateAgentHarnessOptions = {},
-): AgentHarness<PiCapabilityBindings, unknown> {
-  const adapter = createPiAgentHarnessAdapter(config, options);
+  options?: CreateAgentHarnessOptions,
+): AgentHarness<PiCapabilityBindings, unknown>;
+export function createAgentHarness<
+  TCapabilities = PiCapabilityBindings,
+  TOutput = unknown,
+>(
+  config: AgentHarnessConfig,
+  options: CreateAgentHarnessOptions<TCapabilities, TOutput> = {},
+): AgentHarness<TCapabilities, TOutput> {
+  const piAdapterOptions: CreateAgentHarnessOptions = {
+    ...(options.factories === undefined ? {} : { factories: options.factories }),
+    ...(options.sessionInputs === undefined ? {} : { sessionInputs: options.sessionInputs }),
+  };
+  const adapters = {
+    pi: createPiAgentHarnessAdapter(config, piAdapterOptions) as unknown as AgentHarnessAdapter<
+      TCapabilities,
+      TOutput
+    >,
+    ...options.adapters,
+  } as const;
+  const adapterKind = config.adapter ?? "pi";
+  const adapter = adapters[adapterKind];
+  if (!adapter) {
+    throw new Error(`Harness adapter "${adapterKind}" is not registered.`);
+  }
   return Object.freeze({
     config,
     adapter,
-    run(input: Omit<AgentHarnessRunInput<PiCapabilityBindings>, "harness">) {
+    run(input: Omit<AgentHarnessRunInput<TCapabilities>, "harness">) {
       const runId = input.runId ?? randomUUID();
-      const runInput = {
+      const runInput: AgentHarnessRunInput<TCapabilities> = {
         ...input,
         runId,
         harness: config,
@@ -1154,8 +1188,8 @@ export function createAgentHarness(
   });
 }
 
-function createDefaultRunContext(
-  input: AgentHarnessRunInput<PiCapabilityBindings>,
+function createDefaultRunContext<TCapabilities>(
+  input: AgentHarnessRunInput<TCapabilities>,
 ): AgentHarnessAdapterRunContext {
   const eventSink = createEventSink();
   return Object.freeze({

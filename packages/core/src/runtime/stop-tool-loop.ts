@@ -1,4 +1,4 @@
-import { defineTool } from "@generic-ai/sdk";
+import { defineTool } from "@generic-ai/sdk/pi";
 import { Type } from "@sinclair/typebox";
 
 export const STOP_AND_RESPOND_TOOL_NAME = "stop_and_respond" as const;
