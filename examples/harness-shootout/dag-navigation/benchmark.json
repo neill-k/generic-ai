@@ -1,0 +1,108 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.dag-navigation.v0",
+  "missionRef": "mission.dag-navigation",
+  "hypothesis": "DAG-aware harnesses should visit all required fork branches and produce better aggregation evidence than a linear tool-chain baseline under the same deterministic fixture.",
+  "candidates": [
+    {
+      "id": "linear-chain",
+      "harnessRef": "harness.dag.linear-chain"
+    },
+    {
+      "id": "dag-aware-planner",
+      "harnessRef": "harness.dag.dag-aware-planner"
+    },
+    {
+      "id": "squad-branch-workers",
+      "harnessRef": "harness.dag.squad-branch-workers"
+    }
+  ],
+  "primaryMetric": "final_success",
+  "metricDefinitions": [
+    {
+      "id": "final_success",
+      "name": "Final success",
+      "unit": "boolean",
+      "direction": "higher_is_better",
+      "source": "grader",
+      "description": "The final answer matches the deterministic DAG oracle."
+    },
+    {
+      "id": "navigation_progress",
+      "name": "Navigation progress",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace",
+      "description": "Required graph nodes visited in dependency order."
+    },
+    {
+      "id": "branch_visit_completeness",
+      "name": "Branch visit completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace",
+      "description": "Required fork branches visited before merge."
+    },
+    {
+      "id": "tool_correctness",
+      "name": "Tool correctness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace",
+      "description": "Branch tool outputs match the fixture oracle."
+    },
+    {
+      "id": "aggregation_correctness",
+      "name": "Aggregation correctness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "grader",
+      "description": "The merge answer uses every required branch fact."
+    },
+    {
+      "id": "trace_completeness",
+      "name": "Trace completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace"
+    },
+    {
+      "id": "wall_time",
+      "name": "Wall time",
+      "unit": "seconds",
+      "direction": "lower_is_better",
+      "source": "runtime"
+    },
+    {
+      "id": "policy_violations",
+      "name": "Policy violations",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "trace"
+    }
+  ],
+  "guardrailMetrics": [
+    "navigation_progress",
+    "branch_visit_completeness",
+    "tool_correctness",
+    "aggregation_correctness",
+    "trace_completeness",
+    "wall_time",
+    "policy_violations"
+  ],
+  "trials": {
+    "count": 3,
+    "pairing": "paired",
+    "seed": "dag-navigation-v0"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 3,
+    "requireTraceCompleteness": true,
+    "allowSingleRunRecommendation": false
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

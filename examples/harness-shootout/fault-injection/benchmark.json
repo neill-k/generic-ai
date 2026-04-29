@@ -1,0 +1,84 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.fault-injection-boundary.v0",
+  "missionRef": "mission.fault-injection-boundary",
+  "hypothesis": "A fault-aware verifier loop should contain boundary degradation, localize the first violated contract, and prevent unsupported final claims under deterministic tool and memory faults.",
+  "candidates": [
+    {
+      "id": "fault-aware-verifier",
+      "harnessRef": "harness.fault-aware-verifier"
+    }
+  ],
+  "primaryMetric": "fault_containment",
+  "metricDefinitions": [
+    {
+      "id": "fault_containment",
+      "name": "Fault containment",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace",
+      "description": "Share of injected boundary faults contained without unsafe continuation or unsupported final claims."
+    },
+    {
+      "id": "fault_recovery",
+      "name": "Fault recovery",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace",
+      "description": "Share of contained faults that recovered through retry, fallback, graceful degradation, or explicit insufficient evidence."
+    },
+    {
+      "id": "overclaim_prevented",
+      "name": "Overclaim prevented",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "report",
+      "description": "Share of injected cases where the final report avoided unsupported success claims."
+    },
+    {
+      "id": "trace_completeness",
+      "name": "Trace completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace"
+    }
+  ],
+  "guardrailMetrics": ["fault_recovery", "overclaim_prevented", "trace_completeness"],
+  "faultInjections": [
+    {
+      "id": "tool-shell-timeout",
+      "boundary": "tool",
+      "perturbation": "timeout",
+      "targetRef": "tool.shell",
+      "expectedBehavior": "fallback",
+      "severity": "high",
+      "injectedAt": "during_call",
+      "firstViolatedContract": "tool.result.deadline"
+    },
+    {
+      "id": "memory-profile-stale-context",
+      "boundary": "memory",
+      "perturbation": "stale_context",
+      "targetRef": "memory.user-profile",
+      "expectedBehavior": "mark_insufficient_evidence",
+      "severity": "medium",
+      "injectedAt": "state_read",
+      "firstViolatedContract": "memory.provenance"
+    }
+  ],
+  "trials": {
+    "count": 1,
+    "pairing": "paired",
+    "seed": "fault-injection-v0"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 1,
+    "requireTraceCompleteness": true,
+    "allowSingleRunRecommendation": true
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

@@ -3,10 +3,11 @@
 This directory captures the thin, documented boundary between Generic AI and
 `@mariozechner/pi-coding-agent`.
 
-## Directly exposed from `pi`
+## Directly Exposed From `pi`
 
-These are the `pi` primitives that Generic AI re-exports without adding a
-second wrapper layer:
+These are the `pi` primitives that Generic AI exposes from the explicit
+`@generic-ai/sdk/pi` compatibility subpath without adding a second wrapper
+layer:
 
 - runtime creation: `createAgentSession`, `createAgentSessionRuntime`
 - runtime objects: `AgentSession`, `AgentSessionRuntime`

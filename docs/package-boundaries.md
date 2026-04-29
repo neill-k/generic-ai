@@ -81,6 +81,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Allowed deps: `pi`.
 - Not responsible for: plugin implementations, config discovery, kernel internals, live provider execution, or report hosting.
 - Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
+- Pi note: Pi compatibility primitives are exposed from the explicit `@generic-ai/sdk/pi` subpath. The root `@generic-ai/sdk` entrypoint stays focused on runtime-agnostic framework contracts and helpers.
 - Memory note: owns the public `MemoryService` contract and `defineMemory` helper so alternate memory plugins share the same read/write/search/forget baseline plus optional consolidation, provenance, timeline, and graph extensions.
 - Publishes as: `@generic-ai/sdk` — public, independent versioning, `publishConfig.access: public`, provenance on.
 

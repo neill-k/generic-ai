@@ -1,12 +1,12 @@
 import { Type, type Static } from "@sinclair/typebox";
+import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
 import {
   defineTool,
-  withAgentHarnessToolEffects,
   type AgentToolResult,
   type AgentToolUpdateCallback,
   type ExtensionContext,
   type ToolDefinition,
-} from "@generic-ai/sdk";
+} from "@generic-ai/sdk/pi";
 
 import type { WebUiPlugin } from "./types.js";
 

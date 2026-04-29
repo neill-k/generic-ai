@@ -1,15 +1,18 @@
 import { randomUUID } from "node:crypto";
-import type { RunEnvelope, RunEnvelopeMode } from "@generic-ai/sdk";
+import {
+  type RunEnvelope,
+  type RunEnvelopeMode,
+  withAgentHarnessToolEffects,
+} from "@generic-ai/sdk";
 import {
   type AgentSessionEvent,
   type CreateAgentSessionOptions,
   type CreateAgentSessionResult,
   DefaultResourceLoader,
   defineTool,
-  withAgentHarnessToolEffects,
   type PromptOptions,
   type ToolDefinition,
-} from "@generic-ai/sdk";
+} from "@generic-ai/sdk/pi";
 import { getAgentDir, type ResourceDiagnostic, type Skill } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 

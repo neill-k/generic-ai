@@ -48,6 +48,12 @@ Metric definitions may declare whether higher or lower values are better; report
 recommendations must honor that direction and must not turn missing primary
 metric samples into zero-valued evidence.
 
+Repeated-run reliability metadata is report evidence, not a separate winner
+oracle. Benchmark profiles may define success thresholds, pass@k cuts,
+perturbation labels, and failure-severity sources so reports can show
+consistency, variance, retries, skipped/excluded trials, and bounded failure
+severity alongside average score.
+
 ## Package Extension Boundary
 
 Packages may contribute schema fragments, capabilities, protocols, graders,

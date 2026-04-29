@@ -73,6 +73,40 @@ export type PolicyEffect = "allow" | "deny" | "require_approval" | "redact" | "r
 export type ApprovalState = "not_required" | "pending" | "approved" | "rejected" | "expired";
 export type ProtocolTerminalState = "blocked" | "idle" | "ready" | "done" | "failed";
 export type RecommendationBoundary = "recommended" | "not_recommended" | "insufficient_evidence";
+export type BenchmarkTrialOutcomeStatus = "passed" | "failed" | "skipped" | "excluded";
+export type BenchmarkFailureSeverity = "none" | "low" | "medium" | "high" | "critical";
+export type FaultInjectionBoundary =
+  | "tool"
+  | "retrieval"
+  | "memory"
+  | "web"
+  | "mcp"
+  | "messaging"
+  | "storage"
+  | "custom";
+export type FaultInjectionPerturbation =
+  | "timeout"
+  | "partial_response"
+  | "bad_payload"
+  | "stale_context"
+  | "schema_drift"
+  | "service_fault"
+  | "permission_denied"
+  | "custom";
+export type FaultInjectionExpectedBehavior =
+  | "retry"
+  | "fallback"
+  | "degrade_gracefully"
+  | "ask_for_clarification"
+  | "block_action"
+  | "mark_insufficient_evidence";
+export type FaultInjectionSeverity = "low" | "medium" | "high" | "critical";
+export type FaultInjectionTiming =
+  | "before_call"
+  | "during_call"
+  | "after_call"
+  | "state_read"
+  | "state_write";
 
 export interface AgentHarnessRole {
   readonly id: string;
@@ -612,11 +646,13 @@ export interface BenchmarkSpec {
   readonly primaryMetric: string;
   readonly metricDefinitions?: readonly MetricDefinition[];
   readonly guardrailMetrics?: readonly string[];
+  readonly faultInjections?: readonly FaultInjectionSpec[];
   readonly trials: {
     readonly count: number;
     readonly pairing: "paired" | "independent";
     readonly seed?: string;
   };
+  readonly reliability?: BenchmarkReliabilityProfile;
   readonly validity?: {
     readonly minimumTrialsForRecommendation?: number;
     readonly requireTraceCompleteness?: boolean;
@@ -626,6 +662,16 @@ export interface BenchmarkSpec {
     readonly formats: readonly ("json" | "markdown")[];
     readonly includeRecommendations?: boolean;
   };
+}
+
+export interface BenchmarkReliabilityProfile {
+  readonly id?: string;
+  readonly successMetric?: string;
+  readonly successThreshold?: number;
+  readonly minimumScoredTrials?: number;
+  readonly passAt?: readonly number[];
+  readonly failureSeverityMetric?: string;
+  readonly perturbationLabels?: readonly string[];
 }
 
 export interface MetricDefinition {
@@ -649,6 +695,43 @@ export interface GraderSpec {
   readonly packageRef?: string;
   readonly deterministic: boolean;
   readonly config?: JsonObject;
+}
+
+export interface FaultInjectionSpec {
+  readonly id: string;
+  readonly boundary: FaultInjectionBoundary;
+  readonly perturbation: FaultInjectionPerturbation;
+  readonly targetRef: string;
+  readonly expectedBehavior: FaultInjectionExpectedBehavior;
+  readonly severity?: FaultInjectionSeverity;
+  readonly injectedAt?: FaultInjectionTiming;
+  readonly firstViolatedContract?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface FaultInjectionObservation {
+  readonly specRef: string;
+  readonly boundary: FaultInjectionBoundary;
+  readonly perturbation: FaultInjectionPerturbation;
+  readonly contained: boolean;
+  readonly recovered: boolean;
+  readonly overclaimPrevented: boolean;
+  readonly firstViolatedContract?: string;
+  readonly recoveryPath?: readonly string[];
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface FaultInjectionReportSummary {
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly containedCaseCount: number;
+  readonly recoveredCaseCount: number;
+  readonly overclaimPreventedCount: number;
+  readonly containmentRate: number;
+  readonly recoveryRate: number;
+  readonly overclaimPreventionRate: number;
+  readonly firstViolatedContracts: readonly string[];
 }
 
 export interface ArtifactReference {
@@ -760,10 +843,46 @@ export interface BenchmarkTrialResult {
   readonly candidateId: string;
   readonly harnessId: string;
   readonly trialId: string;
+  readonly outcome?: BenchmarkTrialOutcome;
   readonly metrics: readonly MetricValue[];
   readonly traceEvents: readonly TraceEvent[];
   readonly artifacts: readonly ArtifactReference[];
   readonly diagnostics: TraceDiagnostics;
+  readonly faultInjections?: readonly FaultInjectionObservation[];
+}
+
+export interface BenchmarkTrialOutcome {
+  readonly status: BenchmarkTrialOutcomeStatus;
+  readonly attempt?: number;
+  readonly retryOfTrialId?: string;
+  readonly perturbationLabel?: string;
+  readonly failureSeverity?: BenchmarkFailureSeverity;
+  readonly exclusionReason?: string;
+}
+
+export interface BenchmarkReliabilityPerturbationSummary {
+  readonly label: string;
+  readonly trialCount: number;
+  readonly passRate: number | null;
+}
+
+export interface BenchmarkReliabilitySummary {
+  readonly profileId?: string;
+  readonly totalTrials: number;
+  readonly scoredTrials: number;
+  readonly passedTrials: number;
+  readonly failedTrials: number;
+  readonly skippedTrials: number;
+  readonly excludedTrials: number;
+  readonly retriedTrials: number;
+  readonly passRate: number | null;
+  readonly consistency: number | null;
+  readonly variance: number | null;
+  readonly passAt: readonly MetricValue[];
+  readonly maxFailureSeverity: BenchmarkFailureSeverity;
+  readonly averageFailureSeverity: number;
+  readonly perturbations: readonly BenchmarkReliabilityPerturbationSummary[];
+  readonly warnings: readonly string[];
 }
 
 export interface BenchmarkReportCandidate {
@@ -773,7 +892,9 @@ export interface BenchmarkReportCandidate {
   readonly scorecard: readonly MetricValue[];
   readonly traceCompleteness: number;
   readonly recommendation: RecommendationBoundary;
+  readonly reliability?: BenchmarkReliabilitySummary;
   readonly rationale: readonly string[];
+  readonly faultInjection?: FaultInjectionReportSummary;
 }
 
 export interface BenchmarkReport {
@@ -794,6 +915,7 @@ export interface BenchmarkReport {
     readonly metricCount: number;
   };
   readonly insufficientEvidence: readonly string[];
+  readonly faultInjection?: FaultInjectionReportSummary;
 }
 
 export interface HarnessPatchOperation {

@@ -1,9 +1,6 @@
 schemaVersion: v1
-name: Starter Hono example
-preset: "@generic-ai/preset-starter-hono"
-primaryAgent: starter
-runtime:
-  mode: async
-  workspaceRoot: .
-  logging:
-    level: info
+name: Generic AI hierarchical console template
+primaryAgent: hierarchical-planner
+primaryHarness: hierarchical
+metadata:
+  webUiTemplate: hierarchical

@@ -1,6 +1,7 @@
 import {
   ActivityIcon,
   AlertCircleIcon,
+  ArrowRightIcon,
   BotIcon,
   CheckIcon,
   ClipboardIcon,
@@ -11,9 +12,11 @@ import {
   FileTextIcon,
   LayoutTemplateIcon,
   PlayIcon,
+  RocketIcon,
   RefreshCwIcon,
   ShieldIcon,
   SquareIcon,
+  SparklesIcon,
   WandSparklesIcon,
   WrenchIcon,
   WorkflowIcon,
@@ -755,27 +758,62 @@ const studioTabs: readonly {
   { id: "templates", label: "Templates", icon: LayoutTemplateIcon },
 ];
 
-function initialStudioTab(): StudioTab {
-  return window.location.pathname.startsWith("/console") ? "chat" : "playground";
+function resolveTab(pathname: string): StudioTab {
+  return pathname.startsWith("/console") ? "chat" : "playground";
 }
 
-function updateStudioPath(tab: StudioTab): void {
-  const nextPath = tab === "playground" ? "/" : "/console";
-  if (window.location.pathname === nextPath) {
+function updateStudioPath(tab: StudioTab): string {
+  const nextPath = tab === "playground" ? "/studio" : "/console";
+  if (window.location.pathname !== nextPath) {
+    window.history.replaceState(null, "", `${nextPath}${window.location.search}`);
+  }
+
+  return nextPath;
+}
+
+function navigate(pathname: string): void {
+  if (window.location.pathname === pathname) {
     return;
   }
 
-  window.history.replaceState(null, "", `${nextPath}${window.location.search}`);
+  window.history.pushState(null, "", pathname);
 }
 
 export function App(): ReactElement {
-  const [tab, setTab] = useState<StudioTab>(initialStudioTab);
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+  const [tab, setTab] = useState<StudioTab>(() => resolveTab(window.location.pathname));
   const consoleTab = tab === "playground" ? "chat" : tab;
+  const showLanding = pathname === "/";
+
+  useEffect(() => {
+    const onPopState = () => {
+      setPathname(window.location.pathname);
+      setTab(resolveTab(window.location.pathname));
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const selectTab = useCallback((nextTab: StudioTab) => {
     setTab(nextTab);
-    updateStudioPath(nextTab);
+    setPathname(updateStudioPath(nextTab));
   }, []);
+
+  const openStudio = useCallback(() => {
+    navigate("/studio");
+    setPathname("/studio");
+    setTab("playground");
+  }, []);
+
+  const openConsole = useCallback(() => {
+    navigate("/console");
+    setPathname("/console");
+    setTab("chat");
+  }, []);
+
+  if (showLanding) {
+    return <LandingPage onOpenConsole={openConsole} onOpenStudio={openStudio} />;
+  }
 
   return (
     <TooltipProvider>
@@ -826,6 +864,217 @@ export function App(): ReactElement {
         </main>
       </div>
     </TooltipProvider>
+  );
+}
+
+function LandingPage({
+  onOpenConsole,
+  onOpenStudio,
+}: {
+  onOpenConsole: () => void;
+  onOpenStudio: () => void;
+}): ReactElement {
+  const pillars = [
+    {
+      description:
+        "Harness DSL compiles into Generic Agent IR, giving a typed contract between design-time and runtime execution.",
+      icon: WandSparklesIcon,
+      title: "Agents as code",
+    },
+    {
+      description:
+        "Orchestration stays in the kernel while business capabilities are delivered through replaceable plugins.",
+      icon: WorkflowIcon,
+      title: "Minimal kernel",
+    },
+    {
+      description:
+        "Start from preset-starter-hono and get local-first config, tools, MCP wiring, memory, and transport in one stack.",
+      icon: RocketIcon,
+      title: "Starter preset",
+    },
+    {
+      description:
+        "Run sync and async missions with the same session model, including child-agent delegation and durable messaging.",
+      icon: BotIcon,
+      title: "Composable runtime",
+    },
+    {
+      description:
+        "MissionSpec and BenchmarkSpec produce trace-backed evidence so teams can compare architectures with confidence.",
+      icon: ActivityIcon,
+      title: "Evidence harness",
+    },
+    {
+      description:
+        "Develop with unrestricted local tools, then move to Docker sandbox policies for tighter operational controls.",
+      icon: ShieldIcon,
+      title: "Safety progression",
+    },
+  ] as const;
+
+  const packages = [
+    "@generic-ai/core",
+    "@generic-ai/sdk",
+    "@generic-ai/preset-starter-hono",
+    "@generic-ai/plugin-mcp",
+    "@generic-ai/plugin-tools-terminal-sandbox",
+    "@generic-ai/plugin-web-ui",
+  ] as const;
+
+  const personas = [
+    "Platform engineers embedding multi-agent systems in production apps.",
+    "AI infra teams that need swappable capabilities without kernel rewrites.",
+    "Applied AI teams running reproducible benchmark experiments.",
+  ] as const;
+
+  return (
+    <main className="min-h-screen bg-background text-foreground">
+      <section className="mx-auto flex w-full max-w-6xl flex-col gap-16 px-6 py-14 sm:px-8 lg:py-20">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="inline-flex items-center gap-2 rounded-md border bg-card/60 px-3 py-2 text-sm">
+            <WorkflowIcon className="size-4 text-primary" />
+            <span className="font-medium">gencorp.dev</span>
+          </div>
+          <div className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+            <CheckIcon className="size-3.5 text-emerald-400" />
+            Node 24 + npm 11 + typed contracts
+          </div>
+        </header>
+
+        <div className="grid gap-8 lg:grid-cols-[1.08fr_0.92fr]">
+          <div className="space-y-5">
+            <p className="inline-flex items-center gap-2 rounded-full border bg-card/40 px-3 py-1 text-xs text-muted-foreground">
+              <SparklesIcon className="size-3.5" />
+              Plugin-first agents-as-code framework
+            </p>
+            <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
+              Build multi-agent systems with a stable contract, not glue code.
+            </h1>
+            <p className="max-w-2xl text-base leading-7 text-muted-foreground sm:text-lg">
+              Generic AI compiles Harness DSL to Generic Agent IR, runs sync and async missions, and
+              ships trace-backed evidence through a modular runtime built on <code>pi</code>.
+            </p>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={onOpenStudio} size="lg" type="button">
+                Start in Studio
+                <ArrowRightIcon className="size-4" />
+              </Button>
+              <Button onClick={onOpenConsole} size="lg" type="button" variant="outline">
+                Open Console
+              </Button>
+              <Button
+                asChild
+                size="lg"
+                type="button"
+                variant="ghost"
+              >
+                <a href="https://gencorp.dev" rel="noreferrer" target="_blank">
+                  Visit gencorp.dev
+                  <ExternalLinkIcon className="size-4" />
+                </a>
+              </Button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-card/40 p-5">
+            <p className="mb-4 text-xs uppercase tracking-wide text-muted-foreground">
+              Framework spine
+            </p>
+            <div className="space-y-3 text-sm">
+              <div className="rounded-md border bg-background/70 p-3">
+                Harness DSL
+                <ArrowRightIcon className="mx-2 inline size-3.5 text-muted-foreground" />
+                Generic Agent IR
+              </div>
+              <div className="rounded-md border bg-background/70 p-3">
+                Core runtime
+                <ArrowRightIcon className="mx-2 inline size-3.5 text-muted-foreground" />
+                Plugin stack
+              </div>
+              <div className="rounded-md border bg-background/70 p-3">
+                Sessions + traces
+                <ArrowRightIcon className="mx-2 inline size-3.5 text-muted-foreground" />
+                Benchmark reports
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <section className="space-y-5">
+          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">Why teams choose Generic AI</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {pillars.map((pillar) => (
+              <article className="rounded-lg border bg-card/40 p-4" key={pillar.title}>
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                  <pillar.icon className="size-4 text-primary" />
+                  {pillar.title}
+                </div>
+                <p className="text-sm leading-6 text-muted-foreground">{pillar.description}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <article className="rounded-xl border bg-card/40 p-5">
+            <h3 className="mb-3 text-lg font-semibold">Package ecosystem</h3>
+            <div className="grid gap-2 text-sm">
+              {packages.map((name) => (
+                <div className="rounded-md border bg-background/70 px-3 py-2" key={name}>
+                  <code>{name}</code>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="rounded-xl border bg-card/40 p-5">
+            <h3 className="mb-3 text-lg font-semibold">Built for</h3>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              {personas.map((persona) => (
+                <li className="flex items-start gap-2" key={persona}>
+                  <CheckIcon className="mt-0.5 size-4 shrink-0 text-emerald-400" />
+                  <span>{persona}</span>
+                </li>
+              ))}
+            </ul>
+          </article>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-[1.25fr_0.75fr]">
+          <article className="rounded-xl border bg-card/40 p-5">
+            <h3 className="mb-3 text-lg font-semibold">Production trust signals</h3>
+            <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+              <div className="rounded-md border bg-background/70 p-3">
+                Typecheck, lint, test, and build required in baseline CI.
+              </div>
+              <div className="rounded-md border bg-background/70 p-3">
+                Contracts, planning pack, and package boundaries are documented.
+              </div>
+              <div className="rounded-md border bg-background/70 p-3">
+                Changesets + npm provenance support predictable releases.
+              </div>
+              <div className="rounded-md border bg-background/70 p-3">
+                Sandbox terminal plugin provides a safer execution path.
+              </div>
+            </div>
+          </article>
+
+          <article className="rounded-xl border bg-card/40 p-5">
+            <h3 className="mb-2 text-lg font-semibold">Get started</h3>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Run the starter stack, then extend through plugins and presets.
+            </p>
+            <Button className="w-full" onClick={onOpenStudio} type="button">
+              Launch Starter Studio
+            </Button>
+            <Button className="mt-2 w-full" onClick={onOpenConsole} type="button" variant="outline">
+              Inspect Console APIs
+            </Button>
+          </article>
+        </section>
+      </section>
+    </main>
   );
 }
 
