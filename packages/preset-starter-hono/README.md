@@ -64,8 +64,10 @@ const preset = createStarterHonoPreset({
 - `GENERIC_AI_SANDBOX=docker` switches `terminalTools` to `@generic-ai/plugin-tools-terminal-sandbox`
 - `GENERIC_AI_SANDBOX=none` keeps the default unrestricted `@generic-ai/plugin-tools-terminal`
 - when `GENERIC_AI_SANDBOX` is unset, development defaults to `none` and production defaults to `docker`
-- Docker reachability is checked during bootstrap; if Docker is unavailable, bootstrap warns and falls back to the unrestricted terminal by default
-- set `GENERIC_AI_SANDBOX_FALLBACK=fail` to turn that fallback into a hard bootstrap error
+- Docker reachability is checked during bootstrap; if Docker is unavailable, production fails closed by default
+- development still warns and falls back to the unrestricted terminal by default so local clones remain easy to boot
+- set `GENERIC_AI_SANDBOX_FALLBACK=warn` to explicitly allow fallback when Docker is unavailable
+- set `GENERIC_AI_SANDBOX_FALLBACK=fail` to make fallback a hard bootstrap error in any environment
 
 This package only resolves the preset composition and bootstrap warning/fallback behavior. The sandbox backend package still owns the actual container execution implementation.
 

@@ -38,6 +38,7 @@ const CONFIGS: Readonly<Record<TerminalBenchProfile, string>> = Object.freeze({
   validation: resolve(EXAMPLE_ROOT, "configs", "validation.job.yaml"),
   full: resolve(EXAMPLE_ROOT, "configs", "full.job.yaml"),
 });
+let windowsDockerComposeShimAvailable: boolean | undefined;
 
 function profileFromString(value: string): TerminalBenchProfile {
   if (
@@ -58,11 +59,7 @@ function ensureWindowsHarborPythonShims(): readonly string[] {
     return [];
   }
 
-  if (commandSucceeds("docker", ["compose", "version"])) {
-    return [];
-  }
-
-  if (!commandSucceeds("docker-compose", ["version"])) {
+  if (!shouldUseWindowsDockerComposeShim()) {
     return [];
   }
 
@@ -114,8 +111,21 @@ function commandSucceeds(command: string, args: readonly string[]): boolean {
   const result = spawnSync(command, args, {
     shell: process.platform === "win32",
     stdio: "ignore",
+    timeout: 1500,
   });
   return result.status === 0;
+}
+
+function shouldUseWindowsDockerComposeShim(): boolean {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  windowsDockerComposeShimAvailable ??=
+    !commandSucceeds("docker", ["compose", "version"]) &&
+    commandSucceeds("docker-compose", ["version"]);
+
+  return windowsDockerComposeShimAvailable;
 }
 
 function withPathPrefix(env: NodeJS.ProcessEnv, prefix: string): NodeJS.ProcessEnv {
@@ -133,11 +143,7 @@ function ensureWindowsDockerComposeShim(env: NodeJS.ProcessEnv): NodeJS.ProcessE
     return env;
   }
 
-  if (commandSucceeds("docker", ["compose", "version"])) {
-    return env;
-  }
-
-  if (!commandSucceeds("docker-compose", ["version"])) {
+  if (!shouldUseWindowsDockerComposeShim()) {
     return env;
   }
 

@@ -19,36 +19,43 @@ const packageAliases = [
   "plugin-mcp",
   "plugin-agent-skills",
   "plugin-delegation",
+  "plugin-interaction",
+  "plugin-logging-otel",
   "plugin-messaging",
   "plugin-memory-files",
   "plugin-output-default",
+  "plugin-queue-memory",
   "plugin-hono",
+  "plugin-storage-sqlite",
+  "plugin-tools-web",
   "plugin-web-ui",
 ];
 
 export default defineConfig({
   resolve: {
-    alias: packageAliases.map((packageName) => ({
-      find: new RegExp(`^@generic-ai/${packageName}$`),
-      replacement: resolve(__dirname, `packages/${packageName}/src/index.ts`),
-    })).concat([
-      {
-        find: /^@generic-ai\/sdk\/pi$/,
-        replacement: resolve(__dirname, "packages/sdk/src/pi/index.ts"),
-      },
-      {
-        find: /^@generic-ai\/plugin-web-ui\/client$/,
-        replacement: resolve(__dirname, "packages/plugin-web-ui/src/client.tsx"),
-      },
-      {
-        find: /^@generic-ai\/plugin-web-ui\/server$/,
-        replacement: resolve(__dirname, "packages/plugin-web-ui/src/server.ts"),
-      },
-      {
-        find: /^@generic-ai\/plugin-web-ui\/agent-tools$/,
-        replacement: resolve(__dirname, "packages/plugin-web-ui/src/agent-tools.ts"),
-      },
-    ]),
+    alias: packageAliases
+      .map((packageName) => ({
+        find: new RegExp(`^@generic-ai/${packageName}$`),
+        replacement: resolve(__dirname, `packages/${packageName}/src/index.ts`),
+      }))
+      .concat([
+        {
+          find: /^@generic-ai\/sdk\/pi$/,
+          replacement: resolve(__dirname, "packages/sdk/src/pi/index.ts"),
+        },
+        {
+          find: /^@generic-ai\/plugin-web-ui\/client$/,
+          replacement: resolve(__dirname, "packages/plugin-web-ui/src/client.tsx"),
+        },
+        {
+          find: /^@generic-ai\/plugin-web-ui\/server$/,
+          replacement: resolve(__dirname, "packages/plugin-web-ui/src/server.ts"),
+        },
+        {
+          find: /^@generic-ai\/plugin-web-ui\/agent-tools$/,
+          replacement: resolve(__dirname, "packages/plugin-web-ui/src/agent-tools.ts"),
+        },
+      ]),
   },
   test: {
     include: [

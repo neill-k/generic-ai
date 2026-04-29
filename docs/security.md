@@ -19,7 +19,7 @@ Dependabot PRs should run the full quality gate before merge. Security updates c
 
 ## Dependency Audit
 
-`.github/workflows/security.yml` runs a scheduled and PR-time `npm audit`. It is advisory until the current dependency backlog is green, then it should become a required check or be replaced by a more precise security scanning workflow.
+`.github/workflows/security.yml` runs a scheduled and PR-time production `npm audit` with `--audit-level=moderate`. The job fails when moderate-or-higher production advisories are present. Keep it outside the required branch-protection set until the team explicitly decides dependency audit should block ordinary merges.
 
 ## Ownership Review
 

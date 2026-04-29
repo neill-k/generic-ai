@@ -90,7 +90,7 @@ function fakeRuntime(outputText: string): GenericAILlmRuntime {
     adapter: "openai-codex",
     model: "gpt-5.5",
     run: vi.fn(async () => ({
-      adapter: "openai-codex",
+      adapter: "openai-codex" as const,
       model: "gpt-5.5",
       outputText,
     })),
@@ -98,12 +98,30 @@ function fakeRuntime(outputText: string): GenericAILlmRuntime {
       yield {
         type: "response",
         response: {
-          adapter: "openai-codex",
+          adapter: "openai-codex" as const,
           model: "gpt-5.5",
           outputText,
         },
       };
     },
+    close: vi.fn(async () => undefined),
+  };
+}
+
+function failingRuntime(error: Error): GenericAILlmRuntime {
+  return {
+    adapter: "openai-codex",
+    model: "gpt-5.5",
+    run: vi.fn(async () => {
+      throw error;
+    }),
+    stream: () => ({
+      [Symbol.asyncIterator]: () => ({
+        async next() {
+          throw error;
+        },
+      }),
+    }),
     close: vi.fn(async () => undefined),
   };
 }
@@ -136,6 +154,10 @@ describe("runHarnessBenchmark", () => {
     expect(result.trialResults[0]?.replayId).toContain("pipeline:trial:1");
     expect(result.trialResults[0]?.traceEvents[0]?.seed).toBe("seed-1:1");
     expect(result.trialResults[0]?.traceEvents[0]?.replayId).toContain("pipeline:trial:1");
+    const metricIds = result.trialResults[0]?.metrics.map((metric) => metric.metricId) ?? [];
+    expect(metricIds).toEqual(
+      expect.arrayContaining(["task_success", "tests_passed", "rework_rate"]),
+    );
     const artifactUri = result.trialResults[0]?.artifacts[0]?.uri;
     expect(artifactUri).toBeDefined();
     if (artifactUri === undefined) {
@@ -191,6 +213,36 @@ describe("runHarnessBenchmark", () => {
     const metrics = result.trialResults[0]?.metrics ?? [];
     expect(metrics.find((metric) => metric.metricId === "task_success")?.value).toBe(0);
     expect(metrics.find((metric) => metric.metricId === "artifact_completeness")?.value).toBe(0);
+    expect(metrics.find((metric) => metric.metricId === "tests_passed")?.value).toBe(0);
+    expect(metrics.find((metric) => metric.metricId === "rework_rate")?.value).toBe(0);
+  });
+
+  it("records runtime failures as failed trials instead of aborting the benchmark", async () => {
+    const result = await runHarnessBenchmark({
+      benchmark: {
+        ...benchmark,
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+      },
+      mission,
+      harnesses: {
+        [harness.id]: harness,
+      },
+      createRuntime: async () => failingRuntime(new Error("provider unavailable")),
+    });
+
+    const trial = result.trialResults[0];
+    expect(trial).toBeDefined();
+    if (trial === undefined) {
+      throw new Error("Expected a failed trial result.");
+    }
+
+    expect(trial.metrics.find((metric) => metric.metricId === "task_success")?.value).toBe(0);
+    expect(trial.metrics.find((metric) => metric.metricId === "tests_passed")?.value).toBe(0);
+    expect(trial.traceEvents.some((event) => event.type === "diagnostic")).toBe(true);
+    expect(trial.artifacts[0]?.summary).toContain("provider unavailable");
+    expect(result.report.evidence.metricCount).toBeGreaterThan(0);
   });
 
   it("passes configured fault-injection cases into the benchmark prompt", async () => {

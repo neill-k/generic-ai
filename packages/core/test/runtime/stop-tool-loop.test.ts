@@ -11,7 +11,7 @@ import {
 describe("@generic-ai/core stop-tool loop", () => {
   it("defaults to an unbounded loop until the stop tool state is set", async () => {
     const state: StopAndRespondState = { stopped: false };
-    const runPrompt = vi.fn(async () => {
+    const runPrompt = vi.fn(async (_prompt: string) => {
       if (runPrompt.mock.calls.length === 2) {
         state.stopped = true;
         state.response = "done";
@@ -55,7 +55,7 @@ describe("@generic-ai/core stop-tool loop", () => {
 
   it("re-prompts the same session until the stop tool state is set", async () => {
     const state: StopAndRespondState = { stopped: false };
-    const runPrompt = vi.fn(async () => {
+    const runPrompt = vi.fn(async (_prompt: string) => {
       if (runPrompt.mock.calls.length === 2) {
         state.stopped = true;
         state.response = "done";

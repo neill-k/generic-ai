@@ -5,6 +5,7 @@ import {
   canonicalDelegationLifecycleNames,
   canonicalArtifactLifecycleNames,
   canonicalHandoffLifecycleNames,
+  canonicalHookLifecycleNames,
   canonicalPolicyLifecycleNames,
   canonicalRunLifecycleNames,
   canonicalSessionLifecycleNames,
@@ -33,6 +34,7 @@ describe("sdk canonical event taxonomy", () => {
     expect(canonicalToolCallLifecycleNames).toContain("tool.call.failed");
     expect(canonicalTerminalCommandLifecycleNames).toContain("terminal.command.completed");
     expect(canonicalPolicyLifecycleNames).toEqual(["policy.decision"]);
+    expect(canonicalHookLifecycleNames).toContain("hook.execution.started");
     expect(canonicalArtifactLifecycleNames).toEqual(["artifact.created"]);
     expect(canonicalCoreEventNames).toHaveLength(
       canonicalRunLifecycleNames.length +
@@ -42,6 +44,7 @@ describe("sdk canonical event taxonomy", () => {
         canonicalToolCallLifecycleNames.length +
         canonicalTerminalCommandLifecycleNames.length +
         canonicalPolicyLifecycleNames.length +
+        canonicalHookLifecycleNames.length +
         canonicalArtifactLifecycleNames.length,
     );
   });
@@ -49,6 +52,7 @@ describe("sdk canonical event taxonomy", () => {
   it("identifies canonical and plugin event names", () => {
     expect(isCanonicalCoreEventName("run.started")).toBe(true);
     expect(isCanonicalCoreEventName("tool.call.started")).toBe(true);
+    expect(isCanonicalCoreEventName("hook.decision")).toBe(true);
     expect(isCanonicalCoreEventName("artifact.created")).toBe(true);
     expect(isCanonicalPluginEventName("plugin.logging-otel.span.created")).toBe(true);
     expect(isCanonicalEventName("run.started")).toBe(true);
@@ -57,6 +61,7 @@ describe("sdk canonical event taxonomy", () => {
     expect(getCanonicalEventFamily("session.child.failed")).toBe("session");
     expect(getCanonicalEventFamily("terminal.command.failed")).toBe("terminal");
     expect(getCanonicalEventFamily("policy.decision")).toBe("policy");
+    expect(getCanonicalEventFamily("hook.execution.failed")).toBe("hook");
     expect(getCanonicalEventFamily("plugin.logging-otel.span.created")).toBe("plugin");
   });
 

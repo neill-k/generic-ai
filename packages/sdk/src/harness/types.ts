@@ -1,6 +1,10 @@
 import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
 import type { CanonicalEvent } from "../events/index.js";
 import type { RunEnvelope } from "../run-envelope/index.js";
+import type {
+  AgentLifecycleHookDecisionRecord,
+  AgentLifecycleHooksConfig,
+} from "../contracts/agent-lifecycle.js";
 
 export const HARNESS_SCHEMA_VERSION = "0.1" as const;
 
@@ -50,6 +54,10 @@ export const AGENT_HARNESS_EVENT_TYPES = [
   "terminal.command.completed",
   "terminal.command.failed",
   "policy.decision",
+  "hook.execution.started",
+  "hook.execution.completed",
+  "hook.execution.failed",
+  "hook.decision",
   "artifact.created",
   "handoff.requested",
   "handoff.accepted",
@@ -162,6 +170,7 @@ export interface AgentHarnessConfig {
   readonly allowNetwork?: boolean;
   readonly allowMcp?: boolean;
   readonly artifactDir?: string;
+  readonly hooks?: AgentLifecycleHooksConfig;
   readonly metadata?: JsonObject;
 }
 
@@ -180,6 +189,7 @@ export interface AgentHarnessRunInput<TCapabilities = unknown> {
   readonly rootScopeId?: string;
   readonly rootAgentId?: string;
   readonly artifactDir?: string;
+  readonly hooks?: AgentLifecycleHooksConfig;
   readonly deadline?: string;
   readonly budget?: AgentHarnessBudget;
   readonly capabilities?: TCapabilities;
@@ -271,6 +281,7 @@ export type AgentHarnessArtifactKind =
   | "report"
   | "handoff"
   | "policy"
+  | "hook"
   | "events"
   | "summary"
   | "custom";
@@ -312,6 +323,7 @@ export interface AgentHarnessRunResult<TOutput = string> {
   readonly projections: readonly AgentHarnessEventProjection[];
   readonly artifacts: readonly AgentHarnessArtifactRef[];
   readonly policyDecisions: readonly PolicyDecisionRecord[];
+  readonly hookDecisions: readonly AgentLifecycleHookDecisionRecord[];
   readonly failureMessage?: string;
   readonly errorCategory?: AgentHarnessRunErrorCategory;
   readonly metadata?: JsonObject;

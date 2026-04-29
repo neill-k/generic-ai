@@ -83,6 +83,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
 - Pi note: Pi compatibility primitives are exposed from the explicit `@generic-ai/sdk/pi` subpath. The root `@generic-ai/sdk` entrypoint stays focused on runtime-agnostic framework contracts and helpers.
 - Memory note: owns the public `MemoryService` contract and `defineMemory` helper so alternate memory plugins share the same read/write/search/forget baseline plus optional consolidation, provenance, timeline, and graph extensions.
+- Agent lifecycle hook note: owns the public hook event set, handler declarations, decision records, and in-process handler contracts. Runtime execution remains in core; YAML discovery remains in `@generic-ai/plugin-config-yaml`.
 - Publishes as: `@generic-ai/sdk` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/preset-starter-hono`
@@ -94,7 +95,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/plugin-config-yaml`
 
-- Role: canonical YAML config discovery and validation. Produces the single resolved config layer the rest of the framework consumes.
+- Role: canonical YAML config discovery and validation, including `.generic-ai/hooks.yaml`. Produces the single resolved config layer the rest of the framework consumes.
 - Allowed deps: `@generic-ai/sdk`, `pi`.
 - Not responsible for: kernel bootstrap order, or plugin-owned runtime behavior that is merely configured via YAML.
 - Notes: this package also owns schema-fragment composition, startup-time config validation, and generation/export of the frozen machine-readable config contracts.

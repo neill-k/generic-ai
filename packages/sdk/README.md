@@ -19,6 +19,8 @@ Current SDK contents:
   contracts
 - AgentHarness contracts, adapter run context, capability-effect descriptors,
   URI/hash artifact references, and typed harness event projections
+- Agent lifecycle hook contracts for session, prompt, tool, permission,
+  post-tool, and stop decisions
 - Repeated-run reliability profile contracts for pass@k, consistency, retry,
   skipped/excluded-trial, perturbation, and bounded failure-severity reporting
 - Agent execution config for the default stop-tool loop and the
@@ -72,6 +74,10 @@ The helper layer is intentionally small and mostly ergonomic:
 - `defineMemory`
 - `defineOutputPlugin`
 - `withAgentHarnessToolEffects`
+
+Agent lifecycle hooks are plain contracts rather than kernel helpers. See
+`docs/agent-lifecycle-hooks.md` for the runtime behavior implemented by
+`@generic-ai/core`.
 
 These helpers do not add policy. They keep plugin author code concise while
 staying faithful to the public contract shape.

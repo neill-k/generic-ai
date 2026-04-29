@@ -1,8 +1,8 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-import { createWorkspaceLayout, type WorkspaceRootInput } from "@generic-ai/plugin-workspace-fs";
 import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
+import { createWorkspaceLayout, type WorkspaceRootInput } from "@generic-ai/plugin-workspace-fs";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 
 export const name = "@generic-ai/plugin-tools-web" as const;

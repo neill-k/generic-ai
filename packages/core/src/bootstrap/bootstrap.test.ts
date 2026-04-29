@@ -99,6 +99,8 @@ describe("createGenericAI", () => {
       "@generic-ai/plugin-logging-otel",
       "@generic-ai/plugin-tools-terminal",
       "@generic-ai/plugin-tools-files",
+      "@generic-ai/plugin-repo-map",
+      "@generic-ai/plugin-lsp",
       "@generic-ai/plugin-mcp",
       "@generic-ai/plugin-agent-skills",
       "@generic-ai/plugin-delegation",
@@ -307,7 +309,9 @@ describe("createGenericAI", () => {
     });
 
     expect(bootstrap.preset.name).toBe("Configured bootstrap");
-    expect(bootstrap.runtimePlan.runtime.workspaceRoot).toBe(path.resolve("C:/workspace", "apps/demo"));
+    expect(bootstrap.runtimePlan.runtime.workspaceRoot).toBe(
+      path.resolve("C:/workspace", "apps/demo"),
+    );
     expect(bootstrap.runtimePlan.primaryAgent.model).toBe("gpt-5.5");
     expect(bootstrap.surfaces.pluginConfigs["@generic-ai/plugin-hono"]).toMatchObject({
       namespace: "hono",

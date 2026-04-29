@@ -86,6 +86,7 @@ export interface WebUiHealth {
   readonly security: {
     readonly loopbackOnly: boolean;
     readonly requiresSessionTokenForMutation: boolean;
+    readonly requiresSessionTokenForRead: boolean;
   };
 }
 
@@ -226,4 +227,5 @@ export interface WebUiTransportSecurityOptions {
   readonly allowRemote?: boolean;
   readonly authorize?: (request: Request) => Promise<Response | undefined> | Response | undefined;
   readonly trustRequestUrlLoopback?: boolean;
+  readonly requireSessionTokenForRead?: boolean;
 }

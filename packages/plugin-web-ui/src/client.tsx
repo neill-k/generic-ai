@@ -106,9 +106,9 @@ export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
     try {
       const [nextHealth, nextConfig, nextTemplates, nextThreads] = await Promise.all([
         fetchJson<WebUiHealth>(`${apiBase}/health`),
-        fetchJson<WebUiConfigSnapshot>(`${apiBase}/config`),
-        fetchJson<TemplatesPayload>(`${apiBase}/templates`),
-        fetchJson<ThreadsPayload>(`${apiBase}/chat/threads`),
+        fetchJson<WebUiConfigSnapshot>(`${apiBase}/config`, { headers }),
+        fetchJson<TemplatesPayload>(`${apiBase}/templates`, { headers }),
+        fetchJson<ThreadsPayload>(`${apiBase}/chat/threads`, { headers }),
       ]);
       setHealth(nextHealth);
       setConfig(nextConfig);
@@ -116,13 +116,15 @@ export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
       setThreads(nextThreads.threads);
       if (openThreadId !== undefined) {
         setThread(
-          await fetchJson<WebUiChatThreadDetail>(`${apiBase}/chat/threads/${openThreadId}`),
+          await fetchJson<WebUiChatThreadDetail>(`${apiBase}/chat/threads/${openThreadId}`, {
+            headers,
+          }),
         );
       }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [apiBase, openThreadId]);
+  }, [apiBase, headers, openThreadId]);
 
   useEffect(() => {
     if (sessionTokenInput !== undefined) {
@@ -140,7 +142,9 @@ export function GenericAIConsole(props: GenericAIConsoleProps): ReactElement {
   }, [refresh]);
 
   async function openTemplate(id: string): Promise<void> {
-    setSelectedTemplate(await fetchJson<WebUiTemplateDefinition>(`${apiBase}/templates/${id}`));
+    setSelectedTemplate(
+      await fetchJson<WebUiTemplateDefinition>(`${apiBase}/templates/${id}`, { headers }),
+    );
   }
 
   async function applyTemplate(id: string, dryRun: boolean): Promise<void> {

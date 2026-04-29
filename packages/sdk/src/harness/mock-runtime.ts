@@ -56,6 +56,7 @@ export function createMockRuntimeAdapter<TCapabilities = unknown, TOutput = stri
         projections: [],
         artifacts: [],
         policyDecisions: [],
+        hookDecisions: [],
       } satisfies AgentHarnessRunResult<TOutput>;
     },
   };

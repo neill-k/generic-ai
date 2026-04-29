@@ -10,6 +10,9 @@
     "framework": {
       "$ref": "https://generic-ai.dev/contracts/config/framework.schema.json"
     },
+    "hooks": {
+      "$ref": "https://generic-ai.dev/contracts/config/hooks.schema.json"
+    },
     "agents": {
       "type": "object",
       "additionalProperties": {
@@ -36,6 +39,9 @@
       "additionalProperties": false,
       "properties": {
         "framework": {
+          "type": "string"
+        },
+        "hooks": {
           "type": "string"
         },
         "agents": {

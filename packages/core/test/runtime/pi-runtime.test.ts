@@ -26,7 +26,7 @@ describe("@generic-ai/core pi runtime adapter", () => {
             commands: [],
             tools: [],
           },
-        } as CreateAgentSessionResult;
+        } as unknown as CreateAgentSessionResult;
       },
     });
 
@@ -53,7 +53,7 @@ describe("@generic-ai/core pi runtime adapter", () => {
           },
           services: {} as never,
           diagnostics: [],
-        }) as CreateAgentSessionRuntimeResult,
+        }) as unknown as CreateAgentSessionRuntimeResult,
       options,
       {
         createAgentSessionRuntime: async (receivedFactory, receivedOptions) => {

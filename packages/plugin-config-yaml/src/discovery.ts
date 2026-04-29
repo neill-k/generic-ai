@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access, readdir } from "node:fs/promises";
 import { basename, extname, join, relative, resolve } from "node:path";
 
-export type ConfigConcern = "framework" | "agent" | "harness" | "plugin";
+export type ConfigConcern = "framework" | "hooks" | "agent" | "harness" | "plugin";
 
 export interface DiscoveredConfigFile {
   concern: ConfigConcern;
@@ -31,6 +31,7 @@ export interface ConfigDiscoveryResult {
   rootDir?: string;
   configDir?: string;
   frameworkFile?: DiscoveredConfigFile;
+  hooksFile?: DiscoveredConfigFile;
   agentFiles: DiscoveredConfigFile[];
   harnessFiles: DiscoveredConfigFile[];
   pluginFiles: DiscoveredConfigFile[];
@@ -51,6 +52,7 @@ const HARNESSES_DIR_NAME = "harnesses";
 const PLUGINS_DIR_NAME = "plugins";
 const YAML_EXTENSIONS = new Set([".yaml", ".yml"]);
 const FRAMEWORK_FILENAMES = ["framework.yaml", "framework.yml"] as const;
+const HOOKS_FILENAMES = ["hooks.yaml", "hooks.yml"] as const;
 
 export async function discoverCanonicalConfig(
   startDir: string,
@@ -110,6 +112,34 @@ export async function discoverCanonicalConfig(
       ? undefined
       : createDiscoveredFile(configRoot, primaryFrameworkFile, "framework", "framework");
 
+  const hooksFiles = HOOKS_FILENAMES.map((name) => join(configDir, name)).filter((filePath) =>
+    hasYamlExt(filePath),
+  );
+  const foundHooksFiles: string[] = [];
+  for (const filePath of hooksFiles) {
+    if (await pathExists(filePath, accessImpl)) {
+      foundHooksFiles.push(filePath);
+    }
+  }
+
+  if (foundHooksFiles.length > 1) {
+    failures.push({
+      code: "DUPLICATE_CONCERN_FILE",
+      message: `Found multiple hooks config files: ${foundHooksFiles.join(", ")}.`,
+      suggestion: `Keep only one hooks file in "${CONFIG_DIR_NAME}" (prefer "hooks.yaml").`,
+      concern: "hooks",
+      key: "hooks",
+      paths: [...foundHooksFiles].sort(comparePath),
+    });
+  }
+
+  const sortedHooksFiles = [...foundHooksFiles].sort(comparePath);
+  const primaryHooksFile = sortedHooksFiles[0];
+  const hooksFile =
+    primaryHooksFile === undefined
+      ? undefined
+      : createDiscoveredFile(configRoot, primaryHooksFile, "hooks", "hooks");
+
   const agentFiles = await discoverConcernFiles({
     rootDir: configRoot,
     concern: "agent",
@@ -139,6 +169,7 @@ export async function discoverCanonicalConfig(
 
   const files = [
     ...(frameworkFile ? [frameworkFile] : []),
+    ...(hooksFile ? [hooksFile] : []),
     ...agentFiles,
     ...harnessFiles,
     ...pluginFiles,
@@ -149,6 +180,7 @@ export async function discoverCanonicalConfig(
     rootDir: configRoot,
     configDir,
     ...(frameworkFile ? { frameworkFile } : {}),
+    ...(hooksFile ? { hooksFile } : {}),
     agentFiles,
     harnessFiles,
     pluginFiles,
@@ -280,9 +312,10 @@ function compareDiscoveredFile(a: DiscoveredConfigFile, b: DiscoveredConfigFile)
 function compareConcern(left: ConfigConcern, right: ConfigConcern): number {
   const weight: Record<ConfigConcern, number> = {
     framework: 0,
-    agent: 1,
-    harness: 2,
-    plugin: 3,
+    hooks: 1,
+    agent: 2,
+    harness: 3,
+    plugin: 4,
   };
   return weight[left] - weight[right];
 }

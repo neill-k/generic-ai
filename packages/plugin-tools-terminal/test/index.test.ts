@@ -5,12 +5,7 @@ import path from "node:path";
 import type { BashOperations } from "@generic-ai/sdk/pi";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  createTerminalToolPlugin,
-  kind,
-  name,
-  resolveTerminalCwd,
-} from "../src/index.js";
+import { createTerminalToolPlugin, kind, name, resolveTerminalCwd } from "../src/index.js";
 
 const tempRoots: string[] = [];
 
@@ -63,6 +58,35 @@ describe("@generic-ai/plugin-tools-terminal", () => {
       expect(result.command).toBe("pwd");
       expect(result.output).toContain("pwd");
       expect(result.output).toContain(root);
+    });
+  });
+
+  it("does not forward ambient process secrets unless explicitly requested", async () => {
+    await withTempRoot(async (root) => {
+      const secretKey = "GENERIC_AI_TERMINAL_SECRET_FOR_TEST";
+      process.env[secretKey] = "do-not-forward";
+      try {
+        let capturedEnv: NodeJS.ProcessEnv | undefined;
+        const operations: BashOperations = {
+          exec: async (_command, _cwd, options) => {
+            capturedEnv = options.env;
+            return { exitCode: 0 };
+          },
+        };
+
+        await createTerminalToolPlugin({ root, operations }).run({ command: "env" });
+        expect(capturedEnv?.[secretKey]).toBeUndefined();
+        expect(capturedEnv?.["PATH"] ?? capturedEnv?.["Path"]).toBeDefined();
+
+        await createTerminalToolPlugin({
+          root,
+          operations,
+          inheritProcessEnv: true,
+        }).run({ command: "env" });
+        expect(capturedEnv?.[secretKey]).toBe("do-not-forward");
+      } finally {
+        delete process.env[secretKey];
+      }
     });
   });
 

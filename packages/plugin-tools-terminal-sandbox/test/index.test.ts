@@ -109,7 +109,11 @@ class FakeDockerOperations implements SandboxDockerOperations {
     networkName: string,
     aliases?: readonly string[],
   ): Promise<void> {
-    this.connectedNetworks.push({ containerId, networkName, aliases });
+    this.connectedNetworks.push({
+      containerId,
+      networkName,
+      ...(aliases === undefined ? {} : { aliases }),
+    });
   }
 
   async createContainer(request: SandboxDockerCreateContainerRequest): Promise<string> {
@@ -130,7 +134,10 @@ class FakeDockerOperations implements SandboxDockerOperations {
   }
 
   async stopContainer(containerId: string, graceMs?: number): Promise<void> {
-    this.stopped.push({ containerId, graceMs });
+    this.stopped.push({
+      containerId,
+      ...(graceMs === undefined ? {} : { graceMs }),
+    });
     if (this.stopHandler !== undefined) {
       await this.stopHandler(containerId, graceMs);
     }

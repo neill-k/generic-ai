@@ -160,4 +160,25 @@ describe("@generic-ai/plugin-hono", () => {
     expect(await stream.text()).toContain("stream-body");
     expect(authorizedBodies).toEqual([{ input: "sync-body" }, { input: "stream-body" }]);
   });
+
+  it("rejects request bodies over the configured byte limit", async () => {
+    const transport = createHonoPlugin({
+      routePrefix: "/starter",
+      maxBodyBytes: 16,
+      run: async () => ({ ok: true }),
+    });
+
+    const response = await transport.app.request("/starter/run", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ input: "this body is too large" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "Request body exceeds the 16 byte limit.",
+    });
+  });
 });

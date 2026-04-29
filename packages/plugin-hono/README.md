@@ -8,6 +8,12 @@ Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin
 - Carry streaming runs cleanly over Hono
 - Be included in the default preset without making core transport-bound
 
+## Request body limits
+
+`createHonoRunApp()` reads JSON request bodies with a streaming byte cap. The
+default limit is 1 MiB. Pass `maxBodyBytes` when mounting the plugin to use a
+smaller or larger bound for `/run` and `/run/stream` payloads.
+
 Planning baseline:
 
 - `docs/planning/README.md`

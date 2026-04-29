@@ -70,6 +70,7 @@ describe("runBenchmarkProfile", () => {
             evidenceRefs: [],
           },
         ],
+        hookDecisions: [],
       }),
     });
 

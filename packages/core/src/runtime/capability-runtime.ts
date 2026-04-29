@@ -208,6 +208,7 @@ export interface CreateCapabilityPiAgentSessionResult extends CreateAgentSession
 export interface RunCapabilityPiAgentSessionOptions extends CreateCapabilityPiAgentSessionOptions {
   readonly prompt: string;
   readonly promptOptions?: PromptOptions;
+  readonly signal?: AbortSignal;
   readonly turnMode?: AgentTurnMode;
   readonly maxTurns?: number;
   readonly runId?: string;
@@ -218,6 +219,7 @@ export interface RunCapabilityPiAgentSessionOptions extends CreateCapabilityPiAg
   readonly mode?: RunEnvelopeMode;
   readonly eventStream?: CanonicalEventStream;
   readonly onSessionReady?: (context: CapabilityPiSessionEventContext) => Promise<void> | void;
+  readonly lifecycleHooks?: PiCapabilitySessionLifecycleHooks;
 }
 
 export interface RunCapabilityPiAgentSessionResult extends CreateCapabilityPiAgentSessionResult {
@@ -245,12 +247,34 @@ export interface CapabilityPiSessionEventContext {
   readonly parentSessionId?: string;
 }
 
+export interface PiCapabilitySessionLifecycleHooks {
+  onSessionStart?(context: CapabilityPiSessionEventContext): Promise<void> | void;
+  onUserPromptSubmit(
+    context: CapabilityPiSessionEventContext,
+    prompt: string,
+  ): Promise<string> | string;
+  onStop?(context: CapabilityPiSessionEventContext): Promise<void> | void;
+}
+
 function requireString(value: string | undefined, label: string): string {
   if (typeof value === "string" && value.trim().length > 0) {
     return value;
   }
 
   throw new Error(`${label} is required.`);
+}
+
+function promptOptionsWithSignal(
+  options: PromptOptions | undefined,
+  signal: AbortSignal | undefined,
+): PromptOptions | undefined {
+  if (signal === undefined) {
+    return options;
+  }
+
+  const nextOptions: PromptOptions & { signal?: AbortSignal } = { ...(options ?? {}) };
+  nextOptions.signal = signal;
+  return nextOptions;
 }
 
 function summarizeNames(names: readonly string[], singular: string, plural: string): string {
@@ -909,9 +933,7 @@ export async function runCapabilityPiAgentSession(
     runId,
     rootSessionId: options.rootSessionId ?? sessionId,
     sessionId,
-    ...(options.parentSessionId === undefined
-      ? {}
-      : { parentSessionId: options.parentSessionId }),
+    ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
   } satisfies CapabilityPiSessionEventContext;
 
   await eventStream.emit({
@@ -929,6 +951,7 @@ export async function runCapabilityPiAgentSession(
     },
   });
   await options.onSessionReady?.(eventContext);
+  await options.lifecycleHooks?.onSessionStart?.(eventContext);
   await eventStream.emit({
     ...eventContext,
     name: "run.started",
@@ -961,20 +984,31 @@ export async function runCapabilityPiAgentSession(
   });
 
   try {
-    const loop =
-      turnMode === "single-turn"
-        ? undefined
-        : await runStopToolLoop({
-            prompt: options.prompt,
-            promptOptions: options.promptOptions,
-            state: stopState,
-            maxTurns: options.maxTurns,
-            runPrompt: (prompt, promptOptions) =>
-              sessionResult.session.prompt(prompt, promptOptions),
-          });
+    const prompt =
+      (await options.lifecycleHooks?.onUserPromptSubmit(eventContext, options.prompt)) ??
+      options.prompt;
+    if (options.signal?.aborted) {
+      throw (
+        options.signal.reason ?? new Error("Pi session run was aborted before prompt dispatch.")
+      );
+    }
+
+    let loop: Awaited<ReturnType<typeof runStopToolLoop>> | undefined;
     if (turnMode === "single-turn") {
-      await sessionResult.session.prompt(options.prompt, options.promptOptions);
-    } else if (loop?.stopped !== true || loop.outputText === undefined) {
+      await sessionResult.session.prompt(
+        prompt,
+        promptOptionsWithSignal(options.promptOptions, options.signal),
+      );
+    } else {
+      loop = await runStopToolLoop({
+        prompt,
+        promptOptions: promptOptionsWithSignal(options.promptOptions, options.signal),
+        state: stopState,
+        maxTurns: options.maxTurns,
+        runPrompt: (prompt, promptOptions) => sessionResult.session.prompt(prompt, promptOptions),
+      });
+    }
+    if (turnMode !== "single-turn" && (loop?.stopped !== true || loop.outputText === undefined)) {
       throw new Error(
         `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop?.turnCount ?? 0} turn(s).`,
       );
@@ -983,6 +1017,7 @@ export async function runCapabilityPiAgentSession(
     const terminalFailureMessage = stopToolFailureMessage(terminalStatus);
     unsubscribe();
     await forwarder;
+    await options.lifecycleHooks?.onStop?.(eventContext);
 
     const completedAt = new Date().toISOString();
     await eventStream.emit({

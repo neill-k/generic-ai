@@ -23,7 +23,7 @@ ADRs must be written when:
 ## Current Records
 
 - [`0001-monorepo-scaffold.md`](0001-monorepo-scaffold.md) — initial monorepo layout, package manager choice, and package granularity.
-- [`0002-base-toolchain.md`](0002-base-toolchain.md) — base toolchain for the monorepo: Node LTS, TypeScript project references, Biome, Vitest, workspace scripts, and the four-command quality gate.
+- [`0002-base-toolchain.md`](0002-base-toolchain.md) — base toolchain for the monorepo: Node LTS, TypeScript project references, Biome, Vitest, workspace scripts, and the baseline quality gate.
 - [`0003-release-and-publishing.md`](0003-release-and-publishing.md) — release tool (changesets), independent versioning, public-vs-internal classification, `publishConfig` with npm provenance, changelog policy, and the CI/release-ownership handoff to `CTL-02` and `CTL-03`.
 - [`0004-config-contracts-and-discovery.md`](0004-config-contracts-and-discovery.md) — Zod-backed config contracts, JSON Schema artifacts in `contracts/`, deterministic `.generic-ai/` discovery, and startup-time validation/composition.
 - [`0005-plugin-host.md`](0005-plugin-host.md) — deterministic plugin-host ordering, lifecycle execution, and actionable host diagnostics inside `@generic-ai/core`.
@@ -52,6 +52,7 @@ ADRs must be written when:
 - [`0028-web-ui-plugin-console.md`](0028-web-ui-plugin-console.md) - plugin-layer web console, config-write ownership, local-console security, and runnable template limits.
 - [`0029-memory-service-contract-and-roadmap.md`](0029-memory-service-contract-and-roadmap.md) - SDK memory service contract, file-memory conformance, and richer memory plugin sequencing.
 - [`0030-observability-surface-package.md`](0030-observability-surface-package.md) - surface-package layer, safe observability defaults, repository ownership, metric-first ordering, and OTEL export deferral.
+- [`0031-agent-lifecycle-hooks.md`](0031-agent-lifecycle-hooks.md) - SDK hook contracts, `.generic-ai/hooks.yaml`, command handler runtime, and canonical hook evidence.
 - [`0031-fault-injection-benchmark-contracts.md`](0031-fault-injection-benchmark-contracts.md) - SDK-owned fault-injection benchmark contracts, report aggregation, and plugin-owned injector boundaries.
 - [`0032-repeated-run-reliability-profile.md`](0032-repeated-run-reliability-profile.md) - optional SDK reliability profile contracts and report sections for repeated agent benchmark runs.
 - [`0033-research-slots.md`](0033-research-slots.md) - additive research-slot metadata for plugin discovery without package renames.

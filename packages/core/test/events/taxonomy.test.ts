@@ -5,6 +5,7 @@ import {
   canonicalDelegationLifecycleNames,
   canonicalArtifactLifecycleNames,
   canonicalHandoffLifecycleNames,
+  canonicalHookLifecycleNames,
   canonicalPolicyLifecycleNames,
   canonicalRunLifecycleNames,
   canonicalSessionLifecycleNames,
@@ -33,6 +34,7 @@ describe("core canonical event taxonomy", () => {
     expect(canonicalToolCallLifecycleNames).toContain("tool.call.started");
     expect(canonicalTerminalCommandLifecycleNames).toContain("terminal.command.failed");
     expect(canonicalPolicyLifecycleNames).toEqual(["policy.decision"]);
+    expect(canonicalHookLifecycleNames).toContain("hook.decision");
     expect(canonicalArtifactLifecycleNames).toEqual(["artifact.created"]);
     expect(canonicalCoreEventNames).toHaveLength(
       canonicalRunLifecycleNames.length +
@@ -42,6 +44,7 @@ describe("core canonical event taxonomy", () => {
         canonicalToolCallLifecycleNames.length +
         canonicalTerminalCommandLifecycleNames.length +
         canonicalPolicyLifecycleNames.length +
+        canonicalHookLifecycleNames.length +
         canonicalArtifactLifecycleNames.length,
     );
   });
@@ -49,6 +52,7 @@ describe("core canonical event taxonomy", () => {
   it("recognizes canonical names and plugin extensions", () => {
     expect(isCanonicalCoreEventName("run.created")).toBe(true);
     expect(isCanonicalCoreEventName("policy.decision")).toBe(true);
+    expect(isCanonicalCoreEventName("hook.execution.completed")).toBe(true);
     expect(isCanonicalCoreEventName("artifact.created")).toBe(true);
     expect(isCanonicalPluginEventName("plugin.otel.trace.started")).toBe(true);
     expect(isCanonicalEventName("session.child.created")).toBe(true);
@@ -57,6 +61,7 @@ describe("core canonical event taxonomy", () => {
     expect(getCanonicalEventFamily("delegation.completed")).toBe("delegation");
     expect(getCanonicalEventFamily("handoff.completed")).toBe("handoff");
     expect(getCanonicalEventFamily("tool.call.failed")).toBe("tool");
+    expect(getCanonicalEventFamily("hook.decision")).toBe("hook");
   });
 
   it("seals kernel events with stable runtime metadata", () => {

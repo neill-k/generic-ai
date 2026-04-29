@@ -73,8 +73,7 @@ export interface CanonicalConfigTransactionSnapshot {
   readonly revision: string;
 }
 
-export interface CanonicalConfigTransactionOptions
-  extends StartupValidationOptions {
+export interface CanonicalConfigTransactionOptions extends StartupValidationOptions {
   readonly edits: readonly CanonicalConfigEdit[];
   readonly expectedRevision?: string;
   readonly schemaSource?: ValidationSchemaSource;
@@ -328,9 +327,7 @@ export async function applyCanonicalConfigTransaction(
   }
 }
 
-function normalizeEdit(
-  edit: CanonicalConfigEdit,
-):
+function normalizeEdit(edit: CanonicalConfigEdit):
   | {
       readonly ok: true;
       readonly edit: Required<Pick<CanonicalConfigEdit, "action" | "concern" | "key">> &
@@ -340,7 +337,8 @@ function normalizeEdit(
       readonly ok: false;
       readonly failure: CanonicalConfigTransactionFailure;
     } {
-  const key = edit.concern === "framework" ? "framework" : edit.key?.trim();
+  const key =
+    edit.concern === "framework" || edit.concern === "hooks" ? edit.concern : edit.key?.trim();
 
   if (key === undefined || key.length === 0) {
     return {
@@ -401,7 +399,9 @@ function normalizeEdit(
 function serializeEdit(
   edit: Required<Pick<CanonicalConfigEdit, "action" | "concern" | "key">> &
     Omit<CanonicalConfigEdit, "key">,
-): { readonly ok: true; readonly content: string } | { readonly ok: false; readonly failure: CanonicalConfigTransactionFailure } {
+):
+  | { readonly ok: true; readonly content: string }
+  | { readonly ok: false; readonly failure: CanonicalConfigTransactionFailure } {
   if (edit.value === undefined) {
     return {
       ok: false,
@@ -449,7 +449,7 @@ function stripInjectedIdentity(
   const source = { ...value };
   const identityField = concern === "plugin" ? "plugin" : "id";
 
-  if (concern === "framework") {
+  if (concern === "framework" || concern === "hooks") {
     return { ok: true, value: source };
   }
 
@@ -474,7 +474,7 @@ function withInjectedIdentity(
   key: string,
   value: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (concern === "framework") {
+  if (concern === "framework" || concern === "hooks") {
     return value;
   }
 
@@ -489,6 +489,8 @@ function schemaForConcern(concern: ConfigConcern) {
   switch (concern) {
     case "framework":
       return schemas.framework;
+    case "hooks":
+      return schemas.hooks;
     case "agent":
       return schemas.agent;
     case "harness":
@@ -529,6 +531,8 @@ function filePathForEdit(configDir: string, edit: { concern: ConfigConcern; key:
   switch (edit.concern) {
     case "framework":
       return join(configDir, "framework.yaml");
+    case "hooks":
+      return join(configDir, "hooks.yaml");
     case "agent":
       return join(configDir, "agents", `${edit.key}.yaml`);
     case "harness":
@@ -636,7 +640,9 @@ async function verifyCanonicalConfig(
     },
 ): Promise<CanonicalConfigVerifyResult> {
   const resolution = await resolveCanonicalConfig(startDir, {
-    ...(options.requireFramework === undefined ? {} : { requireFramework: options.requireFramework }),
+    ...(options.requireFramework === undefined
+      ? {}
+      : { requireFramework: options.requireFramework }),
   });
   if (!resolution.ok) {
     return {

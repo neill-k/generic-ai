@@ -1,0 +1,13 @@
+schemaVersion: v1
+defaults:
+  timeoutMs: 1000
+  failureMode: fail-closed
+hooks:
+  - id: inject-context
+    events:
+      - UserPromptSubmit
+    handler:
+      type: command
+      command: node
+      args:
+        - ./hooks/inject-context.mjs

@@ -1,6 +1,6 @@
 # Branch Protection
 
-This repository uses the `baseline-quality-gate` GitHub Actions workflow as the always-on merge gate for `main`.
+This repository uses the `baseline-quality-gate` and `Docs as Code` GitHub Actions workflows as the always-on merge gates for `main`.
 
 ## Required Checks
 
@@ -10,6 +10,7 @@ Configure the `main` branch protection rule to require these status checks befor
 - `baseline-lint`
 - `baseline-test`
 - `baseline-build`
+- `docs-check`
 
 Those names are intentionally unique across workflows so GitHub can resolve the required checks without ambiguity. The live provider smoke workflow is not part of the required baseline gate because it depends on trusted secrets and remains manually dispatched.
 

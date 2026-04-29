@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 import {
   createGenericAILlmRuntime,
   createOpenAICodexRuntime,
@@ -15,6 +15,10 @@ interface FakeSessionOptions {
   }[];
 }
 
+type PromptOptions = { readonly source?: string; readonly signal?: AbortSignal };
+type PromptFn = (text: string, options?: PromptOptions) => Promise<void>;
+type PromptMock = Mock<PromptFn>;
+
 async function callStopTool(options: FakeSessionOptions, response: string) {
   const stopTool = options.customTools?.find(
     (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
@@ -29,7 +33,7 @@ async function callStopTool(options: FakeSessionOptions, response: string) {
 describe("@generic-ai/core llm runtime adapter", () => {
   it("uses Pi's OpenAI Codex provider path by default", async () => {
     const setRuntimeApiKey = vi.fn();
-    const prompt = vi.fn(async () => undefined);
+    const prompt: PromptMock = vi.fn(async () => undefined);
 
     const runtime = await createGenericAILlmRuntime(
       {
@@ -49,9 +53,9 @@ describe("@generic-ai/core llm runtime adapter", () => {
             reload: async () => undefined,
           }),
           createAgentSession: async (options) => {
-            const sessionPrompt = vi.fn(async () => {
-              await callStopTool(options as FakeSessionOptions, "hello from pi codex");
-            });
+            const sessionPrompt: PromptFn = async () => {
+              await callStopTool(options as unknown as FakeSessionOptions, "hello from pi codex");
+            };
             prompt.mockImplementation(sessionPrompt);
             return {
               session: {
@@ -114,7 +118,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
               session: {
                 messages: [],
                 prompt: vi.fn(async () => {
-                  await callStopTool(options as FakeSessionOptions, "stored auth result");
+                  await callStopTool(options as unknown as FakeSessionOptions, "stored auth result");
                 }),
               },
             }) as never,
@@ -133,7 +137,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
   });
 
   it("lets the Pi OpenAI Codex provider attempt OAuth auth even when auth preflight is conservative", async () => {
-    const prompt = vi.fn(async () => undefined);
+    const prompt: PromptMock = vi.fn(async () => undefined);
     const runtime = await createGenericAILlmRuntime(
       {},
       {
@@ -152,9 +156,9 @@ describe("@generic-ai/core llm runtime adapter", () => {
             ({
               session: {
                 messages: [],
-                prompt: vi.fn(async (...args) => {
-                  prompt(...args);
-                  await callStopTool(options as FakeSessionOptions, "oauth auth result");
+                prompt: vi.fn(async (text: string, promptOptions?: PromptOptions) => {
+                  await prompt(text, promptOptions);
+                  await callStopTool(options as unknown as FakeSessionOptions, "oauth auth result");
                 }),
               },
             }) as never,
@@ -192,7 +196,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
             session: {
               messages: [],
               prompt: vi.fn(async () => {
-                await callStopTool(options as FakeSessionOptions, "streamed pi result");
+                await callStopTool(options as unknown as FakeSessionOptions, "streamed pi result");
               }),
             },
           }) as never,
@@ -220,9 +224,9 @@ describe("@generic-ai/core llm runtime adapter", () => {
   it("passes abort signals into Pi prompts and disposes aborted sessions", async () => {
     const controller = new AbortController();
     const dispose = vi.fn();
-    let promptOptions: { readonly source?: string; readonly signal?: AbortSignal } | undefined;
+    let promptOptions: PromptOptions | undefined;
     const prompt = vi.fn(
-      async (_text: string, options?: { readonly source?: string; readonly signal?: AbortSignal }) => {
+      async (_text: string, options?: PromptOptions) => {
         promptOptions = options;
         queueMicrotask(() => controller.abort());
         await new Promise(() => undefined);
@@ -266,7 +270,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
 
   it("supports the explicit pi compatibility adapter", async () => {
     const setRuntimeApiKey = vi.fn();
-    const prompt = vi.fn(async () => undefined);
+    const prompt: PromptMock = vi.fn(async () => undefined);
 
     const runtime = await createGenericAILlmRuntime(
       {
@@ -289,9 +293,9 @@ describe("@generic-ai/core llm runtime adapter", () => {
             ({
               session: {
                 messages: [],
-                prompt: vi.fn(async (...args) => {
-                  prompt(...args);
-                  await callStopTool(options as FakeSessionOptions, "pi result");
+                prompt: vi.fn(async (text: string, promptOptions?: PromptOptions) => {
+                  await prompt(text, promptOptions);
+                  await callStopTool(options as unknown as FakeSessionOptions, "pi result");
                 }),
               },
             }) as never,
