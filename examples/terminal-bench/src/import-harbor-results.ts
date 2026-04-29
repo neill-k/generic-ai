@@ -10,6 +10,7 @@ import {
   createStableFingerprint,
   HARNESS_SCHEMA_VERSION,
   renderBenchmarkReportMarkdown,
+  type AgentHarnessEventProjection,
   type ArtifactReference,
   type BenchmarkReport,
   type BenchmarkSpec,
@@ -130,10 +131,15 @@ function findFirstBoolean(value: unknown, names: ReadonlySet<string>): boolean |
 }
 
 async function sha256(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
-async function collectFileArtifacts(root: string, baseUri: string): Promise<readonly ArtifactReference[]> {
+async function collectFileArtifacts(
+  root: string,
+  baseUri: string,
+): Promise<readonly ArtifactReference[]> {
   if (!existsSync(root)) {
     return [];
   }
@@ -176,6 +182,23 @@ function isTraceEvent(value: unknown): value is TraceEvent {
     typeof value["timestamp"] === "string" &&
     typeof value["runId"] === "string" &&
     typeof value["summary"] === "string"
+  );
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === "string";
+}
+
+function isAgentHarnessEventProjection(value: unknown): value is AgentHarnessEventProjection {
+  return (
+    isRecord(value) &&
+    typeof value["id"] === "string" &&
+    typeof value["sequence"] === "number" &&
+    typeof value["type"] === "string" &&
+    typeof value["eventName"] === "string" &&
+    typeof value["occurredAt"] === "string" &&
+    typeof value["summary"] === "string" &&
+    isRecord(value["data"])
   );
 }
 
@@ -247,6 +270,25 @@ async function loadTraceEvents(trialDir: string): Promise<readonly TraceEvent[]>
   return [];
 }
 
+async function loadHarnessProjections(
+  trialDir: string,
+): Promise<readonly AgentHarnessEventProjection[]> {
+  const candidates = [
+    join(trialDir, "artifacts", "generic-ai", "harness", "harness-projections.json"),
+    join(trialDir, "agent", "generic-ai", "harness", "harness-projections.json"),
+    join(trialDir, "agent", "harness", "harness-projections.json"),
+  ];
+
+  for (const candidate of candidates) {
+    const json = await readJsonIfExists(candidate);
+    if (Array.isArray(json) && json.every(isAgentHarnessEventProjection)) {
+      return json;
+    }
+  }
+
+  return [];
+}
+
 function metric(
   metricId: string,
   value: number | undefined,
@@ -263,7 +305,10 @@ function metric(
   });
 }
 
-function extractMetrics(resultJson: unknown, artifactRefs: readonly string[]): readonly MetricValue[] {
+function extractMetrics(
+  resultJson: unknown,
+  artifactRefs: readonly string[],
+): readonly MetricValue[] {
   const reward = findFirstNumber(resultJson, new Set(["reward", "score"]));
   const duration = findFirstNumber(resultJson, new Set(["duration_sec", "duration_seconds"]));
   const costUsd = findFirstNumber(resultJson, new Set(["cost_usd", "cost"]));
@@ -277,6 +322,92 @@ function extractMetrics(resultJson: unknown, artifactRefs: readonly string[]): r
   ];
 
   return Object.freeze(values.filter((value): value is MetricValue => value !== undefined));
+}
+
+function traceEventTypeFromProjection(
+  projection: AgentHarnessEventProjection,
+): TraceEventType | undefined {
+  if (projection.type === "policy.decision") {
+    return "policy.decision";
+  }
+
+  if (projection.type === "artifact.created") {
+    return "artifact.created";
+  }
+
+  if (projection.type.startsWith("tool.call.") || projection.type.startsWith("terminal.command.")) {
+    return "tool.invoked";
+  }
+
+  if (projection.type.startsWith("handoff.")) {
+    return "protocol.action.planned";
+  }
+
+  if (projection.type === "session.completed" || projection.type === "session.failed") {
+    return "actor.completed";
+  }
+
+  return undefined;
+}
+
+function hasEquivalentProjectionEvent(
+  events: readonly TraceEvent[],
+  projection: AgentHarnessEventProjection,
+  type: TraceEventType,
+): boolean {
+  const artifactId = projection.data["artifactId"];
+  const policyDecisionId = projection.data["policyDecisionId"];
+
+  return events.some((event) => {
+    if (event.type !== type) {
+      return false;
+    }
+
+    if (type === "artifact.created" && isString(artifactId)) {
+      return event.artifactId === artifactId;
+    }
+
+    if (type === "policy.decision" && isString(policyDecisionId)) {
+      return event.policyDecisionId === policyDecisionId;
+    }
+
+    return event.summary === projection.summary;
+  });
+}
+
+function traceEventsFromHarnessProjections(input: {
+  readonly projections: readonly AgentHarnessEventProjection[];
+  readonly existingEvents: readonly TraceEvent[];
+  readonly addEvent: ReturnType<typeof eventFactory>;
+}): readonly TraceEvent[] {
+  const traceEvents: TraceEvent[] = [];
+
+  for (const projection of input.projections) {
+    const type = traceEventTypeFromProjection(projection);
+    if (
+      type === undefined ||
+      hasEquivalentProjectionEvent(input.existingEvents, projection, type)
+    ) {
+      continue;
+    }
+
+    const artifactId = projection.data["artifactId"];
+    const policyDecisionId = projection.data["policyDecisionId"];
+    traceEvents.push(
+      Object.freeze({
+        ...input.addEvent({
+          type,
+          summary: projection.summary,
+        }),
+        timestamp: projection.occurredAt,
+        actorId: projection.roleId ?? "generic-ai",
+        ...(isString(artifactId) ? { artifactId } : {}),
+        ...(isString(policyDecisionId) ? { policyDecisionId } : {}),
+      }),
+    );
+  }
+
+  return Object.freeze(traceEvents);
 }
 
 async function listTrialDirs(jobDir: string): Promise<readonly string[]> {
@@ -310,6 +441,7 @@ async function importTrial(input: {
   ];
   const artifactRefs = artifacts.map((artifact) => artifact.id);
   const loadedEvents = await loadTraceEvents(input.trialDir);
+  const harnessProjections = await loadHarnessProjections(input.trialDir);
   const addEvent = eventFactory({
     runId: input.runId,
     trialId,
@@ -317,6 +449,13 @@ async function importTrial(input: {
     timestamp: input.timestamp,
   });
   const events: TraceEvent[] = [...loadedEvents];
+  events.push(
+    ...traceEventsFromHarnessProjections({
+      projections: harnessProjections,
+      existingEvents: events,
+      addEvent,
+    }),
+  );
   const reward = findFirstNumber(resultJson, new Set(["reward", "score"]));
   const duration = findFirstNumber(resultJson, new Set(["duration_sec", "duration_seconds"]));
 
@@ -360,6 +499,66 @@ async function importTrial(input: {
     artifacts: Object.freeze(artifacts),
     diagnostics: traceDiagnostics(events, artifacts.length),
   });
+}
+
+function projectionCounts(
+  projections: readonly AgentHarnessEventProjection[],
+): ReadonlyMap<string, number> {
+  const counts = new Map<string, number>();
+  for (const projection of projections) {
+    counts.set(projection.type, (counts.get(projection.type) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+function renderHarnessProjectionsMarkdown(
+  rows: readonly {
+    readonly trialId: string;
+    readonly projections: readonly AgentHarnessEventProjection[];
+  }[],
+): string {
+  const lines = ["# Terminal-Bench Harness Projections", ""];
+
+  if (rows.length === 0) {
+    lines.push("No Harbor-collected Generic AI harness projections were found.", "");
+    return lines.join("\n");
+  }
+
+  lines.push("| Trial | Projection type | Count |", "| --- | --- | --- |");
+  for (const row of rows) {
+    const counts = projectionCounts(row.projections);
+    if (counts.size === 0) {
+      lines.push(`| ${row.trialId} | none | 0 |`);
+      continue;
+    }
+
+    for (const [type, count] of [...counts.entries()].sort(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
+      lines.push(`| ${row.trialId} | ${type} | ${count} |`);
+    }
+  }
+
+  lines.push("", "## Timeline", "");
+  for (const row of rows) {
+    lines.push(`### ${row.trialId}`, "");
+    if (row.projections.length === 0) {
+      lines.push("- No projections found.", "");
+      continue;
+    }
+
+    for (const projection of row.projections) {
+      const role = projection.roleId === undefined ? "" : ` role=${projection.roleId}`;
+      const tool = projection.toolName === undefined ? "" : ` tool=${projection.toolName}`;
+      lines.push(
+        `- ${projection.occurredAt} ${projection.type}${role}${tool}: ${projection.summary}`,
+      );
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
 
 function createMission(): MissionSpec {
@@ -477,6 +676,14 @@ export async function importHarborResults(
   const trialResults = await Promise.all(
     trialDirs.map((trialDir) => importTrial({ jobDir, trialDir, runId, timestamp })),
   );
+  const harnessProjectionRows = await Promise.all(
+    trialDirs.map(async (trialDir) =>
+      Object.freeze({
+        trialId: basename(trialDir),
+        projections: await loadHarnessProjections(trialDir),
+      }),
+    ),
+  );
   const mission = createMission();
   const benchmark = createBenchmark({
     jobName,
@@ -501,6 +708,12 @@ export async function importHarborResults(
   await writeJson(join(outputDir, "mission.json"), mission);
   await writeJson(join(outputDir, "benchmark.json"), benchmark);
   await writeJson(join(outputDir, "trial-results.json"), trialResults);
+  await writeJson(join(outputDir, "trial-harness-projections.json"), harnessProjectionRows);
+  await writeFile(
+    join(outputDir, "trial-harness-projections.md"),
+    renderHarnessProjectionsMarkdown(harnessProjectionRows),
+    "utf-8",
+  );
   await writeJson(join(outputDir, "trial-command-transcripts.json"), trialTranscripts);
   await writeFile(
     join(outputDir, "trial-command-transcripts.md"),
