@@ -42,6 +42,13 @@ Single-run smoke results are allowed for wiring checks, but they cannot produce 
 confident architecture recommendation unless the BenchmarkSpec explicitly opts
 into that behavior.
 
+BenchmarkSpec can also attach a repeated-run reliability profile. The profile is
+optional and report-only: it records success thresholds, pass@k cuts,
+perturbation labels, retry accounting, skipped/excluded trials, and bounded
+failure severity without replacing the primary metric. Reports use it to make
+consistency, variance, robustness, and failure severity visible when two
+candidates have similar average scores.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a

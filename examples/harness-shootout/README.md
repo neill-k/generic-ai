@@ -27,6 +27,9 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
 - [`candidates/squad.json`](candidates/squad.json): shared-space squad
   coordination.
 - [`sample-report.md`](sample-report.md): example of bounded interpretation.
+- [`reliability/`](reliability/): repeated-run reliability fixture showing how
+  equal average task success can hide different consistency, retry, and bounded
+  failure-severity profiles.
 
 ## Programmatic Shape
 
@@ -54,6 +57,9 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
 - Candidate harnesses compile into the same runtime contract shape.
 - Reports distinguish facts, inferences, and recommendations.
 - Underpowered runs produce `insufficient_evidence`.
+- Repeated-run reports can expose pass rate, pass@k, consistency, variance,
+  retries, skipped/excluded trials, perturbation labels, and failure severity
+  without hiding failed attempts.
 
 ## What It Does Not Prove Yet
 

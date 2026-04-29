@@ -1,0 +1,268 @@
+[
+  {
+    "candidateId": "pipeline-bursty",
+    "harnessId": "harness.pipeline:compiled",
+    "trialId": "pipeline-bursty:trial-1",
+    "outcome": {
+      "status": "passed",
+      "perturbationLabel": "clean",
+      "failureSeverity": "none"
+    },
+    "metrics": [
+      { "metricId": "task_success", "value": 1, "evidenceRefs": ["pipeline-bursty:trial-1"] },
+      {
+        "metricId": "bounded_failure_severity",
+        "value": 0,
+        "evidenceRefs": ["pipeline-bursty:trial-1"]
+      },
+      {
+        "metricId": "trace_completeness",
+        "value": 1,
+        "evidenceRefs": ["pipeline-bursty:trial-1"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "pipeline-bursty",
+    "harnessId": "harness.pipeline:compiled",
+    "trialId": "pipeline-bursty:trial-2",
+    "outcome": {
+      "status": "passed",
+      "attempt": 2,
+      "retryOfTrialId": "pipeline-bursty:trial-1",
+      "perturbationLabel": "retry",
+      "failureSeverity": "none"
+    },
+    "metrics": [
+      { "metricId": "task_success", "value": 1, "evidenceRefs": ["pipeline-bursty:trial-2"] },
+      {
+        "metricId": "bounded_failure_severity",
+        "value": 0,
+        "evidenceRefs": ["pipeline-bursty:trial-2"]
+      },
+      {
+        "metricId": "trace_completeness",
+        "value": 1,
+        "evidenceRefs": ["pipeline-bursty:trial-2"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 1,
+      "reworkCount": 1,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "pipeline-bursty",
+    "harnessId": "harness.pipeline:compiled",
+    "trialId": "pipeline-bursty:trial-3",
+    "outcome": {
+      "status": "failed",
+      "perturbationLabel": "network-noise",
+      "failureSeverity": "high"
+    },
+    "metrics": [
+      { "metricId": "task_success", "value": 0, "evidenceRefs": ["pipeline-bursty:trial-3"] },
+      {
+        "metricId": "bounded_failure_severity",
+        "value": 3,
+        "evidenceRefs": ["pipeline-bursty:trial-3"]
+      },
+      {
+        "metricId": "trace_completeness",
+        "value": 1,
+        "evidenceRefs": ["pipeline-bursty:trial-3"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "pipeline-bursty",
+    "harnessId": "harness.pipeline:compiled",
+    "trialId": "pipeline-bursty:trial-4",
+    "outcome": {
+      "status": "failed",
+      "perturbationLabel": "tool-timeout",
+      "failureSeverity": "critical"
+    },
+    "metrics": [
+      { "metricId": "task_success", "value": 0, "evidenceRefs": ["pipeline-bursty:trial-4"] },
+      {
+        "metricId": "bounded_failure_severity",
+        "value": 4,
+        "evidenceRefs": ["pipeline-bursty:trial-4"]
+      },
+      {
+        "metricId": "trace_completeness",
+        "value": 1,
+        "evidenceRefs": ["pipeline-bursty:trial-4"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "verifier-loop-steady",
+    "harnessId": "harness.verifier-loop:compiled",
+    "trialId": "verifier-loop-steady:trial-1",
+    "outcome": {
+      "status": "passed",
+      "perturbationLabel": "clean",
+      "failureSeverity": "low"
+    },
+    "metrics": [
+      { "metricId": "task_success", "value": 0.5, "evidenceRefs": ["verifier-loop-steady:trial-1"] },
+      {
+        "metricId": "bounded_failure_severity",
+        "value": 1,
+        "evidenceRefs": ["verifier-loop-steady:trial-1"]
+      },
+      {
+        "metricId": "trace_completeness",
+        "value": 1,
+        "evidenceRefs": ["verifier-loop-steady:trial-1"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 1,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "verifier-loop-steady",
+    "harnessId": "harness.verifier-loop:compiled",
+    "trialId": "verifier-loop-steady:trial-2",
+    "outcome": {
+      "status": "passed",
+      "perturbationLabel": "retry",
+      "failureSeverity": "low"
+    },
+    "metrics": [
+      { "metricId": "task_success", "value": 0.5, "evidenceRefs": ["verifier-loop-steady:trial-2"] },
+      {
+        "metricId": "bounded_failure_severity",
+        "value": 1,
+        "evidenceRefs": ["verifier-loop-steady:trial-2"]
+      },
+      {
+        "metricId": "trace_completeness",
+        "value": 1,
+        "evidenceRefs": ["verifier-loop-steady:trial-2"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 1,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "verifier-loop-steady",
+    "harnessId": "harness.verifier-loop:compiled",
+    "trialId": "verifier-loop-steady:trial-3",
+    "outcome": {
+      "status": "passed",
+      "perturbationLabel": "network-noise",
+      "failureSeverity": "low"
+    },
+    "metrics": [
+      { "metricId": "task_success", "value": 0.5, "evidenceRefs": ["verifier-loop-steady:trial-3"] },
+      {
+        "metricId": "bounded_failure_severity",
+        "value": 1,
+        "evidenceRefs": ["verifier-loop-steady:trial-3"]
+      },
+      {
+        "metricId": "trace_completeness",
+        "value": 1,
+        "evidenceRefs": ["verifier-loop-steady:trial-3"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 1,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "verifier-loop-steady",
+    "harnessId": "harness.verifier-loop:compiled",
+    "trialId": "verifier-loop-steady:trial-4",
+    "outcome": {
+      "status": "passed",
+      "perturbationLabel": "tool-timeout",
+      "failureSeverity": "low"
+    },
+    "metrics": [
+      { "metricId": "task_success", "value": 0.5, "evidenceRefs": ["verifier-loop-steady:trial-4"] },
+      {
+        "metricId": "bounded_failure_severity",
+        "value": 1,
+        "evidenceRefs": ["verifier-loop-steady:trial-4"]
+      },
+      {
+        "metricId": "trace_completeness",
+        "value": 1,
+        "evidenceRefs": ["verifier-loop-steady:trial-4"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 1,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  }
+]
