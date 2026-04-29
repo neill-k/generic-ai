@@ -40,6 +40,10 @@ export default defineConfig({
       }))
       .concat([
         {
+          find: /^@generic-ai\/sdk\/pi$/,
+          replacement: resolve(__dirname, "packages/sdk/src/pi/index.ts"),
+        },
+        {
           find: /^@generic-ai\/plugin-web-ui\/client$/,
           replacement: resolve(__dirname, "packages/plugin-web-ui/src/client.tsx"),
         },

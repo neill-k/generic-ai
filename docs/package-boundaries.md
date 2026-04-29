@@ -68,6 +68,11 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Not responsible for: MCP, Agent Skills, delegation, messaging, memory, storage implementations, transport, output shaping, Harness DSL syntax, package-specific protocol/policy/grader semantics, or any business capability.
 - Notes: the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls is the only approved kernel/preset composition exception. See `docs/decisions/0012-bootstrap-api.md`.
 - Harness note: core exposes the Pi-backed `AgentHarness` control-plane implementation, filters role capabilities by SDK-declared effects, writes artifacts through the harness artifact-store contract, and may consume SDK-owned compiled harness contracts. `GenericAILlmRuntime` remains a low-level text/model helper rather than the composable agent harness.
+- Agent-loop note: Pi owns the per-prompt model/tool loop. Core owns the
+  Generic AI terminal contract around Pi sessions: it injects the
+  runtime-control `stop_and_respond` tool, lets that tool terminate Pi's
+  current loop, and honors SDK config that opts a specific agent or harness
+  into `single-turn` behavior or sets an optional finite `maxTurns` cap.
 - Publishes as: `@generic-ai/core` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/sdk`
@@ -76,6 +81,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Allowed deps: `pi`.
 - Not responsible for: plugin implementations, config discovery, kernel internals, live provider execution, or report hosting.
 - Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
+- Pi note: Pi compatibility primitives are exposed from the explicit `@generic-ai/sdk/pi` subpath. The root `@generic-ai/sdk` entrypoint stays focused on runtime-agnostic framework contracts and helpers.
 - Memory note: owns the public `MemoryService` contract and `defineMemory` helper so alternate memory plugins share the same read/write/search/forget baseline plus optional consolidation, provenance, timeline, and graph extensions.
 - Publishes as: `@generic-ai/sdk` — public, independent versioning, `publishConfig.access: public`, provenance on.
 

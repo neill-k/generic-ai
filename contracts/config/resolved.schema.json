@@ -2,10 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://generic-ai.dev/contracts/config/resolved.schema.json",
   "title": "Generic AI Resolved Config Contract",
-  "description": "Composed runtime config after canonical framework/agent/plugin YAML concerns are loaded and preset metadata is applied.",
+  "description": "Composed runtime config after canonical framework/agent/harness/plugin YAML concerns are loaded and preset metadata is applied.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["framework", "agents", "plugins"],
+  "required": ["framework", "agents", "harnesses", "plugins"],
   "properties": {
     "framework": {
       "$ref": "https://generic-ai.dev/contracts/config/framework.schema.json"
@@ -14,6 +14,12 @@
       "type": "object",
       "additionalProperties": {
         "$ref": "https://generic-ai.dev/contracts/config/agent.schema.json"
+      }
+    },
+    "harnesses": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "https://generic-ai.dev/contracts/config/harness.schema.json"
       }
     },
     "plugins": {
@@ -33,6 +39,12 @@
           "type": "string"
         },
         "agents": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "harnesses": {
           "type": "object",
           "additionalProperties": {
             "type": "string"

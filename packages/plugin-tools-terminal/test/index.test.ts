@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { BashOperations } from "@generic-ai/sdk";
+import type { BashOperations } from "@generic-ai/sdk/pi";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createTerminalToolPlugin, kind, name, resolveTerminalCwd } from "../src/index.js";

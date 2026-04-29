@@ -2,15 +2,17 @@ import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  withAgentHarnessToolEffects,
+  type WorkspaceEntry,
+} from "@generic-ai/sdk";
+import {
   createEditTool,
   createFindTool,
   createGrepTool,
   createLsTool,
   createReadTool,
   createWriteTool,
-  withAgentHarnessToolEffects,
-  type WorkspaceEntry,
-} from "@generic-ai/sdk";
+} from "@generic-ai/sdk/pi";
 import {
   createWorkspaceFs,
   resolveSafeWorkspacePath,

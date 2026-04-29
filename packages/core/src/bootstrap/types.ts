@@ -233,6 +233,7 @@ export interface GenericAIAgentSessionPlan {
   readonly tools: readonly string[];
   readonly plugins: readonly string[];
   readonly memory?: NonNullable<AgentConfig["memory"]>;
+  readonly execution?: NonNullable<AgentConfig["execution"]>;
 }
 
 export interface GenericAIPluginInitPlan {

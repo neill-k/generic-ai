@@ -3,9 +3,9 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import {
-  defineTool,
   type AgentHarness,
   type AgentHarnessAdapter,
+  type AgentHarnessAdapterKind,
   type AgentHarnessAdapterRunContext,
   type AgentHarnessArtifactRef,
   type AgentHarnessArtifactStore,
@@ -27,16 +27,17 @@ import {
   type JsonObject,
   type PolicyDecisionRecord,
   type ResourceSelector,
-  type ToolDefinition,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
   AuthStorage,
-  getAgentDir,
+  defineTool,
   ModelRegistry,
   SessionManager,
   SettingsManager,
-} from "@mariozechner/pi-coding-agent";
+  type ToolDefinition,
+} from "@generic-ai/sdk/pi";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 import { createCanonicalEventStream, type CanonicalEventStream } from "../events/index.js";
@@ -48,10 +49,15 @@ import {
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 
-export interface CreateAgentHarnessOptions {
+type AgentHarnessAdapterRegistry<TCapabilities, TOutput> = Readonly<
+  Partial<Record<AgentHarnessAdapterKind, AgentHarnessAdapter<TCapabilities, TOutput>>>
+>;
+
+export interface CreateAgentHarnessOptions<TCapabilities = PiCapabilityBindings, TOutput = unknown> {
   readonly factories?: PiRuntimeFactories;
   readonly sessionInputs?: PiSessionInputs;
   readonly policy?: AgentHarnessPolicyEvaluator;
+  readonly adapters?: AgentHarnessAdapterRegistry<TCapabilities, TOutput>;
 }
 
 export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilityBindings> {
@@ -59,6 +65,7 @@ export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilit
 }
 
 type AgentHarnessRolePolicy = "coordinator" | "read-only" | "build" | "verify";
+type AgentHarnessTurnMode = NonNullable<NonNullable<AgentHarnessConfig["execution"]>["turnMode"]>;
 type PiSessionInputs = ReturnType<typeof resolvePiSessionInputs>;
 
 interface EffectPolicy {
@@ -592,10 +599,27 @@ function roleDirectory(roles: readonly AgentHarnessRole[]): string {
     .join("\n");
 }
 
+function stopToolRunInstruction(turnMode: AgentHarnessTurnMode | undefined): string {
+  if (turnMode === "single-turn") {
+    return "This run is configured for single-turn compatibility. Finish with a concise assistant response; do not call a terminal stop tool.";
+  }
+
+  return "The runtime loops until you call stop_and_respond. Use that tool for the final response once the task is complete, blocked, or failed.";
+}
+
+function stopToolHandoffInstruction(turnMode: AgentHarnessTurnMode | undefined): string {
+  if (turnMode === "single-turn") {
+    return "This delegated run is configured for single-turn compatibility. Return the handoff as a normal assistant response.";
+  }
+
+  return "The runtime loops until you call stop_and_respond. Use that tool to return your handoff.";
+}
+
 function buildRootPrompt(input: {
   readonly instruction: string;
   readonly roles: readonly AgentHarnessRole[];
   readonly policyProfile: AgentHarnessPolicyProfileId;
+  readonly turnMode?: AgentHarnessTurnMode;
 }): string {
   return [
     "You are the root coordinator for a Generic AI composable agent harness run.",
@@ -604,6 +628,7 @@ function buildRootPrompt(input: {
     "Before finishing, delegate a verifier pass that reruns the important command from the final state instead of trusting stale builder logs.",
     "Keep durable handoffs in the delegation messages and preserve concrete evidence from tools.",
     `Policy profile: ${input.policyProfile}.`,
+    stopToolRunInstruction(input.turnMode),
     "",
     "Available roles:",
     roleDirectory(input.roles),
@@ -619,6 +644,7 @@ function buildRolePrompt(input: {
   readonly role: AgentHarnessRole;
   readonly instruction: string;
   readonly parentTask: string;
+  readonly turnMode?: AgentHarnessTurnMode;
 }): string {
   return [
     `You are role "${input.role.id}" (${input.role.kind}) inside a Generic AI harness run.`,
@@ -635,6 +661,7 @@ function buildRolePrompt(input: {
     input.parentTask,
     "",
     "Return a concise handoff with actions taken, evidence, blockers, and recommended next step.",
+    stopToolHandoffInstruction(input.turnMode),
   ]
     .filter((line) => line.length > 0)
     .join("\n");
@@ -837,6 +864,12 @@ function projectEventType(event: CanonicalEvent): AgentHarnessEventType {
     }
     return failed ? "tool.call.failed" : "tool.call.completed";
   }
+  if (runtimeType === "compaction_start") {
+    return "session.compaction.started";
+  }
+  if (runtimeType === "compaction_end") {
+    return "session.compaction.completed";
+  }
 
   return "model.message";
 }
@@ -887,6 +920,8 @@ function createDelegateTool(input: {
   readonly rootAgentId: string;
   readonly workspaceRoot: string;
   readonly instruction: string;
+  readonly turnMode?: NonNullable<AgentHarnessConfig["execution"]>["turnMode"];
+  readonly maxTurns?: NonNullable<AgentHarnessConfig["execution"]>["maxTurns"];
   readonly sessionInputs: PiSessionInputs;
   readonly roles: readonly AgentHarnessRole[];
   readonly capabilities: PiCapabilityBindings;
@@ -975,7 +1010,10 @@ function createDelegateTool(input: {
             role,
             instruction: params.task,
             parentTask: input.instruction,
+            ...(input.turnMode === undefined ? {} : { turnMode: input.turnMode }),
           }),
+          ...(input.turnMode === undefined ? {} : { turnMode: input.turnMode }),
+          ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
           runId: input.runId,
           rootScopeId: input.rootScopeId,
           rootAgentId: role.id,
@@ -999,7 +1037,8 @@ function createDelegateTool(input: {
           input.factories === undefined
             ? await runCapabilityPiAgentSession(roleRunOptions)
             : await runCapabilityPiAgentSession(roleRunOptions, input.factories);
-        const outputText = extractLatestAssistantText(roleResult.session.messages);
+        const outputText =
+          roleResult.outputText ?? extractLatestAssistantText(roleResult.session.messages);
 
         await input.eventStream.emit({
           ...eventContext,
@@ -1194,17 +1233,45 @@ async function writeHarnessArtifacts(input: {
   return Object.freeze(refs);
 }
 
+export function createAgentHarness<TCapabilities, TOutput>(
+  config: AgentHarnessConfig,
+  options: CreateAgentHarnessOptions<TCapabilities, TOutput> & {
+    readonly adapters: AgentHarnessAdapterRegistry<TCapabilities, TOutput>;
+  },
+): AgentHarness<TCapabilities, TOutput>;
 export function createAgentHarness(
   config: AgentHarnessConfig,
-  options: CreateAgentHarnessOptions = {},
-): AgentHarness<PiCapabilityBindings, unknown> {
-  const adapter = createPiAgentHarnessAdapter(config, options);
+  options?: CreateAgentHarnessOptions,
+): AgentHarness<PiCapabilityBindings, unknown>;
+export function createAgentHarness<
+  TCapabilities = PiCapabilityBindings,
+  TOutput = unknown,
+>(
+  config: AgentHarnessConfig,
+  options: CreateAgentHarnessOptions<TCapabilities, TOutput> = {},
+): AgentHarness<TCapabilities, TOutput> {
+  const piAdapterOptions: CreateAgentHarnessOptions = {
+    ...(options.factories === undefined ? {} : { factories: options.factories }),
+    ...(options.sessionInputs === undefined ? {} : { sessionInputs: options.sessionInputs }),
+  };
+  const adapters = {
+    pi: createPiAgentHarnessAdapter(config, piAdapterOptions) as unknown as AgentHarnessAdapter<
+      TCapabilities,
+      TOutput
+    >,
+    ...options.adapters,
+  } as const;
+  const adapterKind = config.adapter ?? "pi";
+  const adapter = adapters[adapterKind];
+  if (!adapter) {
+    throw new Error(`Harness adapter "${adapterKind}" is not registered.`);
+  }
   return Object.freeze({
     config,
     adapter,
-    run(input: Omit<AgentHarnessRunInput<PiCapabilityBindings>, "harness">) {
+    run(input: Omit<AgentHarnessRunInput<TCapabilities>, "harness">) {
       const runId = input.runId ?? randomUUID();
-      const runInput = {
+      const runInput: AgentHarnessRunInput<TCapabilities> = {
         ...input,
         runId,
         harness: config,
@@ -1214,9 +1281,9 @@ export function createAgentHarness(
   });
 }
 
-function createDefaultRunContext(
-  input: AgentHarnessRunInput<PiCapabilityBindings>,
-  options: CreateAgentHarnessOptions,
+function createDefaultRunContext<TCapabilities>(
+  input: AgentHarnessRunInput<TCapabilities>,
+  options: { readonly policy?: AgentHarnessPolicyEvaluator } = {},
 ): AgentHarnessAdapterRunContext {
   const eventSink = createEventSink();
   return Object.freeze({
@@ -1302,6 +1369,8 @@ function createPiAgentHarnessAdapter(
       const profile = input.harness.policyProfile ?? LOCAL_DEV_FULL_POLICY_PROFILE;
       const allowMcp = input.harness.allowMcp ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
       const allowNetwork = input.harness.allowNetwork ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
+      const turnMode = input.harness.execution?.turnMode;
+      const maxTurns = input.harness.execution?.maxTurns;
       if (context.signal?.aborted) {
         return failedHarnessResult({
           input,
@@ -1345,6 +1414,8 @@ function createPiAgentHarnessAdapter(
               rootAgentId,
               workspaceRoot: input.workspaceRoot,
               instruction: input.instruction,
+              ...(turnMode === undefined ? {} : { turnMode }),
+              ...(maxTurns === undefined ? {} : { maxTurns }),
               sessionInputs: piSessionInputs,
               roles,
               capabilities: baseCapabilities,
@@ -1382,7 +1453,10 @@ function createPiAgentHarnessAdapter(
             instruction: input.instruction,
             roles,
             policyProfile: profile,
+            ...(turnMode === undefined ? {} : { turnMode }),
           }),
+          ...(turnMode === undefined ? {} : { turnMode }),
+          ...(maxTurns === undefined ? {} : { maxTurns }),
           runId,
           rootScopeId,
           rootAgentId,
@@ -1405,7 +1479,7 @@ function createPiAgentHarnessAdapter(
       ).finally(() => {
         runSignal.cleanup();
       });
-      const outputText = extractLatestAssistantText(result.session.messages);
+      const outputText = result.outputText ?? extractLatestAssistantText(result.session.messages);
       const events = result.events;
       const projections = Object.freeze(events.map(projectEvent));
       const status = result.failureMessage === undefined ? "succeeded" : "failed";

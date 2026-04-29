@@ -1,15 +1,18 @@
 import { randomUUID } from "node:crypto";
-import type { RunEnvelope, RunEnvelopeMode } from "@generic-ai/sdk";
+import {
+  type RunEnvelope,
+  type RunEnvelopeMode,
+  withAgentHarnessToolEffects,
+} from "@generic-ai/sdk";
 import {
   type AgentSessionEvent,
   type CreateAgentSessionOptions,
   type CreateAgentSessionResult,
   DefaultResourceLoader,
   defineTool,
-  withAgentHarnessToolEffects,
   type PromptOptions,
   type ToolDefinition,
-} from "@generic-ai/sdk";
+} from "@generic-ai/sdk/pi";
 import { getAgentDir, type ResourceDiagnostic, type Skill } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
@@ -21,6 +24,13 @@ import {
 } from "../events/index.js";
 import { createRunEnvelope } from "../run-envelope/index.js";
 import { createPiAgentSession, type PiRuntimeFactories } from "./pi.js";
+import {
+  createStopAndRespondTool,
+  type AgentTurnMode,
+  type StopAndRespondState,
+  runStopToolLoop,
+  STOP_AND_RESPOND_TOOL_NAME,
+} from "./stop-tool-loop.js";
 
 const PI_RUNTIME_EVENT_PLUGIN_ID = "generic-ai-runtime";
 
@@ -199,6 +209,8 @@ export interface RunCapabilityPiAgentSessionOptions extends CreateCapabilityPiAg
   readonly prompt: string;
   readonly promptOptions?: PromptOptions;
   readonly signal?: AbortSignal;
+  readonly turnMode?: AgentTurnMode;
+  readonly maxTurns?: number;
   readonly runId?: string;
   readonly rootScopeId?: string;
   readonly rootSessionId?: string;
@@ -213,7 +225,17 @@ export interface RunCapabilityPiAgentSessionResult extends CreateCapabilityPiAge
   readonly envelope: RunEnvelope;
   readonly eventStream: CanonicalEventStream;
   readonly events: readonly CanonicalEvent[];
+  readonly outputText?: string;
+  readonly terminalStatus?: StopAndRespondState["status"];
   readonly failureMessage?: string;
+}
+
+function stopToolFailureMessage(status: StopAndRespondState["status"] | undefined): string | undefined {
+  if (status === "blocked" || status === "failed") {
+    return `Agent stopped with terminal status "${status}".`;
+  }
+
+  return undefined;
 }
 
 export interface CapabilityPiSessionEventContext {
@@ -874,7 +896,22 @@ export async function runCapabilityPiAgentSession(
   options: RunCapabilityPiAgentSessionOptions,
   factories: PiRuntimeFactories = {},
 ): Promise<RunCapabilityPiAgentSessionResult> {
-  const sessionResult = await createCapabilityPiAgentSession(options, factories);
+  const turnMode = options.turnMode ?? "stop-tool-loop";
+  const stopState: StopAndRespondState = { stopped: false };
+  const stopTool = turnMode === "single-turn" ? undefined : createStopAndRespondTool(stopState);
+  const sessionResult = await createCapabilityPiAgentSession(
+    {
+      ...options,
+      capabilities:
+        stopTool === undefined
+          ? options.capabilities
+          : {
+              ...options.capabilities,
+              customTools: [...(options.capabilities.customTools ?? []), stopTool],
+            },
+    },
+    factories,
+  );
   const runId = options.runId ?? randomUUID();
   const scopeId = options.rootScopeId ?? "scope/root";
   const eventStream = options.eventStream ?? createCanonicalEventStream({});
@@ -942,27 +979,61 @@ export async function runCapabilityPiAgentSession(
       );
     }
 
-    await sessionResult.session.prompt(
-      options.prompt,
-      promptOptionsWithSignal(options.promptOptions, options.signal),
-    );
+    let loop: Awaited<ReturnType<typeof runStopToolLoop>> | undefined;
+    if (turnMode === "single-turn") {
+      await sessionResult.session.prompt(
+        options.prompt,
+        promptOptionsWithSignal(options.promptOptions, options.signal),
+      );
+    } else {
+      loop = await runStopToolLoop({
+        prompt: options.prompt,
+        promptOptions: promptOptionsWithSignal(options.promptOptions, options.signal),
+        state: stopState,
+        maxTurns: options.maxTurns,
+        runPrompt: (prompt, promptOptions) => sessionResult.session.prompt(prompt, promptOptions),
+      });
+    }
+    if (turnMode !== "single-turn" && (loop?.stopped !== true || loop.outputText === undefined)) {
+      throw new Error(
+        `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop?.turnCount ?? 0} turn(s).`,
+      );
+    }
+    const terminalStatus = loop?.status;
+    const terminalFailureMessage = stopToolFailureMessage(terminalStatus);
     unsubscribe();
     await forwarder;
 
     const completedAt = new Date().toISOString();
     await eventStream.emit({
       ...eventContext,
-      name: "session.completed",
-      data: {
-        messageCount: sessionResult.session.messages.length,
-      },
+      name: terminalFailureMessage === undefined ? "session.completed" : "session.failed",
+      data:
+        terminalFailureMessage === undefined
+          ? {
+              messageCount: sessionResult.session.messages.length,
+              ...(terminalStatus === undefined ? {} : { terminalStatus }),
+            }
+          : {
+              error: terminalFailureMessage,
+              messageCount: sessionResult.session.messages.length,
+              terminalStatus,
+            },
     });
     await eventStream.emit({
       ...eventContext,
-      name: "run.completed",
-      data: {
-        messageCount: sessionResult.session.messages.length,
-      },
+      name: terminalFailureMessage === undefined ? "run.completed" : "run.failed",
+      data:
+        terminalFailureMessage === undefined
+          ? {
+              messageCount: sessionResult.session.messages.length,
+              ...(terminalStatus === undefined ? {} : { terminalStatus }),
+            }
+          : {
+              error: terminalFailureMessage,
+              messageCount: sessionResult.session.messages.length,
+              terminalStatus,
+            },
     });
 
     const events = eventStream.snapshot();
@@ -972,12 +1043,15 @@ export async function runCapabilityPiAgentSession(
       ...sessionResult,
       eventStream,
       events,
+      ...(loop?.outputText === undefined ? {} : { outputText: loop.outputText }),
+      ...(terminalStatus === undefined ? {} : { terminalStatus }),
+      ...(terminalFailureMessage === undefined ? {} : { failureMessage: terminalFailureMessage }),
       envelope: createRunEnvelope({
         runId,
         rootScopeId: scopeId,
         ...(options.rootAgentId === undefined ? {} : { rootAgentId: options.rootAgentId }),
         mode: options.mode ?? "sync",
-        status: "succeeded",
+        status: terminalFailureMessage === undefined ? "succeeded" : "failed",
         timestamps: {
           createdAt,
           startedAt,

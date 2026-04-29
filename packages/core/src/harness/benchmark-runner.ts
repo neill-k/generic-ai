@@ -75,6 +75,7 @@ function buildMissionPrompt(input: {
   ];
   const constraints = input.mission.constraints ?? [];
   const expectedArtifacts = input.mission.expectedArtifacts ?? [];
+  const faultInjections = input.benchmark.faultInjections ?? [];
 
   if (constraints.length > 0) {
     lines.push("", "Constraints:", ...constraints.map((constraint) => `- ${constraint}`));
@@ -85,6 +86,25 @@ function buildMissionPrompt(input: {
       "",
       "Expected artifacts:",
       ...expectedArtifacts.map((artifact) => `- ${artifact.name} (${artifact.kind})`),
+    );
+  }
+
+  if (faultInjections.length > 0) {
+    lines.push(
+      "",
+      "Fault injections:",
+      ...faultInjections.map((fault) => {
+        const details = [
+          `boundary=${fault.boundary}`,
+          `perturbation=${fault.perturbation}`,
+          `target=${fault.targetRef}`,
+          `expected=${fault.expectedBehavior}`,
+          ...(fault.firstViolatedContract === undefined
+            ? []
+            : [`first violated contract=${fault.firstViolatedContract}`]),
+        ].join(", ");
+        return `- ${fault.id}: ${details}`;
+      }),
     );
   }
 

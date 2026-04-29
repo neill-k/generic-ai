@@ -2,7 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
-import { defineTool, withAgentHarnessToolEffects, type ToolDefinition } from "@generic-ai/sdk";
+import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
+import { defineTool, type ToolDefinition } from "@generic-ai/sdk/pi";
 import {
   createWorkspaceLayout,
   resolveSafeWorkspacePath,

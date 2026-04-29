@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-04-13
+- Amended: 2026-04-29 (`NEI-555`)
 - Linear: `NEI-313` / `KRN-08`
 - Related planning docs:
   - `docs/planning/01-scope-and-decisions.md`
@@ -25,8 +26,8 @@ surfacing it.
 ## Decision
 
 Generic AI now treats `@mariozechner/pi-coding-agent` as the direct runtime
-source and re-exports the stable authoring/runtime primitives from
-`packages/sdk/src/pi/**`.
+source and exposes the stable authoring/runtime primitives from the explicit
+Pi compatibility surface `@generic-ai/sdk/pi` (`packages/sdk/src/pi/**`).
 
 The direct surface is intentionally limited to the pieces that authors and
 embedders should reasonably use themselves:
@@ -48,8 +49,9 @@ those implementation details as public contract.
 
 ## Consequences
 
-- Framework authors can import `pi` primitives directly from the SDK surface
-  instead of learning a second wrapper API.
+- Framework authors can import Pi primitives from `@generic-ai/sdk/pi` when
+  they intentionally need Pi behavior, while generic framework contracts remain
+  Pi-agnostic at `@generic-ai/sdk`.
 - The kernel keeps a narrow adapter layer for session/bootstrap translation
   without owning `pi` internals.
 - Future runtime work can widen or narrow the direct surface by editing one
@@ -73,3 +75,17 @@ directly exposed.
 Rejected because the planning pack explicitly asks for direct exposure where it
 is practical, and hiding the runtime would create avoidable churn for plugin and
 preset authors.
+
+## Research Notes For NEI-555
+
+Before this amendment, we reviewed external adapter-boundary patterns:
+
+- LangGraph separates graph/runtime abstractions from provider/model wiring.
+- OpenAI Agents SDK documents explicit model-provider pathways and adapters
+  instead of conflating provider specifics with root agent contracts.
+- AutoGen centers model-client abstractions so workflows stay provider-portable.
+- CrewAI documents provider-qualified model routing (`provider/model`) with
+  explicit provider integrations.
+
+This amendment follows the same principle: runtime-specific APIs stay explicit
+and opt-in, while the root SDK contract remains runtime-agnostic.

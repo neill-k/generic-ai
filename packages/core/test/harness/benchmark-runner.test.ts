@@ -238,6 +238,41 @@ describe("runHarnessBenchmark", () => {
     expect(result.report.evidence.metricCount).toBeGreaterThan(0);
   });
 
+  it("passes configured fault-injection cases into the benchmark prompt", async () => {
+    const prompts: string[] = [];
+    await runHarnessBenchmark({
+      benchmark: {
+        ...benchmark,
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+        faultInjections: [
+          {
+            id: "tool-timeout",
+            boundary: "tool",
+            perturbation: "timeout",
+            targetRef: "tool.shell",
+            expectedBehavior: "fallback",
+            firstViolatedContract: "tool.result.deadline",
+          },
+        ],
+      },
+      mission,
+      harnesses: {
+        [harness.id]: harness,
+      },
+      createRuntime: async (context) => {
+        prompts.push(context.prompt);
+        return fakeRuntime("LOGIN_DONE README.md");
+      },
+    });
+
+    expect(prompts[0]).toContain("Fault injections:");
+    expect(prompts[0]).toContain("tool-timeout");
+    expect(prompts[0]).toContain("boundary=tool");
+    expect(prompts[0]).toContain("first violated contract=tool.result.deadline");
+  });
+
   it("emits unique trace event ids across repeated trials", async () => {
     const result = await runHarnessBenchmark({
       benchmark: {
