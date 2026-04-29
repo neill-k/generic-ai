@@ -319,16 +319,24 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 - [`@generic-ai/plugin-interaction`](packages/plugin-interaction) — blocking user questions plus visible task-list publishing through standard `pi` tools.
 - [`@generic-ai/plugin-messaging`](packages/plugin-messaging) — durable, storage-backed inter-agent messaging.
 - [`@generic-ai/plugin-memory-files`](packages/plugin-memory-files) — file-backed persistent agent memory with search; the reference `MemoryService` implementation for richer memory plugins.
+- [`@generic-ai/plugin-repo-map`](packages/plugin-repo-map) — deterministic compact repository maps for planner/explorer harness roles.
+- [`@generic-ai/plugin-lsp`](packages/plugin-lsp) — configurable stdio LSP client exposing diagnostics, symbols, definitions, and references as harness tools.
+- [`@generic-ai/plugin-web-ui`](packages/plugin-web-ui) — local-first web console with chat, config inspection, and multi-agent architecture templates.
+
+### Surface
+
+- [`@generic-ai/observability`](packages/observability) — local-first observability surface for run/trace repositories, metrics, evidence reports, and read-only operator panels.
 
 ### Transport and preset
 
 - [`@generic-ai/plugin-hono`](packages/plugin-hono) — Hono integration; optional but included in the starter preset by default.
 - [`@generic-ai/preset-starter-hono`](packages/preset-starter-hono) — starter preset contract that composes the default local-first stack, including Hono.
 
-### Reference example
+### Reference examples
 
-- [`examples/starter-hono`](examples/starter-hono) - runnable example that proves the whole stack: `createGenericAI()` with no arguments resolves the built-in starter descriptor, and callers can also pass `createStarterHonoPreset()` explicitly.
-- [`examples/harness-shootout`](examples/harness-shootout) - package-composed agents-as-code benchmark fixture with one mission, four candidate harnesses, and a sample evidence report.
+- [`examples/starter-hono`](examples/starter-hono) — runnable example that proves the whole stack: `createGenericAI()` with no arguments resolves the built-in starter descriptor, and callers can also pass `createStarterHonoPreset()` explicitly.
+- [`examples/harness-shootout`](examples/harness-shootout) — package-composed agents-as-code benchmark fixture with one mission, four candidate harnesses, and a sample evidence report.
+- [`examples/terminal-bench`](examples/terminal-bench) — private Harbor and Terminal-Bench integration example for benchmark runs with harness projections, artifact imports, and validation gates.
 
 ## Harness DSL And Benchmarking
 

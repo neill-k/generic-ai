@@ -74,14 +74,11 @@ scripts/
   generate-docs.mjs                  # writes docs/generated/package-index.md
 ```
 
-**Important deltas from the live tree:** `packages/plugin-lsp/` and
-`packages/plugin-repo-map/` exist only as ignored build-output leftovers
-(`dist/` plus `*.tsbuildinfo`) and do not contain `package.json`. They
-are not real workspaces, but their directories currently make
-`scripts/check-package-boundaries.mjs` fail because that script assumes
-every directory under `packages/` has package metadata. Also,
-`docs/package-boundaries.md` still says there are 20 public packages,
-while the current tree has 21 package directories with `package.json`.
+**Important delta from the live tree:** The repo now ships 26 public
+packages under `packages/*`, including `plugin-lsp`, `plugin-repo-map`,
+`plugin-web-ui`, and `observability`, all with real `package.json` and
+workspace metadata. Earlier snapshots reported fewer packages; the
+authoritative count is the live workspace list under `packages/`.
 
 The starter preset package declares only `@generic-ai/core`,
 `@generic-ai/plugin-config-yaml`, and `@generic-ai/sdk` as dependencies.
@@ -180,8 +177,8 @@ typing is the default contract between layers.
 Open the interactive walkthrough at
 [`walkthrough-generic-ai-architecture.html`](walkthrough-generic-ai-architecture.html).
 It separates default starter slots from optional/addon packages so
-`plugin-tools-web`, `plugin-interaction`, and the Docker terminal sandbox
-do not look like core starter defaults.
+`plugin-tools-web`, `plugin-interaction`, `plugin-repo-map`, `plugin-lsp`,
+and the Docker terminal sandbox do not look like core starter defaults.
 
 ### Run lifecycle (one execution)
 
@@ -862,10 +859,8 @@ Located under `docs/decisions/` (24 files including the README index):
 0021 agents-as-code-harness-spine
 ```
 
-(Earlier prose suggested 27 ADRs; the actual on-disk count under
-`docs/decisions/` is 24 files counting the README and the two pairs
-of dual-numbered ADRs. ADRs 0022–0027 referenced elsewhere are not
-present in this snapshot of the repo.)
+(33 ADR files plus `README.md` under `docs/decisions/`; 31 unique
+numbered ADRs with two pairs of dual-numbered entries: 0004 and 0005.)
 
 ---
 
