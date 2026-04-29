@@ -60,8 +60,8 @@ temp/
 *.tmp
 
 # Agent scratch and local helper worktrees
-.agents/scratch/
-.agents/worktrees/
+.agents/
 .claude/
 .codex/
+.oz/
 .pi/
