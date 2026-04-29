@@ -1,0 +1,145 @@
+[
+  {
+    "candidateId": "disciplined-agent",
+    "harnessId": "harness.disciplined-agent:compiled",
+    "trialId": "disciplined-agent:trial-1",
+    "seed": "tool-overuse-fixture",
+    "metrics": [
+      {
+        "metricId": "task_success",
+        "value": 1,
+        "evidenceRefs": ["artifact.disciplined-answer"]
+      },
+      {
+        "metricId": "tool_efficiency",
+        "value": 1,
+        "evidenceRefs": ["artifact.disciplined-tool-use"]
+      },
+      {
+        "metricId": "unnecessary_tool_calls",
+        "value": 0,
+        "evidenceRefs": ["artifact.disciplined-tool-use"]
+      },
+      {
+        "metricId": "tool_budget_violations",
+        "value": 0,
+        "evidenceRefs": ["artifact.disciplined-tool-use"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.disciplined-tool-use",
+        "kind": "report",
+        "uri": "memory:///tool-overuse/disciplined-tool-use.json",
+        "redaction": "metadata_only",
+        "summary": "Tool-use summary with one required call and two direct-answer avoids."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 1
+    },
+    "toolUse": [
+      {
+        "caseRef": "requires-workspace-read",
+        "toolCalls": 1,
+        "necessaryToolCalls": 1,
+        "costUsd": 0.001,
+        "latencyMs": 100,
+        "evidenceRefs": ["trace.disciplined.read-file"]
+      },
+      {
+        "caseRef": "optional-context-lookup",
+        "toolCalls": 0,
+        "avoidedToolCalls": 1,
+        "directAnswerEligible": true,
+        "evidenceRefs": ["trace.disciplined.direct-answer"]
+      },
+      {
+        "caseRef": "wasteful-arithmetic-tool",
+        "toolCalls": 0,
+        "avoidedToolCalls": 1,
+        "evidenceRefs": ["trace.disciplined.no-calculator"]
+      }
+    ]
+  },
+  {
+    "candidateId": "tool-happy-agent",
+    "harnessId": "harness.tool-happy-agent:compiled",
+    "trialId": "tool-happy-agent:trial-1",
+    "seed": "tool-overuse-fixture",
+    "metrics": [
+      {
+        "metricId": "task_success",
+        "value": 1,
+        "evidenceRefs": ["artifact.tool-happy-answer"]
+      },
+      {
+        "metricId": "tool_efficiency",
+        "value": 0.25,
+        "evidenceRefs": ["artifact.tool-happy-tool-use"]
+      },
+      {
+        "metricId": "unnecessary_tool_calls",
+        "value": 3,
+        "evidenceRefs": ["artifact.tool-happy-tool-use"]
+      },
+      {
+        "metricId": "tool_budget_violations",
+        "value": 1,
+        "evidenceRefs": ["artifact.tool-happy-tool-use"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.tool-happy-tool-use",
+        "kind": "report",
+        "uri": "memory:///tool-overuse/tool-happy-tool-use.json",
+        "redaction": "metadata_only",
+        "summary": "Tool-use summary with equal final correctness but three unnecessary calls."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 1
+    },
+    "toolUse": [
+      {
+        "caseRef": "requires-workspace-read",
+        "toolCalls": 1,
+        "necessaryToolCalls": 1,
+        "costUsd": 0.001,
+        "latencyMs": 100,
+        "evidenceRefs": ["trace.tool-happy.read-file"]
+      },
+      {
+        "caseRef": "optional-context-lookup",
+        "toolCalls": 1,
+        "unnecessaryToolCalls": 1,
+        "directAnswerEligible": true,
+        "costUsd": 0.002,
+        "latencyMs": 200,
+        "evidenceRefs": ["trace.tool-happy.optional-search"]
+      },
+      {
+        "caseRef": "wasteful-arithmetic-tool",
+        "toolCalls": 2,
+        "unnecessaryToolCalls": 2,
+        "budgetViolated": true,
+        "costUsd": 0.003,
+        "latencyMs": 300,
+        "evidenceRefs": ["trace.tool-happy.calculator"]
+      }
+    ]
+  }
+]

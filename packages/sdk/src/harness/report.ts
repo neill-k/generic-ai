@@ -17,6 +17,11 @@ import type {
   MetricValue,
   MissionSpec,
   RecommendationBoundary,
+  BenchmarkToolUseExpectation,
+  BenchmarkToolUseProfile,
+  BenchmarkToolUseCaseSpec,
+  ToolUseObservation,
+  ToolUseReportSummary,
 } from "./types.js";
 
 type ComparableMetricDirection = Exclude<MetricDefinition["direction"], "informational">;
@@ -148,6 +153,208 @@ function faultInjectionObservations(
   results: readonly BenchmarkTrialResult[],
 ): readonly FaultInjectionObservation[] {
   return Object.freeze(results.flatMap((result) => result.faultInjections ?? []));
+}
+
+function toolUseObservations(
+  results: readonly BenchmarkTrialResult[],
+): readonly ToolUseObservation[] {
+  return Object.freeze(results.flatMap((result) => result.toolUse ?? []));
+}
+
+function plannedToolUseCase(
+  profile: BenchmarkToolUseProfile | undefined,
+  caseRef: string,
+): BenchmarkToolUseCaseSpec | undefined {
+  return profile?.cases.find((entry) => entry.id === caseRef);
+}
+
+function observationExpectation(input: {
+  readonly profile: BenchmarkToolUseProfile | undefined;
+  readonly observation: ToolUseObservation;
+}): BenchmarkToolUseExpectation {
+  return (
+    input.observation.expectation ??
+    plannedToolUseCase(input.profile, input.observation.caseRef)?.expectation ??
+    "optional"
+  );
+}
+
+function directAnswerEligible(input: {
+  readonly profile: BenchmarkToolUseProfile | undefined;
+  readonly observation: ToolUseObservation;
+}): boolean {
+  const planned = plannedToolUseCase(input.profile, input.observation.caseRef);
+  return (
+    input.observation.directAnswerEligible ??
+    planned?.directAnswerEligible ??
+    planned?.expectation === "wasteful"
+  );
+}
+
+function toolUseBudgetLimit(input: {
+  readonly profile: BenchmarkToolUseProfile | undefined;
+  readonly observation: ToolUseObservation;
+}): number | undefined {
+  return (
+    input.observation.budgetLimit ??
+    plannedToolUseCase(input.profile, input.observation.caseRef)?.maxToolCalls ??
+    input.profile?.maxToolCalls
+  );
+}
+
+function normalizedToolUseObservation(input: {
+  readonly profile: BenchmarkToolUseProfile | undefined;
+  readonly observation: ToolUseObservation;
+}): {
+  readonly expectation: BenchmarkToolUseExpectation;
+  readonly toolCalls: number;
+  readonly necessaryToolCalls: number;
+  readonly unnecessaryToolCalls: number;
+  readonly avoidedToolCalls: number;
+  readonly budgetViolated: boolean;
+  readonly directAnswerEligible: boolean;
+  readonly costUsd?: number;
+  readonly latencyMs?: number;
+  readonly evidenceRefs: readonly string[];
+} {
+  const expectation = observationExpectation(input);
+  const planned = plannedToolUseCase(input.profile, input.observation.caseRef);
+  const toolCalls = Math.max(0, Math.floor(input.observation.toolCalls));
+  const necessaryFallback =
+    expectation === "wasteful" ? 0 : Math.min(toolCalls, planned?.expectedToolCalls ?? toolCalls);
+  const necessaryToolCalls = Math.max(
+    0,
+    Math.floor(input.observation.necessaryToolCalls ?? necessaryFallback),
+  );
+  const unnecessaryToolCalls = Math.max(
+    0,
+    Math.floor(input.observation.unnecessaryToolCalls ?? toolCalls - necessaryToolCalls),
+  );
+  const isDirectAnswerEligible = directAnswerEligible(input);
+  const avoidedToolCalls = Math.max(
+    0,
+    Math.floor(
+      input.observation.avoidedToolCalls ?? (isDirectAnswerEligible && toolCalls === 0 ? 1 : 0),
+    ),
+  );
+  const budgetLimit = toolUseBudgetLimit(input);
+  const budgetViolated =
+    input.observation.budgetViolated ?? (budgetLimit !== undefined && toolCalls > budgetLimit);
+
+  return Object.freeze({
+    expectation,
+    toolCalls,
+    necessaryToolCalls,
+    unnecessaryToolCalls,
+    avoidedToolCalls,
+    budgetViolated,
+    directAnswerEligible: isDirectAnswerEligible,
+    ...(input.observation.costUsd === undefined ? {} : { costUsd: input.observation.costUsd }),
+    ...(input.observation.latencyMs === undefined
+      ? {}
+      : { latencyMs: input.observation.latencyMs }),
+    evidenceRefs: input.observation.evidenceRefs,
+  });
+}
+
+function toolUseSummary(input: {
+  readonly profile: BenchmarkToolUseProfile | undefined;
+  readonly observations: readonly ToolUseObservation[];
+}): ToolUseReportSummary | undefined {
+  if (input.profile === undefined && input.observations.length === 0) {
+    return undefined;
+  }
+
+  const normalized = input.observations.map((observation) =>
+    normalizedToolUseObservation({ profile: input.profile, observation }),
+  );
+  const plannedCaseCount = input.profile?.cases.length ?? 0;
+  const observedCaseRefs = new Set(input.observations.map((observation) => observation.caseRef));
+  const missingPlannedCases =
+    input.profile?.cases.filter((entry) => !observedCaseRefs.has(entry.id)) ?? [];
+  const necessaryToolCalls = normalized.reduce(
+    (total, observation) => total + observation.necessaryToolCalls,
+    0,
+  );
+  const unnecessaryToolCalls = normalized.reduce(
+    (total, observation) => total + observation.unnecessaryToolCalls,
+    0,
+  );
+  const avoidedToolCalls = normalized.reduce(
+    (total, observation) => total + observation.avoidedToolCalls,
+    0,
+  );
+  const disciplineDenominator = necessaryToolCalls + unnecessaryToolCalls + avoidedToolCalls;
+  const totalCostValues = normalized
+    .map((observation) => observation.costUsd)
+    .filter((value): value is number => value !== undefined);
+  const totalLatencyValues = normalized
+    .map((observation) => observation.latencyMs)
+    .filter((value): value is number => value !== undefined);
+  const expectations: readonly BenchmarkToolUseExpectation[] = ["required", "optional", "wasteful"];
+  const byExpectation = expectations.map((expectation) => {
+    const plannedCaseCountForExpectation =
+      input.profile?.cases.filter((entry) => entry.expectation === expectation).length ?? 0;
+    const observed = normalized.filter((observation) => observation.expectation === expectation);
+
+    return Object.freeze({
+      expectation,
+      plannedCaseCount: plannedCaseCountForExpectation,
+      observedCaseCount: observed.length,
+      toolCalls: observed.reduce((total, observation) => total + observation.toolCalls, 0),
+      unnecessaryToolCalls: observed.reduce(
+        (total, observation) => total + observation.unnecessaryToolCalls,
+        0,
+      ),
+      avoidedToolCalls: observed.reduce(
+        (total, observation) => total + observation.avoidedToolCalls,
+        0,
+      ),
+      budgetViolations: observed.filter((observation) => observation.budgetViolated).length,
+    });
+  });
+  const warnings = [
+    ...(missingPlannedCases.length > 0
+      ? [
+          `Missing tool-use observations for ${missingPlannedCases
+            .map((entry) => entry.id)
+            .join(", ")}.`,
+        ]
+      : []),
+    ...(normalized.some((observation) => observation.budgetViolated)
+      ? [
+          `${normalized.filter((observation) => observation.budgetViolated).length} tool budget violation(s) recorded.`,
+        ]
+      : []),
+  ];
+
+  return Object.freeze({
+    ...(input.profile?.id === undefined ? {} : { profileId: input.profile.id }),
+    plannedCaseCount,
+    observedCaseCount: input.observations.length,
+    totalToolCalls: normalized.reduce((total, observation) => total + observation.toolCalls, 0),
+    necessaryToolCalls,
+    unnecessaryToolCalls,
+    avoidedToolCalls,
+    budgetViolations: normalized.filter((observation) => observation.budgetViolated).length,
+    directAnswerOpportunities: normalized.filter((observation) => observation.directAnswerEligible)
+      .length,
+    efficiencyScore:
+      disciplineDenominator === 0
+        ? null
+        : (necessaryToolCalls + avoidedToolCalls) / disciplineDenominator,
+    ...(totalCostValues.length === 0
+      ? {}
+      : { totalCostUsd: totalCostValues.reduce((total, value) => total + value, 0) }),
+    ...(totalLatencyValues.length === 0
+      ? {}
+      : { totalLatencyMs: totalLatencyValues.reduce((total, value) => total + value, 0) }),
+    byExpectation: Object.freeze(byExpectation),
+    evidenceRefs: Object.freeze([
+      ...new Set(input.observations.flatMap((observation) => observation.evidenceRefs)),
+    ]),
+    warnings: Object.freeze(warnings),
+  });
 }
 
 function reversibilitySummary(
@@ -407,8 +614,7 @@ function inferredOutcomeStatus(input: {
   }
 
   const direction = metricDirection(input.benchmark, successMetric);
-  const threshold =
-    reliability?.successThreshold ?? (direction === "lower_is_better" ? 0 : 1);
+  const threshold = reliability?.successThreshold ?? (direction === "lower_is_better" ? 0 : 1);
 
   if (direction === "lower_is_better") {
     return value <= threshold ? "passed" : "failed";
@@ -481,10 +687,11 @@ function reliabilitySummary(input: {
   const passAt = (profile.passAt ?? DEFAULT_PASS_AT).map((k) =>
     passAtMetric({ candidateId: input.candidateId, scoredStatuses, k }),
   );
-  const severityScores = input.results.map((result, index) =>
-    FAILURE_SEVERITY_SCORE[
-      failureSeverity({ profile, result, status: statuses[index] ?? "failed" })
-    ],
+  const severityScores = input.results.map(
+    (result, index) =>
+      FAILURE_SEVERITY_SCORE[
+        failureSeverity({ profile, result, status: statuses[index] ?? "failed" })
+      ],
   );
   const maxSeverityScore = severityScores.length === 0 ? 0 : Math.max(...severityScores);
   const maxFailureSeverity =
@@ -590,6 +797,10 @@ function candidateReport(input: {
     planned: input.benchmark.faultInjections ?? [],
     observations: faultInjectionObservations(input.results),
   });
+  const toolUse = toolUseSummary({
+    profile: input.benchmark.toolUse,
+    observations: toolUseObservations(input.results),
+  });
   const passK = passKSummary({ benchmark: input.benchmark, results: input.results });
   const reversibility = reversibilitySummary(input.results);
   const rationale = [
@@ -597,9 +808,7 @@ function candidateReport(input: {
       ? `${input.benchmark.primaryMetric} average: missing`
       : `${input.benchmark.primaryMetric} average: ${primaryMetric.value}`,
     `${input.benchmark.primaryMetric} samples: ${primaryMetricSampleCount}/${input.results.length}`,
-    `pass^${passKHorizon(input.benchmark)}: ${
-      passK === undefined ? "missing" : passK.value
-    }`,
+    `pass^${passKHorizon(input.benchmark)}: ${passK === undefined ? "missing" : passK.value}`,
     `trace completeness: ${traceCompleteness}`,
     `trials: ${input.results.length}/${configuredTrialCount(input.benchmark)}`,
     `minTrials: ${minTrialsForRecommendation(input.benchmark)}`,
@@ -622,6 +831,14 @@ function candidateReport(input: {
           `fault injections observed: ${faultInjection.observedCaseCount}/${faultInjection.plannedCaseCount}`,
           `fault containment rate: ${faultInjection.containmentRate}`,
         ]),
+    ...(toolUse === undefined
+      ? []
+      : [
+          `tool-use cases observed: ${toolUse.observedCaseCount}/${toolUse.plannedCaseCount}`,
+          `tool efficiency score: ${toolUse.efficiencyScore ?? "missing"}`,
+          `unnecessary tool calls: ${toolUse.unnecessaryToolCalls}`,
+          `tool budget violations: ${toolUse.budgetViolations}`,
+        ]),
   ];
 
   return Object.freeze({
@@ -640,6 +857,7 @@ function candidateReport(input: {
     ...(reversibility === undefined ? {} : { reversibility }),
     rationale: Object.freeze(rationale),
     ...(faultInjection === undefined ? {} : { faultInjection }),
+    ...(toolUse === undefined ? {} : { toolUse }),
   });
 }
 
@@ -728,11 +946,21 @@ export function createBenchmarkReport(input: {
     planned: input.benchmark.faultInjections ?? [],
     observations: faultInjectionObservations(input.results),
   });
+  const toolUse = toolUseSummary({
+    profile: input.benchmark.toolUse,
+    observations: toolUseObservations(input.results),
+  });
   const reversibility = reversibilitySummary(input.results);
   const faultInjectionEvidenceGap =
     (input.benchmark.faultInjections ?? []).length > 0 &&
     (faultInjection?.observedCaseCount ?? 0) === 0
       ? ["Fault injections were configured but no trial observations recorded their outcomes."]
+      : [];
+  const toolUseEvidenceGap =
+    input.benchmark.toolUse !== undefined &&
+    input.benchmark.toolUse.cases.length > 0 &&
+    (toolUse?.observedCaseCount ?? 0) === 0
+      ? ["Tool-use cases were configured but no trial observations recorded tool discipline."]
       : [];
   const traceEventCount = input.results.reduce(
     (total, result) => total + result.traceEvents.length,
@@ -741,8 +969,14 @@ export function createBenchmarkReport(input: {
   const artifactCount = input.results.reduce((total, result) => total + result.artifacts.length, 0);
   const metricCount = input.results.reduce((total, result) => total + result.metrics.length, 0);
   const reliabilityCandidates = candidates.filter(
-    (candidate): candidate is BenchmarkReportCandidate & { reliability: BenchmarkReliabilitySummary } =>
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & { reliability: BenchmarkReliabilitySummary } =>
       candidate.reliability !== undefined,
+  );
+  const toolUseCandidates = candidates.filter(
+    (candidate): candidate is BenchmarkReportCandidate & { toolUse: ToolUseReportSummary } =>
+      candidate.toolUse !== undefined,
   );
 
   return Object.freeze({
@@ -768,47 +1002,70 @@ export function createBenchmarkReport(input: {
         : [
             `Observed ${faultInjection.observedCaseCount}/${faultInjection.plannedCaseCount} planned fault-injection cases.`,
           ]),
-      ...(reversibility === undefined
+      ...(toolUse === undefined
         ? []
         : [
-            `Captured reversibility metadata on ${reversibility.totalEventCount} trace events.`,
+            `Tool-use profile summarized ${toolUse.observedCaseCount}/${toolUse.plannedCaseCount} planned cases across ${toolUse.totalToolCalls} tool call(s).`,
           ]),
+      ...(reversibility === undefined
+        ? []
+        : [`Captured reversibility metadata on ${reversibility.totalEventCount} trace events.`]),
     ]),
-    inferences: Object.freeze(
-      [
-        ...(confidence.level === "insufficient_evidence" ||
-        insufficientEvidence.length > 0 ||
-        faultInjectionEvidenceGap.length > 0
-          ? ["At least one candidate lacks enough evidence for a confident recommendation."]
-          : [
-              confidence.level === "confident_recommendation"
-                ? "Trial evidence is sufficient for a confident recommendation under the configured threshold."
-                : "Trial evidence is sufficient only for a bounded recommendation.",
-              ...(faultInjection === undefined
-                ? []
-                : ["Fault-injection observations are included in the evidence boundary."]),
-              ...(reversibility === undefined
-                ? []
-                : ["Reversibility metadata is included in the evidence boundary."]),
-            ]),
-        ...reliabilityCandidates.flatMap((candidate) =>
-          candidate.reliability.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
-        ),
-      ],
-    ),
+    inferences: Object.freeze([
+      ...(confidence.level === "insufficient_evidence" ||
+      insufficientEvidence.length > 0 ||
+      faultInjectionEvidenceGap.length > 0 ||
+      toolUseEvidenceGap.length > 0
+        ? ["At least one candidate lacks enough evidence for a confident recommendation."]
+        : [
+            confidence.level === "confident_recommendation"
+              ? "Trial evidence is sufficient for a confident recommendation under the configured threshold."
+              : "Trial evidence is sufficient only for a bounded recommendation.",
+            ...(faultInjection === undefined
+              ? []
+              : ["Fault-injection observations are included in the evidence boundary."]),
+            ...(toolUse === undefined
+              ? []
+              : ["Tool-use efficiency is reported separately from final task correctness."]),
+            ...(reversibility === undefined
+              ? []
+              : ["Reversibility metadata is included in the evidence boundary."]),
+          ]),
+      ...reliabilityCandidates.flatMap((candidate) =>
+        candidate.reliability.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
+      ),
+      ...toolUseCandidates.flatMap((candidate) =>
+        candidate.toolUse.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
+      ),
+    ]),
     recommendations: Object.freeze(
       candidates.map((candidate) => {
-        if (candidate.reliability === undefined) {
-          return `${candidate.candidateId}: ${candidate.recommendation}`;
-        }
+        const details = [
+          ...(candidate.reliability === undefined
+            ? []
+            : [
+                `reliability pass_rate=${
+                  candidate.reliability.passRate === null
+                    ? "missing"
+                    : candidate.reliability.passRate
+                }, consistency=${
+                  candidate.reliability.consistency === null
+                    ? "missing"
+                    : candidate.reliability.consistency
+                }, max_failure_severity=${candidate.reliability.maxFailureSeverity}`,
+              ]),
+          ...(candidate.toolUse === undefined
+            ? []
+            : [
+                `tool_efficiency=${
+                  candidate.toolUse.efficiencyScore === null
+                    ? "missing"
+                    : candidate.toolUse.efficiencyScore
+                }, unnecessary_tool_calls=${candidate.toolUse.unnecessaryToolCalls}, budget_violations=${candidate.toolUse.budgetViolations}`,
+              ]),
+        ];
 
-        const passRate =
-          candidate.reliability.passRate === null ? "missing" : candidate.reliability.passRate;
-        const consistency =
-          candidate.reliability.consistency === null
-            ? "missing"
-            : candidate.reliability.consistency;
-        return `${candidate.candidateId}: ${candidate.recommendation}; reliability pass_rate=${passRate}, consistency=${consistency}, max_failure_severity=${candidate.reliability.maxFailureSeverity}`;
+        return [`${candidate.candidateId}: ${candidate.recommendation}`, ...details].join("; ");
       }),
     ),
     candidates: Object.freeze(candidates),
@@ -819,15 +1076,26 @@ export function createBenchmarkReport(input: {
       artifactCount,
       metricCount,
     }),
-    insufficientEvidence: Object.freeze([...insufficientEvidence, ...faultInjectionEvidenceGap]),
+    insufficientEvidence: Object.freeze([
+      ...insufficientEvidence,
+      ...faultInjectionEvidenceGap,
+      ...toolUseEvidenceGap,
+    ]),
     ...(faultInjection === undefined ? {} : { faultInjection }),
+    ...(toolUse === undefined ? {} : { toolUse }),
   });
 }
 
 export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
   const reliabilityCandidates = report.candidates.filter(
-    (candidate): candidate is BenchmarkReportCandidate & { reliability: BenchmarkReliabilitySummary } =>
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & { reliability: BenchmarkReliabilitySummary } =>
       candidate.reliability !== undefined,
+  );
+  const toolUseCandidates = report.candidates.filter(
+    (candidate): candidate is BenchmarkReportCandidate & { toolUse: ToolUseReportSummary } =>
+      candidate.toolUse !== undefined,
   );
   const lines = [
     `# Benchmark Report: ${report.benchmarkId}`,
@@ -906,6 +1174,32 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
       `- Superseded events: ${report.reversibility.supersededEventCount}`,
       "",
     );
+  }
+
+  if (toolUseCandidates.length > 0) {
+    lines.push(
+      "## Tool Use",
+      "",
+      "| Candidate | Observed / Planned cases | Tool calls | Necessary | Unnecessary | Avoided | Budget violations | Direct-answer opportunities | Efficiency | Cost USD | Latency ms |",
+      "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+      ...toolUseCandidates.map((candidate) => {
+        const toolUse = candidate.toolUse;
+        return `| ${candidate.candidateId} | ${toolUse.observedCaseCount}/${toolUse.plannedCaseCount} | ${toolUse.totalToolCalls} | ${toolUse.necessaryToolCalls} | ${toolUse.unnecessaryToolCalls} | ${toolUse.avoidedToolCalls} | ${toolUse.budgetViolations} | ${toolUse.directAnswerOpportunities} | ${toolUse.efficiencyScore ?? "n/a"} | ${toolUse.totalCostUsd ?? "n/a"} | ${toolUse.totalLatencyMs ?? "n/a"} |`;
+      }),
+      "",
+    );
+
+    const toolUseWarnings = toolUseCandidates.flatMap((candidate) =>
+      candidate.toolUse.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
+    );
+    if (toolUseWarnings.length > 0) {
+      lines.push(
+        "### Tool Use Warnings",
+        "",
+        ...toolUseWarnings.map((warning) => `- ${warning}`),
+        "",
+      );
+    }
   }
 
   if (report.confidence.reasons.length > 0) {

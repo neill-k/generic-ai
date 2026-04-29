@@ -1,0 +1,101 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.tool-overuse.v0",
+  "missionRef": "mission.tool-overuse",
+  "hypothesis": "A harness that treats tool calls as evidence-bearing actions can preserve final correctness while reducing unnecessary calls and budget violations.",
+  "candidates": [
+    {
+      "id": "disciplined-agent",
+      "harnessRef": "harness.disciplined-agent"
+    },
+    {
+      "id": "tool-happy-agent",
+      "harnessRef": "harness.tool-happy-agent"
+    }
+  ],
+  "primaryMetric": "task_success",
+  "metricDefinitions": [
+    {
+      "id": "task_success",
+      "name": "Task success",
+      "unit": "boolean",
+      "direction": "higher_is_better",
+      "source": "grader",
+      "description": "Whether the final answer satisfies the task."
+    },
+    {
+      "id": "tool_efficiency",
+      "name": "Tool efficiency",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "report",
+      "description": "Ratio of useful or avoided tool actions to total tool-use opportunities."
+    },
+    {
+      "id": "unnecessary_tool_calls",
+      "name": "Unnecessary tool calls",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "trace",
+      "description": "Tool calls that were not needed for the task affordance."
+    },
+    {
+      "id": "tool_budget_violations",
+      "name": "Tool budget violations",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "Cases that exceeded the configured tool budget."
+    }
+  ],
+  "guardrailMetrics": ["tool_efficiency", "unnecessary_tool_calls", "tool_budget_violations"],
+  "toolUse": {
+    "id": "tool-overuse-v0",
+    "maxToolCalls": 2,
+    "cases": [
+      {
+        "id": "requires-workspace-read",
+        "taskRef": "task.requires-context",
+        "expectation": "required",
+        "expectedToolCalls": 1,
+        "maxToolCalls": 1,
+        "targetTools": ["files.read"],
+        "rationale": "The answer depends on workspace content."
+      },
+      {
+        "id": "optional-context-lookup",
+        "taskRef": "task.optional-context",
+        "expectation": "optional",
+        "expectedToolCalls": 0,
+        "maxToolCalls": 1,
+        "directAnswerEligible": true,
+        "targetTools": ["web.search"],
+        "rationale": "A direct answer is acceptable; a lookup is allowed only if uncertainty is recorded."
+      },
+      {
+        "id": "wasteful-arithmetic-tool",
+        "taskRef": "task.direct-answer",
+        "expectation": "wasteful",
+        "expectedToolCalls": 0,
+        "maxToolCalls": 0,
+        "directAnswerEligible": true,
+        "targetTools": ["calculator"],
+        "rationale": "The answer is a simple direct response; calling a tool burns budget without adding evidence."
+      }
+    ]
+  },
+  "trials": {
+    "count": 1,
+    "pairing": "paired",
+    "seed": "tool-overuse-fixture"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 1,
+    "allowSingleRunRecommendation": true
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

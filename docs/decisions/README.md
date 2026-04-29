@@ -60,6 +60,7 @@ ADRs must be written when:
 - [`0035-sdk-contracts.md`](0035-sdk-contracts.md) — SDK-owned plugin, lifecycle, registry, storage, queue, workspace, output, and scope contracts plus the typed helper surface plugin authors build against. Renumbered from `0004-sdk-contracts.md`.
 - [`0036-starter-preset-contract.md`](0036-starter-preset-contract.md) — SDK-owned preset contracts, starter preset composition rules, and the kernel/preset boundary. Renumbered from `0005-starter-preset-contract.md`.
 - [`0037-prov-evidence-bundles.md`](0037-prov-evidence-bundles.md) - PROV-style evidence bundles that pair semantic report evidence with OTEL runtime causality.
+- [`0038-tool-overuse-budget-evaluator.md`](0038-tool-overuse-budget-evaluator.md) - optional SDK tool-use discipline profiles and report summaries for benchmark harnesses.
 
 ## Planning Baseline
 

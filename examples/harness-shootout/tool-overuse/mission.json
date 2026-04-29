@@ -1,0 +1,16 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.tool-overuse",
+  "objective": "Answer a mixed task set with required, optional, and wasteful tool-use affordances while preserving task correctness.",
+  "objectiveClass": "analysis",
+  "fixtureRefs": ["task.requires-context", "task.optional-context", "task.direct-answer"],
+  "constraints": [
+    "Use tools when the task depends on external or workspace evidence.",
+    "Avoid tools when the task is directly answerable and a tool call adds no evidence.",
+    "Record tool budget violations separately from final answer correctness."
+  ],
+  "successCriteria": {
+    "requiredArtifacts": ["tool-use-summary"]
+  }
+}

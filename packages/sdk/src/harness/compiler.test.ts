@@ -591,12 +591,8 @@ describe("Benchmark reports", () => {
     const bursty = report.candidates.find((candidate) => candidate.candidateId === "bursty");
     const steady = report.candidates.find((candidate) => candidate.candidateId === "steady");
 
-    expect(bursty?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
-      0.5,
-    );
-    expect(steady?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
-      0.5,
-    );
+    expect(bursty?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(0.5);
+    expect(steady?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(0.5);
     expect(bursty?.reliability?.passRate).toBe(0.5);
     expect(bursty?.reliability?.consistency).toBe(0.5);
     expect(bursty?.reliability?.variance).toBe(0.25);
@@ -638,6 +634,167 @@ describe("Benchmark reports", () => {
       "verifier-loop: Only 1/3 scored trials; reliability recommendation remains underpowered.",
     );
     expect(renderBenchmarkReportMarkdown(report)).toContain("1 skipped trial(s) remain visible.");
+  });
+
+  it("separates final correctness from tool-use discipline", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        candidates: [
+          {
+            id: "disciplined",
+            harnessRef: "harness.disciplined",
+          },
+          {
+            id: "tool-happy",
+            harnessRef: "harness.tool-happy",
+          },
+        ],
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+        guardrailMetrics: ["tool_efficiency"],
+        toolUse: {
+          id: "tool-overuse-v0",
+          maxToolCalls: 2,
+          cases: [
+            {
+              id: "requires-file-read",
+              taskRef: "task.requires-context",
+              expectation: "required",
+              expectedToolCalls: 1,
+              maxToolCalls: 1,
+            },
+            {
+              id: "optional-lookup",
+              taskRef: "task.optional-context",
+              expectation: "optional",
+              expectedToolCalls: 0,
+              maxToolCalls: 1,
+              directAnswerEligible: true,
+            },
+            {
+              id: "wasteful-arithmetic",
+              taskRef: "task.direct-answer",
+              expectation: "wasteful",
+              maxToolCalls: 0,
+              directAnswerEligible: true,
+            },
+          ],
+        },
+      },
+      mission,
+      generatedAt: "2026-04-29T00:00:00.000Z",
+      results: [
+        {
+          ...trialResult("disciplined", "harness.disciplined:compiled", "task_success", 1),
+          metrics: [
+            {
+              metricId: "task_success",
+              value: 1,
+              evidenceRefs: ["disciplined:answer"],
+            },
+            {
+              metricId: "tool_efficiency",
+              value: 1,
+              evidenceRefs: ["disciplined:tool-use"],
+            },
+          ],
+          toolUse: [
+            {
+              caseRef: "requires-file-read",
+              toolCalls: 1,
+              necessaryToolCalls: 1,
+              evidenceRefs: ["trace.read-file"],
+            },
+            {
+              caseRef: "optional-lookup",
+              toolCalls: 0,
+              avoidedToolCalls: 1,
+              directAnswerEligible: true,
+              evidenceRefs: ["trace.direct-answer"],
+            },
+            {
+              caseRef: "wasteful-arithmetic",
+              toolCalls: 0,
+              avoidedToolCalls: 1,
+              evidenceRefs: ["trace.no-calculator"],
+            },
+          ],
+        },
+        {
+          ...trialResult("tool-happy", "harness.tool-happy:compiled", "task_success", 1),
+          metrics: [
+            {
+              metricId: "task_success",
+              value: 1,
+              evidenceRefs: ["tool-happy:answer"],
+            },
+            {
+              metricId: "tool_efficiency",
+              value: 0.25,
+              evidenceRefs: ["tool-happy:tool-use"],
+            },
+          ],
+          toolUse: [
+            {
+              caseRef: "requires-file-read",
+              toolCalls: 1,
+              necessaryToolCalls: 1,
+              costUsd: 0.001,
+              latencyMs: 100,
+              evidenceRefs: ["trace.read-file"],
+            },
+            {
+              caseRef: "optional-lookup",
+              toolCalls: 1,
+              unnecessaryToolCalls: 1,
+              directAnswerEligible: true,
+              costUsd: 0.002,
+              latencyMs: 200,
+              evidenceRefs: ["trace.optional-search"],
+            },
+            {
+              caseRef: "wasteful-arithmetic",
+              toolCalls: 2,
+              unnecessaryToolCalls: 2,
+              budgetViolated: true,
+              costUsd: 0.003,
+              latencyMs: 300,
+              evidenceRefs: ["trace.calculator"],
+            },
+          ],
+        },
+      ],
+    });
+
+    const disciplined = report.candidates.find(
+      (candidate) => candidate.candidateId === "disciplined",
+    );
+    const toolHappy = report.candidates.find((candidate) => candidate.candidateId === "tool-happy");
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(disciplined?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
+      1,
+    );
+    expect(toolHappy?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
+      1,
+    );
+    expect(disciplined?.recommendation).toBe("recommended");
+    expect(toolHappy?.recommendation).toBe("recommended");
+    expect(disciplined?.toolUse?.efficiencyScore).toBe(1);
+    expect(disciplined?.toolUse?.avoidedToolCalls).toBe(2);
+    expect(toolHappy?.toolUse?.efficiencyScore).toBe(0.25);
+    expect(toolHappy?.toolUse?.unnecessaryToolCalls).toBe(3);
+    expect(toolHappy?.toolUse?.budgetViolations).toBe(1);
+    expect(toolHappy?.toolUse?.totalCostUsd).toBeCloseTo(0.006);
+    expect(toolHappy?.toolUse?.totalLatencyMs).toBe(600);
+    expect(report.toolUse?.observedCaseCount).toBe(6);
+    expect(report.recommendations[1]).toContain("tool_efficiency=0.25");
+    expect(report.inferences).toContain(
+      "Tool-use efficiency is reported separately from final task correctness.",
+    );
+    expect(markdown).toContain("## Tool Use");
   });
 
   it("aggregates fault-injection containment evidence into reports", () => {
