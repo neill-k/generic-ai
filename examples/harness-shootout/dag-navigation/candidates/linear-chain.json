@@ -1,0 +1,74 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.dag.linear-chain",
+  "name": "Linear Chain DAG Baseline",
+  "packages": [
+    {
+      "id": "protocol.pipeline",
+      "package": "@generic-ai/protocol-pipeline",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.terminal",
+      "package": "@generic-ai/plugin-tools-terminal-sandbox",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.dag-navigation",
+      "package": "@generic-ai/grader-dag-navigation",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "navigator",
+      "role": "navigator",
+      "instructions": "Solve the fixture in one fixed sequence. Record visited nodes and branch observations.",
+      "packageRefs": ["protocol.pipeline", "capability.files", "capability.terminal"],
+      "artifactRefs": ["artifact.dag-route", "artifact.branch-observations"]
+    },
+    {
+      "id": "aggregator",
+      "role": "aggregator",
+      "instructions": "Write the final aggregation proof from the navigator's collected observations.",
+      "packageRefs": ["protocol.pipeline", "grader.dag-navigation"],
+      "artifactRefs": ["artifact.aggregation-proof"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "pipeline",
+      "protocol": "pipeline",
+      "packageRef": "protocol.pipeline",
+      "actorRefs": ["navigator", "aggregator"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.dag-route",
+      "name": "dag-route.json",
+      "kind": "metric",
+      "producedBy": ["navigator"]
+    },
+    {
+      "id": "artifact.branch-observations",
+      "name": "branch-observations.json",
+      "kind": "metric",
+      "producedBy": ["navigator"]
+    },
+    {
+      "id": "artifact.aggregation-proof",
+      "name": "aggregation-proof.md",
+      "kind": "report",
+      "producedBy": ["aggregator"]
+    }
+  ],
+  "missionRefs": ["mission.dag-navigation"],
+  "evalRefs": ["benchmark.dag-navigation.v0"]
+}

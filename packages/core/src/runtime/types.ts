@@ -2,9 +2,12 @@ export const DEFAULT_GENERIC_AI_RUNTIME_ADAPTER = "openai-codex" as const;
 export const DEFAULT_OPENAI_CODEX_MODEL = "gpt-5.5" as const;
 
 export type GenericAILlmRuntimeAdapter = "openai-codex" | "pi";
+export type GenericAIAgentTurnMode = "stop-tool-loop" | "single-turn";
 
 export interface GenericAILlmRunOptions {
   readonly signal?: AbortSignal;
+  readonly turnMode?: GenericAIAgentTurnMode;
+  readonly maxTurns?: number;
 }
 
 export interface GenericAILlmRunResult {
@@ -46,4 +49,6 @@ export interface CreateGenericAILlmRuntimeOptions {
   readonly instructions?: string;
   readonly cwd?: string;
   readonly agentDir?: string;
+  readonly turnMode?: GenericAIAgentTurnMode;
+  readonly maxTurns?: number;
 }

@@ -1,6 +1,12 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {
+  createStopAndRespondTool,
+  runStopToolLoop,
+  STOP_AND_RESPOND_TOOL_NAME,
+  type StopAndRespondState,
+} from "@generic-ai/core";
 import { createHonoPlugin } from "@generic-ai/plugin-hono";
 import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
 import {
@@ -11,7 +17,7 @@ import {
   ModelRegistry,
   SessionManager,
   SettingsManager,
-} from "@generic-ai/sdk";
+} from "@generic-ai/sdk/pi";
 
 const DEFAULT_LIVE_PROVIDER = "openai-codex";
 const DEFAULT_LIVE_MODEL_BY_PROVIDER = {
@@ -84,7 +90,7 @@ function createSmokePrompt(): string {
     "Run the Generic AI live smoke test.",
     `1. Call the write tool once to create ${LIVE_SMOKE_FILE_PATH} with exact contents ${LIVE_SMOKE_FILE_CONTENT}.`,
     `2. Call the read tool on ${LIVE_SMOKE_FILE_PATH} to verify the contents.`,
-    `3. Reply with exactly ${LIVE_SMOKE_DONE_TEXT} and nothing else.`,
+    `3. Call ${STOP_AND_RESPOND_TOOL_NAME} with response exactly ${LIVE_SMOKE_DONE_TEXT}.`,
   ].join(" ");
 }
 
@@ -99,7 +105,7 @@ function createSmokeResourceLoader(root: string, agentDir: string): DefaultResou
     systemPrompt: [
       "You are running a deterministic Generic AI live-provider smoke test.",
       "Follow the numbered instructions exactly.",
-      `After all required tool calls succeed, answer with exactly ${LIVE_SMOKE_DONE_TEXT}.`,
+      `After all required tool calls succeed, call ${STOP_AND_RESPOND_TOOL_NAME} with response exactly ${LIVE_SMOKE_DONE_TEXT}.`,
     ].join(" "),
     agentsFilesOverride: () => ({ agentsFiles: [] }),
     appendSystemPromptOverride: () => [],
@@ -184,6 +190,8 @@ export async function runLiveProviderSmoke(
   await resourceLoader.reload();
 
   const fileTools = createWorkspaceFileTools({ root: options.root });
+  const stopState: StopAndRespondState = { stopped: false };
+  const stopTool = createStopAndRespondTool(stopState);
   const settingsManager = SettingsManager.inMemory({
     compaction: { enabled: false },
     retry: { enabled: false, maxRetries: 0 },
@@ -196,8 +204,8 @@ export async function runLiveProviderSmoke(
     authStorage,
     modelRegistry,
     resourceLoader,
-    tools: fileTools.piTools.map((tool) => tool.name),
-    customTools: [...fileTools.piTools] as never,
+    tools: [...fileTools.piTools.map((tool) => tool.name), STOP_AND_RESPOND_TOOL_NAME],
+    customTools: [...fileTools.piTools, stopTool] as never,
     sessionManager: SessionManager.inMemory(),
     settingsManager,
   });
@@ -219,8 +227,17 @@ export async function runLiveProviderSmoke(
 
   let assistantText = "";
   try {
-    await session.prompt(createSmokePrompt());
-    assistantText = session.getLastAssistantText() ?? "";
+    const loop = await runStopToolLoop({
+      prompt: createSmokePrompt(),
+      state: stopState,
+      runPrompt: (prompt) => session.prompt(prompt),
+    });
+    if (!loop.stopped || loop.outputText === undefined) {
+      throw new Error(
+        `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop.turnCount} turn(s).`,
+      );
+    }
+    assistantText = loop.outputText;
   } finally {
     unsubscribe();
     session.dispose();

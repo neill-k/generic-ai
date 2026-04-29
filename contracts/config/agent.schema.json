@@ -56,6 +56,21 @@
         }
       }
     },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "turnMode": {
+          "type": "string",
+          "enum": ["stop-tool-loop", "single-turn"]
+        },
+        "maxTurns": {
+          "description": "Optional finite stop-tool loop cap. Omit for unbounded execution.",
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
     "metadata": {
       "type": "object",
       "additionalProperties": true
