@@ -21,6 +21,17 @@ describe("importHarborResults", () => {
       verifier_result: { rewards: { reward: 0 } },
       duration_sec: 12,
     });
+    for (const artifactName of [
+      "summary.json",
+      "trace-diagnostics.json",
+      "policy-decisions.json",
+      "integrity.json",
+      "trajectory.json",
+    ]) {
+      await writeJson(join(trialDir, "artifacts", "generic-ai", artifactName), {
+        artifactName,
+      });
+    }
     await writeJson(join(trialDir, "artifacts", "generic-ai", "trace-events.json"), [
       {
         id: "event-1",
@@ -41,6 +52,9 @@ describe("importHarborResults", () => {
         summary: "Agent completed.",
       },
     ]);
+    await writeJson(join(trialDir, "artifacts", "generic-ai", "harness", "summary.json"), {
+      artifactCount: 1,
+    });
     await writeJson(
       join(trialDir, "artifacts", "generic-ai", "harness", "harness-projections.json"),
       [
@@ -93,6 +107,8 @@ describe("importHarborResults", () => {
     expect(
       result.trialResults[0]?.metrics.find((metric) => metric.metricId === "success")?.value,
     ).toBe(0);
+    expect(result.smokeArtifactProof.completeTrialCount).toBe(1);
+    expect(result.smokeArtifactProof.trials[0]?.harnessArtifactRefs).toHaveLength(2);
     expect(result.report.insufficientEvidence).toHaveLength(1);
     expect(result.trialResults[0]?.traceEvents.some((event) => event.type === "tool.invoked")).toBe(
       true,
@@ -118,6 +134,9 @@ describe("importHarborResults", () => {
     ).resolves.toContain("stdout-log");
     await expect(readFile(join(outputDir, "benchmark-report.md"), "utf-8")).resolves.toContain(
       "## Insufficient Evidence",
+    );
+    await expect(readFile(join(outputDir, "smoke-artifact-proof.md"), "utf-8")).resolves.toContain(
+      "Complete trials: 1/1",
     );
   });
 });

@@ -122,7 +122,16 @@ examples/terminal-bench/reports/imported/<job-name>/
   trial-command-transcripts.md
   benchmark-report.json
   benchmark-report.md
+  smoke-artifact-proof.json
+  smoke-artifact-proof.md
 ```
+
+The smoke artifact proof checks each imported trial for the live-smoke artifact
+set required by the benchmark gate: `summary.json`, `trace-events.json`,
+`trace-diagnostics.json`, `policy-decisions.json`, `integrity.json`,
+`trajectory.json`, and at least one collected `harness/*` artifact reference.
+It reports reward and success only as smoke evidence; those fields are not a
+validation-quality or SOTA claim.
 
 The imported projection files summarize Harbor-collected canonical harness projections per
 trial. The importer also derives missing report `TraceEvent` inputs from those projections
