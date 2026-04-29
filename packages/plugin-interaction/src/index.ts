@@ -8,7 +8,7 @@ import {
   type AgentToolUpdateCallback,
   type ExtensionContext,
   type ToolDefinition,
-} from "@generic-ai/sdk";
+} from "@generic-ai/sdk/pi";
 
 export const name = "@generic-ai/plugin-interaction" as const;
 export const kind = "interaction" as const;

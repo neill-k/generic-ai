@@ -48,6 +48,10 @@ The contract modules are intentionally kernel-agnostic. They do not import
 `@generic-ai/core`, and they do not require private kernel knowledge to
 implement.
 
+Pi runtime compatibility is intentionally separated into an explicit subpath:
+`@generic-ai/sdk/pi`. Import from that subpath only when you intentionally want
+Pi-specific runtime/tool primitives.
+
 ## Helper surface
 
 The helper layer is intentionally small and mostly ergonomic:
@@ -76,4 +80,3 @@ staying faithful to the public contract shape.
 - `docs/package-boundaries.md`
 - `docs/harness-dsl.md`
 - `specs/harness-v0.1/README.md`
-

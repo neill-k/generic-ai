@@ -4,6 +4,13 @@ Generic AI is not trying to beat `pi` at being `pi`.
 
 The design goal is to use `pi` for the low-level agent and tool runtime mechanics, then provide a framework shell for people who need a composed, replaceable, multi-agent runtime.
 
+The root `@generic-ai/sdk` contract remains runtime-agnostic. Pi-specific
+runtime and tool compatibility primitives are exposed through the explicit
+subpath `@generic-ai/sdk/pi`.
+At the harness layer, adapter selection is explicit (`pi` or other registered
+adapters), so Pi remains the default reference path rather than the required
+runtime ontology.
+
 ## Short Version
 
 `pi` is the agent toolkit layer. Generic AI is the application framework layer.

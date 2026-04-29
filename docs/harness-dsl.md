@@ -19,7 +19,8 @@ Harness DSL -> Generic Agent IR -> runtime/packages -> traces/evals/reports
 - `runHarnessBenchmark()` in `@generic-ai/core` consumes compiled harnesses and
   runs trials through `GenericAILlmRuntime`.
 - The default `openai-codex` runtime path uses Pi's `openai-codex` provider
-  machinery: `AuthStorage`, `ModelRegistry`, and `createAgentSession`.
+  machinery exposed through `@generic-ai/sdk/pi`: `AuthStorage`,
+  `ModelRegistry`, and `createAgentSession`.
 - `examples/harness-shootout` provides the first package-composed benchmark
   fixture and walkthrough.
 

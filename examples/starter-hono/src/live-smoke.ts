@@ -17,7 +17,7 @@ import {
   ModelRegistry,
   SessionManager,
   SettingsManager,
-} from "@generic-ai/sdk";
+} from "@generic-ai/sdk/pi";
 
 const DEFAULT_LIVE_PROVIDER = "openai-codex";
 const DEFAULT_LIVE_MODEL_BY_PROVIDER = {
