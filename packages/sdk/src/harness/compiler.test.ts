@@ -449,6 +449,109 @@ describe("Benchmark reports", () => {
     ).toBe("recommended");
   });
 
+  it("summarizes repeated-run reliability without hiding failed attempts", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        candidates: [
+          {
+            id: "bursty",
+            harnessRef: "harness.bursty",
+          },
+          {
+            id: "steady",
+            harnessRef: "harness.steady",
+          },
+        ],
+        trials: {
+          count: 4,
+          pairing: "paired",
+          seed: "reliability-fixture",
+        },
+        reliability: {
+          id: "repeated-run-v0",
+          successMetric: "task_success",
+          successThreshold: 0.5,
+          minimumScoredTrials: 4,
+          passAt: [1, 2, 4],
+          perturbationLabels: ["clean", "retry", "network-noise", "tool-timeout"],
+        },
+        validity: {
+          minimumTrialsForRecommendation: 4,
+        },
+      },
+      mission,
+      generatedAt: "2026-04-29T00:00:00.000Z",
+      results: [
+        reliabilityTrial("bursty", "bursty:trial-1", 1, "passed", "clean"),
+        reliabilityTrial("bursty", "bursty:trial-2", 1, "passed", "retry", {
+          attempt: 2,
+          retryOfTrialId: "bursty:trial-1",
+        }),
+        reliabilityTrial("bursty", "bursty:trial-3", 0, "failed", "network-noise", {
+          failureSeverity: "high",
+        }),
+        reliabilityTrial("bursty", "bursty:trial-4", 0, "failed", "tool-timeout", {
+          failureSeverity: "critical",
+        }),
+        ...Array.from({ length: 4 }, (_, index) =>
+          reliabilityTrial("steady", `steady:trial-${index + 1}`, 0.5, "passed", "clean"),
+        ),
+      ],
+    });
+
+    const bursty = report.candidates.find((candidate) => candidate.candidateId === "bursty");
+    const steady = report.candidates.find((candidate) => candidate.candidateId === "steady");
+
+    expect(bursty?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
+      0.5,
+    );
+    expect(steady?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
+      0.5,
+    );
+    expect(bursty?.reliability?.passRate).toBe(0.5);
+    expect(bursty?.reliability?.consistency).toBe(0.5);
+    expect(bursty?.reliability?.variance).toBe(0.25);
+    expect(bursty?.reliability?.retriedTrials).toBe(1);
+    expect(bursty?.reliability?.maxFailureSeverity).toBe("critical");
+    expect(steady?.reliability?.passRate).toBe(1);
+    expect(steady?.reliability?.consistency).toBe(1);
+    expect(report.recommendations[0]).toContain("reliability pass_rate=0.5");
+    expect(renderBenchmarkReportMarkdown(report)).toContain("## Reliability");
+  });
+
+  it("keeps skipped and excluded reliability trials visible", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        reliability: {
+          successMetric: "task_success",
+          minimumScoredTrials: 3,
+        },
+        validity: {
+          minimumTrialsForRecommendation: 3,
+        },
+      },
+      mission,
+      generatedAt: "2026-04-29T00:00:00.000Z",
+      results: [
+        reliabilityTrial("verifier-loop", "trial-1", 1, "passed", "clean"),
+        reliabilityTrial("verifier-loop", "trial-2", 1, "skipped", "clean"),
+        reliabilityTrial("verifier-loop", "trial-3", 1, "excluded", "clean", {
+          exclusionReason: "fixture setup failed before model execution",
+        }),
+      ],
+    });
+
+    expect(report.candidates[0]?.reliability?.scoredTrials).toBe(1);
+    expect(report.candidates[0]?.reliability?.skippedTrials).toBe(1);
+    expect(report.candidates[0]?.reliability?.excludedTrials).toBe(1);
+    expect(report.inferences).toContain(
+      "verifier-loop: Only 1/3 scored trials; reliability recommendation remains underpowered.",
+    );
+    expect(renderBenchmarkReportMarkdown(report)).toContain("1 skipped trial(s) remain visible.");
+  });
+
   it("aggregates fault-injection containment evidence into reports", () => {
     const report = createBenchmarkReport({
       benchmark: {
@@ -553,6 +656,25 @@ function trialResult(
       reworkCount: 0,
       policyDecisionCount: 0,
       artifactCount: 0,
+    },
+  };
+}
+
+function reliabilityTrial(
+  candidateId: string,
+  trialId: string,
+  taskSuccess: number,
+  status: NonNullable<BenchmarkTrialResult["outcome"]>["status"],
+  perturbationLabel: string,
+  outcome?: Partial<NonNullable<BenchmarkTrialResult["outcome"]>>,
+): BenchmarkTrialResult {
+  return {
+    ...trialResult(candidateId, `harness.${candidateId}:compiled`, "task_success", taskSuccess),
+    trialId,
+    outcome: {
+      status,
+      perturbationLabel,
+      ...outcome,
     },
   };
 }

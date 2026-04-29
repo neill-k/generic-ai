@@ -19,6 +19,8 @@ Current SDK contents:
   contracts
 - AgentHarness contracts, adapter run context, capability-effect descriptors,
   URI/hash artifact references, and typed harness event projections
+- Repeated-run reliability profile contracts for pass@k, consistency, retry,
+  skipped/excluded-trial, perturbation, and bounded failure-severity reporting
 - Agent execution config for the default stop-tool loop and the
   `single-turn` opt-out used when a caller truly wants one provider turn. When
   `maxTurns` is omitted, stop-tool loop execution is unbounded by default.
