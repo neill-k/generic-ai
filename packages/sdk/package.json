@@ -34,6 +34,6 @@
   },
   "dependencies": {
     "zod": "^4.3.6",
-    "@mariozechner/pi-coding-agent": "0.70.2"
+    "@mariozechner/pi-coding-agent": "0.70.6"
   }
 }

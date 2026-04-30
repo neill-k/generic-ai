@@ -15,8 +15,8 @@ Current SDK contents:
 - `src/helpers/` for ergonomic contract constructors
 - package-level docs and contract tests that keep the surface honest
 - Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI,
-  TraceEvent, BenchmarkReport, FaultInjectionSpec, PolicySpec, and HarnessPatch
-  contracts
+  TraceEvent, BenchmarkReport, FaultInjectionSpec, ToolCallSafetyObservation,
+  PolicySpec, and HarnessPatch contracts
 - AgentHarness contracts, adapter run context, capability-effect descriptors,
   URI/hash artifact references, and typed harness event projections
 - Agent lifecycle hook contracts for session, prompt, tool, permission,
@@ -48,6 +48,8 @@ The SDK defines the contract families planned in
   reporting on package-composed agent systems
 - fault-injection benchmark contracts for degraded tool, retrieval, memory,
   web, MCP, messaging, and storage boundaries
+- tool-call safety GAP report contracts for comparing text-level safety posture
+  against actual terminal/file, web/MCP, and final-output action behavior
 - composable agent harness contracts for adapters, role policy profiles,
   effect-described tools, artifact stores, and canonical harness events
 

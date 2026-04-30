@@ -34,6 +34,8 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
   failure-severity profiles.
 - [`fault-injection/`](fault-injection/): deterministic boundary-fault profile
   for tool and memory degradation evidence.
+- [`tool-call-safety-gap/`](tool-call-safety-gap/): deterministic text-vs-tool
+  action safety profile for GAP-style evaluator evidence.
 
 ## Programmatic Shape
 
@@ -69,6 +71,8 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
 - Fault-injection profiles can represent boundary degradation, containment,
   first violated contracts, and overclaim-prevention evidence without making
   core import plugin-specific injectors.
+- Tool-call safety GAP profiles can keep prompt refusal, policy blocking, risky
+  final-output actions, and executed tool actions separate in benchmark reports.
 
 ## What It Does Not Prove Yet
 
