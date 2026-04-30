@@ -57,12 +57,8 @@ describe("harness shootout fixtures", () => {
       (candidate) => candidate.candidateId === "verifier-loop-steady",
     );
 
-    expect(bursty?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
-      0.5,
-    );
-    expect(steady?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
-      0.5,
-    );
+    expect(bursty?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(0.5);
+    expect(steady?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(0.5);
     expect(bursty?.reliability?.passRate).toBe(0.5);
     expect(bursty?.reliability?.maxFailureSeverity).toBe("critical");
     expect(bursty?.reliability?.retriedTrials).toBe(1);
@@ -169,6 +165,54 @@ describe("harness shootout fixtures", () => {
     expect(report.faultInjection?.observedCaseCount).toBe(2);
     expect(report.faultInjection?.containmentRate).toBe(1);
     expect(report.candidates[0]?.recommendation).toBe("recommended");
+  });
+
+  it("reports tool-use discipline separately from final correctness", async () => {
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/tool-overuse/mission.json",
+    );
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/tool-overuse/benchmark.json",
+    );
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/tool-overuse/trial-results.json",
+    );
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-04-29T00:00:00.000Z",
+      results,
+    });
+    const disciplined = report.candidates.find(
+      (candidate) => candidate.candidateId === "disciplined-agent",
+    );
+    const toolHappy = report.candidates.find(
+      (candidate) => candidate.candidateId === "tool-happy-agent",
+    );
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(benchmark.toolUse?.cases.map((entry) => entry.expectation)).toEqual([
+      "required",
+      "optional",
+      "wasteful",
+    ]);
+    expect(disciplined?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
+      1,
+    );
+    expect(toolHappy?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
+      1,
+    );
+    expect(disciplined?.toolUse?.efficiencyScore).toBe(1);
+    expect(disciplined?.toolUse?.observedCaseCount).toBe(3);
+    expect(disciplined?.toolUse?.avoidedToolCalls).toBe(2);
+    expect(toolHappy?.toolUse?.efficiencyScore).toBe(0.25);
+    expect(toolHappy?.toolUse?.observedCaseCount).toBe(3);
+    expect(toolHappy?.toolUse?.unnecessaryToolCalls).toBe(3);
+    expect(toolHappy?.toolUse?.budgetViolations).toBe(1);
+    expect(toolHappy?.toolUse?.totalLatencyMs).toBe(600);
+    expect(report.toolUse?.observedCaseCount).toBe(3);
+    expect(markdown).toContain("## Tool Use");
   });
 
   it("compiles the DAG navigation candidate harnesses", async () => {

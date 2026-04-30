@@ -88,6 +88,31 @@ storage should implement this contract in their own packages or harness
 adapters. Core may pass configured cases into benchmark prompts and reports, but
 it must not import plugin-specific fault hooks.
 
+## Tool-Use Discipline
+
+`BenchmarkSpec.toolUse` describes required, optional, and wasteful tool-use
+affordances for a benchmark. Each case can declare a task reference, expected
+tool-call count, direct-answer eligibility, and a local tool-call budget. Trial
+results can then attach `toolUse` observations with actual calls, necessary
+calls, unnecessary calls, avoided calls, budget violations, and optional cost or
+latency metadata.
+
+The SDK report helper aggregates those observations into per-candidate and
+report-level tool-use summaries. These summaries show tool efficiency,
+unnecessary calls, avoided direct-answer opportunities, budget violations, and
+optional cost/latency evidence separately from the primary success metric. This
+keeps a correct but tool-happy agent from looking equivalent to a correct and
+disciplined agent while preserving the configured recommendation boundary.
+`observedCaseCount` counts distinct observed case IDs, not raw trial
+observations, so repeated trials can add tool-call, latency, and cost evidence
+without making coverage exceed the planned case count.
+
+Tool-use discipline is distinct from model routing, prompt caching, and
+production scorecards. It evaluates whether a candidate used the tools the task
+affordance justified; routing decides which model should run, caching decides
+how context is assembled, and production scorecards combine broader operational
+dimensions.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a

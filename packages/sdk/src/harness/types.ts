@@ -127,6 +127,7 @@ export type FaultInjectionTiming =
   | "after_call"
   | "state_read"
   | "state_write";
+export type BenchmarkToolUseExpectation = "required" | "optional" | "wasteful";
 
 export interface AgentHarnessRole {
   readonly id: string;
@@ -696,6 +697,7 @@ export interface BenchmarkSpec {
   readonly metricDefinitions?: readonly MetricDefinition[];
   readonly guardrailMetrics?: readonly string[];
   readonly faultInjections?: readonly FaultInjectionSpec[];
+  readonly toolUse?: BenchmarkToolUseProfile;
   readonly trials?: {
     /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
     readonly count?: number;
@@ -732,6 +734,24 @@ export interface BenchmarkReliabilityProfile {
   readonly passAt?: readonly number[];
   readonly failureSeverityMetric?: string;
   readonly perturbationLabels?: readonly string[];
+}
+
+export interface BenchmarkToolUseProfile {
+  readonly id?: string;
+  readonly maxToolCalls?: number;
+  readonly cases: readonly BenchmarkToolUseCaseSpec[];
+}
+
+export interface BenchmarkToolUseCaseSpec {
+  readonly id: string;
+  readonly taskRef: string;
+  readonly expectation: BenchmarkToolUseExpectation;
+  readonly maxToolCalls?: number;
+  readonly expectedToolCalls?: number;
+  readonly directAnswerEligible?: boolean;
+  readonly targetTools?: readonly string[];
+  readonly rationale?: string;
+  readonly metadata?: JsonObject;
 }
 
 export interface MetricDefinition {
@@ -792,6 +812,50 @@ export interface FaultInjectionReportSummary {
   readonly recoveryRate: number;
   readonly overclaimPreventionRate: number;
   readonly firstViolatedContracts: readonly string[];
+}
+
+export interface ToolUseObservation {
+  readonly caseRef: string;
+  readonly expectation?: BenchmarkToolUseExpectation;
+  readonly toolCalls: number;
+  readonly necessaryToolCalls?: number;
+  readonly unnecessaryToolCalls?: number;
+  readonly avoidedToolCalls?: number;
+  readonly budgetLimit?: number;
+  readonly budgetViolated?: boolean;
+  readonly directAnswerEligible?: boolean;
+  readonly latencyMs?: number;
+  readonly costUsd?: number;
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface ToolUseExpectationSummary {
+  readonly expectation: BenchmarkToolUseExpectation;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly toolCalls: number;
+  readonly unnecessaryToolCalls: number;
+  readonly avoidedToolCalls: number;
+  readonly budgetViolations: number;
+}
+
+export interface ToolUseReportSummary {
+  readonly profileId?: string;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly totalToolCalls: number;
+  readonly necessaryToolCalls: number;
+  readonly unnecessaryToolCalls: number;
+  readonly avoidedToolCalls: number;
+  readonly budgetViolations: number;
+  readonly directAnswerOpportunities: number;
+  readonly efficiencyScore: number | null;
+  readonly totalCostUsd?: number;
+  readonly totalLatencyMs?: number;
+  readonly byExpectation: readonly ToolUseExpectationSummary[];
+  readonly evidenceRefs: readonly string[];
+  readonly warnings: readonly string[];
 }
 
 export interface ArtifactReference {
@@ -915,6 +979,7 @@ export interface BenchmarkTrialResult {
   readonly artifacts: readonly ArtifactReference[];
   readonly diagnostics: TraceDiagnostics;
   readonly faultInjections?: readonly FaultInjectionObservation[];
+  readonly toolUse?: readonly ToolUseObservation[];
 }
 
 export interface BenchmarkTrialOutcome {
@@ -993,6 +1058,7 @@ export interface BenchmarkReportCandidate {
   readonly reversibility?: BenchmarkReversibilitySummary;
   readonly rationale: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
+  readonly toolUse?: ToolUseReportSummary;
 }
 
 export interface BenchmarkReport {
@@ -1016,6 +1082,7 @@ export interface BenchmarkReport {
   };
   readonly insufficientEvidence: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
+  readonly toolUse?: ToolUseReportSummary;
 }
 
 export interface HarnessPatchOperation {
