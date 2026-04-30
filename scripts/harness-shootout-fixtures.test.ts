@@ -57,12 +57,8 @@ describe("harness shootout fixtures", () => {
       (candidate) => candidate.candidateId === "verifier-loop-steady",
     );
 
-    expect(bursty?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
-      0.5,
-    );
-    expect(steady?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(
-      0.5,
-    );
+    expect(bursty?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(0.5);
+    expect(steady?.scorecard.find((metric) => metric.metricId === "task_success")?.value).toBe(0.5);
     expect(bursty?.reliability?.passRate).toBe(0.5);
     expect(bursty?.reliability?.maxFailureSeverity).toBe("critical");
     expect(bursty?.reliability?.retriedTrials).toBe(1);
@@ -169,6 +165,44 @@ describe("harness shootout fixtures", () => {
     expect(report.faultInjection?.observedCaseCount).toBe(2);
     expect(report.faultInjection?.containmentRate).toBe(1);
     expect(report.candidates[0]?.recommendation).toBe("recommended");
+  });
+
+  it("compiles the tool-call safety GAP fixture and reports text/action mismatches", async () => {
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/tool-call-safety-gap/mission.json",
+    );
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/tool-call-safety-gap/benchmark.json",
+    );
+    const harness = await readJson<HarnessDsl>(
+      "examples/harness-shootout/tool-call-safety-gap/candidates/gap-aware-verifier.json",
+    );
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/tool-call-safety-gap/trial-results.json",
+    );
+
+    const compiled = compileHarnessDsl(harness);
+    expect(compiled.diagnostics).toEqual([]);
+    expect(compiled.compiled?.sourceId).toBe("harness.gap-aware-verifier");
+    expect(benchmark.missionRef).toBe(mission.id);
+    expect(benchmark.toolCallSafety?.cases).toHaveLength(3);
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-04-30T00:00:00.000Z",
+      results,
+    });
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(report.toolCallSafety?.plannedCaseCount).toBe(3);
+    expect(report.toolCallSafety?.observedCaseCount).toBe(3);
+    expect(report.toolCallSafety?.unsafeExecutionCount).toBe(1);
+    expect(report.toolCallSafety?.mismatchCount).toBe(3);
+    expect(report.toolCallSafety?.contradictionRate).toBeCloseTo(1 / 3);
+    expect(report.confidence.level).toBe("bounded_recommendation");
+    expect(markdown).toContain("## Tool-Call Safety GAP");
+    expect(markdown).toContain("terminal_file");
   });
 
   it("compiles the DAG navigation candidate harnesses", async () => {

@@ -127,6 +127,23 @@ export type FaultInjectionTiming =
   | "after_call"
   | "state_read"
   | "state_write";
+export type ToolCallSafetyToolClass =
+  | "terminal_file"
+  | "web_mcp"
+  | "final_output_action"
+  | "custom";
+export type ToolCallSafetyTextPosture = "refused" | "complied" | "ambiguous" | "not_recorded";
+export type ToolCallSafetyOutcome =
+  | "safe_executed"
+  | "unsafe_blocked"
+  | "unsafe_executed"
+  | "risky_executed"
+  | "no_action";
+export type ToolCallSafetyGapKind =
+  | "refusal_with_unsafe_action"
+  | "compliance_with_blocked_action"
+  | "ambiguous_with_risky_action"
+  | "none";
 
 export interface AgentHarnessRole {
   readonly id: string;
@@ -696,6 +713,7 @@ export interface BenchmarkSpec {
   readonly metricDefinitions?: readonly MetricDefinition[];
   readonly guardrailMetrics?: readonly string[];
   readonly faultInjections?: readonly FaultInjectionSpec[];
+  readonly toolCallSafety?: BenchmarkToolCallSafetyProfile;
   readonly trials?: {
     /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
     readonly count?: number;
@@ -722,6 +740,23 @@ export interface BenchmarkSpec {
     readonly formats: readonly ("json" | "markdown")[];
     readonly includeRecommendations?: boolean;
   };
+}
+
+export interface BenchmarkToolCallSafetyProfile {
+  readonly id?: string;
+  readonly cases?: readonly ToolCallSafetyCaseSpec[];
+  readonly unsafeToolEffects?: readonly AgentHarnessCapabilityEffect[];
+  readonly notes?: readonly string[];
+}
+
+export interface ToolCallSafetyCaseSpec {
+  readonly id: string;
+  readonly toolClass: ToolCallSafetyToolClass;
+  readonly description: string;
+  readonly expectedTextPosture?: ToolCallSafetyTextPosture;
+  readonly expectedToolSafety?: ToolCallSafetyOutcome;
+  readonly policyRef?: string;
+  readonly metadata?: JsonObject;
 }
 
 export interface BenchmarkReliabilityProfile {
@@ -792,6 +827,46 @@ export interface FaultInjectionReportSummary {
   readonly recoveryRate: number;
   readonly overclaimPreventionRate: number;
   readonly firstViolatedContracts: readonly string[];
+}
+
+export interface ToolCallSafetyObservation {
+  readonly caseRef: string;
+  readonly toolClass: ToolCallSafetyToolClass;
+  readonly textPosture: ToolCallSafetyTextPosture;
+  readonly toolSafety: ToolCallSafetyOutcome;
+  readonly gapKind?: ToolCallSafetyGapKind;
+  readonly toolName?: string;
+  readonly policyDecisionRef?: string;
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface ToolCallSafetyClassSummary {
+  readonly toolClass: ToolCallSafetyToolClass;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly unsafeExecutionCount: number;
+  readonly unsafeBlockedCount: number;
+  readonly mismatchCount: number;
+}
+
+export interface BenchmarkToolCallSafetyGapSummary {
+  readonly profileId?: string;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly totalObservationCount: number;
+  readonly safeExecutionCount: number;
+  readonly unsafeBlockedCount: number;
+  readonly unsafeExecutionCount: number;
+  readonly riskyExecutionCount: number;
+  readonly refusalUnsafeActionCount: number;
+  readonly complianceBlockedActionCount: number;
+  readonly ambiguousRiskyActionCount: number;
+  readonly mismatchCount: number;
+  readonly mismatchRate: number;
+  readonly contradictionRate: number;
+  readonly byToolClass: readonly ToolCallSafetyClassSummary[];
+  readonly evidenceRefs: readonly string[];
 }
 
 export interface ArtifactReference {
@@ -915,6 +990,7 @@ export interface BenchmarkTrialResult {
   readonly artifacts: readonly ArtifactReference[];
   readonly diagnostics: TraceDiagnostics;
   readonly faultInjections?: readonly FaultInjectionObservation[];
+  readonly toolCallSafety?: readonly ToolCallSafetyObservation[];
 }
 
 export interface BenchmarkTrialOutcome {
@@ -993,6 +1069,7 @@ export interface BenchmarkReportCandidate {
   readonly reversibility?: BenchmarkReversibilitySummary;
   readonly rationale: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
+  readonly toolCallSafety?: BenchmarkToolCallSafetyGapSummary;
 }
 
 export interface BenchmarkReport {
@@ -1009,6 +1086,7 @@ export interface BenchmarkReport {
   readonly candidates: readonly BenchmarkReportCandidate[];
   readonly confidence: BenchmarkReportConfidence;
   readonly reversibility?: BenchmarkReversibilitySummary;
+  readonly toolCallSafety?: BenchmarkToolCallSafetyGapSummary;
   readonly evidence: {
     readonly traceEventCount: number;
     readonly artifactCount: number;

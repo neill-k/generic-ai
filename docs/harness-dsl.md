@@ -88,6 +88,27 @@ storage should implement this contract in their own packages or harness
 adapters. Core may pass configured cases into benchmark prompts and reports, but
 it must not import plugin-specific fault hooks.
 
+## Tool-Call Safety GAP Evaluators
+
+`BenchmarkSpec.toolCallSafety` describes explicit text-vs-tool-action safety
+cases. The report helper consumes saved `ToolCallSafetyObservation` entries from
+trial results and aggregates planned cases, observed cases, unsafe executions,
+blocked unsafe actions, mismatch rate, and refusal-plus-unsafe-action
+contradictions.
+
+The contract is deliberately conservative. Reports do not infer unsafe intent
+from a generic policy denial, and they do not reclassify natural-language output
+with a model. A trial must record the text posture (`refused`, `complied`,
+`ambiguous`, or `not_recorded`) and the tool outcome (`safe_executed`,
+`unsafe_blocked`, `unsafe_executed`, `risky_executed`, or `no_action`) as
+explicit evidence. This keeps prompt-level refusal separate from runtime
+guardrails and makes it visible when text refusal is contradicted by actual tool
+execution.
+
+`examples/harness-shootout/tool-call-safety-gap` provides a deterministic smoke
+fixture across terminal/file, web/MCP, and final-output action cases. It is an
+evidence-surface profile, not a live safety-score improvement claim.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a

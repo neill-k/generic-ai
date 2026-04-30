@@ -54,6 +54,13 @@ perturbation labels, and failure-severity sources so reports can show
 consistency, variance, retries, skipped/excluded trials, and bounded failure
 severity alongside average score.
 
+Tool-call safety GAP metadata is also report evidence. Benchmark profiles may
+define explicit text-vs-tool-action cases, and trial results may attach
+`ToolCallSafetyObservation` entries that record text posture, tool outcome,
+tool class, policy refs, and trace/artifact evidence. Report helpers must stay
+conservative: they surface explicit mismatch observations and must not infer
+unsafe intent from generic denials or reclassify final text with a model.
+
 ## Package Extension Boundary
 
 Packages may contribute schema fragments, capabilities, protocols, graders,
