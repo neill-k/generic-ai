@@ -4,15 +4,16 @@
 
 Work really hard.
 
-This repository is the Generic AI framework monorepo. Treat the planning pack as the source of truth before changing package boundaries or public contracts:
+This repository is the Generic AI research-harness monorepo. Treat the planning pack as the source of truth before changing package boundaries or public contracts:
 
 - `docs/planning/README.md`
 - `docs/planning/01-scope-and-decisions.md`
 - `docs/planning/02-architecture.md`
 - `docs/planning/03-linear-issue-tree.md`
 - `docs/planning/04-agent-ready-mapping.md`
+- `docs/planning/05-research-harness-plan.md`
 
-Use `docs/package-boundaries.md` before moving code across packages. Plugins depend on `@generic-ai/sdk`, not `@generic-ai/core`; presets compose core and plugins.
+Use `docs/package-boundaries.md` before moving code across packages. Use `docs/slots.md` before changing plugin slot/category/method metadata. Plugins depend on `@generic-ai/sdk`, not `@generic-ai/core`; presets compose core and plugins.
 
 Runtime and harness work that touches `pi` must keep the adapter boundary explicit. Re-export extension and embedding primitives only through `@generic-ai/sdk/pi`, keep kernel translation code in `packages/core/src/runtime`, and update `contracts/pi-boundary/README.md`, `docs/generic-ai-and-pi.md`, or `docs/harness-dsl.md` when that contract changes.
 
@@ -36,6 +37,27 @@ When changing harness DSL, runtime adapters, or provider-facing starter behavior
 
 ```bash
 npm test -- packages/core/src/harness/agent-harness.test.ts packages/sdk/test/harness/mock-runtime.test.ts examples/starter-hono/src/index.test.ts examples/starter-hono/src/live-smoke.test.ts
+```
+
+When changing BenchmarkSpec, report rendering, or benchmark fixtures, run targeted benchmark checks during development:
+
+```bash
+npm test -- packages/core/test/harness/benchmark-runner.test.ts packages/sdk/src/harness/compiler.test.ts scripts/harness-shootout-fixtures.test.ts examples/bench-tool-calling/src/adapter.test.ts examples/bench-policy-tools/src/adapter.test.ts examples/terminal-bench/src/benchmark-profile.test.ts examples/terminal-bench/src/import-harbor-results.test.ts examples/terminal-bench/src/run-terminal-bench.test.ts
+```
+
+For deterministic micro/meso benchmark examples, use the package smoke commands after tests when you need the rendered bounded report:
+
+```bash
+npm run -w @generic-ai/example-bench-tool-calling smoke
+npm run -w @generic-ai/example-bench-policy-tools smoke
+```
+
+Terminal-Bench/Harbor runs are heavier and live-environment dependent. Build first, climb `smoke` -> `quick` -> `calibration` -> `full`, and import completed job directories:
+
+```bash
+npm run -w @generic-ai/example-terminal-bench build
+npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile smoke
+npm run -w @generic-ai/example-terminal-bench terminal-bench:import -- --job-dir examples/terminal-bench/jobs/<job-name>
 ```
 
 Provider-backed live smoke is opt-in and can incur real provider cost; run it only with trusted credentials or Pi auth configured:
