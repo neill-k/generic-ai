@@ -204,11 +204,14 @@ describe("harness shootout fixtures", () => {
       1,
     );
     expect(disciplined?.toolUse?.efficiencyScore).toBe(1);
+    expect(disciplined?.toolUse?.observedCaseCount).toBe(3);
     expect(disciplined?.toolUse?.avoidedToolCalls).toBe(2);
     expect(toolHappy?.toolUse?.efficiencyScore).toBe(0.25);
+    expect(toolHappy?.toolUse?.observedCaseCount).toBe(3);
     expect(toolHappy?.toolUse?.unnecessaryToolCalls).toBe(3);
     expect(toolHappy?.toolUse?.budgetViolations).toBe(1);
     expect(toolHappy?.toolUse?.totalLatencyMs).toBe(600);
+    expect(report.toolUse?.observedCaseCount).toBe(3);
     expect(markdown).toContain("## Tool Use");
   });
 

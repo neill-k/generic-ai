@@ -103,6 +103,9 @@ unnecessary calls, avoided direct-answer opportunities, budget violations, and
 optional cost/latency evidence separately from the primary success metric. This
 keeps a correct but tool-happy agent from looking equivalent to a correct and
 disciplined agent while preserving the configured recommendation boundary.
+`observedCaseCount` counts distinct observed case IDs, not raw trial
+observations, so repeated trials can add tool-call, latency, and cost evidence
+without making coverage exceed the planned case count.
 
 Tool-use discipline is distinct from model routing, prompt caching, and
 production scorecards. It evaluates whether a candidate used the tools the task

@@ -202,10 +202,15 @@ function toolUseBudgetLimit(input: {
   );
 }
 
+function nonNegativeInteger(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+}
+
 function normalizedToolUseObservation(input: {
   readonly profile: BenchmarkToolUseProfile | undefined;
   readonly observation: ToolUseObservation;
 }): {
+  readonly caseRef: string;
   readonly expectation: BenchmarkToolUseExpectation;
   readonly toolCalls: number;
   readonly necessaryToolCalls: number;
@@ -219,29 +224,27 @@ function normalizedToolUseObservation(input: {
 } {
   const expectation = observationExpectation(input);
   const planned = plannedToolUseCase(input.profile, input.observation.caseRef);
-  const toolCalls = Math.max(0, Math.floor(input.observation.toolCalls));
+  const toolCalls = nonNegativeInteger(input.observation.toolCalls);
   const necessaryFallback =
     expectation === "wasteful" ? 0 : Math.min(toolCalls, planned?.expectedToolCalls ?? toolCalls);
-  const necessaryToolCalls = Math.max(
-    0,
-    Math.floor(input.observation.necessaryToolCalls ?? necessaryFallback),
+  const necessaryToolCalls = Math.min(
+    toolCalls,
+    nonNegativeInteger(input.observation.necessaryToolCalls ?? necessaryFallback),
   );
-  const unnecessaryToolCalls = Math.max(
-    0,
-    Math.floor(input.observation.unnecessaryToolCalls ?? toolCalls - necessaryToolCalls),
+  const unnecessaryToolCalls = Math.min(
+    toolCalls - necessaryToolCalls,
+    nonNegativeInteger(input.observation.unnecessaryToolCalls ?? toolCalls - necessaryToolCalls),
   );
   const isDirectAnswerEligible = directAnswerEligible(input);
-  const avoidedToolCalls = Math.max(
-    0,
-    Math.floor(
-      input.observation.avoidedToolCalls ?? (isDirectAnswerEligible && toolCalls === 0 ? 1 : 0),
-    ),
+  const avoidedToolCalls = nonNegativeInteger(
+    input.observation.avoidedToolCalls ?? (isDirectAnswerEligible && toolCalls === 0 ? 1 : 0),
   );
   const budgetLimit = toolUseBudgetLimit(input);
   const budgetViolated =
     input.observation.budgetViolated ?? (budgetLimit !== undefined && toolCalls > budgetLimit);
 
   return Object.freeze({
+    caseRef: input.observation.caseRef,
     expectation,
     toolCalls,
     necessaryToolCalls,
@@ -296,11 +299,14 @@ function toolUseSummary(input: {
     const plannedCaseCountForExpectation =
       input.profile?.cases.filter((entry) => entry.expectation === expectation).length ?? 0;
     const observed = normalized.filter((observation) => observation.expectation === expectation);
+    const observedCaseCountForExpectation = new Set(
+      observed.map((observation) => observation.caseRef),
+    ).size;
 
     return Object.freeze({
       expectation,
       plannedCaseCount: plannedCaseCountForExpectation,
-      observedCaseCount: observed.length,
+      observedCaseCount: observedCaseCountForExpectation,
       toolCalls: observed.reduce((total, observation) => total + observation.toolCalls, 0),
       unnecessaryToolCalls: observed.reduce(
         (total, observation) => total + observation.unnecessaryToolCalls,
@@ -331,7 +337,7 @@ function toolUseSummary(input: {
   return Object.freeze({
     ...(input.profile?.id === undefined ? {} : { profileId: input.profile.id }),
     plannedCaseCount,
-    observedCaseCount: input.observations.length,
+    observedCaseCount: observedCaseRefs.size,
     totalToolCalls: normalized.reduce((total, observation) => total + observation.toolCalls, 0),
     necessaryToolCalls,
     unnecessaryToolCalls,

@@ -789,12 +789,90 @@ describe("Benchmark reports", () => {
     expect(toolHappy?.toolUse?.budgetViolations).toBe(1);
     expect(toolHappy?.toolUse?.totalCostUsd).toBeCloseTo(0.006);
     expect(toolHappy?.toolUse?.totalLatencyMs).toBe(600);
-    expect(report.toolUse?.observedCaseCount).toBe(6);
+    expect(disciplined?.toolUse?.observedCaseCount).toBe(3);
+    expect(toolHappy?.toolUse?.observedCaseCount).toBe(3);
+    expect(report.toolUse?.observedCaseCount).toBe(3);
+    expect(report.toolUse?.byExpectation.map((entry) => entry.observedCaseCount)).toEqual([
+      1, 1, 1,
+    ]);
     expect(report.recommendations[1]).toContain("tool_efficiency=0.25");
     expect(report.inferences).toContain(
       "Tool-use efficiency is reported separately from final task correctness.",
     );
     expect(markdown).toContain("## Tool Use");
+  });
+
+  it("normalizes repeated and internally inconsistent tool-use observations", () => {
+    const repeatedCase = "requires-file-read";
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        candidates: [{ id: "inconsistent", harnessRef: "harness.inconsistent" }],
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+        toolUse: {
+          id: "tool-overuse-edge-v0",
+          cases: [
+            {
+              id: repeatedCase,
+              taskRef: "task.requires-context",
+              expectation: "required",
+              expectedToolCalls: 1,
+              maxToolCalls: 2,
+            },
+          ],
+        },
+      },
+      mission,
+      generatedAt: "2026-04-30T00:00:00.000Z",
+      results: [
+        {
+          ...trialResult("inconsistent", "harness.inconsistent:compiled", "task_success", 1),
+          trialId: "inconsistent:trial-1",
+          toolUse: [
+            {
+              caseRef: repeatedCase,
+              toolCalls: 2,
+              necessaryToolCalls: 5,
+              unnecessaryToolCalls: 5,
+              evidenceRefs: ["trace.inconsistent.overreported-counts"],
+            },
+          ],
+        },
+        {
+          ...trialResult("inconsistent", "harness.inconsistent:compiled", "task_success", 1),
+          trialId: "inconsistent:trial-2",
+          toolUse: [
+            {
+              caseRef: repeatedCase,
+              toolCalls: 2,
+              unnecessaryToolCalls: 5,
+              evidenceRefs: ["trace.inconsistent.repeated-case"],
+            },
+          ],
+        },
+      ],
+    });
+
+    const candidate = report.candidates.find(
+      (entry) => entry.candidateId === "inconsistent",
+    );
+
+    expect(candidate?.toolUse?.observedCaseCount).toBe(1);
+    expect(candidate?.toolUse?.plannedCaseCount).toBe(1);
+    expect(candidate?.toolUse?.totalToolCalls).toBe(4);
+    expect(candidate?.toolUse?.necessaryToolCalls).toBe(3);
+    expect(candidate?.toolUse?.unnecessaryToolCalls).toBe(1);
+    expect(candidate?.toolUse?.efficiencyScore).toBe(0.75);
+    expect(report.toolUse?.observedCaseCount).toBe(1);
+    expect(report.toolUse?.byExpectation[0]).toMatchObject({
+      expectation: "required",
+      plannedCaseCount: 1,
+      observedCaseCount: 1,
+      toolCalls: 4,
+      unnecessaryToolCalls: 1,
+    });
   });
 
   it("aggregates fault-injection containment evidence into reports", () => {
