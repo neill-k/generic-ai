@@ -128,6 +128,17 @@ export type FaultInjectionTiming =
   | "state_read"
   | "state_write";
 export type BenchmarkToolUseExpectation = "required" | "optional" | "wasteful";
+export type ContextualIntegrityTransmissionExpectation =
+  | "required"
+  | "permitted"
+  | "prohibited";
+export type ContextualIntegrityDataSensitivity =
+  | "public"
+  | "internal"
+  | "confidential"
+  | "restricted"
+  | "secret"
+  | "custom";
 
 export interface AgentHarnessRole {
   readonly id: string;
@@ -698,6 +709,7 @@ export interface BenchmarkSpec {
   readonly guardrailMetrics?: readonly string[];
   readonly faultInjections?: readonly FaultInjectionSpec[];
   readonly toolUse?: BenchmarkToolUseProfile;
+  readonly contextualIntegrity?: ContextualIntegrityProfile;
   readonly trials?: {
     /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
     readonly count?: number;
@@ -858,6 +870,97 @@ export interface ToolUseReportSummary {
   readonly warnings: readonly string[];
 }
 
+export interface ContextualIntegrityActorSpec {
+  readonly id: string;
+  readonly role: string;
+  readonly description?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface ContextualIntegrityDataClassSpec {
+  readonly id: string;
+  readonly label?: string;
+  readonly sensitivity: ContextualIntegrityDataSensitivity;
+  readonly description?: string;
+  readonly examples?: readonly string[];
+  readonly metadata?: JsonObject;
+}
+
+export interface ContextualIntegrityTransmissionPrincipleSpec {
+  readonly id: string;
+  readonly senderRef: string;
+  readonly recipientRef: string;
+  readonly purpose: string;
+  readonly dataClassRefs: readonly string[];
+  readonly expectation: ContextualIntegrityTransmissionExpectation;
+  readonly requiresApproval?: boolean;
+  readonly rationale?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface ContextualIntegrityCaseSpec {
+  readonly id: string;
+  readonly taskRef: string;
+  readonly senderRef: string;
+  readonly recipientRef: string;
+  readonly purpose: string;
+  readonly requiredDataClassRefs?: readonly string[];
+  readonly allowedDataClassRefs?: readonly string[];
+  readonly forbiddenDataClassRefs?: readonly string[];
+  readonly approvalDataClassRefs?: readonly string[];
+  readonly rationale?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface ContextualIntegrityProfile {
+  readonly id?: string;
+  readonly actors: readonly ContextualIntegrityActorSpec[];
+  readonly dataClasses: readonly ContextualIntegrityDataClassSpec[];
+  readonly transmissionPrinciples: readonly ContextualIntegrityTransmissionPrincipleSpec[];
+  readonly cases: readonly ContextualIntegrityCaseSpec[];
+}
+
+export interface ContextualIntegrityObservation {
+  readonly caseRef: string;
+  readonly senderRef?: string;
+  readonly recipientRef?: string;
+  readonly purpose?: string;
+  readonly disclosedDataClassRefs: readonly string[];
+  readonly withheldDataClassRefs?: readonly string[];
+  readonly approvalDataClassRefs?: readonly string[];
+  readonly requiredDisclosureRefs?: readonly string[];
+  readonly prohibitedDisclosureRefs?: readonly string[];
+  readonly utilitySatisfied: boolean;
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface ContextualIntegrityCaseSummary {
+  readonly caseRef: string;
+  readonly disclosedDataClassCount: number;
+  readonly requiredDisclosureMisses: number;
+  readonly prohibitedDisclosureViolations: number;
+  readonly utilitySatisfied: boolean;
+}
+
+export interface ContextualIntegrityReportSummary {
+  readonly profileId?: string;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly utilitySatisfiedCount: number;
+  readonly utilityRate: number;
+  readonly requiredDisclosureCount: number;
+  readonly requiredDisclosureMissCount: number;
+  readonly prohibitedDisclosureCount: number;
+  readonly prohibitedDisclosureViolationCount: number;
+  readonly allowedDisclosureCount: number;
+  readonly leakageRate: number;
+  readonly contextualIntegrityScore: number | null;
+  readonly byCase: readonly ContextualIntegrityCaseSummary[];
+  readonly evidenceRefs: readonly string[];
+  readonly warnings: readonly string[];
+}
+
 export interface ArtifactReference {
   readonly id: string;
   readonly kind: ArtifactContract["kind"];
@@ -980,6 +1083,7 @@ export interface BenchmarkTrialResult {
   readonly diagnostics: TraceDiagnostics;
   readonly faultInjections?: readonly FaultInjectionObservation[];
   readonly toolUse?: readonly ToolUseObservation[];
+  readonly contextualIntegrity?: readonly ContextualIntegrityObservation[];
 }
 
 export interface BenchmarkTrialOutcome {
@@ -1059,6 +1163,7 @@ export interface BenchmarkReportCandidate {
   readonly rationale: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
+  readonly contextualIntegrity?: ContextualIntegrityReportSummary;
 }
 
 export interface BenchmarkReport {
@@ -1083,6 +1188,7 @@ export interface BenchmarkReport {
   readonly insufficientEvidence: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
+  readonly contextualIntegrity?: ContextualIntegrityReportSummary;
 }
 
 export interface HarnessPatchOperation {
