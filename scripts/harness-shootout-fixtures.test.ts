@@ -215,6 +215,58 @@ describe("harness shootout fixtures", () => {
     expect(markdown).toContain("## Tool Use");
   });
 
+  it("reports contextual-integrity privacy separately from task utility", async () => {
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/contextual-integrity/mission.json",
+    );
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/contextual-integrity/benchmark.json",
+    );
+    const candidatePaths = [
+      "examples/harness-shootout/contextual-integrity/candidates/privacy-aware-agent.json",
+      "examples/harness-shootout/contextual-integrity/candidates/oversharing-agent.json",
+    ];
+    const candidates = await Promise.all(candidatePaths.map((path) => readJson<HarnessDsl>(path)));
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/contextual-integrity/trial-results.json",
+    );
+
+    for (const candidate of candidates) {
+      const compiled = compileHarnessDsl(candidate);
+      expect(compiled.diagnostics).toEqual([]);
+      expect(compiled.compiled?.missionRefs).toContain(mission.id);
+      expect(compiled.compiled?.evalRefs).toContain(benchmark.id);
+    }
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-04-30T00:00:00.000Z",
+      results,
+    });
+    const privacyAware = report.candidates.find(
+      (candidate) => candidate.candidateId === "privacy-aware-agent",
+    );
+    const oversharing = report.candidates.find(
+      (candidate) => candidate.candidateId === "oversharing-agent",
+    );
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(privacyAware?.scorecard.find((metric) => metric.metricId === "task_utility")?.value).toBe(
+      1,
+    );
+    expect(oversharing?.scorecard.find((metric) => metric.metricId === "task_utility")?.value).toBe(
+      1,
+    );
+    expect(privacyAware?.contextualIntegrity?.contextualIntegrityScore).toBe(1);
+    expect(privacyAware?.contextualIntegrity?.leakageRate).toBe(0);
+    expect(oversharing?.contextualIntegrity?.contextualIntegrityScore).toBe(0.5);
+    expect(oversharing?.contextualIntegrity?.leakageRate).toBe(1);
+    expect(oversharing?.contextualIntegrity?.prohibitedDisclosureViolationCount).toBe(3);
+    expect(report.contextualIntegrity?.observedCaseCount).toBe(2);
+    expect(markdown).toContain("## Contextual Integrity");
+  });
+
   it("compiles the DAG navigation candidate harnesses", async () => {
     const benchmark = await readJson<BenchmarkSpec>(
       "examples/harness-shootout/dag-navigation/benchmark.json",

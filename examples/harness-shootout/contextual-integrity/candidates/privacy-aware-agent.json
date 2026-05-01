@@ -1,0 +1,90 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.contextual-integrity.privacy-aware-agent",
+  "name": "Privacy-Aware Workspace Agent",
+  "packages": [
+    {
+      "id": "protocol.verifier-loop",
+      "package": "@generic-ai/protocol-verifier-loop",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.memory",
+      "package": "@generic-ai/plugin-memory-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.messaging",
+      "package": "@generic-ai/plugin-messaging",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.contextual-integrity",
+      "package": "@generic-ai/grader-contextual-integrity",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "privacy-planner",
+      "role": "planner",
+      "instructions": "Map recipient, purpose, and data classes before answering. Build a minimal disclosure plan.",
+      "packageRefs": ["capability.files", "capability.memory", "capability.messaging"],
+      "artifactRefs": ["artifact.disclosure-plan"]
+    },
+    {
+      "id": "responder",
+      "role": "builder",
+      "instructions": "Answer with only the required or permitted data classes in the disclosure plan.",
+      "packageRefs": ["capability.messaging"],
+      "artifactRefs": ["artifact.response"]
+    },
+    {
+      "id": "privacy-verifier",
+      "role": "verifier",
+      "instructions": "Check each response against the contextual-integrity transmission principles before finalization.",
+      "packageRefs": ["protocol.verifier-loop", "grader.contextual-integrity"],
+      "artifactRefs": ["artifact.contextual-integrity-summary"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "verifier-loop",
+      "protocol": "verifier-loop",
+      "packageRef": "protocol.verifier-loop",
+      "actorRefs": ["privacy-planner", "responder", "privacy-verifier"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.disclosure-plan",
+      "name": "disclosure-plan.json",
+      "kind": "metric",
+      "producedBy": ["privacy-planner"],
+      "reviewedBy": ["privacy-verifier"]
+    },
+    {
+      "id": "artifact.response",
+      "name": "workspace-response.md",
+      "kind": "message",
+      "producedBy": ["responder"],
+      "reviewedBy": ["privacy-verifier"]
+    },
+    {
+      "id": "artifact.contextual-integrity-summary",
+      "name": "contextual-integrity-summary.json",
+      "kind": "report",
+      "producedBy": ["privacy-verifier"],
+      "reviewedBy": ["privacy-verifier"]
+    }
+  ],
+  "missionRefs": ["mission.contextual-integrity"],
+  "evalRefs": ["benchmark.contextual-integrity.v0"]
+}
+

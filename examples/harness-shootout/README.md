@@ -37,6 +37,9 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
 - [`tool-overuse/`](tool-overuse/): deterministic tool-use discipline fixture
   that separates final correctness from unnecessary calls, avoided calls,
   direct-answer opportunities, and budget violations.
+- [`contextual-integrity/`](contextual-integrity/): deterministic workspace
+  privacy fixture that separates task utility from prohibited data-class
+  disclosures under recipient/purpose transmission principles.
 
 ## Programmatic Shape
 
@@ -75,6 +78,9 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
 - Tool-overuse profiles can record required, optional, and wasteful tool
   affordances so reports can show tool efficiency separately from final answer
   correctness and optional cost/latency metadata.
+- Contextual-integrity profiles can model actors, data classes, transmission
+  principles, and privacy-flow cases so reports expose utility, leakage,
+  required disclosure misses, and prohibited disclosure violations separately.
 
 ## What It Does Not Prove Yet
 

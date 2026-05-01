@@ -113,6 +113,27 @@ affordance justified; routing decides which model should run, caching decides
 how context is assembled, and production scorecards combine broader operational
 dimensions.
 
+## Contextual-Integrity Privacy
+
+`BenchmarkSpec.contextualIntegrity` describes workspace privacy as contextual
+information flow. A profile declares actors, data classes, transmission
+principles, and benchmark cases. Each transmission principle binds a sender,
+recipient, purpose, data-class set, and expectation: `required`, `permitted`, or
+`prohibited`.
+
+Trial results can attach `contextualIntegrity` observations with the data
+classes actually disclosed or withheld and whether the useful task outcome was
+satisfied. The SDK report helper aggregates those observations into utility
+rate, leakage rate, required disclosure misses, prohibited disclosure
+violations, and a contextual-integrity score. This keeps a useful but
+over-disclosing workspace agent from looking equivalent to a useful and
+privacy-preserving one.
+
+This is a benchmark/profile contract, not a complete enterprise DLP system.
+Policy plugins, identity plugins, approval flows, and storage adapters may
+enforce or enrich the profile later, but the SDK report layer only records and
+summarizes evidence that a benchmark run supplied.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a
