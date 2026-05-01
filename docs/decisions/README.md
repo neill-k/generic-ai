@@ -62,6 +62,7 @@ ADRs must be written when:
 - [`0037-prov-evidence-bundles.md`](0037-prov-evidence-bundles.md) - PROV-style evidence bundles that pair semantic report evidence with OTEL runtime causality.
 - [`0038-tool-overuse-budget-evaluator.md`](0038-tool-overuse-budget-evaluator.md) - optional SDK tool-use discipline profiles and report summaries for benchmark harnesses.
 - [`0039-contextual-integrity-privacy-harness.md`](0039-contextual-integrity-privacy-harness.md) - optional SDK contextual-integrity privacy profiles and report summaries for workspace-agent benchmarks.
+- [`0040-mcp-trust-benchmark-profile.md`](0040-mcp-trust-benchmark-profile.md) - optional SDK MCP trust profiles and report summaries for MCP tool-ecosystem attack benchmarks.
 
 ## Planning Baseline
 

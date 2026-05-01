@@ -40,6 +40,9 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
 - [`contextual-integrity/`](contextual-integrity/): deterministic workspace
   privacy fixture that separates task utility from prohibited data-class
   disclosures under recipient/purpose transmission principles.
+- [`mcp-trust/`](mcp-trust/): deterministic MCP trust fixture that separates
+  blocked, warned, allowed, and insufficient-evidence outcomes for
+  tool-metadata and tool-output attacks from task utility.
 
 ## Programmatic Shape
 
@@ -81,6 +84,9 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
 - Contextual-integrity profiles can model actors, data classes, transmission
   principles, and privacy-flow cases so reports expose utility, leakage,
   required disclosure misses, and prohibited disclosure violations separately.
+- MCP trust profiles can model server trust levels, tool authority claims, and
+  adversarial MCP cases so reports expose blocked attacks, warnings, allowed
+  unsafe actions, and insufficient evidence separately.
 
 ## What It Does Not Prove Yet
 

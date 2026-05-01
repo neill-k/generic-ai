@@ -139,6 +139,22 @@ export type ContextualIntegrityDataSensitivity =
   | "restricted"
   | "secret"
   | "custom";
+export type McpTrustLevel =
+  | "local"
+  | "workspace"
+  | "remote-authenticated"
+  | "remote-untrusted"
+  | "generated";
+export type McpAttackClass =
+  | "tool_poisoning"
+  | "indirect_prompt_injection"
+  | "schema_deception"
+  | "unexpected_side_effect"
+  | "privilege_escalation"
+  | "name_collision"
+  | "mixed"
+  | "custom";
+export type McpTrustOutcome = "blocked" | "warned" | "allowed" | "insufficient_evidence";
 
 export interface AgentHarnessRole {
   readonly id: string;
@@ -710,6 +726,7 @@ export interface BenchmarkSpec {
   readonly faultInjections?: readonly FaultInjectionSpec[];
   readonly toolUse?: BenchmarkToolUseProfile;
   readonly contextualIntegrity?: ContextualIntegrityProfile;
+  readonly mcpTrust?: McpTrustProfile;
   readonly trials?: {
     /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
     readonly count?: number;
@@ -961,6 +978,87 @@ export interface ContextualIntegrityReportSummary {
   readonly warnings: readonly string[];
 }
 
+export interface McpTrustServerSpec {
+  readonly id: string;
+  readonly label?: string;
+  readonly trustLevel: McpTrustLevel;
+  readonly transport?: "stdio" | "http" | "sse" | "custom";
+  readonly authorityDescription?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface McpTrustToolSpec {
+  readonly id: string;
+  readonly serverRef: string;
+  readonly name: string;
+  readonly trustLevel?: McpTrustLevel;
+  readonly declaredEffects?: readonly AgentHarnessCapabilityEffect[];
+  readonly expectedAuthority?: readonly AgentHarnessCapabilityEffect[];
+  readonly description?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface McpTrustCaseSpec {
+  readonly id: string;
+  readonly taskRef: string;
+  readonly attackClass: McpAttackClass;
+  readonly toolRef: string;
+  readonly expectedOutcome: McpTrustOutcome;
+  readonly requiredEvidence?: readonly string[];
+  readonly rationale?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface McpTrustProfile {
+  readonly id?: string;
+  readonly servers: readonly McpTrustServerSpec[];
+  readonly tools: readonly McpTrustToolSpec[];
+  readonly cases: readonly McpTrustCaseSpec[];
+}
+
+export interface McpTrustObservation {
+  readonly caseRef: string;
+  readonly toolRef?: string;
+  readonly attackClass?: McpAttackClass;
+  readonly trustLevel?: McpTrustLevel;
+  readonly outcome: McpTrustOutcome;
+  readonly unsafeToolCall?: boolean;
+  readonly unsafeToolExecuted?: boolean;
+  readonly warningIssued?: boolean;
+  readonly policyDecisionRefs?: readonly string[];
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface McpTrustAttackClassSummary {
+  readonly attackClass: McpAttackClass;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly blockedCount: number;
+  readonly warnedCount: number;
+  readonly allowedCount: number;
+  readonly insufficientEvidenceCount: number;
+  readonly unsafeExecutionCount: number;
+}
+
+export interface McpTrustReportSummary {
+  readonly profileId?: string;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly blockedCount: number;
+  readonly warnedCount: number;
+  readonly allowedCount: number;
+  readonly insufficientEvidenceCount: number;
+  readonly unsafeToolCallCount: number;
+  readonly unsafeExecutionCount: number;
+  readonly warningCount: number;
+  readonly resilientCaseCount: number;
+  readonly resilienceScore: number | null;
+  readonly byAttackClass: readonly McpTrustAttackClassSummary[];
+  readonly evidenceRefs: readonly string[];
+  readonly warnings: readonly string[];
+}
+
 export interface ArtifactReference {
   readonly id: string;
   readonly kind: ArtifactContract["kind"];
@@ -1084,6 +1182,7 @@ export interface BenchmarkTrialResult {
   readonly faultInjections?: readonly FaultInjectionObservation[];
   readonly toolUse?: readonly ToolUseObservation[];
   readonly contextualIntegrity?: readonly ContextualIntegrityObservation[];
+  readonly mcpTrust?: readonly McpTrustObservation[];
 }
 
 export interface BenchmarkTrialOutcome {
@@ -1164,6 +1263,7 @@ export interface BenchmarkReportCandidate {
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
+  readonly mcpTrust?: McpTrustReportSummary;
 }
 
 export interface BenchmarkReport {
@@ -1189,6 +1289,7 @@ export interface BenchmarkReport {
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
+  readonly mcpTrust?: McpTrustReportSummary;
 }
 
 export interface HarnessPatchOperation {
