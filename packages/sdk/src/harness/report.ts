@@ -24,6 +24,7 @@ import type {
   ContextualIntegrityObservation,
   ContextualIntegrityProfile,
   ContextualIntegrityReportSummary,
+  ContextualIntegrityTransmissionExpectation,
   ToolUseObservation,
   ToolUseReportSummary,
 } from "./types.js";
@@ -409,7 +410,7 @@ function plannedContextualIntegrityRefs(input: {
   readonly profile: ContextualIntegrityProfile | undefined;
   readonly planned: ContextualIntegrityCaseSpec | undefined;
   readonly observation: ContextualIntegrityObservation;
-  readonly expectation: "required" | "permitted" | "prohibited";
+  readonly expectation: ContextualIntegrityTransmissionExpectation;
 }): readonly string[] {
   const fromPrinciples = matchingTransmissionPrinciples(input)
     .filter((principle) => principle.expectation === input.expectation)
