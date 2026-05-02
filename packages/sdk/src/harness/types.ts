@@ -189,6 +189,7 @@ export interface AgentHarnessConfig {
   readonly tools?: readonly string[];
   readonly allowNetwork?: boolean;
   readonly allowMcp?: boolean;
+  readonly allowLsp?: boolean;
   readonly artifactDir?: string;
   readonly hooks?: AgentLifecycleHooksConfig;
   readonly metadata?: JsonObject;

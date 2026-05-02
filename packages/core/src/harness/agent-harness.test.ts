@@ -199,6 +199,25 @@ describe("createAgentHarness", () => {
             ),
           ],
         },
+        customTools: [
+          withAgentHarnessToolEffects(
+            {
+              name: "lsp",
+              label: "LSP",
+              description: "Language server test tool.",
+              parameters: {} as never,
+              execute: async () => ({ content: [], details: {} }),
+            },
+            ["lsp.read", "fs.read", "process.spawn"],
+          ),
+          {
+            name: "mystery",
+            label: "Mystery",
+            description: "Tool without Generic AI effect metadata.",
+            parameters: {} as never,
+            execute: async () => ({ content: [], details: {} }),
+          },
+        ],
       },
     });
 
@@ -210,6 +229,8 @@ describe("createAgentHarness", () => {
     expect(toolSets[0]).not.toContain("bash");
     expect(toolSets[0]).not.toContain("write");
     expect(toolSets[1]).toEqual(expect.arrayContaining(["bash", "read", "write"]));
+    expect(toolSets[1]).not.toContain("lsp");
+    expect(toolSets[1]).not.toContain("mystery");
     expect(toolSets[2]).toContain("bash");
     expect(toolSets[2]).toContain("read");
     expect(toolSets[2]).not.toContain("write");
@@ -235,8 +256,9 @@ describe("createAgentHarness", () => {
     expect(result.policyDecisions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          actorId: "verifier",
+          actorId: "builder",
           action: "bind_tool",
+          resource: expect.objectContaining({ id: "lsp" }),
           decision: "denied",
         }),
       ]),
@@ -250,9 +272,108 @@ describe("createAgentHarness", () => {
     expect(artifactDecisions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          actorId: "verifier",
+          actorId: "builder",
           action: "bind_tool",
+          resource: expect.objectContaining({ id: "lsp" }),
           decision: "denied",
+        }),
+      ]),
+    );
+  });
+
+  it("allows LSP server-spawn tools in benchmark-container only when explicitly enabled", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-lsp-policy-"));
+    const toolSets: string[][] = [];
+    let sessionIndex = 0;
+    const harness = createAgentHarness(
+      {
+        id: "lsp-enabled-harness",
+        adapter: "pi",
+        model: "fake-model",
+        policyProfile: "benchmark-container",
+        allowLsp: true,
+        roles: [
+          {
+            id: "builder",
+            kind: "builder",
+          },
+        ],
+      },
+      {
+        sessionInputs: {
+          agentDir: root,
+          authStorage: {} as never,
+          modelRegistry: {} as never,
+          model: {} as never,
+          sessionManager: SessionManager.inMemory(),
+          settingsManager: SettingsManager.inMemory(),
+        },
+        factories: {
+          createAgentSession: async (options) => {
+            if (options === undefined) {
+              throw new Error("Expected createAgentSession options.");
+            }
+            const sessionId = `lsp-session-${++sessionIndex}`;
+            toolSets.push([...(options.tools ?? [])]);
+            const messages: unknown[] = [];
+            return {
+              session: {
+                sessionId,
+                messages,
+                subscribe() {
+                  return () => undefined;
+                },
+                async prompt(prompt: string) {
+                  if (prompt.includes("root coordinator")) {
+                    const delegate = options.customTools?.find(
+                      (tool) => tool.name === "delegate_agent",
+                    );
+                    await delegate?.execute(
+                      "delegate-lsp",
+                      { roleId: "builder", task: "inspect with lsp" },
+                      undefined,
+                      undefined,
+                      {} as never,
+                    );
+                    await callStopTool(options, "root done");
+                  } else {
+                    await callStopTool(options, "builder done");
+                  }
+                },
+              },
+            } as never;
+          },
+        },
+      },
+    );
+
+    const result = await harness.run({
+      instruction: "Delegate to builder.",
+      workspaceRoot: root,
+      artifactDir: join(root, "artifacts"),
+      capabilities: {
+        customTools: [
+          withAgentHarnessToolEffects(
+            {
+              name: "lsp",
+              label: "LSP",
+              description: "Language server test tool.",
+              parameters: {} as never,
+              execute: async () => ({ content: [], details: {} }),
+            },
+            ["lsp.read", "fs.read", "process.spawn"],
+          ),
+        ],
+      },
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(toolSets[1]).toContain("lsp");
+    expect(result.policyDecisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          action: "lsp_server_spawn",
+          decision: "allowed",
         }),
       ]),
     );

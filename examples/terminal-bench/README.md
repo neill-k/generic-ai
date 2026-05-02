@@ -8,6 +8,11 @@ This private workspace is the first Generic AI integration point for Terminal-Be
 - Generic AI contracts are the report and trace authority after the run. The importer maps Harbor artifacts into the existing `TraceEvent`, `BenchmarkTrialResult`, and `BenchmarkReport` contracts from `@generic-ai/sdk`.
 - Benchmark execution goes through `runAgentHarness()`, not the low-level `GenericAILlmRuntime`. The harness owns role topology, effect-based capability composition, policy decisions, canonical events, and artifact writing above Pi.
 - Nested Generic AI Docker sandboxing is disabled by default. The Harbor task container is the primary runtime boundary.
+- The `benchmark-container` policy profile withholds denied-effect capabilities
+  before they are bound into Pi sessions. Network, MCP launch, secret-read,
+  nested-sandbox, custom unknown, and LSP server-spawn surfaces are policy
+  decisions, while immutable verifier/task path checks remain post-run
+  integrity evidence.
 - Keep Harbor-specific glue here until smoke and calibration runs prove which abstractions are reusable across more than one benchmark.
 
 ## Prerequisites

@@ -36,7 +36,13 @@ hard to roll back.
 
 Role policies may grant a different allowed effect subset for a capability class. P1 uses this for the verifier role: file write/edit tools remain denied, while the terminal capability is allowed as an explicit verification execution surface because real benchmark verification usually requires process execution.
 
-`benchmark-container` also denies selected effects at binding time, including network egress, MCP launch, secret reads, and nested sandbox creation.
+`benchmark-container` also denies selected effects at binding time, including
+network egress, MCP launch, secret reads, nested sandbox creation, and LSP
+server-spawn surfaces unless the harness explicitly opts into the relevant
+allowance. Terminal execution remains a separately declared `process.spawn`
+surface; benchmark profiles should grant it only through the intended terminal
+tool path instead of allowing arbitrary custom tools that happen to spawn
+processes.
 
 ## Consequences
 
