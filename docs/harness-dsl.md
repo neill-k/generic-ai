@@ -134,6 +134,28 @@ Policy plugins, identity plugins, approval flows, and storage adapters may
 enforce or enrich the profile later, but the SDK report layer only records and
 summarizes evidence that a benchmark run supplied.
 
+## Web Research Benchmarks
+
+`BenchmarkSpec.webResearch` describes source-grounded web research cases without
+binding the SDK to one search vendor. A profile can declare fixture sources,
+source languages, source roles, answer-uniqueness constraints, required
+citations, cross-source reconciliation requirements, stale-source references,
+and opt-in live-search provider requirements.
+
+Trial results can attach `webResearch` observations with answer correctness,
+cited source refs, reconciled source refs, stale-source usage, Chinese text
+preservation, and evidence refs. The SDK report helper aggregates those
+observations into answer correctness, citation coverage, reconciliation rate,
+stale-source uses, and text-preservation rates. These dimensions are reported
+beside, not instead of, the primary benchmark metric.
+
+The first fixture is
+`examples/harness-shootout/chinese-web-research/`, a deterministic Chinese web
+research profile inspired by Level-Navi Agent and BrowseComp-ZH task shapes. It
+uses hand-authored fixture sources so CI remains reproducible and licensing
+clear. Live Chinese web/search runs should be provider-gated and need
+same-profile before/after evidence before anyone claims external score movement.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a

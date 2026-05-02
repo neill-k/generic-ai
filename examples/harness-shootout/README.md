@@ -40,6 +40,10 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
 - [`contextual-integrity/`](contextual-integrity/): deterministic workspace
   privacy fixture that separates task utility from prohibited data-class
   disclosures under recipient/purpose transmission principles.
+- [`chinese-web-research/`](chinese-web-research/): deterministic multilingual
+  web-research fixture that separates answer correctness from source
+  provenance, cross-source reconciliation, stale-source use, and Chinese text
+  preservation.
 
 ## Programmatic Shape
 
@@ -81,6 +85,10 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
 - Contextual-integrity profiles can model actors, data classes, transmission
   principles, and privacy-flow cases so reports expose utility, leakage,
   required disclosure misses, and prohibited disclosure violations separately.
+- Web-research profiles can preserve Chinese source titles/snippets, citation
+  requirements, reconciliation evidence, stale-source warnings, and
+  provider-gated live-search expectations without binding reports to one search
+  vendor.
 
 ## What It Does Not Prove Yet
 

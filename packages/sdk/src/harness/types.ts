@@ -128,10 +128,7 @@ export type FaultInjectionTiming =
   | "state_read"
   | "state_write";
 export type BenchmarkToolUseExpectation = "required" | "optional" | "wasteful";
-export type ContextualIntegrityTransmissionExpectation =
-  | "required"
-  | "permitted"
-  | "prohibited";
+export type ContextualIntegrityTransmissionExpectation = "required" | "permitted" | "prohibited";
 export type ContextualIntegrityDataSensitivity =
   | "public"
   | "internal"
@@ -139,6 +136,17 @@ export type ContextualIntegrityDataSensitivity =
   | "restricted"
   | "secret"
   | "custom";
+export type WebResearchAnswerUniqueness =
+  | "single-answer"
+  | "multi-hop-unique"
+  | "ambiguous"
+  | "open-ended";
+export type WebResearchSourceRole =
+  | "primary"
+  | "corroborating"
+  | "contradicting"
+  | "stale"
+  | "background";
 
 export interface AgentHarnessRole {
   readonly id: string;
@@ -710,6 +718,7 @@ export interface BenchmarkSpec {
   readonly faultInjections?: readonly FaultInjectionSpec[];
   readonly toolUse?: BenchmarkToolUseProfile;
   readonly contextualIntegrity?: ContextualIntegrityProfile;
+  readonly webResearch?: WebResearchProfile;
   readonly trials?: {
     /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
     readonly count?: number;
@@ -961,6 +970,91 @@ export interface ContextualIntegrityReportSummary {
   readonly warnings: readonly string[];
 }
 
+export interface WebResearchSourceSpec {
+  readonly id: string;
+  readonly title: string;
+  readonly language: string;
+  readonly role: WebResearchSourceRole;
+  readonly url?: string;
+  readonly publishedAt?: string;
+  readonly retrievedAt?: string;
+  readonly snippet?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface WebResearchCaseSpec {
+  readonly id: string;
+  readonly taskRef: string;
+  readonly queryLanguage: string;
+  readonly expectedAnswerLanguage?: string;
+  readonly domain?: string;
+  readonly answerUniqueness: WebResearchAnswerUniqueness;
+  readonly requiredSourceRefs?: readonly string[];
+  readonly citationRequired?: boolean;
+  readonly requiresCrossSourceReconciliation?: boolean;
+  readonly staleSourceRefs?: readonly string[];
+  readonly rationale?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface WebResearchLiveSearchSpec {
+  readonly enabledByDefault: boolean;
+  readonly providerAgnostic: boolean;
+  readonly requiredEnvVars?: readonly string[];
+  readonly skipReason?: string;
+}
+
+export interface WebResearchProfile {
+  readonly id?: string;
+  readonly locale?: string;
+  readonly liveSearch?: WebResearchLiveSearchSpec;
+  readonly sources: readonly WebResearchSourceSpec[];
+  readonly cases: readonly WebResearchCaseSpec[];
+}
+
+export interface WebResearchObservation {
+  readonly caseRef: string;
+  readonly answerCorrect: boolean;
+  readonly citedSourceRefs: readonly string[];
+  readonly reconciledSourceRefs?: readonly string[];
+  readonly staleSourceRefs?: readonly string[];
+  readonly staleSourceUsedRefs?: readonly string[];
+  readonly chineseTextPreserved?: boolean;
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface WebResearchCaseSummary {
+  readonly caseRef: string;
+  readonly answerCorrect: boolean;
+  readonly citationRequirementMet: boolean;
+  readonly requiredSourceCoverage: number;
+  readonly reconciliationSatisfied: boolean;
+  readonly staleSourceUseCount: number;
+  readonly chineseTextPreserved: boolean;
+}
+
+export interface WebResearchReportSummary {
+  readonly profileId?: string;
+  readonly locale?: string;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly answerCorrectCount: number;
+  readonly answerCorrectRate: number;
+  readonly citationRequiredCount: number;
+  readonly citationCoverageCount: number;
+  readonly citationCoverageRate: number;
+  readonly reconciliationRequiredCount: number;
+  readonly reconciliationSatisfiedCount: number;
+  readonly reconciliationRate: number;
+  readonly staleSourceUseCount: number;
+  readonly chineseTextPreservedCount: number;
+  readonly chineseTextPreservationRate: number;
+  readonly byCase: readonly WebResearchCaseSummary[];
+  readonly evidenceRefs: readonly string[];
+  readonly warnings: readonly string[];
+}
+
 export interface ArtifactReference {
   readonly id: string;
   readonly kind: ArtifactContract["kind"];
@@ -1084,6 +1178,7 @@ export interface BenchmarkTrialResult {
   readonly faultInjections?: readonly FaultInjectionObservation[];
   readonly toolUse?: readonly ToolUseObservation[];
   readonly contextualIntegrity?: readonly ContextualIntegrityObservation[];
+  readonly webResearch?: readonly WebResearchObservation[];
 }
 
 export interface BenchmarkTrialOutcome {
@@ -1164,6 +1259,7 @@ export interface BenchmarkReportCandidate {
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
+  readonly webResearch?: WebResearchReportSummary;
 }
 
 export interface BenchmarkReport {
@@ -1189,6 +1285,7 @@ export interface BenchmarkReport {
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
+  readonly webResearch?: WebResearchReportSummary;
 }
 
 export interface HarnessPatchOperation {

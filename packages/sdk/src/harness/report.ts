@@ -27,6 +27,10 @@ import type {
   ContextualIntegrityTransmissionExpectation,
   ToolUseObservation,
   ToolUseReportSummary,
+  WebResearchCaseSpec,
+  WebResearchObservation,
+  WebResearchProfile,
+  WebResearchReportSummary,
 } from "./types.js";
 
 type ComparableMetricDirection = Exclude<MetricDefinition["direction"], "informational">;
@@ -170,6 +174,12 @@ function contextualIntegrityObservations(
   results: readonly BenchmarkTrialResult[],
 ): readonly ContextualIntegrityObservation[] {
   return Object.freeze(results.flatMap((result) => result.contextualIntegrity ?? []));
+}
+
+function webResearchObservations(
+  results: readonly BenchmarkTrialResult[],
+): readonly WebResearchObservation[] {
+  return Object.freeze(results.flatMap((result) => result.webResearch ?? []));
 }
 
 function plannedToolUseCase(
@@ -571,6 +581,164 @@ function contextualIntegritySummary(input: {
           requiredDisclosureMisses: observation.requiredDisclosureMisses,
           prohibitedDisclosureViolations: observation.prohibitedDisclosureViolations,
           utilitySatisfied: observation.utilitySatisfied,
+        }),
+      ),
+    ),
+    evidenceRefs: Object.freeze([
+      ...new Set(input.observations.flatMap((observation) => observation.evidenceRefs)),
+    ]),
+    warnings: Object.freeze(warnings),
+  });
+}
+
+function plannedWebResearchCase(
+  profile: WebResearchProfile | undefined,
+  caseRef: string,
+): WebResearchCaseSpec | undefined {
+  return profile?.cases.find((entry) => entry.id === caseRef);
+}
+
+function normalizedWebResearchObservation(input: {
+  readonly profile: WebResearchProfile | undefined;
+  readonly observation: WebResearchObservation;
+}): {
+  readonly caseRef: string;
+  readonly answerCorrect: boolean;
+  readonly citationRequired: boolean;
+  readonly citationRequirementMet: boolean;
+  readonly requiredSourceCoverage: number;
+  readonly reconciliationRequired: boolean;
+  readonly reconciliationSatisfied: boolean;
+  readonly staleSourceUseCount: number;
+  readonly chineseTextPreserved: boolean;
+  readonly evidenceRefs: readonly string[];
+} {
+  const planned = plannedWebResearchCase(input.profile, input.observation.caseRef);
+  const citedRefs = new Set(input.observation.citedSourceRefs);
+  const requiredSourceRefs = planned?.requiredSourceRefs ?? [];
+  const citedRequiredCount = requiredSourceRefs.filter((ref) => citedRefs.has(ref)).length;
+  const citationRequirementMet =
+    planned?.citationRequired !== true ||
+    (citedRefs.size > 0 &&
+      (requiredSourceRefs.length === 0 || citedRequiredCount === requiredSourceRefs.length));
+  const reconciledRefs = new Set(input.observation.reconciledSourceRefs ?? []);
+  const reconciliationRefs = new Set([...reconciledRefs, ...citedRefs]);
+  const requiredReconciledCount = requiredSourceRefs.filter((ref) =>
+    reconciliationRefs.has(ref),
+  ).length;
+  const requiredSourcesSatisfiedForReconciliation =
+    requiredSourceRefs.length === 0 ||
+    requiredReconciledCount >= Math.min(2, requiredSourceRefs.length);
+  const reconciliationSatisfied =
+    planned?.requiresCrossSourceReconciliation !== true ||
+    (requiredSourcesSatisfiedForReconciliation && reconciliationRefs.size >= 2);
+  const plannedStaleRefs = new Set(planned?.staleSourceRefs ?? []);
+  const observedStaleRefs = new Set([
+    ...(input.observation.staleSourceRefs ?? []),
+    ...(input.observation.staleSourceUsedRefs ?? []),
+  ]);
+  const staleSourceUseCount = [...new Set([...plannedStaleRefs, ...observedStaleRefs])].filter(
+    (ref) => input.observation.staleSourceUsedRefs?.includes(ref) ?? false,
+  ).length;
+
+  return Object.freeze({
+    caseRef: input.observation.caseRef,
+    answerCorrect: input.observation.answerCorrect,
+    citationRequired: planned?.citationRequired === true,
+    citationRequirementMet,
+    requiredSourceCoverage:
+      requiredSourceRefs.length === 0 ? 1 : rate(citedRequiredCount, requiredSourceRefs.length),
+    reconciliationRequired: planned?.requiresCrossSourceReconciliation === true,
+    reconciliationSatisfied,
+    staleSourceUseCount,
+    chineseTextPreserved: input.observation.chineseTextPreserved ?? true,
+    evidenceRefs: input.observation.evidenceRefs,
+  });
+}
+
+function webResearchSummary(input: {
+  readonly profile: WebResearchProfile | undefined;
+  readonly observations: readonly WebResearchObservation[];
+}): WebResearchReportSummary | undefined {
+  if (input.profile === undefined && input.observations.length === 0) {
+    return undefined;
+  }
+
+  const normalized = input.observations.map((observation) =>
+    normalizedWebResearchObservation({ profile: input.profile, observation }),
+  );
+  const plannedCaseCount = input.profile?.cases.length ?? 0;
+  const observedCaseRefs = new Set(input.observations.map((observation) => observation.caseRef));
+  const missingPlannedCases =
+    input.profile?.cases.filter((entry) => !observedCaseRefs.has(entry.id)) ?? [];
+  const citationRequiredCases =
+    input.profile?.cases.filter((entry) => entry.citationRequired === true) ?? [];
+  const reconciliationRequiredCases =
+    input.profile?.cases.filter((entry) => entry.requiresCrossSourceReconciliation === true) ?? [];
+  const underspecifiedReconciliationCases = reconciliationRequiredCases.filter(
+    (entry) => (entry.requiredSourceRefs?.length ?? 0) < 2,
+  );
+  const answerCorrectCount = normalized.filter((observation) => observation.answerCorrect).length;
+  const citationCoverageCount = normalized.filter(
+    (observation) => observation.citationRequired && observation.citationRequirementMet,
+  ).length;
+  const reconciliationSatisfiedCount = normalized.filter(
+    (observation) => observation.reconciliationRequired && observation.reconciliationSatisfied,
+  ).length;
+  const staleSourceUseCount = normalized.reduce(
+    (total, observation) => total + observation.staleSourceUseCount,
+    0,
+  );
+  const chineseTextPreservedCount = normalized.filter(
+    (observation) => observation.chineseTextPreserved,
+  ).length;
+  const warnings = [
+    ...(missingPlannedCases.length > 0
+      ? [
+          `Missing web-research observations for ${missingPlannedCases
+            .map((entry) => entry.id)
+            .join(", ")}.`,
+        ]
+      : []),
+    ...(underspecifiedReconciliationCases.length > 0
+      ? [
+          `Cross-source reconciliation is required with fewer than two required sources for ${underspecifiedReconciliationCases
+            .map((entry) => entry.id)
+            .join(", ")}.`,
+        ]
+      : []),
+    ...(staleSourceUseCount > 0 ? [`${staleSourceUseCount} stale-source use(s) recorded.`] : []),
+    ...(normalized.some((observation) => !observation.chineseTextPreserved)
+      ? ["At least one web-research observation reported corrupted Chinese text."]
+      : []),
+  ];
+
+  return Object.freeze({
+    ...(input.profile?.id === undefined ? {} : { profileId: input.profile.id }),
+    ...(input.profile?.locale === undefined ? {} : { locale: input.profile.locale }),
+    plannedCaseCount,
+    observedCaseCount: observedCaseRefs.size,
+    answerCorrectCount,
+    answerCorrectRate: rate(answerCorrectCount, normalized.length),
+    citationRequiredCount: citationRequiredCases.length,
+    citationCoverageCount,
+    citationCoverageRate: rate(citationCoverageCount, citationRequiredCases.length),
+    reconciliationRequiredCount: reconciliationRequiredCases.length,
+    reconciliationSatisfiedCount,
+    reconciliationRate: rate(reconciliationSatisfiedCount, reconciliationRequiredCases.length),
+    staleSourceUseCount,
+    chineseTextPreservedCount,
+    chineseTextPreservationRate: rate(chineseTextPreservedCount, normalized.length),
+    byCase: Object.freeze(
+      normalized.map((observation) =>
+        Object.freeze({
+          caseRef: observation.caseRef,
+          answerCorrect: observation.answerCorrect,
+          citationRequirementMet: observation.citationRequirementMet,
+          requiredSourceCoverage: observation.requiredSourceCoverage,
+          reconciliationSatisfied: observation.reconciliationSatisfied,
+          staleSourceUseCount: observation.staleSourceUseCount,
+          chineseTextPreserved: observation.chineseTextPreserved,
         }),
       ),
     ),
@@ -1029,6 +1197,10 @@ function candidateReport(input: {
     profile: input.benchmark.contextualIntegrity,
     observations: contextualIntegrityObservations(input.results),
   });
+  const webResearch = webResearchSummary({
+    profile: input.benchmark.webResearch,
+    observations: webResearchObservations(input.results),
+  });
   const passK = passKSummary({ benchmark: input.benchmark, results: input.results });
   const reversibility = reversibilitySummary(input.results);
   const rationale = [
@@ -1074,6 +1246,14 @@ function candidateReport(input: {
           `contextual-integrity score: ${contextualIntegrity.contextualIntegrityScore ?? "missing"}`,
           `privacy leakage rate: ${contextualIntegrity.leakageRate}`,
         ]),
+    ...(webResearch === undefined
+      ? []
+      : [
+          `web-research cases observed: ${webResearch.observedCaseCount}/${webResearch.plannedCaseCount}`,
+          `web-research answer correctness: ${webResearch.answerCorrectRate}`,
+          `web-research citation coverage: ${webResearch.citationCoverageRate}`,
+          `web-research stale-source uses: ${webResearch.staleSourceUseCount}`,
+        ]),
   ];
 
   return Object.freeze({
@@ -1094,6 +1274,7 @@ function candidateReport(input: {
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
+    ...(webResearch === undefined ? {} : { webResearch }),
   });
 }
 
@@ -1190,6 +1371,10 @@ export function createBenchmarkReport(input: {
     profile: input.benchmark.contextualIntegrity,
     observations: contextualIntegrityObservations(input.results),
   });
+  const webResearch = webResearchSummary({
+    profile: input.benchmark.webResearch,
+    observations: webResearchObservations(input.results),
+  });
   const reversibility = reversibilitySummary(input.results);
   const faultInjectionEvidenceGap =
     (input.benchmark.faultInjections ?? []).length > 0 &&
@@ -1209,6 +1394,12 @@ export function createBenchmarkReport(input: {
       ? [
           "Contextual-integrity cases were configured but no trial observations recorded privacy flow outcomes.",
         ]
+      : [];
+  const webResearchEvidenceGap =
+    input.benchmark.webResearch !== undefined &&
+    input.benchmark.webResearch.cases.length > 0 &&
+    (webResearch?.observedCaseCount ?? 0) === 0
+      ? ["Web-research cases were configured but no trial observations recorded source evidence."]
       : [];
   const traceEventCount = input.results.reduce(
     (total, result) => total + result.traceEvents.length,
@@ -1232,6 +1423,12 @@ export function createBenchmarkReport(input: {
     ): candidate is BenchmarkReportCandidate & {
       contextualIntegrity: ContextualIntegrityReportSummary;
     } => candidate.contextualIntegrity !== undefined,
+  );
+  const webResearchCandidates = candidates.filter(
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & { webResearch: WebResearchReportSummary } =>
+      candidate.webResearch !== undefined,
   );
 
   return Object.freeze({
@@ -1267,6 +1464,11 @@ export function createBenchmarkReport(input: {
         : [
             `Contextual-integrity profile summarized ${contextualIntegrity.observedCaseCount}/${contextualIntegrity.plannedCaseCount} planned privacy flow case(s).`,
           ]),
+      ...(webResearch === undefined
+        ? []
+        : [
+            `Web-research profile summarized ${webResearch.observedCaseCount}/${webResearch.plannedCaseCount} planned source-reconciliation case(s).`,
+          ]),
       ...(reversibility === undefined
         ? []
         : [`Captured reversibility metadata on ${reversibility.totalEventCount} trace events.`]),
@@ -1276,7 +1478,8 @@ export function createBenchmarkReport(input: {
       insufficientEvidence.length > 0 ||
       faultInjectionEvidenceGap.length > 0 ||
       toolUseEvidenceGap.length > 0 ||
-      contextualIntegrityEvidenceGap.length > 0
+      contextualIntegrityEvidenceGap.length > 0 ||
+      webResearchEvidenceGap.length > 0
         ? ["At least one candidate lacks enough evidence for a confident recommendation."]
         : [
             confidence.level === "confident_recommendation"
@@ -1293,6 +1496,11 @@ export function createBenchmarkReport(input: {
               : [
                   "Contextual-integrity privacy evidence is reported separately from final task utility.",
                 ]),
+            ...(webResearch === undefined
+              ? []
+              : [
+                  "Web-research source evidence is reported separately from final answer correctness.",
+                ]),
             ...(reversibility === undefined
               ? []
               : ["Reversibility metadata is included in the evidence boundary."]),
@@ -1307,6 +1515,9 @@ export function createBenchmarkReport(input: {
         candidate.contextualIntegrity.warnings.map(
           (warning) => `${candidate.candidateId}: ${warning}`,
         ),
+      ),
+      ...webResearchCandidates.flatMap((candidate) =>
+        candidate.webResearch.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
       ),
     ]),
     recommendations: Object.freeze(
@@ -1343,6 +1554,11 @@ export function createBenchmarkReport(input: {
                     : candidate.contextualIntegrity.contextualIntegrityScore
                 }, leakage_rate=${candidate.contextualIntegrity.leakageRate}, required_misses=${candidate.contextualIntegrity.requiredDisclosureMissCount}, prohibited_violations=${candidate.contextualIntegrity.prohibitedDisclosureViolationCount}`,
               ]),
+          ...(candidate.webResearch === undefined
+            ? []
+            : [
+                `web_research_answer_correct=${candidate.webResearch.answerCorrectRate}, citation_coverage=${candidate.webResearch.citationCoverageRate}, reconciliation_rate=${candidate.webResearch.reconciliationRate}, stale_source_uses=${candidate.webResearch.staleSourceUseCount}`,
+              ]),
         ];
 
         return [`${candidate.candidateId}: ${candidate.recommendation}`, ...details].join("; ");
@@ -1361,10 +1577,12 @@ export function createBenchmarkReport(input: {
       ...faultInjectionEvidenceGap,
       ...toolUseEvidenceGap,
       ...contextualIntegrityEvidenceGap,
+      ...webResearchEvidenceGap,
     ]),
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
+    ...(webResearch === undefined ? {} : { webResearch }),
   });
 }
 
@@ -1385,6 +1603,12 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
     ): candidate is BenchmarkReportCandidate & {
       contextualIntegrity: ContextualIntegrityReportSummary;
     } => candidate.contextualIntegrity !== undefined,
+  );
+  const webResearchCandidates = report.candidates.filter(
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & { webResearch: WebResearchReportSummary } =>
+      candidate.webResearch !== undefined,
   );
   const lines = [
     `# Benchmark Report: ${report.benchmarkId}`,
@@ -1514,6 +1738,32 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
         "### Contextual Integrity Warnings",
         "",
         ...contextualIntegrityWarnings.map((warning) => `- ${warning}`),
+        "",
+      );
+    }
+  }
+
+  if (webResearchCandidates.length > 0) {
+    lines.push(
+      "## Web Research",
+      "",
+      "| Candidate | Observed / Planned cases | Answer correctness | Citation coverage | Reconciliation | Stale source uses | Chinese text preserved |",
+      "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+      ...webResearchCandidates.map((candidate) => {
+        const webResearch = candidate.webResearch;
+        return `| ${candidate.candidateId} | ${webResearch.observedCaseCount}/${webResearch.plannedCaseCount} | ${webResearch.answerCorrectRate} | ${webResearch.citationCoverageRate} | ${webResearch.reconciliationRate} | ${webResearch.staleSourceUseCount} | ${webResearch.chineseTextPreservationRate} |`;
+      }),
+      "",
+    );
+
+    const webResearchWarnings = webResearchCandidates.flatMap((candidate) =>
+      candidate.webResearch.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
+    );
+    if (webResearchWarnings.length > 0) {
+      lines.push(
+        "### Web Research Warnings",
+        "",
+        ...webResearchWarnings.map((warning) => `- ${warning}`),
         "",
       );
     }

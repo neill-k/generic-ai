@@ -252,9 +252,9 @@ describe("harness shootout fixtures", () => {
     );
     const markdown = renderBenchmarkReportMarkdown(report);
 
-    expect(privacyAware?.scorecard.find((metric) => metric.metricId === "task_utility")?.value).toBe(
-      1,
-    );
+    expect(
+      privacyAware?.scorecard.find((metric) => metric.metricId === "task_utility")?.value,
+    ).toBe(1);
     expect(oversharing?.scorecard.find((metric) => metric.metricId === "task_utility")?.value).toBe(
       1,
     );
@@ -265,6 +265,154 @@ describe("harness shootout fixtures", () => {
     expect(oversharing?.contextualIntegrity?.prohibitedDisclosureViolationCount).toBe(3);
     expect(report.contextualIntegrity?.observedCaseCount).toBe(2);
     expect(markdown).toContain("## Contextual Integrity");
+  });
+
+  it("reports Chinese web research evidence separately from answer correctness", async () => {
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/chinese-web-research/mission.json",
+    );
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/chinese-web-research/benchmark.json",
+    );
+    const candidatePaths = [
+      "examples/harness-shootout/chinese-web-research/candidates/source-aware-researcher.json",
+      "examples/harness-shootout/chinese-web-research/candidates/citation-naive-researcher.json",
+    ];
+    const candidates = await Promise.all(candidatePaths.map((path) => readJson<HarnessDsl>(path)));
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/chinese-web-research/trial-results.json",
+    );
+
+    for (const candidate of candidates) {
+      const compiled = compileHarnessDsl(candidate);
+      expect(compiled.diagnostics).toEqual([]);
+      expect(compiled.compiled?.missionRefs).toContain(mission.id);
+      expect(compiled.compiled?.evalRefs).toContain(benchmark.id);
+    }
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-05-02T00:00:00.000Z",
+      results,
+    });
+    const sourceAware = report.candidates.find(
+      (candidate) => candidate.candidateId === "source-aware-researcher",
+    );
+    const citationNaive = report.candidates.find(
+      (candidate) => candidate.candidateId === "citation-naive-researcher",
+    );
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(benchmark.webResearch?.locale).toBe("zh-CN");
+    expect(benchmark.webResearch?.liveSearch?.providerAgnostic).toBe(true);
+    expect(benchmark.webResearch?.liveSearch?.enabledByDefault).toBe(false);
+    expect(benchmark.webResearch?.sources.map((source) => source.title)).toContain(
+      "地方教育数字化行动方案发布",
+    );
+    expect(
+      sourceAware?.scorecard.find((metric) => metric.metricId === "answer_correctness")?.value,
+    ).toBe(1);
+    expect(
+      citationNaive?.scorecard.find((metric) => metric.metricId === "answer_correctness")?.value,
+    ).toBe(0.5);
+    expect(sourceAware?.webResearch?.answerCorrectRate).toBe(1);
+    expect(sourceAware?.webResearch?.citationCoverageRate).toBe(1);
+    expect(sourceAware?.webResearch?.reconciliationRate).toBe(1);
+    expect(sourceAware?.webResearch?.staleSourceUseCount).toBe(0);
+    expect(sourceAware?.webResearch?.chineseTextPreservationRate).toBe(1);
+    expect(citationNaive?.webResearch?.answerCorrectRate).toBe(0.5);
+    expect(citationNaive?.webResearch?.citationCoverageRate).toBe(0);
+    expect(citationNaive?.webResearch?.reconciliationRate).toBe(0);
+    expect(citationNaive?.webResearch?.staleSourceUseCount).toBe(1);
+    expect(citationNaive?.webResearch?.chineseTextPreservationRate).toBe(0.5);
+    expect(report.webResearch?.observedCaseCount).toBe(2);
+    expect(markdown).toContain("## Web Research");
+    expect(markdown).toContain("Chinese text preserved");
+
+    if (benchmark.webResearch === undefined) {
+      throw new Error("Expected Chinese web-research fixture to define a webResearch profile.");
+    }
+    const sourceAwareResult = results.find(
+      (result) => result.candidateId === "source-aware-researcher",
+    );
+    if (sourceAwareResult === undefined) {
+      throw new Error("Expected Chinese web-research fixture to include source-aware results.");
+    }
+
+    const edgeBenchmark: BenchmarkSpec = {
+      ...benchmark,
+      candidates: [{ id: "edge-web-researcher", harnessRef: "harness.edge-web-researcher" }],
+      webResearch: {
+        ...benchmark.webResearch,
+        cases: [
+          {
+            id: "optional-background-check",
+            taskRef: "task.optional-background-check",
+            queryLanguage: "zh-CN",
+            answerUniqueness: "open-ended",
+            citationRequired: false,
+            requiresCrossSourceReconciliation: false,
+          },
+          {
+            id: "empty-required-reconciliation",
+            taskRef: "task.empty-required-reconciliation",
+            queryLanguage: "zh-CN",
+            answerUniqueness: "ambiguous",
+            requiredSourceRefs: [],
+            citationRequired: true,
+            requiresCrossSourceReconciliation: true,
+          },
+        ],
+      },
+    };
+    const edgeReport = createBenchmarkReport({
+      benchmark: edgeBenchmark,
+      mission,
+      generatedAt: "2026-05-02T00:00:00.000Z",
+      results: [
+        {
+          ...sourceAwareResult,
+          candidateId: "edge-web-researcher",
+          harnessId: "harness.edge-web-researcher:compiled",
+          trialId: "edge-web-researcher:trial-1",
+          webResearch: [
+            {
+              caseRef: "optional-background-check",
+              answerCorrect: true,
+              citedSourceRefs: [],
+              chineseTextPreserved: true,
+              evidenceRefs: ["trace.edge.optional"],
+            },
+            {
+              caseRef: "empty-required-reconciliation",
+              answerCorrect: true,
+              citedSourceRefs: [],
+              reconciledSourceRefs: [],
+              chineseTextPreserved: true,
+              evidenceRefs: ["trace.edge.empty-required"],
+            },
+          ],
+        },
+      ],
+    });
+    const edgeCandidate = edgeReport.candidates.find(
+      (candidate) => candidate.candidateId === "edge-web-researcher",
+    );
+    const emptyRequiredCase = edgeCandidate?.webResearch?.byCase.find(
+      (caseSummary) => caseSummary.caseRef === "empty-required-reconciliation",
+    );
+
+    expect(edgeCandidate?.webResearch?.citationRequiredCount).toBe(1);
+    expect(edgeCandidate?.webResearch?.citationCoverageCount).toBe(0);
+    expect(edgeCandidate?.webResearch?.citationCoverageRate).toBe(0);
+    expect(emptyRequiredCase?.requiredSourceCoverage).toBe(1);
+    expect(edgeCandidate?.webResearch?.reconciliationRequiredCount).toBe(1);
+    expect(edgeCandidate?.webResearch?.reconciliationSatisfiedCount).toBe(0);
+    expect(edgeCandidate?.webResearch?.reconciliationRate).toBe(0);
+    expect(edgeCandidate?.webResearch?.warnings).toContain(
+      "Cross-source reconciliation is required with fewer than two required sources for empty-required-reconciliation.",
+    );
   });
 
   it("compiles the DAG navigation candidate harnesses", async () => {
