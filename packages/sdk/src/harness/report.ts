@@ -604,8 +604,10 @@ function normalizedWebResearchObservation(input: {
 }): {
   readonly caseRef: string;
   readonly answerCorrect: boolean;
+  readonly citationRequired: boolean;
   readonly citationRequirementMet: boolean;
   readonly requiredSourceCoverage: number;
+  readonly reconciliationRequired: boolean;
   readonly reconciliationSatisfied: boolean;
   readonly staleSourceUseCount: number;
   readonly chineseTextPreserved: boolean;
@@ -620,10 +622,16 @@ function normalizedWebResearchObservation(input: {
     (citedRefs.size > 0 &&
       (requiredSourceRefs.length === 0 || citedRequiredCount === requiredSourceRefs.length));
   const reconciledRefs = new Set(input.observation.reconciledSourceRefs ?? []);
+  const reconciliationRefs = new Set([...reconciledRefs, ...citedRefs]);
+  const requiredReconciledCount = requiredSourceRefs.filter((ref) =>
+    reconciliationRefs.has(ref),
+  ).length;
+  const requiredSourcesSatisfiedForReconciliation =
+    requiredSourceRefs.length === 0 ||
+    requiredReconciledCount >= Math.min(2, requiredSourceRefs.length);
   const reconciliationSatisfied =
     planned?.requiresCrossSourceReconciliation !== true ||
-    requiredSourceRefs.filter((ref) => reconciledRefs.has(ref) || citedRefs.has(ref)).length >=
-      Math.min(2, requiredSourceRefs.length);
+    (requiredSourcesSatisfiedForReconciliation && reconciliationRefs.size >= 2);
   const plannedStaleRefs = new Set(planned?.staleSourceRefs ?? []);
   const observedStaleRefs = new Set([
     ...(input.observation.staleSourceRefs ?? []),
@@ -636,8 +644,11 @@ function normalizedWebResearchObservation(input: {
   return Object.freeze({
     caseRef: input.observation.caseRef,
     answerCorrect: input.observation.answerCorrect,
+    citationRequired: planned?.citationRequired === true,
     citationRequirementMet,
-    requiredSourceCoverage: rate(citedRequiredCount, requiredSourceRefs.length),
+    requiredSourceCoverage:
+      requiredSourceRefs.length === 0 ? 1 : rate(citedRequiredCount, requiredSourceRefs.length),
+    reconciliationRequired: planned?.requiresCrossSourceReconciliation === true,
     reconciliationSatisfied,
     staleSourceUseCount,
     chineseTextPreserved: input.observation.chineseTextPreserved ?? true,
@@ -664,12 +675,15 @@ function webResearchSummary(input: {
     input.profile?.cases.filter((entry) => entry.citationRequired === true) ?? [];
   const reconciliationRequiredCases =
     input.profile?.cases.filter((entry) => entry.requiresCrossSourceReconciliation === true) ?? [];
+  const underspecifiedReconciliationCases = reconciliationRequiredCases.filter(
+    (entry) => (entry.requiredSourceRefs?.length ?? 0) < 2,
+  );
   const answerCorrectCount = normalized.filter((observation) => observation.answerCorrect).length;
   const citationCoverageCount = normalized.filter(
-    (observation) => observation.citationRequirementMet,
+    (observation) => observation.citationRequired && observation.citationRequirementMet,
   ).length;
   const reconciliationSatisfiedCount = normalized.filter(
-    (observation) => observation.reconciliationSatisfied,
+    (observation) => observation.reconciliationRequired && observation.reconciliationSatisfied,
   ).length;
   const staleSourceUseCount = normalized.reduce(
     (total, observation) => total + observation.staleSourceUseCount,
@@ -682,6 +696,13 @@ function webResearchSummary(input: {
     ...(missingPlannedCases.length > 0
       ? [
           `Missing web-research observations for ${missingPlannedCases
+            .map((entry) => entry.id)
+            .join(", ")}.`,
+        ]
+      : []),
+    ...(underspecifiedReconciliationCases.length > 0
+      ? [
+          `Cross-source reconciliation is required with fewer than two required sources for ${underspecifiedReconciliationCases
             .map((entry) => entry.id)
             .join(", ")}.`,
         ]
@@ -701,10 +722,10 @@ function webResearchSummary(input: {
     answerCorrectRate: rate(answerCorrectCount, normalized.length),
     citationRequiredCount: citationRequiredCases.length,
     citationCoverageCount,
-    citationCoverageRate: rate(citationCoverageCount, normalized.length),
+    citationCoverageRate: rate(citationCoverageCount, citationRequiredCases.length),
     reconciliationRequiredCount: reconciliationRequiredCases.length,
     reconciliationSatisfiedCount,
-    reconciliationRate: rate(reconciliationSatisfiedCount, normalized.length),
+    reconciliationRate: rate(reconciliationSatisfiedCount, reconciliationRequiredCases.length),
     staleSourceUseCount,
     chineseTextPreservedCount,
     chineseTextPreservationRate: rate(chineseTextPreservedCount, normalized.length),

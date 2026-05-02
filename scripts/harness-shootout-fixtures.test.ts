@@ -329,6 +329,90 @@ describe("harness shootout fixtures", () => {
     expect(report.webResearch?.observedCaseCount).toBe(2);
     expect(markdown).toContain("## Web Research");
     expect(markdown).toContain("Chinese text preserved");
+
+    if (benchmark.webResearch === undefined) {
+      throw new Error("Expected Chinese web-research fixture to define a webResearch profile.");
+    }
+    const sourceAwareResult = results.find(
+      (result) => result.candidateId === "source-aware-researcher",
+    );
+    if (sourceAwareResult === undefined) {
+      throw new Error("Expected Chinese web-research fixture to include source-aware results.");
+    }
+
+    const edgeBenchmark: BenchmarkSpec = {
+      ...benchmark,
+      candidates: [{ id: "edge-web-researcher", harnessRef: "harness.edge-web-researcher" }],
+      webResearch: {
+        ...benchmark.webResearch,
+        cases: [
+          {
+            id: "optional-background-check",
+            taskRef: "task.optional-background-check",
+            queryLanguage: "zh-CN",
+            answerUniqueness: "open-ended",
+            citationRequired: false,
+            requiresCrossSourceReconciliation: false,
+          },
+          {
+            id: "empty-required-reconciliation",
+            taskRef: "task.empty-required-reconciliation",
+            queryLanguage: "zh-CN",
+            answerUniqueness: "ambiguous",
+            requiredSourceRefs: [],
+            citationRequired: true,
+            requiresCrossSourceReconciliation: true,
+          },
+        ],
+      },
+    };
+    const edgeReport = createBenchmarkReport({
+      benchmark: edgeBenchmark,
+      mission,
+      generatedAt: "2026-05-02T00:00:00.000Z",
+      results: [
+        {
+          ...sourceAwareResult,
+          candidateId: "edge-web-researcher",
+          harnessId: "harness.edge-web-researcher:compiled",
+          trialId: "edge-web-researcher:trial-1",
+          webResearch: [
+            {
+              caseRef: "optional-background-check",
+              answerCorrect: true,
+              citedSourceRefs: [],
+              chineseTextPreserved: true,
+              evidenceRefs: ["trace.edge.optional"],
+            },
+            {
+              caseRef: "empty-required-reconciliation",
+              answerCorrect: true,
+              citedSourceRefs: [],
+              reconciledSourceRefs: [],
+              chineseTextPreserved: true,
+              evidenceRefs: ["trace.edge.empty-required"],
+            },
+          ],
+        },
+      ],
+    });
+    const edgeCandidate = edgeReport.candidates.find(
+      (candidate) => candidate.candidateId === "edge-web-researcher",
+    );
+    const emptyRequiredCase = edgeCandidate?.webResearch?.byCase.find(
+      (caseSummary) => caseSummary.caseRef === "empty-required-reconciliation",
+    );
+
+    expect(edgeCandidate?.webResearch?.citationRequiredCount).toBe(1);
+    expect(edgeCandidate?.webResearch?.citationCoverageCount).toBe(0);
+    expect(edgeCandidate?.webResearch?.citationCoverageRate).toBe(0);
+    expect(emptyRequiredCase?.requiredSourceCoverage).toBe(1);
+    expect(edgeCandidate?.webResearch?.reconciliationRequiredCount).toBe(1);
+    expect(edgeCandidate?.webResearch?.reconciliationSatisfiedCount).toBe(0);
+    expect(edgeCandidate?.webResearch?.reconciliationRate).toBe(0);
+    expect(edgeCandidate?.webResearch?.warnings).toContain(
+      "Cross-source reconciliation is required with fewer than two required sources for empty-required-reconciliation.",
+    );
   });
 
   it("compiles the DAG navigation candidate harnesses", async () => {
