@@ -1,0 +1,142 @@
+[
+  {
+    "candidateId": "source-aware-researcher",
+    "harnessId": "harness.chinese-web-research.source-aware-researcher:compiled",
+    "trialId": "source-aware-researcher:trial-1",
+    "seed": "chinese-web-research-fixture",
+    "metrics": [
+      {
+        "metricId": "answer_correctness",
+        "value": 1,
+        "evidenceRefs": ["artifact.source-aware-summary"]
+      },
+      {
+        "metricId": "source_provenance",
+        "value": 1,
+        "evidenceRefs": ["artifact.source-aware-summary"]
+      },
+      {
+        "metricId": "cross_source_reconciliation",
+        "value": 1,
+        "evidenceRefs": ["artifact.source-aware-summary"]
+      },
+      {
+        "metricId": "stale_source_avoidance",
+        "value": 1,
+        "evidenceRefs": ["artifact.source-aware-summary"]
+      },
+      {
+        "metricId": "chinese_text_preservation",
+        "value": 1,
+        "evidenceRefs": ["artifact.source-aware-summary"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.source-aware-summary",
+        "kind": "report",
+        "uri": "memory:///chinese-web-research/source-aware-summary.json",
+        "redaction": "metadata_only",
+        "summary": "Source-aware candidate cited required Chinese sources, reconciled evidence, avoided stale snippets, and preserved Chinese text."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 1
+    },
+    "webResearch": [
+      {
+        "caseRef": "policy-date-reconciliation",
+        "answerCorrect": true,
+        "citedSourceRefs": ["source.current-guidance", "source.archive-notice"],
+        "reconciledSourceRefs": ["source.current-guidance", "source.archive-notice"],
+        "staleSourceRefs": ["source.stale-blog"],
+        "chineseTextPreserved": true,
+        "evidenceRefs": ["trace.source-aware.policy-date"]
+      },
+      {
+        "caseRef": "dataset-name-disambiguation",
+        "answerCorrect": true,
+        "citedSourceRefs": ["source.dataset-paper", "source.benchmark-summary"],
+        "reconciledSourceRefs": ["source.dataset-paper", "source.benchmark-summary"],
+        "chineseTextPreserved": true,
+        "evidenceRefs": ["trace.source-aware.dataset-name"]
+      }
+    ]
+  },
+  {
+    "candidateId": "citation-naive-researcher",
+    "harnessId": "harness.chinese-web-research.citation-naive-researcher:compiled",
+    "trialId": "citation-naive-researcher:trial-1",
+    "seed": "chinese-web-research-fixture",
+    "metrics": [
+      {
+        "metricId": "answer_correctness",
+        "value": 0.5,
+        "evidenceRefs": ["artifact.citation-naive-summary"]
+      },
+      {
+        "metricId": "source_provenance",
+        "value": 0,
+        "evidenceRefs": ["artifact.citation-naive-summary"]
+      },
+      {
+        "metricId": "cross_source_reconciliation",
+        "value": 0,
+        "evidenceRefs": ["artifact.citation-naive-summary"]
+      },
+      {
+        "metricId": "stale_source_avoidance",
+        "value": 0,
+        "evidenceRefs": ["artifact.citation-naive-summary"]
+      },
+      {
+        "metricId": "chinese_text_preservation",
+        "value": 0.5,
+        "evidenceRefs": ["artifact.citation-naive-summary"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.citation-naive-summary",
+        "kind": "report",
+        "uri": "memory:///chinese-web-research/citation-naive-summary.json",
+        "redaction": "metadata_only",
+        "summary": "Citation-naive candidate answered from incomplete evidence, used a stale source, and corrupted one Chinese snippet."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 1
+    },
+    "webResearch": [
+      {
+        "caseRef": "policy-date-reconciliation",
+        "answerCorrect": false,
+        "citedSourceRefs": ["source.stale-blog"],
+        "staleSourceRefs": ["source.stale-blog"],
+        "staleSourceUsedRefs": ["source.stale-blog"],
+        "chineseTextPreserved": true,
+        "evidenceRefs": ["trace.citation-naive.policy-date"]
+      },
+      {
+        "caseRef": "dataset-name-disambiguation",
+        "answerCorrect": true,
+        "citedSourceRefs": ["source.dataset-paper"],
+        "reconciledSourceRefs": ["source.dataset-paper"],
+        "chineseTextPreserved": false,
+        "evidenceRefs": ["trace.citation-naive.dataset-name"]
+      }
+    ]
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.chinese-web-research",
+  "objective": "Answer Chinese web research questions with source-grounded citations, cross-source reconciliation, stale-source avoidance, and preserved Chinese text.",
+  "objectiveClass": "research",
+  "fixtureRefs": ["task.policy-date-reconciliation", "task.dataset-name-disambiguation"],
+  "allowedPackages": ["@generic-ai/plugin-tools-web", "@generic-ai/plugin-tools-files"],
+  "constraints": [
+    "Use deterministic fixture sources by default; live web/search mode is opt-in.",
+    "Preserve Chinese source titles and snippets without lossy transliteration.",
+    "Separate answer correctness from citation coverage, reconciliation, stale-source use, and text encoding evidence."
+  ],
+  "successCriteria": {
+    "requiredArtifacts": ["web-research-summary"]
+  },
+  "providerPolicy": {
+    "network": "isolated"
+  }
+}

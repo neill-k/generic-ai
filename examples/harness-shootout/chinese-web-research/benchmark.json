@@ -1,0 +1,168 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.chinese-web-research.v0",
+  "missionRef": "mission.chinese-web-research",
+  "hypothesis": "A harness that treats Chinese web research as source-grounded evidence can preserve answer correctness while surfacing citation coverage, cross-source reconciliation, stale-source use, and Chinese text handling.",
+  "candidates": [
+    {
+      "id": "source-aware-researcher",
+      "harnessRef": "harness.chinese-web-research.source-aware-researcher"
+    },
+    {
+      "id": "citation-naive-researcher",
+      "harnessRef": "harness.chinese-web-research.citation-naive-researcher"
+    }
+  ],
+  "primaryMetric": "answer_correctness",
+  "metricDefinitions": [
+    {
+      "id": "answer_correctness",
+      "name": "Answer correctness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "grader",
+      "description": "Whether the final answer matches the fixture-grounded answer."
+    },
+    {
+      "id": "source_provenance",
+      "name": "Source provenance",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "report",
+      "description": "Whether required fixture sources are cited for citation-bearing tasks."
+    },
+    {
+      "id": "cross_source_reconciliation",
+      "name": "Cross-source reconciliation",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "report",
+      "description": "Whether multi-source tasks reconcile the required sources."
+    },
+    {
+      "id": "stale_source_avoidance",
+      "name": "Stale source avoidance",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "report",
+      "description": "Whether stale or superseded source snippets were avoided."
+    },
+    {
+      "id": "chinese_text_preservation",
+      "name": "Chinese text preservation",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "artifact",
+      "description": "Whether Chinese source titles and snippets remained intact in evidence artifacts."
+    }
+  ],
+  "guardrailMetrics": [
+    "source_provenance",
+    "cross_source_reconciliation",
+    "stale_source_avoidance",
+    "chinese_text_preservation"
+  ],
+  "webResearch": {
+    "id": "chinese-web-research-v0",
+    "locale": "zh-CN",
+    "liveSearch": {
+      "enabledByDefault": false,
+      "providerAgnostic": true,
+      "requiredEnvVars": ["GENERIC_AI_WEB_SEARCH_PROVIDER"],
+      "skipReason": "Deterministic fixtures are the default; live Chinese web/search runs are opt-in and provider-gated."
+    },
+    "sources": [
+      {
+        "id": "source.current-guidance",
+        "title": "地方教育数字化行动方案发布",
+        "language": "zh-CN",
+        "role": "primary",
+        "url": "fixture://zh-web/current-guidance",
+        "publishedAt": "2025-02-12",
+        "retrievedAt": "2026-05-02",
+        "snippet": "行动方案明确试点高校名单将在2025年第二季度公布。"
+      },
+      {
+        "id": "source.archive-notice",
+        "title": "试点名单公布时间调整说明",
+        "language": "zh-CN",
+        "role": "corroborating",
+        "url": "fixture://zh-web/archive-notice",
+        "publishedAt": "2025-03-08",
+        "retrievedAt": "2026-05-02",
+        "snippet": "原定三月发布的名单延后至第二季度，与行动方案保持一致。"
+      },
+      {
+        "id": "source.stale-blog",
+        "title": "网传三月名单汇总",
+        "language": "zh-CN",
+        "role": "stale",
+        "url": "fixture://zh-web/stale-blog",
+        "publishedAt": "2024-12-20",
+        "retrievedAt": "2026-05-02",
+        "snippet": "博客称名单将在三月发布，但未引用后续调整说明。"
+      },
+      {
+        "id": "source.dataset-paper",
+        "title": "中文网页研究任务集说明",
+        "language": "zh-CN",
+        "role": "primary",
+        "url": "fixture://zh-web/dataset-paper",
+        "publishedAt": "2025-04-20",
+        "retrievedAt": "2026-05-02",
+        "snippet": "任务集包含多跳问答、来源核验和中文证据片段保存要求。"
+      },
+      {
+        "id": "source.benchmark-summary",
+        "title": "浏览式中文问答基准摘要",
+        "language": "zh-CN",
+        "role": "corroborating",
+        "url": "fixture://zh-web/benchmark-summary",
+        "publishedAt": "2025-04-21",
+        "retrievedAt": "2026-05-02",
+        "snippet": "摘要强调答案必须关联多个中文来源，并记录检索证据。"
+      }
+    ],
+    "cases": [
+      {
+        "id": "policy-date-reconciliation",
+        "taskRef": "task.policy-date-reconciliation",
+        "queryLanguage": "zh-CN",
+        "expectedAnswerLanguage": "zh-CN",
+        "domain": "public-policy",
+        "answerUniqueness": "multi-hop-unique",
+        "requiredSourceRefs": ["source.current-guidance", "source.archive-notice"],
+        "citationRequired": true,
+        "requiresCrossSourceReconciliation": true,
+        "staleSourceRefs": ["source.stale-blog"],
+        "rationale": "The correct answer requires reconciling the current guidance with a later timing-adjustment notice and ignoring a stale blog."
+      },
+      {
+        "id": "dataset-name-disambiguation",
+        "taskRef": "task.dataset-name-disambiguation",
+        "queryLanguage": "zh-CN",
+        "expectedAnswerLanguage": "zh-CN",
+        "domain": "research-benchmark",
+        "answerUniqueness": "multi-hop-unique",
+        "requiredSourceRefs": ["source.dataset-paper", "source.benchmark-summary"],
+        "citationRequired": true,
+        "requiresCrossSourceReconciliation": true,
+        "rationale": "The answer should cite both the task-set description and benchmark summary while preserving Chinese evidence snippets."
+      }
+    ]
+  },
+  "trials": {
+    "count": 1,
+    "pairing": "paired",
+    "seed": "chinese-web-research-fixture"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 1,
+    "allowSingleRunRecommendation": true
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

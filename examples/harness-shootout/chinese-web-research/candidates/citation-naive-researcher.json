@@ -1,0 +1,52 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.chinese-web-research.citation-naive-researcher",
+  "name": "Citation-Naive Chinese Researcher",
+  "packages": [
+    {
+      "id": "capability.web",
+      "package": "@generic-ai/plugin-tools-web",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.web-research",
+      "package": "@generic-ai/grader-web-research",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "quick-searcher",
+      "role": "researcher",
+      "instructions": "Answer quickly from the first plausible Chinese source.",
+      "packageRefs": ["capability.web"],
+      "artifactRefs": ["artifact.quick-answer"]
+    },
+    {
+      "id": "thin-verifier",
+      "role": "verifier",
+      "instructions": "Check only whether the answer text is plausible.",
+      "packageRefs": ["grader.web-research"],
+      "artifactRefs": ["artifact.web-research-summary"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.quick-answer",
+      "name": "quick-answer.md",
+      "kind": "message",
+      "producedBy": ["quick-searcher"],
+      "reviewedBy": ["thin-verifier"]
+    },
+    {
+      "id": "artifact.web-research-summary",
+      "name": "web-research-summary.json",
+      "kind": "report",
+      "producedBy": ["thin-verifier"],
+      "reviewedBy": ["thin-verifier"]
+    }
+  ],
+  "missionRefs": ["mission.chinese-web-research"],
+  "evalRefs": ["benchmark.chinese-web-research.v0"]
+}

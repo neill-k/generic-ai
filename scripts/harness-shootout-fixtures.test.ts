@@ -252,9 +252,9 @@ describe("harness shootout fixtures", () => {
     );
     const markdown = renderBenchmarkReportMarkdown(report);
 
-    expect(privacyAware?.scorecard.find((metric) => metric.metricId === "task_utility")?.value).toBe(
-      1,
-    );
+    expect(
+      privacyAware?.scorecard.find((metric) => metric.metricId === "task_utility")?.value,
+    ).toBe(1);
     expect(oversharing?.scorecard.find((metric) => metric.metricId === "task_utility")?.value).toBe(
       1,
     );
@@ -265,6 +265,70 @@ describe("harness shootout fixtures", () => {
     expect(oversharing?.contextualIntegrity?.prohibitedDisclosureViolationCount).toBe(3);
     expect(report.contextualIntegrity?.observedCaseCount).toBe(2);
     expect(markdown).toContain("## Contextual Integrity");
+  });
+
+  it("reports Chinese web research evidence separately from answer correctness", async () => {
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/chinese-web-research/mission.json",
+    );
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/chinese-web-research/benchmark.json",
+    );
+    const candidatePaths = [
+      "examples/harness-shootout/chinese-web-research/candidates/source-aware-researcher.json",
+      "examples/harness-shootout/chinese-web-research/candidates/citation-naive-researcher.json",
+    ];
+    const candidates = await Promise.all(candidatePaths.map((path) => readJson<HarnessDsl>(path)));
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/chinese-web-research/trial-results.json",
+    );
+
+    for (const candidate of candidates) {
+      const compiled = compileHarnessDsl(candidate);
+      expect(compiled.diagnostics).toEqual([]);
+      expect(compiled.compiled?.missionRefs).toContain(mission.id);
+      expect(compiled.compiled?.evalRefs).toContain(benchmark.id);
+    }
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-05-02T00:00:00.000Z",
+      results,
+    });
+    const sourceAware = report.candidates.find(
+      (candidate) => candidate.candidateId === "source-aware-researcher",
+    );
+    const citationNaive = report.candidates.find(
+      (candidate) => candidate.candidateId === "citation-naive-researcher",
+    );
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(benchmark.webResearch?.locale).toBe("zh-CN");
+    expect(benchmark.webResearch?.liveSearch?.providerAgnostic).toBe(true);
+    expect(benchmark.webResearch?.liveSearch?.enabledByDefault).toBe(false);
+    expect(benchmark.webResearch?.sources.map((source) => source.title)).toContain(
+      "地方教育数字化行动方案发布",
+    );
+    expect(
+      sourceAware?.scorecard.find((metric) => metric.metricId === "answer_correctness")?.value,
+    ).toBe(1);
+    expect(
+      citationNaive?.scorecard.find((metric) => metric.metricId === "answer_correctness")?.value,
+    ).toBe(0.5);
+    expect(sourceAware?.webResearch?.answerCorrectRate).toBe(1);
+    expect(sourceAware?.webResearch?.citationCoverageRate).toBe(1);
+    expect(sourceAware?.webResearch?.reconciliationRate).toBe(1);
+    expect(sourceAware?.webResearch?.staleSourceUseCount).toBe(0);
+    expect(sourceAware?.webResearch?.chineseTextPreservationRate).toBe(1);
+    expect(citationNaive?.webResearch?.answerCorrectRate).toBe(0.5);
+    expect(citationNaive?.webResearch?.citationCoverageRate).toBe(0);
+    expect(citationNaive?.webResearch?.reconciliationRate).toBe(0);
+    expect(citationNaive?.webResearch?.staleSourceUseCount).toBe(1);
+    expect(citationNaive?.webResearch?.chineseTextPreservationRate).toBe(0.5);
+    expect(report.webResearch?.observedCaseCount).toBe(2);
+    expect(markdown).toContain("## Web Research");
+    expect(markdown).toContain("Chinese text preserved");
   });
 
   it("compiles the DAG navigation candidate harnesses", async () => {

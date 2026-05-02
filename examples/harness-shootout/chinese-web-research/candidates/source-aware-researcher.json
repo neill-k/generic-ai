@@ -1,0 +1,57 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.chinese-web-research.source-aware-researcher",
+  "name": "Chinese Source-Aware Researcher",
+  "packages": [
+    {
+      "id": "capability.web",
+      "package": "@generic-ai/plugin-tools-web",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.web-research",
+      "package": "@generic-ai/grader-web-research",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "zh-researcher",
+      "role": "researcher",
+      "instructions": "Read Chinese fixture sources, preserve source titles/snippets exactly, and cite every required source.",
+      "packageRefs": ["capability.web", "capability.files"],
+      "artifactRefs": ["artifact.zh-source-notes"]
+    },
+    {
+      "id": "source-verifier",
+      "role": "verifier",
+      "instructions": "Check answer uniqueness, citation coverage, cross-source reconciliation, stale-source avoidance, and Chinese text preservation.",
+      "packageRefs": ["grader.web-research"],
+      "artifactRefs": ["artifact.web-research-summary"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.zh-source-notes",
+      "name": "zh-source-notes.json",
+      "kind": "metric",
+      "producedBy": ["zh-researcher"],
+      "reviewedBy": ["source-verifier"]
+    },
+    {
+      "id": "artifact.web-research-summary",
+      "name": "web-research-summary.json",
+      "kind": "report",
+      "producedBy": ["source-verifier"],
+      "reviewedBy": ["source-verifier"]
+    }
+  ],
+  "missionRefs": ["mission.chinese-web-research"],
+  "evalRefs": ["benchmark.chinese-web-research.v0"]
+}
