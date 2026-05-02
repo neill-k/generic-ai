@@ -134,6 +134,24 @@ Policy plugins, identity plugins, approval flows, and storage adapters may
 enforce or enrich the profile later, but the SDK report layer only records and
 summarizes evidence that a benchmark run supplied.
 
+## Longitudinal Maintainability
+
+`BenchmarkSpec.maintainability` describes a sequence of repository-evolution
+steps and the verification checks expected after each step. Trial results can
+attach `maintainability` observations with immediate task success, checks run,
+checks passed, new regression counts, public API drift, docs drift, lint/type
+debt, rollback pressure, and recovery evidence.
+
+The SDK report helper aggregates those observations into immediate success
+rate, check pass rate, regression rate, rollback counts, and a maintainability
+score. This keeps an agent that completes each local request while creating
+later-step debt from looking equivalent to one that preserves codebase health
+across the whole sequence.
+
+The profile is evidence infrastructure for SWE-CI-like and other longitudinal
+coding benchmarks. Deterministic fixtures can use recorded or stubbed outcomes;
+external score movement still requires a same-profile live benchmark run.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a

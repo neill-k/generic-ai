@@ -40,6 +40,9 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
 - [`contextual-integrity/`](contextual-integrity/): deterministic workspace
   privacy fixture that separates task utility from prohibited data-class
   disclosures under recipient/purpose transmission principles.
+- [`maintainability/`](maintainability/): deterministic sequential-codebase
+  fixture that separates immediate task success from later-step regressions,
+  public API drift, docs drift, and rollback pressure.
 
 ## Programmatic Shape
 
@@ -81,6 +84,9 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
 - Contextual-integrity profiles can model actors, data classes, transmission
   principles, and privacy-flow cases so reports expose utility, leakage,
   required disclosure misses, and prohibited disclosure violations separately.
+- Maintainability profiles can model sequential repository changes so reports
+  expose whether immediate task success preserved verification checks, public
+  API shape, docs freshness, and rollback-free codebase health.
 
 ## What It Does Not Prove Yet
 

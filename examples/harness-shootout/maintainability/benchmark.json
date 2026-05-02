@@ -1,0 +1,114 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.maintainability.v0",
+  "missionRef": "mission.maintainability-sequence",
+  "hypothesis": "A maintainability-aware harness can distinguish immediate task success from longitudinal codebase health by checking sequential changes for new regressions, public API drift, and docs drift.",
+  "candidates": [
+    {
+      "id": "regression-aware-maintainer",
+      "harnessRef": "harness.maintainability.regression-aware-maintainer"
+    },
+    {
+      "id": "single-pass-patcher",
+      "harnessRef": "harness.maintainability.single-pass-patcher"
+    }
+  ],
+  "primaryMetric": "maintainability_score",
+  "metricDefinitions": [
+    {
+      "id": "maintainability_score",
+      "name": "Maintainability score",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "report",
+      "description": "Average per-step score across immediate task success, verification checks, and absence of new regression signals."
+    },
+    {
+      "id": "immediate_task_success",
+      "name": "Immediate task success",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "grader",
+      "description": "Whether each individual requested change appears locally complete."
+    },
+    {
+      "id": "new_regressions",
+      "name": "New regressions",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "New lint, type, test, build, docs, or public API drift introduced across later steps."
+    },
+    {
+      "id": "rollback_required",
+      "name": "Rollback required",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "Sequential changes that required rollback or repair to preserve repo health."
+    }
+  ],
+  "guardrailMetrics": [
+    "immediate_task_success",
+    "new_regressions",
+    "rollback_required"
+  ],
+  "maintainability": {
+    "id": "maintainability-sequence-v0",
+    "steps": [
+      {
+        "id": "step.add-contract-field",
+        "taskRef": "task.add-contract-field",
+        "description": "Add a backwards-compatible SDK field and update the docs surface that describes it.",
+        "resetRef": "snapshot.clean-repo",
+        "expectedChecks": [
+          "typecheck",
+          "test",
+          "docs",
+          "api"
+        ]
+      },
+      {
+        "id": "step.update-example",
+        "taskRef": "task.update-example",
+        "description": "Update the example fixture that consumes the new field without changing package boundaries.",
+        "resetRef": "snapshot.after-contract-field",
+        "expectedChecks": [
+          "lint",
+          "test",
+          "build",
+          "docs"
+        ]
+      },
+      {
+        "id": "step.cleanup-regression",
+        "taskRef": "task.cleanup-regression",
+        "description": "Remove dead helper code while preserving generated docs and public package metadata.",
+        "resetRef": "snapshot.after-example-update",
+        "expectedChecks": [
+          "typecheck",
+          "lint",
+          "test",
+          "docs"
+        ]
+      }
+    ]
+  },
+  "trials": {
+    "count": 1,
+    "pairing": "paired",
+    "seed": "maintainability-fixture"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 1,
+    "allowSingleRunRecommendation": true
+  },
+  "report": {
+    "formats": [
+      "json",
+      "markdown"
+    ],
+    "includeRecommendations": true
+  }
+}
