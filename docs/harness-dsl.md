@@ -134,6 +134,27 @@ Policy plugins, identity plugins, approval flows, and storage adapters may
 enforce or enrich the profile later, but the SDK report layer only records and
 summarizes evidence that a benchmark run supplied.
 
+## Memory Benchmark Profiles
+
+`BenchmarkSpec.memory` describes memory-specific benchmark cases without making
+memory a kernel-owned behavior. A profile can declare retrieval, update,
+stale-suppression, selective-forgetting, provenance, and multi-session handoff
+cases. Trial results attach `memory` observations with answer correctness,
+retrieved and missed memory refs, stale refs used or suppressed, forgotten refs
+honored or leaked, provenance refs, handoff preservation, and optional latency
+or token metadata.
+
+The SDK report helper aggregates those observations into answer-correct rate,
+memory quality score, retrieval misses, stale fact use, stale suppression rate,
+forgetting compliance, provenance coverage, handoff preservation, and warnings.
+This keeps a useful final answer from hiding poor memory behavior such as using
+superseded state or reintroducing tombstoned details.
+
+The deterministic `examples/harness-shootout/memory` fixture is benchmark
+coverage and evidence infrastructure. It should not be described as
+MemoryAgentBench, LongMemEval, LoCoMo, MemBench, Harbor, or Terminal-Bench score
+movement until a same-profile adapter run records comparable external metrics.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a

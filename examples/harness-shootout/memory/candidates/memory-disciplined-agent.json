@@ -1,0 +1,82 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.memory.disciplined-agent",
+  "name": "Memory-Disciplined Agent",
+  "packages": [
+    {
+      "id": "protocol.verifier-loop",
+      "package": "@generic-ai/protocol-verifier-loop",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.memory",
+      "package": "@generic-ai/plugin-memory-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.messaging",
+      "package": "@generic-ai/plugin-messaging",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.memory-profile",
+      "package": "@generic-ai/grader-memory-profile",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "memory-reader",
+      "role": "planner",
+      "instructions": "Retrieve current memory records, include provenance, and mark superseded or tombstoned records before answering.",
+      "packageRefs": ["capability.memory", "capability.messaging", "capability.files"],
+      "artifactRefs": ["artifact.memory-audit"]
+    },
+    {
+      "id": "memory-responder",
+      "role": "builder",
+      "instructions": "Answer only from current, provenance-backed memory. Preserve handoff state across sessions.",
+      "packageRefs": ["capability.memory", "capability.messaging"],
+      "artifactRefs": ["artifact.memory-answer"]
+    },
+    {
+      "id": "memory-verifier",
+      "role": "verifier",
+      "instructions": "Check retrieval hits, stale suppression, forgetting compliance, provenance, and handoff preservation.",
+      "packageRefs": ["protocol.verifier-loop", "grader.memory-profile"],
+      "artifactRefs": ["artifact.memory-audit"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "verifier-loop",
+      "protocol": "verifier-loop",
+      "packageRef": "protocol.verifier-loop",
+      "actorRefs": ["memory-reader", "memory-responder", "memory-verifier"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.memory-answer",
+      "name": "memory-answer.md",
+      "kind": "message",
+      "producedBy": ["memory-responder"],
+      "reviewedBy": ["memory-verifier"]
+    },
+    {
+      "id": "artifact.memory-audit",
+      "name": "memory-audit.json",
+      "kind": "report",
+      "producedBy": ["memory-reader", "memory-verifier"],
+      "reviewedBy": ["memory-verifier"]
+    }
+  ],
+  "missionRefs": ["mission.memory-profile"],
+  "evalRefs": ["benchmark.memory-profile.v0"]
+}

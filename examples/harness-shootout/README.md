@@ -40,6 +40,9 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
 - [`contextual-integrity/`](contextual-integrity/): deterministic workspace
   privacy fixture that separates task utility from prohibited data-class
   disclosures under recipient/purpose transmission principles.
+- [`memory/`](memory/): deterministic memory profile that separates answer
+  correctness from retrieval quality, update handling, stale-fact suppression,
+  selective forgetting, provenance, and multi-session handoff evidence.
 
 ## Programmatic Shape
 
@@ -81,6 +84,9 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
 - Contextual-integrity profiles can model actors, data classes, transmission
   principles, and privacy-flow cases so reports expose utility, leakage,
   required disclosure misses, and prohibited disclosure violations separately.
+- Memory profiles can expose retrieval misses, stale fact use, selective
+  forgetting leaks, provenance coverage, and handoff preservation separately
+  from final answer correctness.
 
 ## What It Does Not Prove Yet
 

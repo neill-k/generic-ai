@@ -1,0 +1,144 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.memory-profile.v0",
+  "missionRef": "mission.memory-profile",
+  "hypothesis": "A harness that records memory operations can separate answer correctness from retrieval quality, update handling, stale-fact suppression, selective forgetting, provenance, and multi-session handoff behavior.",
+  "candidates": [
+    {
+      "id": "memory-disciplined-agent",
+      "harnessRef": "harness.memory.disciplined-agent"
+    },
+    {
+      "id": "memory-shortcut-agent",
+      "harnessRef": "harness.memory.shortcut-agent"
+    }
+  ],
+  "primaryMetric": "memory_quality_score",
+  "metricDefinitions": [
+    {
+      "id": "memory_quality_score",
+      "name": "Memory quality score",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "report",
+      "description": "Average memory-operation quality across retrieval, stale suppression, forgetting, provenance, and handoff dimensions."
+    },
+    {
+      "id": "answer_correct_rate",
+      "name": "Answer correct rate",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "grader",
+      "description": "Share of memory tasks with a useful final answer."
+    },
+    {
+      "id": "retrieval_miss_count",
+      "name": "Retrieval miss count",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "Relevant memory references that were expected but not retrieved."
+    },
+    {
+      "id": "stale_fact_use_count",
+      "name": "Stale fact use count",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "Superseded memory references used in an answer or memory decision."
+    },
+    {
+      "id": "leaked_forgotten_ref_count",
+      "name": "Leaked forgotten ref count",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "Forgotten or tombstoned memory references that leaked into a response."
+    },
+    {
+      "id": "provenance_coverage",
+      "name": "Provenance coverage",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "report",
+      "description": "Share of memory cases with provenance evidence."
+    }
+  ],
+  "guardrailMetrics": [
+    "answer_correct_rate",
+    "retrieval_miss_count",
+    "stale_fact_use_count",
+    "leaked_forgotten_ref_count",
+    "provenance_coverage"
+  ],
+  "memory": {
+    "id": "memory-profile-v0",
+    "requireProvenance": true,
+    "cases": [
+      {
+        "id": "retrieve-grounded-preferences",
+        "taskRef": "task.retrieve-grounded-preferences",
+        "kind": "retrieval",
+        "expectedMemoryRefs": ["mem.preference.current-region", "mem.project.deadline"],
+        "expectedOperationKinds": ["read"],
+        "rationale": "The answer should retrieve both current user preference and project deadline records."
+      },
+      {
+        "id": "apply-preference-update",
+        "taskRef": "task.apply-preference-update",
+        "kind": "update",
+        "expectedMemoryRefs": ["mem.preference.dashboard-channel-v2"],
+        "staleMemoryRefs": ["mem.preference.dashboard-channel-v1"],
+        "expectedOperationKinds": ["read", "update"],
+        "rationale": "The current preference must supersede the older channel preference."
+      },
+      {
+        "id": "suppress-stale-vendor-status",
+        "taskRef": "task.suppress-stale-vendor-status",
+        "kind": "stale_suppression",
+        "expectedMemoryRefs": ["mem.vendor.status.current"],
+        "staleMemoryRefs": ["mem.vendor.status.old"],
+        "expectedOperationKinds": ["read"],
+        "rationale": "A stale vendor status should be detected and excluded from the answer."
+      },
+      {
+        "id": "honor-selective-forgetting",
+        "taskRef": "task.honor-selective-forgetting",
+        "kind": "selective_forgetting",
+        "forbiddenMemoryRefs": ["mem.personal.phone"],
+        "expectedOperationKinds": ["delete"],
+        "rationale": "A tombstoned personal detail must not be surfaced after a forgetting request."
+      },
+      {
+        "id": "explain-memory-provenance",
+        "taskRef": "task.explain-memory-provenance",
+        "kind": "provenance",
+        "expectedMemoryRefs": ["msg.thread-17", "run.research-4"],
+        "expectedOperationKinds": ["read", "summarize"],
+        "rationale": "The final explanation should cite the message and run artifacts that support the memory."
+      },
+      {
+        "id": "preserve-multi-session-handoff",
+        "taskRef": "task.preserve-multi-session-handoff",
+        "kind": "multi_session_handoff",
+        "expectedMemoryRefs": ["mem.session-a.finding"],
+        "expectedOperationKinds": ["handoff", "read"],
+        "rationale": "A later session should preserve and use a prior-session finding without re-deriving it from scratch."
+      }
+    ]
+  },
+  "trials": {
+    "count": 1,
+    "pairing": "paired",
+    "seed": "memory-profile-fixture"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 1,
+    "allowSingleRunRecommendation": true
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

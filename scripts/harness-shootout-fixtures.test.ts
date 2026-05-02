@@ -252,9 +252,9 @@ describe("harness shootout fixtures", () => {
     );
     const markdown = renderBenchmarkReportMarkdown(report);
 
-    expect(privacyAware?.scorecard.find((metric) => metric.metricId === "task_utility")?.value).toBe(
-      1,
-    );
+    expect(
+      privacyAware?.scorecard.find((metric) => metric.metricId === "task_utility")?.value,
+    ).toBe(1);
     expect(oversharing?.scorecard.find((metric) => metric.metricId === "task_utility")?.value).toBe(
       1,
     );
@@ -265,6 +265,72 @@ describe("harness shootout fixtures", () => {
     expect(oversharing?.contextualIntegrity?.prohibitedDisclosureViolationCount).toBe(3);
     expect(report.contextualIntegrity?.observedCaseCount).toBe(2);
     expect(markdown).toContain("## Contextual Integrity");
+  });
+
+  it("reports memory-operation quality separately from final correctness", async () => {
+    const mission = await readJson<MissionSpec>("examples/harness-shootout/memory/mission.json");
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/memory/benchmark.json",
+    );
+    const candidatePaths = [
+      "examples/harness-shootout/memory/candidates/memory-disciplined-agent.json",
+      "examples/harness-shootout/memory/candidates/memory-shortcut-agent.json",
+    ];
+    const candidates = await Promise.all(candidatePaths.map((path) => readJson<HarnessDsl>(path)));
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/memory/trial-results.json",
+    );
+
+    for (const candidate of candidates) {
+      const compiled = compileHarnessDsl(candidate);
+      expect(compiled.diagnostics).toEqual([]);
+      expect(compiled.compiled?.missionRefs).toContain(mission.id);
+      expect(compiled.compiled?.evalRefs).toContain(benchmark.id);
+    }
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-05-01T00:00:00.000Z",
+      results,
+    });
+    const disciplined = report.candidates.find(
+      (candidate) => candidate.candidateId === "memory-disciplined-agent",
+    );
+    const shortcut = report.candidates.find(
+      (candidate) => candidate.candidateId === "memory-shortcut-agent",
+    );
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(benchmark.memory?.cases).toHaveLength(6);
+    expect(
+      disciplined?.scorecard.find((metric) => metric.metricId === "answer_correct_rate")?.value,
+    ).toBe(1);
+    expect(
+      shortcut?.scorecard.find((metric) => metric.metricId === "answer_correct_rate")?.value,
+    ).toBe(1);
+    expect(disciplined?.memory?.memoryQualityScore).toBe(1);
+    expect(disciplined?.memory?.retrievalMissCount).toBe(0);
+    expect(disciplined?.memory?.staleFactUseCount).toBe(0);
+    expect(disciplined?.memory?.leakedForgottenRefCount).toBe(0);
+    expect(disciplined?.memory?.provenanceCoverageRate).toBe(1);
+    expect(disciplined?.memory?.handoffPreservedCount).toBe(1);
+    expect(shortcut?.memory?.answerCorrectRate).toBe(1);
+    expect(shortcut?.memory?.memoryQualityScore).toBeCloseTo(0.2083, 4);
+    expect(shortcut?.memory?.retrievalMissCount).toBe(1);
+    expect(shortcut?.memory?.staleFactUseCount).toBe(2);
+    expect(shortcut?.memory?.leakedForgottenRefCount).toBe(1);
+    expect(shortcut?.memory?.provenanceCoverageRate).toBeCloseTo(1 / 6, 6);
+    expect(shortcut?.memory?.warnings).toEqual(
+      expect.arrayContaining([
+        "1 relevant memory ref(s) were missed.",
+        "2 stale memory ref(s) were used.",
+        "1 forgotten memory ref(s) leaked into output.",
+        "5 memory case(s) lacked provenance evidence.",
+      ]),
+    );
+    expect(report.memory?.observedCaseCount).toBe(6);
+    expect(markdown).toContain("## Memory");
   });
 
   it("compiles the DAG navigation candidate harnesses", async () => {
