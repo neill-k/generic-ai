@@ -45,13 +45,13 @@ When changing BenchmarkSpec, report rendering, or benchmark fixtures, run target
 npm test -- packages/core/test/harness/benchmark-runner.test.ts packages/sdk/src/harness/compiler.test.ts scripts/harness-shootout-fixtures.test.ts examples/bench-tool-calling/src/adapter.test.ts examples/bench-policy-tools/src/adapter.test.ts examples/terminal-bench/src/benchmark-profile.test.ts examples/terminal-bench/src/import-harbor-results.test.ts examples/terminal-bench/src/run-terminal-bench.test.ts
 ```
 
-When changing tool-use discipline (`BenchmarkSpec.toolUse`, `ToolUseObservation`, report `toolUse` summaries, or `examples/harness-shootout/tool-overuse/`), use the focused report/fixture check first:
+When changing evidence-only harness report profiles such as tool-use discipline (`BenchmarkSpec.toolUse`, `ToolUseObservation`, report `toolUse` summaries, or `examples/harness-shootout/tool-overuse/`) or contextual-integrity privacy (`BenchmarkSpec.contextualIntegrity`, `ContextualIntegrityObservation`, contextual-integrity report summaries, or `examples/harness-shootout/contextual-integrity/`), use the focused report/fixture check first:
 
 ```bash
 npm test -- packages/sdk/src/harness/compiler.test.ts scripts/harness-shootout-fixtures.test.ts
 ```
 
-Keep this surface evidence-only: it reports required, optional, and wasteful tool affordances separately from the primary success metric, model routing, and prompt caching.
+Keep these surfaces evidence-only: tool-use reports required, optional, and wasteful tool affordances separately from the primary success metric, model routing, and prompt caching; contextual integrity reports privacy utility, leakage, required disclosure misses, and prohibited disclosure violations without claiming runtime DLP or policy enforcement.
 
 For deterministic micro/meso benchmark examples, use the package smoke commands after tests when you need the rendered bounded report:
 
