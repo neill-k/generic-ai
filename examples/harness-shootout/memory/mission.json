@@ -1,0 +1,58 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.memory-profile",
+  "objective": "Answer workspace questions across persistent memory updates while preserving provenance, suppressing stale facts, honoring selective forgetting, and carrying useful state across sessions.",
+  "objectiveClass": "analysis",
+  "fixtureRefs": [
+    "memory-fixture/preferences.json",
+    "memory-fixture/project-thread.json",
+    "memory-fixture/forgetting-request.json"
+  ],
+  "reset": {
+    "workspace": "snapshot",
+    "storage": "snapshot",
+    "messages": "preserve",
+    "memory": "preserve"
+  },
+  "allowedPackages": [
+    "@generic-ai/plugin-memory-files",
+    "@generic-ai/plugin-messaging",
+    "@generic-ai/plugin-tools-files"
+  ],
+  "allowedCapabilities": ["memory.read", "memory.write", "handoff.read", "handoff.write"],
+  "constraints": [
+    "Do not treat derived summaries as source-of-truth without provenance.",
+    "Current memory records supersede stale preference records.",
+    "Selective forgetting tombstones must prevent forgotten facts from reappearing in answers."
+  ],
+  "expectedArtifacts": [
+    {
+      "id": "artifact.memory-answer",
+      "name": "memory-answer.md",
+      "kind": "message"
+    },
+    {
+      "id": "artifact.memory-audit",
+      "name": "memory-audit.json",
+      "kind": "report"
+    }
+  ],
+  "graders": [
+    {
+      "id": "grader.memory-profile",
+      "metricRefs": [
+        "memory_quality_score",
+        "answer_correct_rate",
+        "retrieval_miss_count",
+        "stale_fact_use_count",
+        "leaked_forgotten_ref_count",
+        "provenance_coverage"
+      ],
+      "deterministic": true
+    }
+  ],
+  "successCriteria": {
+    "requiredArtifacts": ["artifact.memory-answer", "artifact.memory-audit"]
+  }
+}

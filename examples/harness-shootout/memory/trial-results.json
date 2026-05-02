@@ -1,0 +1,237 @@
+[
+  {
+    "candidateId": "memory-disciplined-agent",
+    "harnessId": "harness.memory.disciplined-agent:compiled",
+    "trialId": "memory-disciplined-agent:trial-1",
+    "seed": "memory-profile-fixture",
+    "metrics": [
+      {
+        "metricId": "memory_quality_score",
+        "value": 1,
+        "evidenceRefs": ["artifact.memory-disciplined-audit"]
+      },
+      {
+        "metricId": "answer_correct_rate",
+        "value": 1,
+        "evidenceRefs": ["artifact.memory-disciplined-audit"]
+      },
+      {
+        "metricId": "retrieval_miss_count",
+        "value": 0,
+        "evidenceRefs": ["artifact.memory-disciplined-audit"]
+      },
+      {
+        "metricId": "stale_fact_use_count",
+        "value": 0,
+        "evidenceRefs": ["artifact.memory-disciplined-audit"]
+      },
+      {
+        "metricId": "leaked_forgotten_ref_count",
+        "value": 0,
+        "evidenceRefs": ["artifact.memory-disciplined-audit"]
+      },
+      {
+        "metricId": "provenance_coverage",
+        "value": 1,
+        "evidenceRefs": ["artifact.memory-disciplined-audit"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.memory-disciplined-audit",
+        "kind": "report",
+        "uri": "memory:///memory-profile/disciplined-audit.json",
+        "redaction": "metadata_only",
+        "summary": "Memory-disciplined candidate retrieved current facts, suppressed stale state, honored forgetting, and preserved provenance."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 1,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 1
+    },
+    "memory": [
+      {
+        "caseRef": "retrieve-grounded-preferences",
+        "answerCorrect": true,
+        "retrievedRelevantRefs": ["mem.preference.current-region", "mem.project.deadline"],
+        "provenanceRefs": ["msg.preference.current-region", "msg.project.deadline"],
+        "operationKinds": ["read"],
+        "latencyMs": 42,
+        "tokenCount": 280,
+        "evidenceRefs": ["trace.memory-disciplined.retrieve"]
+      },
+      {
+        "caseRef": "apply-preference-update",
+        "answerCorrect": true,
+        "retrievedRelevantRefs": ["mem.preference.dashboard-channel-v2"],
+        "suppressedStaleRefs": ["mem.preference.dashboard-channel-v1"],
+        "provenanceRefs": ["msg.preference.dashboard-channel-v2"],
+        "operationKinds": ["read", "update"],
+        "latencyMs": 38,
+        "tokenCount": 240,
+        "evidenceRefs": ["trace.memory-disciplined.update"]
+      },
+      {
+        "caseRef": "suppress-stale-vendor-status",
+        "answerCorrect": true,
+        "retrievedRelevantRefs": ["mem.vendor.status.current"],
+        "suppressedStaleRefs": ["mem.vendor.status.old"],
+        "provenanceRefs": ["msg.vendor.status.current"],
+        "operationKinds": ["read"],
+        "latencyMs": 35,
+        "tokenCount": 210,
+        "evidenceRefs": ["trace.memory-disciplined.stale-suppression"]
+      },
+      {
+        "caseRef": "honor-selective-forgetting",
+        "answerCorrect": true,
+        "forgottenRefs": ["mem.personal.phone"],
+        "provenanceRefs": ["tombstone.personal.phone"],
+        "operationKinds": ["delete"],
+        "latencyMs": 25,
+        "tokenCount": 180,
+        "evidenceRefs": ["trace.memory-disciplined.forgetting"]
+      },
+      {
+        "caseRef": "explain-memory-provenance",
+        "answerCorrect": true,
+        "retrievedRelevantRefs": ["msg.thread-17", "run.research-4"],
+        "provenanceRefs": ["msg.thread-17", "run.research-4"],
+        "operationKinds": ["read", "summarize"],
+        "latencyMs": 45,
+        "tokenCount": 320,
+        "evidenceRefs": ["trace.memory-disciplined.provenance"]
+      },
+      {
+        "caseRef": "preserve-multi-session-handoff",
+        "answerCorrect": true,
+        "retrievedRelevantRefs": ["mem.session-a.finding"],
+        "provenanceRefs": ["handoff.session-a-to-b"],
+        "operationKinds": ["handoff", "read"],
+        "handoffPreserved": true,
+        "latencyMs": 40,
+        "tokenCount": 260,
+        "evidenceRefs": ["trace.memory-disciplined.handoff"]
+      }
+    ]
+  },
+  {
+    "candidateId": "memory-shortcut-agent",
+    "harnessId": "harness.memory.shortcut-agent:compiled",
+    "trialId": "memory-shortcut-agent:trial-1",
+    "seed": "memory-profile-fixture",
+    "metrics": [
+      {
+        "metricId": "memory_quality_score",
+        "value": 0.20833333333333334,
+        "evidenceRefs": ["artifact.memory-shortcut-audit"]
+      },
+      {
+        "metricId": "answer_correct_rate",
+        "value": 1,
+        "evidenceRefs": ["artifact.memory-shortcut-audit"]
+      },
+      {
+        "metricId": "retrieval_miss_count",
+        "value": 1,
+        "evidenceRefs": ["artifact.memory-shortcut-audit"]
+      },
+      {
+        "metricId": "stale_fact_use_count",
+        "value": 2,
+        "evidenceRefs": ["artifact.memory-shortcut-audit"]
+      },
+      {
+        "metricId": "leaked_forgotten_ref_count",
+        "value": 1,
+        "evidenceRefs": ["artifact.memory-shortcut-audit"]
+      },
+      {
+        "metricId": "provenance_coverage",
+        "value": 0.16666666666666666,
+        "evidenceRefs": ["artifact.memory-shortcut-audit"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.memory-shortcut-audit",
+        "kind": "report",
+        "uri": "memory:///memory-profile/shortcut-audit.json",
+        "redaction": "metadata_only",
+        "summary": "Memory-shortcut candidate kept answers useful while missing provenance, using stale state, and leaking a forgotten ref."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 1,
+      "reworkCount": 1,
+      "policyDecisionCount": 0,
+      "artifactCount": 1
+    },
+    "memory": [
+      {
+        "caseRef": "retrieve-grounded-preferences",
+        "answerCorrect": true,
+        "retrievedRelevantRefs": ["mem.preference.current-region"],
+        "missedRelevantRefs": ["mem.project.deadline"],
+        "provenanceRefs": ["summary.preference"],
+        "operationKinds": ["read"],
+        "latencyMs": 30,
+        "tokenCount": 220,
+        "evidenceRefs": ["trace.memory-shortcut.retrieve"]
+      },
+      {
+        "caseRef": "apply-preference-update",
+        "answerCorrect": true,
+        "usedStaleRefs": ["mem.preference.dashboard-channel-v1"],
+        "operationKinds": ["read"],
+        "latencyMs": 20,
+        "tokenCount": 180,
+        "evidenceRefs": ["trace.memory-shortcut.update"]
+      },
+      {
+        "caseRef": "suppress-stale-vendor-status",
+        "answerCorrect": true,
+        "usedStaleRefs": ["mem.vendor.status.old"],
+        "operationKinds": ["read"],
+        "latencyMs": 18,
+        "tokenCount": 160,
+        "evidenceRefs": ["trace.memory-shortcut.stale-suppression"]
+      },
+      {
+        "caseRef": "honor-selective-forgetting",
+        "answerCorrect": true,
+        "leakedForgottenRefs": ["mem.personal.phone"],
+        "operationKinds": ["read"],
+        "latencyMs": 15,
+        "tokenCount": 160,
+        "evidenceRefs": ["trace.memory-shortcut.forgetting"]
+      },
+      {
+        "caseRef": "explain-memory-provenance",
+        "answerCorrect": true,
+        "retrievedRelevantRefs": ["msg.thread-17", "run.research-4"],
+        "operationKinds": ["read", "summarize"],
+        "latencyMs": 25,
+        "tokenCount": 240,
+        "evidenceRefs": ["trace.memory-shortcut.provenance"]
+      },
+      {
+        "caseRef": "preserve-multi-session-handoff",
+        "answerCorrect": true,
+        "operationKinds": ["handoff", "read"],
+        "handoffPreserved": false,
+        "latencyMs": 22,
+        "tokenCount": 200,
+        "evidenceRefs": ["trace.memory-shortcut.handoff"]
+      }
+    ]
+  }
+]

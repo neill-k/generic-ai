@@ -128,16 +128,30 @@ export type FaultInjectionTiming =
   | "state_read"
   | "state_write";
 export type BenchmarkToolUseExpectation = "required" | "optional" | "wasteful";
-export type ContextualIntegrityTransmissionExpectation =
-  | "required"
-  | "permitted"
-  | "prohibited";
+export type ContextualIntegrityTransmissionExpectation = "required" | "permitted" | "prohibited";
 export type ContextualIntegrityDataSensitivity =
   | "public"
   | "internal"
   | "confidential"
   | "restricted"
   | "secret"
+  | "custom";
+export type BenchmarkMemoryCaseKind =
+  | "retrieval"
+  | "update"
+  | "stale_suppression"
+  | "selective_forgetting"
+  | "provenance"
+  | "multi_session_handoff"
+  | "custom";
+export type BenchmarkMemoryOperationKind =
+  | "read"
+  | "write"
+  | "update"
+  | "delete"
+  | "summarize"
+  | "project_message"
+  | "handoff"
   | "custom";
 
 export interface AgentHarnessRole {
@@ -710,6 +724,7 @@ export interface BenchmarkSpec {
   readonly faultInjections?: readonly FaultInjectionSpec[];
   readonly toolUse?: BenchmarkToolUseProfile;
   readonly contextualIntegrity?: ContextualIntegrityProfile;
+  readonly memory?: BenchmarkMemoryProfile;
   readonly trials?: {
     /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
     readonly count?: number;
@@ -961,6 +976,83 @@ export interface ContextualIntegrityReportSummary {
   readonly warnings: readonly string[];
 }
 
+export interface BenchmarkMemoryProfile {
+  readonly id?: string;
+  readonly requireProvenance?: boolean;
+  readonly cases: readonly BenchmarkMemoryCaseSpec[];
+}
+
+export interface BenchmarkMemoryCaseSpec {
+  readonly id: string;
+  readonly taskRef: string;
+  readonly kind: BenchmarkMemoryCaseKind;
+  readonly expectedMemoryRefs?: readonly string[];
+  readonly staleMemoryRefs?: readonly string[];
+  readonly forbiddenMemoryRefs?: readonly string[];
+  readonly expectedOperationKinds?: readonly BenchmarkMemoryOperationKind[];
+  readonly rationale?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface BenchmarkMemoryObservation {
+  readonly caseRef: string;
+  readonly kind?: BenchmarkMemoryCaseKind;
+  readonly answerCorrect: boolean;
+  readonly retrievedRelevantRefs?: readonly string[];
+  readonly missedRelevantRefs?: readonly string[];
+  readonly usedStaleRefs?: readonly string[];
+  readonly suppressedStaleRefs?: readonly string[];
+  readonly forgottenRefs?: readonly string[];
+  readonly leakedForgottenRefs?: readonly string[];
+  readonly provenanceRefs?: readonly string[];
+  readonly operationKinds?: readonly BenchmarkMemoryOperationKind[];
+  readonly handoffPreserved?: boolean;
+  readonly latencyMs?: number;
+  readonly tokenCount?: number;
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface BenchmarkMemoryCaseSummary {
+  readonly caseRef: string;
+  readonly kind: BenchmarkMemoryCaseKind;
+  readonly answerCorrect: boolean;
+  readonly retrievalHitCount: number;
+  readonly retrievalMissCount: number;
+  readonly staleFactUseCount: number;
+  readonly staleFactSuppressionCount: number;
+  readonly forgottenRefCount: number;
+  readonly leakedForgottenRefCount: number;
+  readonly provenanceRefCount: number;
+  readonly handoffPreserved?: boolean;
+  readonly memoryQualityScore: number | null;
+}
+
+export interface BenchmarkMemoryReportSummary {
+  readonly profileId?: string;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly answerCorrectCount: number;
+  readonly answerCorrectRate: number;
+  readonly retrievalHitCount: number;
+  readonly retrievalMissCount: number;
+  readonly staleFactUseCount: number;
+  readonly staleFactSuppressionCount: number;
+  readonly staleFactSuppressionRate: number | null;
+  readonly forgottenRefCount: number;
+  readonly leakedForgottenRefCount: number;
+  readonly forgettingComplianceRate: number | null;
+  readonly provenanceObservedCount: number;
+  readonly provenanceCoverageRate: number | null;
+  readonly handoffPreservedCount: number;
+  readonly memoryQualityScore: number | null;
+  readonly totalLatencyMs?: number;
+  readonly totalTokenCount?: number;
+  readonly byCase: readonly BenchmarkMemoryCaseSummary[];
+  readonly evidenceRefs: readonly string[];
+  readonly warnings: readonly string[];
+}
+
 export interface ArtifactReference {
   readonly id: string;
   readonly kind: ArtifactContract["kind"];
@@ -1084,6 +1176,7 @@ export interface BenchmarkTrialResult {
   readonly faultInjections?: readonly FaultInjectionObservation[];
   readonly toolUse?: readonly ToolUseObservation[];
   readonly contextualIntegrity?: readonly ContextualIntegrityObservation[];
+  readonly memory?: readonly BenchmarkMemoryObservation[];
 }
 
 export interface BenchmarkTrialOutcome {
@@ -1164,6 +1257,7 @@ export interface BenchmarkReportCandidate {
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
+  readonly memory?: BenchmarkMemoryReportSummary;
 }
 
 export interface BenchmarkReport {
@@ -1189,6 +1283,7 @@ export interface BenchmarkReport {
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
+  readonly memory?: BenchmarkMemoryReportSummary;
 }
 
 export interface HarnessPatchOperation {

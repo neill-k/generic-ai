@@ -25,6 +25,11 @@ import type {
   ContextualIntegrityProfile,
   ContextualIntegrityReportSummary,
   ContextualIntegrityTransmissionExpectation,
+  BenchmarkMemoryCaseKind,
+  BenchmarkMemoryCaseSpec,
+  BenchmarkMemoryObservation,
+  BenchmarkMemoryProfile,
+  BenchmarkMemoryReportSummary,
   ToolUseObservation,
   ToolUseReportSummary,
 } from "./types.js";
@@ -36,9 +41,12 @@ const DEFAULT_LOWER_IS_BETTER_METRICS = new Set([
   "handoff_count",
   "latency",
   "latency_ms",
+  "leaked_forgotten_ref_count",
   "policy_violations",
+  "retrieval_miss_count",
   "rework_count",
   "rework_rate",
+  "stale_fact_use_count",
   "wall_time",
 ]);
 const DEFAULT_PASS_AT = Object.freeze([1, 3, 5]);
@@ -170,6 +178,12 @@ function contextualIntegrityObservations(
   results: readonly BenchmarkTrialResult[],
 ): readonly ContextualIntegrityObservation[] {
   return Object.freeze(results.flatMap((result) => result.contextualIntegrity ?? []));
+}
+
+function memoryObservations(
+  results: readonly BenchmarkTrialResult[],
+): readonly BenchmarkMemoryObservation[] {
+  return Object.freeze(results.flatMap((result) => result.memory ?? []));
 }
 
 function plannedToolUseCase(
@@ -571,6 +585,230 @@ function contextualIntegritySummary(input: {
           requiredDisclosureMisses: observation.requiredDisclosureMisses,
           prohibitedDisclosureViolations: observation.prohibitedDisclosureViolations,
           utilitySatisfied: observation.utilitySatisfied,
+        }),
+      ),
+    ),
+    evidenceRefs: Object.freeze([
+      ...new Set(input.observations.flatMap((observation) => observation.evidenceRefs)),
+    ]),
+    warnings: Object.freeze(warnings),
+  });
+}
+
+function plannedMemoryCase(
+  profile: BenchmarkMemoryProfile | undefined,
+  caseRef: string,
+): BenchmarkMemoryCaseSpec | undefined {
+  return profile?.cases.find((entry) => entry.id === caseRef);
+}
+
+function ratioOrNull(numerator: number, denominator: number): number | null {
+  return denominator === 0 ? null : numerator / denominator;
+}
+
+function compactNumbers(values: readonly (number | null | undefined)[]): readonly number[] {
+  return Object.freeze(
+    values.filter((value): value is number => value !== null && value !== undefined),
+  );
+}
+
+function normalizedMemoryObservation(input: {
+  readonly profile: BenchmarkMemoryProfile | undefined;
+  readonly observation: BenchmarkMemoryObservation;
+}): {
+  readonly caseRef: string;
+  readonly kind: BenchmarkMemoryCaseKind;
+  readonly answerCorrect: boolean;
+  readonly retrievalHitCount: number;
+  readonly retrievalMissCount: number;
+  readonly staleFactUseCount: number;
+  readonly staleFactSuppressionCount: number;
+  readonly forgottenRefCount: number;
+  readonly leakedForgottenRefCount: number;
+  readonly provenanceRefCount: number;
+  readonly handoffPreserved?: boolean;
+  readonly latencyMs?: number;
+  readonly tokenCount?: number;
+  readonly memoryQualityScore: number | null;
+  readonly evidenceRefs: readonly string[];
+} {
+  const planned = plannedMemoryCase(input.profile, input.observation.caseRef);
+  const kind = input.observation.kind ?? planned?.kind ?? "custom";
+  const retrievedRelevantRefs = uniqueStrings(input.observation.retrievedRelevantRefs ?? []);
+  const missedRelevantRefs = uniqueStrings(input.observation.missedRelevantRefs ?? []);
+  const usedStaleRefs = uniqueStrings(input.observation.usedStaleRefs ?? []);
+  const suppressedStaleRefs = uniqueStrings(input.observation.suppressedStaleRefs ?? []);
+  const forgottenRefs = uniqueStrings(input.observation.forgottenRefs ?? []);
+  const leakedForgottenRefs = uniqueStrings(input.observation.leakedForgottenRefs ?? []);
+  const provenanceRefs = uniqueStrings(input.observation.provenanceRefs ?? []);
+  const retrievalDenominator = retrievedRelevantRefs.length + missedRelevantRefs.length;
+  const staleDenominator = suppressedStaleRefs.length + usedStaleRefs.length;
+  const forgettingDenominator = forgottenRefs.length + leakedForgottenRefs.length;
+  const provenanceRequired =
+    input.profile?.requireProvenance === true || planned?.kind === "provenance";
+  const handoffRequired =
+    input.observation.handoffPreserved !== undefined || planned?.kind === "multi_session_handoff";
+  const scoreParts = compactNumbers([
+    ratioOrNull(retrievedRelevantRefs.length, retrievalDenominator),
+    ratioOrNull(suppressedStaleRefs.length, staleDenominator),
+    ratioOrNull(forgottenRefs.length, forgettingDenominator),
+    provenanceRequired ? (provenanceRefs.length > 0 ? 1 : 0) : undefined,
+    handoffRequired ? (input.observation.handoffPreserved === true ? 1 : 0) : undefined,
+  ]);
+
+  return Object.freeze({
+    caseRef: input.observation.caseRef,
+    kind,
+    answerCorrect: input.observation.answerCorrect,
+    retrievalHitCount: retrievedRelevantRefs.length,
+    retrievalMissCount: missedRelevantRefs.length,
+    staleFactUseCount: usedStaleRefs.length,
+    staleFactSuppressionCount: suppressedStaleRefs.length,
+    forgottenRefCount: forgottenRefs.length,
+    leakedForgottenRefCount: leakedForgottenRefs.length,
+    provenanceRefCount: provenanceRefs.length,
+    ...(input.observation.handoffPreserved === undefined
+      ? {}
+      : { handoffPreserved: input.observation.handoffPreserved }),
+    ...(input.observation.latencyMs === undefined
+      ? {}
+      : { latencyMs: input.observation.latencyMs }),
+    ...(input.observation.tokenCount === undefined
+      ? {}
+      : { tokenCount: input.observation.tokenCount }),
+    memoryQualityScore: average(scoreParts) ?? null,
+    evidenceRefs: input.observation.evidenceRefs,
+  });
+}
+
+function memorySummary(input: {
+  readonly profile: BenchmarkMemoryProfile | undefined;
+  readonly observations: readonly BenchmarkMemoryObservation[];
+}): BenchmarkMemoryReportSummary | undefined {
+  if (input.profile === undefined && input.observations.length === 0) {
+    return undefined;
+  }
+
+  const normalized = input.observations.map((observation) =>
+    normalizedMemoryObservation({ profile: input.profile, observation }),
+  );
+  const plannedCaseCount = input.profile?.cases.length ?? 0;
+  const observedCaseRefs = new Set(input.observations.map((observation) => observation.caseRef));
+  const missingPlannedCases =
+    input.profile?.cases.filter((entry) => !observedCaseRefs.has(entry.id)) ?? [];
+  const answerCorrectCount = normalized.filter((observation) => observation.answerCorrect).length;
+  const retrievalHitCount = normalized.reduce(
+    (total, observation) => total + observation.retrievalHitCount,
+    0,
+  );
+  const retrievalMissCount = normalized.reduce(
+    (total, observation) => total + observation.retrievalMissCount,
+    0,
+  );
+  const staleFactUseCount = normalized.reduce(
+    (total, observation) => total + observation.staleFactUseCount,
+    0,
+  );
+  const staleFactSuppressionCount = normalized.reduce(
+    (total, observation) => total + observation.staleFactSuppressionCount,
+    0,
+  );
+  const forgottenRefCount = normalized.reduce(
+    (total, observation) => total + observation.forgottenRefCount,
+    0,
+  );
+  const leakedForgottenRefCount = normalized.reduce(
+    (total, observation) => total + observation.leakedForgottenRefCount,
+    0,
+  );
+  const provenanceRequiredCount =
+    input.profile?.requireProvenance === true
+      ? normalized.length
+      : normalized.filter((observation) => observation.kind === "provenance").length;
+  const provenanceObservedCount = normalized.filter(
+    (observation) => observation.provenanceRefCount > 0,
+  ).length;
+  const handoffPreservedCount = normalized.filter(
+    (observation) => observation.handoffPreserved === true,
+  ).length;
+  const qualityScores = compactNumbers(
+    normalized.map((observation) => observation.memoryQualityScore),
+  );
+  const totalLatencyValues = normalized
+    .map((observation) => observation.latencyMs)
+    .filter((value): value is number => value !== undefined);
+  const totalTokenValues = normalized
+    .map((observation) => observation.tokenCount)
+    .filter((value): value is number => value !== undefined);
+  const warnings = [
+    ...(missingPlannedCases.length > 0
+      ? [
+          `Missing memory observations for ${missingPlannedCases
+            .map((entry) => entry.id)
+            .join(", ")}.`,
+        ]
+      : []),
+    ...(retrievalMissCount > 0
+      ? [`${retrievalMissCount} relevant memory ref(s) were missed.`]
+      : []),
+    ...(staleFactUseCount > 0 ? [`${staleFactUseCount} stale memory ref(s) were used.`] : []),
+    ...(leakedForgottenRefCount > 0
+      ? [`${leakedForgottenRefCount} forgotten memory ref(s) leaked into output.`]
+      : []),
+    ...(provenanceRequiredCount > provenanceObservedCount
+      ? [
+          `${provenanceRequiredCount - provenanceObservedCount} memory case(s) lacked provenance evidence.`,
+        ]
+      : []),
+  ];
+
+  return Object.freeze({
+    ...(input.profile?.id === undefined ? {} : { profileId: input.profile.id }),
+    plannedCaseCount,
+    observedCaseCount: observedCaseRefs.size,
+    answerCorrectCount,
+    answerCorrectRate: rate(answerCorrectCount, normalized.length),
+    retrievalHitCount,
+    retrievalMissCount,
+    staleFactUseCount,
+    staleFactSuppressionCount,
+    staleFactSuppressionRate: ratioOrNull(
+      staleFactSuppressionCount,
+      staleFactSuppressionCount + staleFactUseCount,
+    ),
+    forgottenRefCount,
+    leakedForgottenRefCount,
+    forgettingComplianceRate: ratioOrNull(
+      forgottenRefCount,
+      forgottenRefCount + leakedForgottenRefCount,
+    ),
+    provenanceObservedCount,
+    provenanceCoverageRate: ratioOrNull(provenanceObservedCount, provenanceRequiredCount),
+    handoffPreservedCount,
+    memoryQualityScore: average(qualityScores) ?? null,
+    ...(totalLatencyValues.length === 0
+      ? {}
+      : { totalLatencyMs: totalLatencyValues.reduce((total, value) => total + value, 0) }),
+    ...(totalTokenValues.length === 0
+      ? {}
+      : { totalTokenCount: totalTokenValues.reduce((total, value) => total + value, 0) }),
+    byCase: Object.freeze(
+      normalized.map((observation) =>
+        Object.freeze({
+          caseRef: observation.caseRef,
+          kind: observation.kind,
+          answerCorrect: observation.answerCorrect,
+          retrievalHitCount: observation.retrievalHitCount,
+          retrievalMissCount: observation.retrievalMissCount,
+          staleFactUseCount: observation.staleFactUseCount,
+          staleFactSuppressionCount: observation.staleFactSuppressionCount,
+          forgottenRefCount: observation.forgottenRefCount,
+          leakedForgottenRefCount: observation.leakedForgottenRefCount,
+          provenanceRefCount: observation.provenanceRefCount,
+          ...(observation.handoffPreserved === undefined
+            ? {}
+            : { handoffPreserved: observation.handoffPreserved }),
+          memoryQualityScore: observation.memoryQualityScore,
         }),
       ),
     ),
@@ -1029,6 +1267,10 @@ function candidateReport(input: {
     profile: input.benchmark.contextualIntegrity,
     observations: contextualIntegrityObservations(input.results),
   });
+  const memory = memorySummary({
+    profile: input.benchmark.memory,
+    observations: memoryObservations(input.results),
+  });
   const passK = passKSummary({ benchmark: input.benchmark, results: input.results });
   const reversibility = reversibilitySummary(input.results);
   const rationale = [
@@ -1074,6 +1316,14 @@ function candidateReport(input: {
           `contextual-integrity score: ${contextualIntegrity.contextualIntegrityScore ?? "missing"}`,
           `privacy leakage rate: ${contextualIntegrity.leakageRate}`,
         ]),
+    ...(memory === undefined
+      ? []
+      : [
+          `memory cases observed: ${memory.observedCaseCount}/${memory.plannedCaseCount}`,
+          `memory quality score: ${memory.memoryQualityScore ?? "missing"}`,
+          `answer correctness rate: ${memory.answerCorrectRate}`,
+          `stale fact use count: ${memory.staleFactUseCount}`,
+        ]),
   ];
 
   return Object.freeze({
@@ -1094,6 +1344,7 @@ function candidateReport(input: {
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
+    ...(memory === undefined ? {} : { memory }),
   });
 }
 
@@ -1190,6 +1441,10 @@ export function createBenchmarkReport(input: {
     profile: input.benchmark.contextualIntegrity,
     observations: contextualIntegrityObservations(input.results),
   });
+  const memory = memorySummary({
+    profile: input.benchmark.memory,
+    observations: memoryObservations(input.results),
+  });
   const reversibility = reversibilitySummary(input.results);
   const faultInjectionEvidenceGap =
     (input.benchmark.faultInjections ?? []).length > 0 &&
@@ -1208,6 +1463,14 @@ export function createBenchmarkReport(input: {
     (contextualIntegrity?.observedCaseCount ?? 0) === 0
       ? [
           "Contextual-integrity cases were configured but no trial observations recorded privacy flow outcomes.",
+        ]
+      : [];
+  const memoryEvidenceGap =
+    input.benchmark.memory !== undefined &&
+    input.benchmark.memory.cases.length > 0 &&
+    (memory?.observedCaseCount ?? 0) === 0
+      ? [
+          "Memory cases were configured but no trial observations recorded memory-operation outcomes.",
         ]
       : [];
   const traceEventCount = input.results.reduce(
@@ -1232,6 +1495,10 @@ export function createBenchmarkReport(input: {
     ): candidate is BenchmarkReportCandidate & {
       contextualIntegrity: ContextualIntegrityReportSummary;
     } => candidate.contextualIntegrity !== undefined,
+  );
+  const memoryCandidates = candidates.filter(
+    (candidate): candidate is BenchmarkReportCandidate & { memory: BenchmarkMemoryReportSummary } =>
+      candidate.memory !== undefined,
   );
 
   return Object.freeze({
@@ -1267,6 +1534,11 @@ export function createBenchmarkReport(input: {
         : [
             `Contextual-integrity profile summarized ${contextualIntegrity.observedCaseCount}/${contextualIntegrity.plannedCaseCount} planned privacy flow case(s).`,
           ]),
+      ...(memory === undefined
+        ? []
+        : [
+            `Memory profile summarized ${memory.observedCaseCount}/${memory.plannedCaseCount} planned memory case(s).`,
+          ]),
       ...(reversibility === undefined
         ? []
         : [`Captured reversibility metadata on ${reversibility.totalEventCount} trace events.`]),
@@ -1276,7 +1548,8 @@ export function createBenchmarkReport(input: {
       insufficientEvidence.length > 0 ||
       faultInjectionEvidenceGap.length > 0 ||
       toolUseEvidenceGap.length > 0 ||
-      contextualIntegrityEvidenceGap.length > 0
+      contextualIntegrityEvidenceGap.length > 0 ||
+      memoryEvidenceGap.length > 0
         ? ["At least one candidate lacks enough evidence for a confident recommendation."]
         : [
             confidence.level === "confident_recommendation"
@@ -1293,6 +1566,9 @@ export function createBenchmarkReport(input: {
               : [
                   "Contextual-integrity privacy evidence is reported separately from final task utility.",
                 ]),
+            ...(memory === undefined
+              ? []
+              : ["Memory-operation quality is reported separately from final answer correctness."]),
             ...(reversibility === undefined
               ? []
               : ["Reversibility metadata is included in the evidence boundary."]),
@@ -1307,6 +1583,9 @@ export function createBenchmarkReport(input: {
         candidate.contextualIntegrity.warnings.map(
           (warning) => `${candidate.candidateId}: ${warning}`,
         ),
+      ),
+      ...memoryCandidates.flatMap((candidate) =>
+        candidate.memory.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
       ),
     ]),
     recommendations: Object.freeze(
@@ -1343,6 +1622,15 @@ export function createBenchmarkReport(input: {
                     : candidate.contextualIntegrity.contextualIntegrityScore
                 }, leakage_rate=${candidate.contextualIntegrity.leakageRate}, required_misses=${candidate.contextualIntegrity.requiredDisclosureMissCount}, prohibited_violations=${candidate.contextualIntegrity.prohibitedDisclosureViolationCount}`,
               ]),
+          ...(candidate.memory === undefined
+            ? []
+            : [
+                `memory_quality_score=${
+                  candidate.memory.memoryQualityScore === null
+                    ? "missing"
+                    : candidate.memory.memoryQualityScore
+                }, answer_correct_rate=${candidate.memory.answerCorrectRate}, retrieval_misses=${candidate.memory.retrievalMissCount}, stale_fact_uses=${candidate.memory.staleFactUseCount}, leaked_forgotten_refs=${candidate.memory.leakedForgottenRefCount}`,
+              ]),
         ];
 
         return [`${candidate.candidateId}: ${candidate.recommendation}`, ...details].join("; ");
@@ -1361,10 +1649,12 @@ export function createBenchmarkReport(input: {
       ...faultInjectionEvidenceGap,
       ...toolUseEvidenceGap,
       ...contextualIntegrityEvidenceGap,
+      ...memoryEvidenceGap,
     ]),
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
+    ...(memory === undefined ? {} : { memory }),
   });
 }
 
@@ -1385,6 +1675,10 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
     ): candidate is BenchmarkReportCandidate & {
       contextualIntegrity: ContextualIntegrityReportSummary;
     } => candidate.contextualIntegrity !== undefined,
+  );
+  const memoryCandidates = report.candidates.filter(
+    (candidate): candidate is BenchmarkReportCandidate & { memory: BenchmarkMemoryReportSummary } =>
+      candidate.memory !== undefined,
   );
   const lines = [
     `# Benchmark Report: ${report.benchmarkId}`,
@@ -1516,6 +1810,27 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
         ...contextualIntegrityWarnings.map((warning) => `- ${warning}`),
         "",
       );
+    }
+  }
+
+  if (memoryCandidates.length > 0) {
+    lines.push(
+      "## Memory",
+      "",
+      "| Candidate | Observed / Planned cases | Answer correct rate | Memory quality | Retrieval misses | Stale fact uses | Forgotten leaks | Provenance coverage | Handoffs preserved |",
+      "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+      ...memoryCandidates.map((candidate) => {
+        const memory = candidate.memory;
+        return `| ${candidate.candidateId} | ${memory.observedCaseCount}/${memory.plannedCaseCount} | ${memory.answerCorrectRate} | ${memory.memoryQualityScore ?? "n/a"} | ${memory.retrievalMissCount} | ${memory.staleFactUseCount} | ${memory.leakedForgottenRefCount} | ${memory.provenanceCoverageRate ?? "n/a"} | ${memory.handoffPreservedCount} |`;
+      }),
+      "",
+    );
+
+    const memoryWarnings = memoryCandidates.flatMap((candidate) =>
+      candidate.memory.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
+    );
+    if (memoryWarnings.length > 0) {
+      lines.push("### Memory Warnings", "", ...memoryWarnings.map((warning) => `- ${warning}`), "");
     }
   }
 
