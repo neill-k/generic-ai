@@ -25,6 +25,9 @@ import type {
   ContextualIntegrityProfile,
   ContextualIntegrityReportSummary,
   ContextualIntegrityTransmissionExpectation,
+  MaintainabilityObservation,
+  MaintainabilityProfile,
+  MaintainabilityReportSummary,
   ToolUseObservation,
   ToolUseReportSummary,
 } from "./types.js";
@@ -164,6 +167,12 @@ function toolUseObservations(
   results: readonly BenchmarkTrialResult[],
 ): readonly ToolUseObservation[] {
   return Object.freeze(results.flatMap((result) => result.toolUse ?? []));
+}
+
+function maintainabilityObservations(
+  results: readonly BenchmarkTrialResult[],
+): readonly MaintainabilityObservation[] {
+  return Object.freeze(results.flatMap((result) => result.maintainability ?? []));
 }
 
 function contextualIntegrityObservations(
@@ -367,6 +376,195 @@ function toolUseSummary(input: {
       ? {}
       : { totalLatencyMs: totalLatencyValues.reduce((total, value) => total + value, 0) }),
     byExpectation: Object.freeze(byExpectation),
+    evidenceRefs: Object.freeze([
+      ...new Set(input.observations.flatMap((observation) => observation.evidenceRefs)),
+    ]),
+    warnings: Object.freeze(warnings),
+  });
+}
+
+function plannedMaintainabilityStep(
+  profile: MaintainabilityProfile | undefined,
+  stepRef: string,
+): MaintainabilityProfile["steps"][number] | undefined {
+  return profile?.steps.find((entry) => entry.id === stepRef);
+}
+
+function maintainabilityCheckPassRate(input: {
+  readonly profile: MaintainabilityProfile | undefined;
+  readonly observation: MaintainabilityObservation;
+}): number | null {
+  const planned = plannedMaintainabilityStep(input.profile, input.observation.stepRef);
+  const expectedChecks = planned?.expectedChecks ?? input.observation.checksRun;
+  if (expectedChecks.length === 0) {
+    return null;
+  }
+
+  const passed = new Set(input.observation.checksPassed);
+  return rate(
+    expectedChecks.filter((check) => passed.has(check)).length,
+    expectedChecks.length,
+  );
+}
+
+function maintainabilityRegressionCount(observation: MaintainabilityObservation): number {
+  return (
+    nonNegativeInteger(observation.newRegressionCount ?? 0) +
+    nonNegativeInteger(observation.publicApiDriftCount ?? 0) +
+    nonNegativeInteger(observation.docsDriftCount ?? 0) +
+    nonNegativeInteger(observation.lintDebtCount ?? 0) +
+    nonNegativeInteger(observation.typeDebtCount ?? 0)
+  );
+}
+
+function normalizedMaintainabilityObservation(input: {
+  readonly profile: MaintainabilityProfile | undefined;
+  readonly observation: MaintainabilityObservation;
+}): {
+  readonly stepRef: string;
+  readonly immediateTaskSatisfied: boolean;
+  readonly checkPassRate: number | null;
+  readonly regressionCount: number;
+  readonly publicApiDriftCount: number;
+  readonly docsDriftCount: number;
+  readonly lintDebtCount: number;
+  readonly typeDebtCount: number;
+  readonly rollbackRequired: boolean;
+  readonly recoverySucceeded: boolean;
+  readonly evidenceRefs: readonly string[];
+} {
+  return Object.freeze({
+    stepRef: input.observation.stepRef,
+    immediateTaskSatisfied: input.observation.immediateTaskSatisfied,
+    checkPassRate: maintainabilityCheckPassRate(input),
+    regressionCount: maintainabilityRegressionCount(input.observation),
+    publicApiDriftCount: nonNegativeInteger(input.observation.publicApiDriftCount ?? 0),
+    docsDriftCount: nonNegativeInteger(input.observation.docsDriftCount ?? 0),
+    lintDebtCount: nonNegativeInteger(input.observation.lintDebtCount ?? 0),
+    typeDebtCount: nonNegativeInteger(input.observation.typeDebtCount ?? 0),
+    rollbackRequired: input.observation.rollbackRequired ?? false,
+    recoverySucceeded: input.observation.recoverySucceeded ?? false,
+    evidenceRefs: input.observation.evidenceRefs,
+  });
+}
+
+function maintainabilityStepScore(input: {
+  readonly immediateTaskSatisfied: boolean;
+  readonly checkPassRate: number | null;
+  readonly regressionCount: number;
+}): number {
+  return (
+    (input.immediateTaskSatisfied ? 1 : 0) +
+    (input.checkPassRate ?? 1) +
+    (input.regressionCount === 0 ? 1 : 0)
+  ) / 3;
+}
+
+function maintainabilitySummary(input: {
+  readonly profile: MaintainabilityProfile | undefined;
+  readonly observations: readonly MaintainabilityObservation[];
+}): MaintainabilityReportSummary | undefined {
+  if (input.profile === undefined && input.observations.length === 0) {
+    return undefined;
+  }
+
+  const normalized = input.observations.map((observation) =>
+    normalizedMaintainabilityObservation({ profile: input.profile, observation }),
+  );
+  const plannedStepCount = input.profile?.steps.length ?? 0;
+  const observedStepRefs = new Set(input.observations.map((observation) => observation.stepRef));
+  const missingPlannedSteps =
+    input.profile?.steps.filter((entry) => !observedStepRefs.has(entry.id)) ?? [];
+  const duplicateStepRefs = [...observedStepRefs].filter(
+    (stepRef) => input.observations.filter((observation) => observation.stepRef === stepRef).length > 1,
+  );
+  const immediateSuccessCount = normalized.filter(
+    (observation) => observation.immediateTaskSatisfied,
+  ).length;
+  const checkPassRates = normalized
+    .map((observation) => observation.checkPassRate)
+    .filter((value): value is number => value !== null);
+  const regressionCount = normalized.reduce(
+    (total, observation) => total + observation.regressionCount,
+    0,
+  );
+  const publicApiDriftCount = normalized.reduce(
+    (total, observation) => total + observation.publicApiDriftCount,
+    0,
+  );
+  const docsDriftCount = normalized.reduce(
+    (total, observation) => total + observation.docsDriftCount,
+    0,
+  );
+  const lintDebtCount = normalized.reduce(
+    (total, observation) => total + observation.lintDebtCount,
+    0,
+  );
+  const typeDebtCount = normalized.reduce(
+    (total, observation) => total + observation.typeDebtCount,
+    0,
+  );
+  const rollbackRequiredCount = normalized.filter(
+    (observation) => observation.rollbackRequired,
+  ).length;
+  const recoverySucceededCount = normalized.filter(
+    (observation) => observation.recoverySucceeded,
+  ).length;
+  const warnings = [
+    ...(missingPlannedSteps.length > 0
+      ? [
+          `Missing maintainability observations for ${missingPlannedSteps
+            .map((entry) => entry.id)
+            .join(", ")}.`,
+        ]
+      : []),
+    ...(duplicateStepRefs.length > 0
+      ? [`Duplicate maintainability observations for ${duplicateStepRefs.join(", ")}.`]
+      : []),
+    ...(regressionCount > 0
+      ? [`${regressionCount} maintainability regression signal(s) recorded.`]
+      : []),
+    ...(rollbackRequiredCount > 0
+      ? [`${rollbackRequiredCount} step(s) required rollback or repair.`]
+      : []),
+  ];
+  const stepScores = normalized.map((observation) => maintainabilityStepScore(observation));
+
+  return Object.freeze({
+    ...(input.profile?.id === undefined ? {} : { profileId: input.profile.id }),
+    plannedStepCount,
+    observedStepCount: observedStepRefs.size,
+    immediateSuccessCount,
+    immediateSuccessRate: rate(immediateSuccessCount, normalized.length),
+    averageCheckPassRate: checkPassRates.length === 0 ? null : average(checkPassRates) ?? null,
+    regressionCount,
+    regressionRate: rate(
+      normalized.filter((observation) => observation.regressionCount > 0).length,
+      normalized.length,
+    ),
+    publicApiDriftCount,
+    docsDriftCount,
+    lintDebtCount,
+    typeDebtCount,
+    rollbackRequiredCount,
+    recoverySucceededCount,
+    maintainabilityScore: stepScores.length === 0 ? null : average(stepScores) ?? null,
+    byStep: Object.freeze(
+      normalized.map((observation) =>
+        Object.freeze({
+          stepRef: observation.stepRef,
+          immediateTaskSatisfied: observation.immediateTaskSatisfied,
+          checkPassRate: observation.checkPassRate,
+          regressionCount: observation.regressionCount,
+          publicApiDriftCount: observation.publicApiDriftCount,
+          docsDriftCount: observation.docsDriftCount,
+          lintDebtCount: observation.lintDebtCount,
+          typeDebtCount: observation.typeDebtCount,
+          rollbackRequired: observation.rollbackRequired,
+          recoverySucceeded: observation.recoverySucceeded,
+        }),
+      ),
+    ),
     evidenceRefs: Object.freeze([
       ...new Set(input.observations.flatMap((observation) => observation.evidenceRefs)),
     ]),
@@ -1025,6 +1223,10 @@ function candidateReport(input: {
     profile: input.benchmark.toolUse,
     observations: toolUseObservations(input.results),
   });
+  const maintainability = maintainabilitySummary({
+    profile: input.benchmark.maintainability,
+    observations: maintainabilityObservations(input.results),
+  });
   const contextualIntegrity = contextualIntegritySummary({
     profile: input.benchmark.contextualIntegrity,
     observations: contextualIntegrityObservations(input.results),
@@ -1067,6 +1269,14 @@ function candidateReport(input: {
           `unnecessary tool calls: ${toolUse.unnecessaryToolCalls}`,
           `tool budget violations: ${toolUse.budgetViolations}`,
         ]),
+    ...(maintainability === undefined
+      ? []
+      : [
+          `maintainability steps observed: ${maintainability.observedStepCount}/${maintainability.plannedStepCount}`,
+          `maintainability score: ${maintainability.maintainabilityScore ?? "missing"}`,
+          `maintainability regression rate: ${maintainability.regressionRate}`,
+          `rollback-required steps: ${maintainability.rollbackRequiredCount}`,
+        ]),
     ...(contextualIntegrity === undefined
       ? []
       : [
@@ -1093,6 +1303,7 @@ function candidateReport(input: {
     rationale: Object.freeze(rationale),
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
+    ...(maintainability === undefined ? {} : { maintainability }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
   });
 }
@@ -1186,6 +1397,10 @@ export function createBenchmarkReport(input: {
     profile: input.benchmark.toolUse,
     observations: toolUseObservations(input.results),
   });
+  const maintainability = maintainabilitySummary({
+    profile: input.benchmark.maintainability,
+    observations: maintainabilityObservations(input.results),
+  });
   const contextualIntegrity = contextualIntegritySummary({
     profile: input.benchmark.contextualIntegrity,
     observations: contextualIntegrityObservations(input.results),
@@ -1201,6 +1416,14 @@ export function createBenchmarkReport(input: {
     input.benchmark.toolUse.cases.length > 0 &&
     (toolUse?.observedCaseCount ?? 0) === 0
       ? ["Tool-use cases were configured but no trial observations recorded tool discipline."]
+      : [];
+  const maintainabilityEvidenceGap =
+    input.benchmark.maintainability !== undefined &&
+    input.benchmark.maintainability.steps.length > 0 &&
+    (maintainability?.observedStepCount ?? 0) === 0
+      ? [
+          "Maintainability steps were configured but no trial observations recorded codebase-evolution outcomes.",
+        ]
       : [];
   const contextualIntegrityEvidenceGap =
     input.benchmark.contextualIntegrity !== undefined &&
@@ -1225,6 +1448,13 @@ export function createBenchmarkReport(input: {
   const toolUseCandidates = candidates.filter(
     (candidate): candidate is BenchmarkReportCandidate & { toolUse: ToolUseReportSummary } =>
       candidate.toolUse !== undefined,
+  );
+  const maintainabilityCandidates = candidates.filter(
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & {
+      maintainability: MaintainabilityReportSummary;
+    } => candidate.maintainability !== undefined,
   );
   const contextualIntegrityCandidates = candidates.filter(
     (
@@ -1262,6 +1492,11 @@ export function createBenchmarkReport(input: {
         : [
             `Tool-use profile summarized ${toolUse.observedCaseCount}/${toolUse.plannedCaseCount} planned cases across ${toolUse.totalToolCalls} tool call(s).`,
           ]),
+      ...(maintainability === undefined
+        ? []
+        : [
+            `Maintainability profile summarized ${maintainability.observedStepCount}/${maintainability.plannedStepCount} planned sequential codebase-evolution step(s).`,
+          ]),
       ...(contextualIntegrity === undefined
         ? []
         : [
@@ -1276,6 +1511,7 @@ export function createBenchmarkReport(input: {
       insufficientEvidence.length > 0 ||
       faultInjectionEvidenceGap.length > 0 ||
       toolUseEvidenceGap.length > 0 ||
+      maintainabilityEvidenceGap.length > 0 ||
       contextualIntegrityEvidenceGap.length > 0
         ? ["At least one candidate lacks enough evidence for a confident recommendation."]
         : [
@@ -1288,6 +1524,11 @@ export function createBenchmarkReport(input: {
             ...(toolUse === undefined
               ? []
               : ["Tool-use efficiency is reported separately from final task correctness."]),
+            ...(maintainability === undefined
+              ? []
+              : [
+                  "Maintainability evidence is reported separately from immediate task success.",
+                ]),
             ...(contextualIntegrity === undefined
               ? []
               : [
@@ -1302,6 +1543,11 @@ export function createBenchmarkReport(input: {
       ),
       ...toolUseCandidates.flatMap((candidate) =>
         candidate.toolUse.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
+      ),
+      ...maintainabilityCandidates.flatMap((candidate) =>
+        candidate.maintainability.warnings.map(
+          (warning) => `${candidate.candidateId}: ${warning}`,
+        ),
       ),
       ...contextualIntegrityCandidates.flatMap((candidate) =>
         candidate.contextualIntegrity.warnings.map(
@@ -1334,6 +1580,15 @@ export function createBenchmarkReport(input: {
                     : candidate.toolUse.efficiencyScore
                 }, unnecessary_tool_calls=${candidate.toolUse.unnecessaryToolCalls}, budget_violations=${candidate.toolUse.budgetViolations}`,
               ]),
+          ...(candidate.maintainability === undefined
+            ? []
+            : [
+                `maintainability_score=${
+                  candidate.maintainability.maintainabilityScore === null
+                    ? "missing"
+                    : candidate.maintainability.maintainabilityScore
+                }, regression_rate=${candidate.maintainability.regressionRate}, rollback_required=${candidate.maintainability.rollbackRequiredCount}`,
+              ]),
           ...(candidate.contextualIntegrity === undefined
             ? []
             : [
@@ -1360,10 +1615,12 @@ export function createBenchmarkReport(input: {
       ...insufficientEvidence,
       ...faultInjectionEvidenceGap,
       ...toolUseEvidenceGap,
+      ...maintainabilityEvidenceGap,
       ...contextualIntegrityEvidenceGap,
     ]),
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
+    ...(maintainability === undefined ? {} : { maintainability }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
   });
 }
@@ -1378,6 +1635,13 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
   const toolUseCandidates = report.candidates.filter(
     (candidate): candidate is BenchmarkReportCandidate & { toolUse: ToolUseReportSummary } =>
       candidate.toolUse !== undefined,
+  );
+  const maintainabilityCandidates = report.candidates.filter(
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & {
+      maintainability: MaintainabilityReportSummary;
+    } => candidate.maintainability !== undefined,
   );
   const contextualIntegrityCandidates = report.candidates.filter(
     (
@@ -1486,6 +1750,34 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
         "### Tool Use Warnings",
         "",
         ...toolUseWarnings.map((warning) => `- ${warning}`),
+        "",
+      );
+    }
+  }
+
+  if (maintainabilityCandidates.length > 0) {
+    lines.push(
+      "## Maintainability",
+      "",
+      "| Candidate | Observed / Planned steps | Immediate success | Check pass rate | Regressions | Regression rate | Rollback required | Recovery succeeded | Score |",
+      "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+      ...maintainabilityCandidates.map((candidate) => {
+        const maintainability = candidate.maintainability;
+        return `| ${candidate.candidateId} | ${maintainability.observedStepCount}/${maintainability.plannedStepCount} | ${maintainability.immediateSuccessRate} | ${maintainability.averageCheckPassRate ?? "n/a"} | ${maintainability.regressionCount} | ${maintainability.regressionRate} | ${maintainability.rollbackRequiredCount} | ${maintainability.recoverySucceededCount} | ${maintainability.maintainabilityScore ?? "n/a"} |`;
+      }),
+      "",
+    );
+
+    const maintainabilityWarnings = maintainabilityCandidates.flatMap((candidate) =>
+      candidate.maintainability.warnings.map(
+        (warning) => `${candidate.candidateId}: ${warning}`,
+      ),
+    );
+    if (maintainabilityWarnings.length > 0) {
+      lines.push(
+        "### Maintainability Warnings",
+        "",
+        ...maintainabilityWarnings.map((warning) => `- ${warning}`),
         "",
       );
     }

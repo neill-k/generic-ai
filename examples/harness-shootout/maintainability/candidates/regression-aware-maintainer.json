@@ -1,0 +1,109 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.maintainability.regression-aware-maintainer",
+  "name": "Regression-Aware Maintainer",
+  "packages": [
+    {
+      "id": "protocol.verifier-loop",
+      "package": "@generic-ai/protocol-verifier-loop",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.terminal",
+      "package": "@generic-ai/plugin-tools-terminal-sandbox",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.maintainability",
+      "package": "@generic-ai/grader-maintainability",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "implementer",
+      "role": "builder",
+      "instructions": "Make the requested code change while preserving the package-boundary and public-contract evidence for later steps.",
+      "packageRefs": [
+        "capability.files",
+        "capability.terminal"
+      ],
+      "artifactRefs": [
+        "artifact.patch-ledger"
+      ]
+    },
+    {
+      "id": "maintainability-verifier",
+      "role": "verifier",
+      "instructions": "Run the configured verification gates after every sequential change and block completion when later-step regression debt appears.",
+      "packageRefs": [
+        "protocol.verifier-loop",
+        "capability.files",
+        "capability.terminal",
+        "grader.maintainability"
+      ],
+      "artifactRefs": [
+        "artifact.maintainability-ledger",
+        "artifact.regression-report"
+      ]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "verifier-loop",
+      "protocol": "verifier-loop",
+      "packageRef": "protocol.verifier-loop",
+      "actorRefs": [
+        "implementer",
+        "maintainability-verifier"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.patch-ledger",
+      "name": "patch-ledger.json",
+      "kind": "metric",
+      "producedBy": [
+        "implementer"
+      ],
+      "reviewedBy": [
+        "maintainability-verifier"
+      ]
+    },
+    {
+      "id": "artifact.maintainability-ledger",
+      "name": "maintainability-ledger.json",
+      "kind": "metric",
+      "producedBy": [
+        "maintainability-verifier"
+      ],
+      "reviewedBy": [
+        "maintainability-verifier"
+      ]
+    },
+    {
+      "id": "artifact.regression-report",
+      "name": "regression-report.md",
+      "kind": "report",
+      "producedBy": [
+        "maintainability-verifier"
+      ],
+      "reviewedBy": [
+        "maintainability-verifier"
+      ]
+    }
+  ],
+  "missionRefs": [
+    "mission.maintainability-sequence"
+  ],
+  "evalRefs": [
+    "benchmark.maintainability.v0"
+  ]
+}

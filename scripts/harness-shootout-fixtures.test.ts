@@ -267,6 +267,59 @@ describe("harness shootout fixtures", () => {
     expect(markdown).toContain("## Contextual Integrity");
   });
 
+  it("reports longitudinal maintainability separately from immediate task success", async () => {
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/maintainability/mission.json",
+    );
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/maintainability/benchmark.json",
+    );
+    const candidatePaths = [
+      "examples/harness-shootout/maintainability/candidates/regression-aware-maintainer.json",
+      "examples/harness-shootout/maintainability/candidates/single-pass-patcher.json",
+    ];
+    const candidates = await Promise.all(candidatePaths.map((path) => readJson<HarnessDsl>(path)));
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/maintainability/trial-results.json",
+    );
+
+    for (const candidate of candidates) {
+      const compiled = compileHarnessDsl(candidate);
+      expect(compiled.diagnostics).toEqual([]);
+      expect(compiled.compiled?.missionRefs).toContain(mission.id);
+      expect(compiled.compiled?.evalRefs).toContain(benchmark.id);
+    }
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-05-02T00:00:00.000Z",
+      results,
+    });
+    const regressionAware = report.candidates.find(
+      (candidate) => candidate.candidateId === "regression-aware-maintainer",
+    );
+    const singlePass = report.candidates.find(
+      (candidate) => candidate.candidateId === "single-pass-patcher",
+    );
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(
+      regressionAware?.scorecard.find((metric) => metric.metricId === "immediate_task_success")
+        ?.value,
+    ).toBe(1);
+    expect(
+      singlePass?.scorecard.find((metric) => metric.metricId === "immediate_task_success")?.value,
+    ).toBe(1);
+    expect(regressionAware?.maintainability?.maintainabilityScore).toBe(1);
+    expect(regressionAware?.maintainability?.regressionCount).toBe(0);
+    expect(singlePass?.maintainability?.maintainabilityScore).toBeCloseTo(2 / 3);
+    expect(singlePass?.maintainability?.regressionCount).toBe(3);
+    expect(singlePass?.maintainability?.rollbackRequiredCount).toBe(1);
+    expect(report.maintainability?.observedStepCount).toBe(3);
+    expect(markdown).toContain("## Maintainability");
+  });
+
   it("compiles the DAG navigation candidate harnesses", async () => {
     const benchmark = await readJson<BenchmarkSpec>(
       "examples/harness-shootout/dag-navigation/benchmark.json",

@@ -1,0 +1,38 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.maintainability-sequence",
+  "objective": "Apply a sequence of small repository changes while preserving package boundaries, public API shape, generated documentation, and the existing verification gates.",
+  "objectiveClass": "coding",
+  "fixtureRefs": [
+    "fixture.maintainability-sequence"
+  ],
+  "reset": {
+    "workspace": "snapshot",
+    "storage": "clean",
+    "messages": "clean",
+    "memory": "clean"
+  },
+  "constraints": [
+    "Do not import plugins into @generic-ai/core.",
+    "Do not change public package exports without matching docs and contract evidence.",
+    "Treat a passing immediate task as incomplete if it introduces later-step lint, type, build, docs, or API drift."
+  ],
+  "successCriteria": {
+    "requiredArtifacts": [
+      "artifact.maintainability-ledger"
+    ]
+  },
+  "expectedArtifacts": [
+    {
+      "id": "artifact.maintainability-ledger",
+      "name": "maintainability-ledger.json",
+      "kind": "metric"
+    },
+    {
+      "id": "artifact.regression-report",
+      "name": "regression-report.md",
+      "kind": "report"
+    }
+  ]
+}

@@ -1,0 +1,229 @@
+[
+  {
+    "candidateId": "regression-aware-maintainer",
+    "harnessId": "harness.maintainability.regression-aware-maintainer:compiled",
+    "trialId": "regression-aware-maintainer:trial-1",
+    "seed": "maintainability-fixture",
+    "metrics": [
+      {
+        "metricId": "maintainability_score",
+        "value": 1,
+        "evidenceRefs": [
+          "artifact.regression-aware-ledger"
+        ]
+      },
+      {
+        "metricId": "immediate_task_success",
+        "value": 1,
+        "evidenceRefs": [
+          "artifact.regression-aware-ledger"
+        ]
+      },
+      {
+        "metricId": "new_regressions",
+        "value": 0,
+        "evidenceRefs": [
+          "artifact.regression-aware-ledger"
+        ]
+      },
+      {
+        "metricId": "rollback_required",
+        "value": 0,
+        "evidenceRefs": [
+          "artifact.regression-aware-ledger"
+        ]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.regression-aware-ledger",
+        "kind": "metric",
+        "uri": "memory:///maintainability/regression-aware-ledger.json",
+        "redaction": "metadata_only",
+        "summary": "All sequential steps preserved expected checks without new regression debt."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 1,
+      "policyDecisionCount": 0,
+      "artifactCount": 1
+    },
+    "maintainability": [
+      {
+        "stepRef": "step.add-contract-field",
+        "immediateTaskSatisfied": true,
+        "checksRun": [
+          "typecheck",
+          "test",
+          "docs",
+          "api"
+        ],
+        "checksPassed": [
+          "typecheck",
+          "test",
+          "docs",
+          "api"
+        ],
+        "evidenceRefs": [
+          "trace.regression-aware.add-contract-field"
+        ]
+      },
+      {
+        "stepRef": "step.update-example",
+        "immediateTaskSatisfied": true,
+        "checksRun": [
+          "lint",
+          "test",
+          "build",
+          "docs"
+        ],
+        "checksPassed": [
+          "lint",
+          "test",
+          "build",
+          "docs"
+        ],
+        "evidenceRefs": [
+          "trace.regression-aware.update-example"
+        ]
+      },
+      {
+        "stepRef": "step.cleanup-regression",
+        "immediateTaskSatisfied": true,
+        "checksRun": [
+          "typecheck",
+          "lint",
+          "test",
+          "docs"
+        ],
+        "checksPassed": [
+          "typecheck",
+          "lint",
+          "test",
+          "docs"
+        ],
+        "evidenceRefs": [
+          "trace.regression-aware.cleanup-regression"
+        ]
+      }
+    ]
+  },
+  {
+    "candidateId": "single-pass-patcher",
+    "harnessId": "harness.maintainability.single-pass-patcher:compiled",
+    "trialId": "single-pass-patcher:trial-1",
+    "seed": "maintainability-fixture",
+    "metrics": [
+      {
+        "metricId": "maintainability_score",
+        "value": 0.6666666666666666,
+        "evidenceRefs": [
+          "artifact.single-pass-ledger"
+        ]
+      },
+      {
+        "metricId": "immediate_task_success",
+        "value": 1,
+        "evidenceRefs": [
+          "artifact.single-pass-ledger"
+        ]
+      },
+      {
+        "metricId": "new_regressions",
+        "value": 3,
+        "evidenceRefs": [
+          "artifact.single-pass-ledger"
+        ]
+      },
+      {
+        "metricId": "rollback_required",
+        "value": 1,
+        "evidenceRefs": [
+          "artifact.single-pass-ledger"
+        ]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.single-pass-ledger",
+        "kind": "metric",
+        "uri": "memory:///maintainability/single-pass-ledger.json",
+        "redaction": "metadata_only",
+        "summary": "Immediate steps completed, but later checks exposed docs, type, and API drift."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 1
+    },
+    "maintainability": [
+      {
+        "stepRef": "step.add-contract-field",
+        "immediateTaskSatisfied": true,
+        "checksRun": [
+          "typecheck",
+          "test",
+          "docs",
+          "api"
+        ],
+        "checksPassed": [
+          "typecheck",
+          "test",
+          "docs",
+          "api"
+        ],
+        "evidenceRefs": [
+          "trace.single-pass.add-contract-field"
+        ]
+      },
+      {
+        "stepRef": "step.update-example",
+        "immediateTaskSatisfied": true,
+        "checksRun": [
+          "lint",
+          "test",
+          "build",
+          "docs"
+        ],
+        "checksPassed": [
+          "lint",
+          "test"
+        ],
+        "docsDriftCount": 1,
+        "rollbackRequired": true,
+        "recoverySucceeded": false,
+        "evidenceRefs": [
+          "trace.single-pass.update-example"
+        ]
+      },
+      {
+        "stepRef": "step.cleanup-regression",
+        "immediateTaskSatisfied": true,
+        "checksRun": [
+          "typecheck",
+          "lint",
+          "test",
+          "docs"
+        ],
+        "checksPassed": [
+          "lint",
+          "test"
+        ],
+        "publicApiDriftCount": 1,
+        "typeDebtCount": 1,
+        "evidenceRefs": [
+          "trace.single-pass.cleanup-regression"
+        ]
+      }
+    ]
+  }
+]

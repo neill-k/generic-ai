@@ -128,6 +128,14 @@ export type FaultInjectionTiming =
   | "state_read"
   | "state_write";
 export type BenchmarkToolUseExpectation = "required" | "optional" | "wasteful";
+export type MaintainabilityCheckKind =
+  | "typecheck"
+  | "lint"
+  | "test"
+  | "build"
+  | "docs"
+  | "api"
+  | "custom";
 export type ContextualIntegrityTransmissionExpectation =
   | "required"
   | "permitted"
@@ -709,6 +717,7 @@ export interface BenchmarkSpec {
   readonly guardrailMetrics?: readonly string[];
   readonly faultInjections?: readonly FaultInjectionSpec[];
   readonly toolUse?: BenchmarkToolUseProfile;
+  readonly maintainability?: MaintainabilityProfile;
   readonly contextualIntegrity?: ContextualIntegrityProfile;
   readonly trials?: {
     /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
@@ -866,6 +875,70 @@ export interface ToolUseReportSummary {
   readonly totalCostUsd?: number;
   readonly totalLatencyMs?: number;
   readonly byExpectation: readonly ToolUseExpectationSummary[];
+  readonly evidenceRefs: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export interface MaintainabilityStepSpec {
+  readonly id: string;
+  readonly taskRef: string;
+  readonly description?: string;
+  readonly resetRef?: string;
+  readonly expectedChecks?: readonly MaintainabilityCheckKind[];
+  readonly metadata?: JsonObject;
+}
+
+export interface MaintainabilityProfile {
+  readonly id?: string;
+  readonly steps: readonly MaintainabilityStepSpec[];
+}
+
+export interface MaintainabilityObservation {
+  readonly stepRef: string;
+  readonly immediateTaskSatisfied: boolean;
+  readonly checksRun: readonly MaintainabilityCheckKind[];
+  readonly checksPassed: readonly MaintainabilityCheckKind[];
+  readonly newRegressionCount?: number;
+  readonly publicApiDriftCount?: number;
+  readonly docsDriftCount?: number;
+  readonly lintDebtCount?: number;
+  readonly typeDebtCount?: number;
+  readonly rollbackRequired?: boolean;
+  readonly recoverySucceeded?: boolean;
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface MaintainabilityStepSummary {
+  readonly stepRef: string;
+  readonly immediateTaskSatisfied: boolean;
+  readonly checkPassRate: number | null;
+  readonly regressionCount: number;
+  readonly publicApiDriftCount: number;
+  readonly docsDriftCount: number;
+  readonly lintDebtCount: number;
+  readonly typeDebtCount: number;
+  readonly rollbackRequired: boolean;
+  readonly recoverySucceeded: boolean;
+}
+
+export interface MaintainabilityReportSummary {
+  readonly profileId?: string;
+  readonly plannedStepCount: number;
+  readonly observedStepCount: number;
+  readonly immediateSuccessCount: number;
+  readonly immediateSuccessRate: number;
+  readonly averageCheckPassRate: number | null;
+  readonly regressionCount: number;
+  readonly regressionRate: number;
+  readonly publicApiDriftCount: number;
+  readonly docsDriftCount: number;
+  readonly lintDebtCount: number;
+  readonly typeDebtCount: number;
+  readonly rollbackRequiredCount: number;
+  readonly recoverySucceededCount: number;
+  readonly maintainabilityScore: number | null;
+  readonly byStep: readonly MaintainabilityStepSummary[];
   readonly evidenceRefs: readonly string[];
   readonly warnings: readonly string[];
 }
@@ -1083,6 +1156,7 @@ export interface BenchmarkTrialResult {
   readonly diagnostics: TraceDiagnostics;
   readonly faultInjections?: readonly FaultInjectionObservation[];
   readonly toolUse?: readonly ToolUseObservation[];
+  readonly maintainability?: readonly MaintainabilityObservation[];
   readonly contextualIntegrity?: readonly ContextualIntegrityObservation[];
 }
 
@@ -1163,6 +1237,7 @@ export interface BenchmarkReportCandidate {
   readonly rationale: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
+  readonly maintainability?: MaintainabilityReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
 }
 
@@ -1188,6 +1263,7 @@ export interface BenchmarkReport {
   readonly insufficientEvidence: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
+  readonly maintainability?: MaintainabilityReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
 }
 

@@ -1,0 +1,48 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.maintainability.single-pass-patcher",
+  "name": "Single-Pass Patcher",
+  "packages": [
+    {
+      "id": "capability.files",
+      "package": "@generic-ai/plugin-tools-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.terminal",
+      "package": "@generic-ai/plugin-tools-terminal-sandbox",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "patcher",
+      "role": "builder",
+      "instructions": "Complete each immediate request with a local patch and defer broader verification until the end of the sequence.",
+      "packageRefs": [
+        "capability.files",
+        "capability.terminal"
+      ],
+      "artifactRefs": [
+        "artifact.patch-ledger"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.patch-ledger",
+      "name": "patch-ledger.json",
+      "kind": "metric",
+      "producedBy": [
+        "patcher"
+      ]
+    }
+  ],
+  "missionRefs": [
+    "mission.maintainability-sequence"
+  ],
+  "evalRefs": [
+    "benchmark.maintainability.v0"
+  ]
+}
