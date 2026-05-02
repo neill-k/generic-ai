@@ -134,6 +134,31 @@ Policy plugins, identity plugins, approval flows, and storage adapters may
 enforce or enrich the profile later, but the SDK report layer only records and
 summarizes evidence that a benchmark run supplied.
 
+## MCP Trust And Attack Profiles
+
+`BenchmarkSpec.mcpTrust` describes MCP tool-ecosystem trust as a benchmark
+profile. A profile declares MCP servers, server trust levels, tool authority
+claims, and adversarial cases. The standard trust vocabulary is `local`,
+`workspace`, `remote-authenticated`, `remote-untrusted`, and `generated`.
+
+Cases name an MCP attack class such as tool poisoning, indirect prompt
+injection, schema deception, unexpected side effects, privilege escalation, name
+collision, mixed attacks, or custom attacks. Each case declares the expected
+outcome: `blocked`, `warned`, `allowed`, or `insufficient_evidence`.
+
+Trial results can attach `mcpTrust` observations with the observed outcome,
+unsafe-call flags, unsafe-execution flags, warning status, policy decision
+references, and evidence references. The SDK report helper aggregates those
+observations into blocked, warned, allowed, insufficient-evidence, unsafe-call,
+unsafe-execution, warning, and resilience counts. This keeps MCP safety evidence
+separate from final task utility and from generic tool-use discipline.
+
+This is a benchmark/profile contract, not a full MCP security platform.
+`@generic-ai/plugin-mcp`, policy packages, and governance plugins may enforce
+server registration, token handling, approval, and invocation policy later. The
+SDK report layer only records and summarizes evidence supplied by a benchmark
+run.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a

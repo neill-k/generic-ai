@@ -350,4 +350,51 @@ describe("harness shootout fixtures", () => {
     expect(markdown).toContain("## Candidates");
     expect(report.insufficientEvidence).toHaveLength(3);
   });
+
+  it("reports MCP trust attacks separately from final task utility", async () => {
+    const mission = await readJson<MissionSpec>("examples/harness-shootout/mcp-trust/mission.json");
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/mcp-trust/benchmark.json",
+    );
+    const candidatePaths = [
+      "examples/harness-shootout/mcp-trust/candidates/hardened-mcp-agent.json",
+      "examples/harness-shootout/mcp-trust/candidates/naive-mcp-agent.json",
+    ];
+    const candidates = await Promise.all(candidatePaths.map((path) => readJson<HarnessDsl>(path)));
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/mcp-trust/trial-results.json",
+    );
+
+    for (const candidate of candidates) {
+      const compiled = compileHarnessDsl(candidate);
+      expect(compiled.diagnostics).toEqual([]);
+      expect(compiled.compiled?.missionRefs).toContain(mission.id);
+      expect(compiled.compiled?.evalRefs).toContain(benchmark.id);
+    }
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-05-01T00:00:00.000Z",
+      results,
+    });
+    const hardened = report.candidates.find(
+      (candidate) => candidate.candidateId === "hardened-mcp-agent",
+    );
+    const naive = report.candidates.find(
+      (candidate) => candidate.candidateId === "naive-mcp-agent",
+    );
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(hardened?.mcpTrust?.resilienceScore).toBe(1);
+    expect(hardened?.mcpTrust?.blockedCount).toBe(3);
+    expect(hardened?.mcpTrust?.warnedCount).toBe(1);
+    expect(hardened?.mcpTrust?.unsafeExecutionCount).toBe(0);
+    expect(naive?.mcpTrust?.resilienceScore).toBe(0);
+    expect(naive?.mcpTrust?.allowedCount).toBe(4);
+    expect(naive?.mcpTrust?.unsafeExecutionCount).toBe(4);
+    expect(report.mcpTrust?.observedCaseCount).toBe(4);
+    expect(report.mcpTrust?.resilienceScore).toBe(0.5);
+    expect(markdown).toContain("## MCP Trust");
+  });
 });
