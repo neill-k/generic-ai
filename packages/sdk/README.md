@@ -23,6 +23,9 @@ Current SDK contents:
   post-tool, and stop decisions
 - Repeated-run reliability profile contracts for pass@k, consistency, retry,
   skipped/excluded-trial, perturbation, and bounded failure-severity reporting
+- Structured tool-error recovery contracts for retryable, user-actionable,
+  policy-blocked, timeout, and budget-exhausted tool attempts in benchmark
+  evidence
 - Agent execution config for the default stop-tool loop and the
   `single-turn` opt-out used when a caller truly wants one provider turn. When
   `maxTurns` is omitted, stop-tool loop execution is unbounded by default.
@@ -48,6 +51,9 @@ The SDK defines the contract families planned in
   reporting on package-composed agent systems
 - fault-injection benchmark contracts for degraded tool, retrieval, memory,
   web, MCP, messaging, and storage boundaries
+- tool-recovery benchmark contracts and helpers for normalized error envelopes,
+  timeout budgets, remediation hints, and failed/skipped/retried/policy-blocked
+  attempt summaries
 - composable agent harness contracts for adapters, role policy profiles,
   effect-described tools, artifact stores, and canonical harness events
 

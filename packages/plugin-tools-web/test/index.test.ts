@@ -7,6 +7,7 @@ import { getAgentHarnessToolEffects } from "@generic-ai/sdk";
 
 import {
   createWebToolsPlugin,
+  WebToolError,
   type WebAddressResolver,
   type WebResolvedAddress,
   type WebToolsOptions,
@@ -344,11 +345,23 @@ describe("@generic-ai/plugin-tools-web", () => {
           }),
       });
 
-      await expect(
-        plugin.fetch({
+      try {
+        await plugin.fetch({
           url: "https://example.com/missing",
-        }),
-      ).rejects.toThrow(/status 404 not found\. response: not found/i);
+        });
+        throw new Error("Expected web fetch to fail.");
+      } catch (error) {
+        expect(error).toBeInstanceOf(WebToolError);
+        if (!(error instanceof WebToolError)) {
+          throw error;
+        }
+        expect(error.message).toMatch(/status 404 not found\. response: not found/i);
+        expect(error.envelope).toMatchObject({
+          kind: "not_found",
+          retryable: false,
+          userActionable: false,
+        });
+      }
     });
   });
 
@@ -442,12 +455,28 @@ describe("@generic-ai/plugin-tools-web", () => {
           }),
       });
 
-      await expect(
-        plugin.fetch({
+      try {
+        await plugin.fetch({
           url: "https://example.com/slow",
           timeoutMs: 10,
-        }),
-      ).rejects.toThrow(/timed out/i);
+        });
+        throw new Error("Expected web fetch to time out.");
+      } catch (error) {
+        expect(error).toBeInstanceOf(WebToolError);
+        if (!(error instanceof WebToolError)) {
+          throw error;
+        }
+        expect(error.message).toMatch(/timed out/i);
+        expect(error.envelope).toMatchObject({
+          kind: "timeout",
+          retryable: true,
+          timeoutBudget: {
+            totalMs: 10,
+            remainingMs: 0,
+            exhausted: true,
+          },
+        });
+      }
     });
   });
 

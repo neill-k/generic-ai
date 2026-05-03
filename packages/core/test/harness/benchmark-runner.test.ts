@@ -241,6 +241,16 @@ describe("runHarnessBenchmark", () => {
     expect(trial.metrics.find((metric) => metric.metricId === "task_success")?.value).toBe(0);
     expect(trial.metrics.find((metric) => metric.metricId === "tests_passed")?.value).toBe(0);
     expect(trial.traceEvents.some((event) => event.type === "diagnostic")).toBe(true);
+    expect(trial.toolRecovery?.[0]).toMatchObject({
+      caseRef: "runtime.run",
+      toolRef: "runtime.adapter",
+      status: "failed",
+      error: {
+        kind: "upstream_unavailable",
+        safeMessage: "Runtime failed: provider unavailable",
+      },
+    });
+    expect(result.report.toolRecovery?.failedAttemptCount).toBe(1);
     expect(trial.artifacts[0]?.summary).toContain("provider unavailable");
     expect(result.report.evidence.metricCount).toBeGreaterThan(0);
   });
