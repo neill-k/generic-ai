@@ -875,6 +875,273 @@ describe("Benchmark reports", () => {
     });
   });
 
+  it("reports multi-agent memory consistency separately from final correctness", () => {
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        candidates: [
+          {
+            id: "consistent-team",
+            harnessRef: "harness.consistent-team",
+          },
+          {
+            id: "stale-team",
+            harnessRef: "harness.stale-team",
+          },
+        ],
+        primaryMetric: "memory_consistency_score",
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+        guardrailMetrics: [
+          "task_success",
+          "stale_read_rate",
+          "unresolved_memory_conflicts",
+          "handoff_drift_count",
+          "provenance_gap_count",
+        ],
+        memoryConsistency: {
+          id: "team-memory-consistency-v0",
+          namespaces: [
+            {
+              id: "team-shared",
+              visibility: "shared",
+              readerAgentRefs: ["planner", "worker", "reviewer"],
+              writerAgentRefs: ["planner", "worker"],
+              guarantees: ["compare_and_swap", "monotonic_read", "namespace_acl"],
+            },
+          ],
+          guarantees: [
+            "compare_and_swap",
+            "monotonic_read",
+            "idempotent_projection",
+            "namespace_acl",
+            "supersession",
+          ],
+          cases: [
+            {
+              id: "concurrent-preference-write",
+              taskRef: "task.shared-preferences",
+              kind: "concurrent_write",
+              namespaceRef: "team-shared",
+              expectedGuarantees: ["compare_and_swap"],
+              expectedOutcome: "detect_conflict",
+            },
+            {
+              id: "worker-handoff",
+              taskRef: "task.worker-handoff",
+              kind: "child_agent_handoff",
+              namespaceRef: "team-shared",
+              expectedGuarantees: ["monotonic_read"],
+              expectedOutcome: "preserve_handoff",
+            },
+            {
+              id: "message-projection-idempotency",
+              taskRef: "task.project-message",
+              kind: "message_projection",
+              namespaceRef: "team-shared",
+              expectedGuarantees: ["idempotent_projection"],
+              expectedOutcome: "consistent",
+            },
+            {
+              id: "restricted-namespace-denial",
+              taskRef: "task.restricted-note",
+              kind: "acl_denial",
+              namespaceRef: "team-shared",
+              expectedGuarantees: ["namespace_acl"],
+              expectedOutcome: "deny_write",
+            },
+          ],
+        },
+      },
+      mission,
+      generatedAt: "2026-05-03T00:00:00.000Z",
+      results: [
+        {
+          ...trialResult(
+            "consistent-team",
+            "harness.consistent-team:compiled",
+            "memory_consistency_score",
+            1,
+          ),
+          metrics: [
+            {
+              metricId: "memory_consistency_score",
+              value: 1,
+              evidenceRefs: ["artifact.consistent-summary"],
+            },
+            {
+              metricId: "task_success",
+              value: 1,
+              evidenceRefs: ["artifact.consistent-summary"],
+            },
+            {
+              metricId: "stale_read_rate",
+              value: 0,
+              evidenceRefs: ["artifact.consistent-summary"],
+            },
+            {
+              metricId: "unresolved_memory_conflicts",
+              value: 0,
+              evidenceRefs: ["artifact.consistent-summary"],
+            },
+            {
+              metricId: "handoff_drift_count",
+              value: 0,
+              evidenceRefs: ["artifact.consistent-summary"],
+            },
+            {
+              metricId: "provenance_gap_count",
+              value: 0,
+              evidenceRefs: ["artifact.consistent-summary"],
+            },
+          ],
+          memoryConsistency: [
+            {
+              caseRef: "concurrent-preference-write",
+              operations: [
+                {
+                  id: "op.consistent.write-a",
+                  kind: "write",
+                  agentRef: "planner",
+                  namespaceRef: "team-shared",
+                  version: "v1",
+                  provenanceRefs: ["message.planner.preference"],
+                  conflictStatus: "detected",
+                },
+                {
+                  id: "op.consistent.reconcile",
+                  kind: "reconcile",
+                  agentRef: "reviewer",
+                  namespaceRef: "team-shared",
+                  version: "v2",
+                  causalParentRefs: ["op.consistent.write-a"],
+                  provenanceRefs: ["message.reviewer.resolution"],
+                  conflictStatus: "resolved",
+                },
+              ],
+              conflictDetected: true,
+              conflictResolved: true,
+              provenanceComplete: true,
+              consistencySatisfied: true,
+              evidenceRefs: ["trace.consistent.conflict"],
+            },
+            {
+              caseRef: "worker-handoff",
+              handoffPreserved: true,
+              provenanceComplete: true,
+              consistencySatisfied: true,
+              evidenceRefs: ["trace.consistent.handoff"],
+            },
+            {
+              caseRef: "message-projection-idempotency",
+              projectionIdempotent: true,
+              provenanceComplete: true,
+              consistencySatisfied: true,
+              evidenceRefs: ["trace.consistent.projection"],
+            },
+            {
+              caseRef: "restricted-namespace-denial",
+              aclEnforced: true,
+              consistencySatisfied: true,
+              evidenceRefs: ["trace.consistent.acl"],
+            },
+          ],
+        },
+        {
+          ...trialResult(
+            "stale-team",
+            "harness.stale-team:compiled",
+            "memory_consistency_score",
+            0.25,
+          ),
+          metrics: [
+            {
+              metricId: "memory_consistency_score",
+              value: 0.25,
+              evidenceRefs: ["artifact.stale-summary"],
+            },
+            {
+              metricId: "task_success",
+              value: 1,
+              evidenceRefs: ["artifact.stale-summary"],
+            },
+            {
+              metricId: "stale_read_rate",
+              value: 1,
+              evidenceRefs: ["artifact.stale-summary"],
+            },
+            {
+              metricId: "unresolved_memory_conflicts",
+              value: 1,
+              evidenceRefs: ["artifact.stale-summary"],
+            },
+            {
+              metricId: "handoff_drift_count",
+              value: 1,
+              evidenceRefs: ["artifact.stale-summary"],
+            },
+            {
+              metricId: "provenance_gap_count",
+              value: 1,
+              evidenceRefs: ["artifact.stale-summary"],
+            },
+          ],
+          memoryConsistency: [
+            {
+              caseRef: "concurrent-preference-write",
+              conflictDetected: true,
+              conflictResolved: false,
+              provenanceComplete: false,
+              consistencySatisfied: false,
+              evidenceRefs: ["trace.stale.conflict"],
+            },
+            {
+              caseRef: "worker-handoff",
+              staleReadDetected: true,
+              handoffPreserved: false,
+              provenanceComplete: false,
+              consistencySatisfied: false,
+              evidenceRefs: ["trace.stale.handoff"],
+            },
+            {
+              caseRef: "message-projection-idempotency",
+              projectionIdempotent: false,
+              consistencySatisfied: false,
+              evidenceRefs: ["trace.stale.projection"],
+            },
+            {
+              caseRef: "restricted-namespace-denial",
+              aclEnforced: true,
+              consistencySatisfied: true,
+              evidenceRefs: ["trace.stale.acl"],
+            },
+          ],
+        },
+      ],
+    });
+
+    const consistent = report.candidates.find(
+      (candidate) => candidate.candidateId === "consistent-team",
+    );
+    const stale = report.candidates.find((candidate) => candidate.candidateId === "stale-team");
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(consistent?.memoryConsistency?.consistencyScore).toBe(1);
+    expect(stale?.memoryConsistency?.consistencyScore).toBe(0.25);
+    expect(stale?.memoryConsistency?.staleReadCount).toBe(1);
+    expect(stale?.memoryConsistency?.unresolvedConflictCount).toBe(1);
+    expect(stale?.memoryConsistency?.handoffDriftCount).toBe(1);
+    expect(stale?.memoryConsistency?.duplicateProjectionCount).toBe(1);
+    expect(stale?.memoryConsistency?.provenanceGapCount).toBe(2);
+    expect(report.memoryConsistency?.observedCaseCount).toBe(4);
+    expect(report.recommendations[1]).toContain("memory_consistency_score=0.25");
+    expect(report.inferences).toContain(
+      "Memory-consistency evidence is reported separately from final task correctness.",
+    );
+    expect(markdown).toContain("## Memory Consistency");
+  });
+
   it("aggregates fault-injection containment evidence into reports", () => {
     const report = createBenchmarkReport({
       benchmark: {

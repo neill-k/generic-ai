@@ -1,0 +1,36 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.memory-consistency",
+  "objective": "Coordinate a planner, worker, and reviewer over shared workspace memory while preserving write provenance, handoff state, ACL boundaries, and conflict resolution.",
+  "tasks": [
+    {
+      "id": "task.shared-preferences",
+      "description": "Two agents update the user's deployment preference from different messages; the final memory state must expose the conflict and resolution path."
+    },
+    {
+      "id": "task.worker-handoff",
+      "description": "A child worker writes a task constraint that the reviewer must read without falling back to stale parent context."
+    },
+    {
+      "id": "task.project-message",
+      "description": "A message projection should be idempotent so retries do not create duplicate memory facts."
+    },
+    {
+      "id": "task.restricted-note",
+      "description": "A private reviewer note must not be published into the shared namespace."
+    }
+  ],
+  "fixtures": {
+    "memory": "clean",
+    "workspace": "clean"
+  },
+  "successCriteria": [
+    "The final answer uses the resolved deployment preference.",
+    "The reviewer preserves the child worker's handoff constraint.",
+    "Message projection retries are deduplicated by projection id.",
+    "Restricted notes remain outside the shared namespace.",
+    "Every claim cites the memory operation or source message that supports it."
+  ]
+}
+

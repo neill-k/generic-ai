@@ -1,0 +1,168 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.memory-consistency.v0",
+  "missionRef": "mission.memory-consistency",
+  "hypothesis": "A harness that models memory consistency explicitly can keep multi-agent shared memory explainable even when final task success is otherwise similar.",
+  "candidates": [
+    {
+      "id": "consistency-aware-team",
+      "harnessRef": "harness.memory-consistency.consistency-aware-team"
+    },
+    {
+      "id": "eventual-memory-team",
+      "harnessRef": "harness.memory-consistency.eventual-memory-team"
+    }
+  ],
+  "primaryMetric": "memory_consistency_score",
+  "metricDefinitions": [
+    {
+      "id": "memory_consistency_score",
+      "name": "Memory consistency score",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "report",
+      "description": "Share of observed memory consistency cases that satisfied the configured outcome."
+    },
+    {
+      "id": "task_success",
+      "name": "Task success",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "grader",
+      "description": "Whether the final response answered the mission task."
+    },
+    {
+      "id": "stale_read_rate",
+      "name": "Stale read rate",
+      "unit": "ratio",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "Share of observed cases with stale memory reads."
+    },
+    {
+      "id": "unresolved_memory_conflicts",
+      "name": "Unresolved memory conflicts",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "Detected memory write conflicts that were not resolved before finalization."
+    },
+    {
+      "id": "handoff_drift_count",
+      "name": "Handoff drift count",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "Child-agent memory handoffs that were not preserved in later reads."
+    },
+    {
+      "id": "provenance_gap_count",
+      "name": "Provenance gap count",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "report",
+      "description": "Observed memory cases lacking complete source or operation provenance."
+    }
+  ],
+  "guardrailMetrics": [
+    "task_success",
+    "stale_read_rate",
+    "unresolved_memory_conflicts",
+    "handoff_drift_count",
+    "provenance_gap_count"
+  ],
+  "memoryConsistency": {
+    "id": "team-memory-consistency-v0",
+    "namespaces": [
+      {
+        "id": "team-shared",
+        "visibility": "shared",
+        "readerAgentRefs": ["planner", "worker", "reviewer"],
+        "writerAgentRefs": ["planner", "worker"],
+        "guarantees": [
+          "compare_and_swap",
+          "monotonic_read",
+          "idempotent_projection",
+          "namespace_acl",
+          "supersession"
+        ]
+      },
+      {
+        "id": "reviewer-private",
+        "visibility": "private",
+        "ownerAgentRef": "reviewer",
+        "readerAgentRefs": ["reviewer"],
+        "writerAgentRefs": ["reviewer"],
+        "guarantees": ["namespace_acl", "tombstone"]
+      }
+    ],
+    "guarantees": [
+      "compare_and_swap",
+      "monotonic_read",
+      "idempotent_projection",
+      "namespace_acl",
+      "supersession"
+    ],
+    "cases": [
+      {
+        "id": "concurrent-preference-write",
+        "taskRef": "task.shared-preferences",
+        "kind": "concurrent_write",
+        "namespaceRef": "team-shared",
+        "writerAgentRefs": ["planner", "worker"],
+        "readerAgentRefs": ["reviewer"],
+        "expectedGuarantees": ["compare_and_swap"],
+        "expectedOutcome": "detect_conflict",
+        "rationale": "Conflicting preference writes must be surfaced rather than silently overwritten."
+      },
+      {
+        "id": "worker-handoff",
+        "taskRef": "task.worker-handoff",
+        "kind": "child_agent_handoff",
+        "namespaceRef": "team-shared",
+        "writerAgentRefs": ["worker"],
+        "readerAgentRefs": ["reviewer"],
+        "expectedGuarantees": ["monotonic_read"],
+        "expectedOutcome": "preserve_handoff",
+        "rationale": "The reviewer should see the worker's newer constraint instead of stale parent context."
+      },
+      {
+        "id": "message-projection-idempotency",
+        "taskRef": "task.project-message",
+        "kind": "message_projection",
+        "namespaceRef": "team-shared",
+        "writerAgentRefs": ["planner"],
+        "readerAgentRefs": ["reviewer"],
+        "expectedGuarantees": ["idempotent_projection"],
+        "expectedOutcome": "consistent",
+        "rationale": "Retrying message projection should not duplicate the same fact."
+      },
+      {
+        "id": "restricted-namespace-denial",
+        "taskRef": "task.restricted-note",
+        "kind": "acl_denial",
+        "namespaceRef": "reviewer-private",
+        "writerAgentRefs": ["reviewer"],
+        "readerAgentRefs": ["planner", "worker"],
+        "expectedGuarantees": ["namespace_acl"],
+        "expectedOutcome": "deny_write",
+        "rationale": "A private reviewer note must not leak into shared memory."
+      }
+    ]
+  },
+  "trials": {
+    "count": 1,
+    "pairing": "paired",
+    "seed": "memory-consistency-fixture"
+  },
+  "validity": {
+    "minimumTrialsForRecommendation": 1,
+    "allowSingleRunRecommendation": true
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}
+

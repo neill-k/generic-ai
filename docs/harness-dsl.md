@@ -156,6 +156,30 @@ uses hand-authored fixture sources so CI remains reproducible and licensing
 clear. Live Chinese web/search runs should be provider-gated and need
 same-profile before/after evidence before anyone claims external score movement.
 
+## Memory Consistency Benchmarks
+
+`BenchmarkSpec.memoryConsistency` describes multi-agent memory consistency
+without making memory behavior a kernel responsibility. A profile can declare
+private and shared namespaces, supported consistency guarantees, and cases for
+concurrent writes, stale reads, child-agent handoffs, message projection,
+summary writes, ACL denial, and supersession propagation.
+
+Trial results can attach `memoryConsistency` observations with optional
+operation envelopes. Operation envelopes carry agent, namespace, version,
+causal parent, projection id, provenance refs, ACL decision, and conflict
+status metadata so a report can distinguish a useful final answer from a
+replayable and explainable shared-memory run. The SDK report helper aggregates
+those observations into consistency score, stale-read count, conflict count,
+unresolved conflicts, handoff drift, duplicate projection, ACL violation, and
+provenance-gap counts.
+
+This is a benchmark/report contract, not distributed-memory enforcement. Memory
+plugins may implement stronger guarantees later, but the SDK only summarizes the
+evidence supplied by a run. The deterministic fixture at
+`examples/harness-shootout/memory-consistency/` keeps the claim bounded to
+evidence infrastructure until a same-profile external memory benchmark measures
+score movement.
+
 ## Authority Boundary
 
 Policy is an SDK contract plus plugin/runtime enforcement surface, not a

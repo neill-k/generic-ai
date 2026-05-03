@@ -719,6 +719,7 @@ export interface BenchmarkSpec {
   readonly toolUse?: BenchmarkToolUseProfile;
   readonly contextualIntegrity?: ContextualIntegrityProfile;
   readonly webResearch?: WebResearchProfile;
+  readonly memoryConsistency?: MemoryConsistencyProfile;
   readonly trials?: {
     /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
     readonly count?: number;
@@ -1055,6 +1056,147 @@ export interface WebResearchReportSummary {
   readonly warnings: readonly string[];
 }
 
+export type MemoryConsistencyVisibility = "private" | "shared";
+
+export type MemoryConsistencyGuarantee =
+  | "append_only"
+  | "last_writer_wins"
+  | "compare_and_swap"
+  | "snapshot"
+  | "monotonic_read"
+  | "idempotent_projection"
+  | "namespace_acl"
+  | "supersession"
+  | "tombstone";
+
+export type MemoryConsistencyCaseKind =
+  | "stale_read"
+  | "concurrent_write"
+  | "message_projection"
+  | "shared_namespace_publication"
+  | "summary_write"
+  | "child_agent_handoff"
+  | "acl_denial"
+  | "supersession_propagation";
+
+export type MemoryConsistencyOperationKind =
+  | "read"
+  | "write"
+  | "project_message"
+  | "publish_to_namespace"
+  | "reconcile"
+  | "summarize"
+  | "forget";
+
+export type MemoryConsistencyAclDecision = "allowed" | "denied";
+
+export type MemoryConsistencyConflictStatus =
+  | "none"
+  | "detected"
+  | "resolved"
+  | "unresolved";
+
+export interface MemoryConsistencyNamespaceSpec {
+  readonly id: string;
+  readonly visibility: MemoryConsistencyVisibility;
+  readonly ownerAgentRef?: string;
+  readonly readerAgentRefs?: readonly string[];
+  readonly writerAgentRefs?: readonly string[];
+  readonly guarantees?: readonly MemoryConsistencyGuarantee[];
+  readonly metadata?: JsonObject;
+}
+
+export interface MemoryConsistencyCaseSpec {
+  readonly id: string;
+  readonly taskRef: string;
+  readonly kind: MemoryConsistencyCaseKind;
+  readonly namespaceRef?: string;
+  readonly writerAgentRefs?: readonly string[];
+  readonly readerAgentRefs?: readonly string[];
+  readonly expectedGuarantees?: readonly MemoryConsistencyGuarantee[];
+  readonly expectedOutcome:
+    | "consistent"
+    | "detect_conflict"
+    | "deny_write"
+    | "preserve_handoff";
+  readonly rationale?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface MemoryConsistencyProfile {
+  readonly id?: string;
+  readonly namespaces?: readonly MemoryConsistencyNamespaceSpec[];
+  readonly guarantees?: readonly MemoryConsistencyGuarantee[];
+  readonly cases: readonly MemoryConsistencyCaseSpec[];
+}
+
+export interface MemoryConsistencyOperationEnvelope {
+  readonly id: string;
+  readonly kind: MemoryConsistencyOperationKind;
+  readonly agentRef: string;
+  readonly scopeRef?: string;
+  readonly namespaceRef?: string;
+  readonly runRef?: string;
+  readonly threadRef?: string;
+  readonly messageRef?: string;
+  readonly projectionId?: string;
+  readonly version?: string;
+  readonly causalParentRefs?: readonly string[];
+  readonly provenanceRefs?: readonly string[];
+  readonly aclDecision?: MemoryConsistencyAclDecision;
+  readonly conflictStatus?: MemoryConsistencyConflictStatus;
+  readonly confidence?: number;
+  readonly metadata?: JsonObject;
+}
+
+export interface MemoryConsistencyObservation {
+  readonly caseRef: string;
+  readonly operations?: readonly MemoryConsistencyOperationEnvelope[];
+  readonly staleReadDetected?: boolean;
+  readonly conflictDetected?: boolean;
+  readonly conflictResolved?: boolean;
+  readonly handoffPreserved?: boolean;
+  readonly projectionIdempotent?: boolean;
+  readonly aclEnforced?: boolean;
+  readonly supersessionPropagated?: boolean;
+  readonly provenanceComplete?: boolean;
+  readonly consistencySatisfied: boolean;
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface MemoryConsistencyCaseSummary {
+  readonly caseRef: string;
+  readonly operationCount: number;
+  readonly consistencySatisfied: boolean;
+  readonly staleReadDetected: boolean;
+  readonly conflictDetected: boolean;
+  readonly conflictResolved: boolean;
+  readonly handoffPreserved?: boolean;
+  readonly projectionIdempotent?: boolean;
+  readonly aclEnforced?: boolean;
+  readonly supersessionPropagated?: boolean;
+  readonly provenanceComplete?: boolean;
+}
+
+export interface MemoryConsistencyReportSummary {
+  readonly profileId?: string;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly consistencySatisfiedCount: number;
+  readonly consistencyScore: number | null;
+  readonly staleReadCount: number;
+  readonly conflictCount: number;
+  readonly unresolvedConflictCount: number;
+  readonly handoffDriftCount: number;
+  readonly duplicateProjectionCount: number;
+  readonly aclViolationCount: number;
+  readonly provenanceGapCount: number;
+  readonly byCase: readonly MemoryConsistencyCaseSummary[];
+  readonly evidenceRefs: readonly string[];
+  readonly warnings: readonly string[];
+}
+
 export interface ArtifactReference {
   readonly id: string;
   readonly kind: ArtifactContract["kind"];
@@ -1179,6 +1321,7 @@ export interface BenchmarkTrialResult {
   readonly toolUse?: readonly ToolUseObservation[];
   readonly contextualIntegrity?: readonly ContextualIntegrityObservation[];
   readonly webResearch?: readonly WebResearchObservation[];
+  readonly memoryConsistency?: readonly MemoryConsistencyObservation[];
 }
 
 export interface BenchmarkTrialOutcome {
@@ -1260,6 +1403,7 @@ export interface BenchmarkReportCandidate {
   readonly toolUse?: ToolUseReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
   readonly webResearch?: WebResearchReportSummary;
+  readonly memoryConsistency?: MemoryConsistencyReportSummary;
 }
 
 export interface BenchmarkReport {
@@ -1286,6 +1430,7 @@ export interface BenchmarkReport {
   readonly toolUse?: ToolUseReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
   readonly webResearch?: WebResearchReportSummary;
+  readonly memoryConsistency?: MemoryConsistencyReportSummary;
 }
 
 export interface HarnessPatchOperation {
