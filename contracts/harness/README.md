@@ -12,5 +12,9 @@ use:
 - `packages/sdk/src/harness/report.ts` for evidence-backed report helpers,
 - `specs/harness-v0.1/README.md` for the normative language boundary.
 
+Compiled harnesses also carry the typed `CapabilityBOM` inventory from the SDK.
+It is the current source of truth for package/capability/protocol/policy
+fingerprints until a frozen machine-readable BOM schema is promoted here.
+
 Do not add lab-specific nouns to this contract. Architecture Lab is the flagship
 proof surface built on the language, not the language itself.

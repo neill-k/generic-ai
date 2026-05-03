@@ -494,6 +494,7 @@ export async function runHarnessBenchmark(
       mission: options.mission,
       generatedAt: options.now?.() ?? new Date().toISOString(),
       results: trialResults,
+      capabilityBOMs: Object.values(compiledHarnesses).map((compiled) => compiled.capabilityBOM),
     }),
     compiledHarnesses: Object.freeze(compiledHarnesses),
     trialResults: Object.freeze(trialResults),

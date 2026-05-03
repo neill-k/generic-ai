@@ -630,6 +630,89 @@ export interface HarnessFingerprint {
   readonly compilerVersion: string;
 }
 
+export interface CapabilityBOMFingerprint {
+  readonly algorithm: "sha256";
+  readonly value: string;
+  readonly schemaVersion: HarnessSchemaVersion;
+  readonly compilerVersion: string;
+}
+
+export interface CapabilityBOMPackage {
+  readonly id: string;
+  readonly package: string;
+  readonly version: string;
+  readonly compatibility: readonly string[];
+}
+
+export interface CapabilityBOMCapability {
+  readonly id: string;
+  readonly kind: CapabilitySpec["kind"];
+  readonly packageRef: string;
+  readonly grantCount: number;
+  readonly grantPolicyEffects: readonly PolicyEffect[];
+  readonly grantResourceKinds: readonly ResourceSelector["kind"][];
+  readonly schemaHash?: string;
+}
+
+export interface CapabilityBOMProtocol {
+  readonly id: string;
+  readonly protocol: string;
+  readonly packageRef: string;
+  readonly actorRefs: readonly string[];
+}
+
+export interface CapabilityBOMPolicy {
+  readonly id: string;
+  readonly subject: string;
+  readonly action: string;
+  readonly effect: PolicyEffect;
+  readonly resourceKind: ResourceSelector["kind"];
+  readonly resourceId?: string;
+  readonly resourcePattern?: string;
+  readonly conditionCount: number;
+}
+
+export interface CapabilityBOMAgentBinding {
+  readonly agentId: string;
+  readonly role: string;
+  readonly packageRefs: readonly string[];
+  readonly capabilityRefs: readonly string[];
+}
+
+export interface CapabilityBOMArtifact {
+  readonly id: string;
+  readonly kind: ArtifactContract["kind"];
+  readonly requiredBy: readonly string[];
+  readonly producedBy: readonly string[];
+  readonly reviewedBy: readonly string[];
+}
+
+export interface CapabilityBOMSummary {
+  readonly packageCount: number;
+  readonly capabilityCount: number;
+  readonly protocolCount: number;
+  readonly policyCount: number;
+  readonly agentCount: number;
+  readonly artifactCount: number;
+  readonly capabilityKinds: Readonly<Record<CapabilitySpec["kind"], number>>;
+  readonly policyEffects: Readonly<Record<PolicyEffect, number>>;
+}
+
+export interface CapabilityBOM {
+  readonly kind: "generic-ai.capability-bom";
+  readonly schemaVersion: HarnessSchemaVersion;
+  readonly harnessId: string;
+  readonly sourceId: string;
+  readonly packages: readonly CapabilityBOMPackage[];
+  readonly capabilities: readonly CapabilityBOMCapability[];
+  readonly protocols: readonly CapabilityBOMProtocol[];
+  readonly policies: readonly CapabilityBOMPolicy[];
+  readonly agentBindings: readonly CapabilityBOMAgentBinding[];
+  readonly artifacts: readonly CapabilityBOMArtifact[];
+  readonly summary: CapabilityBOMSummary;
+  readonly fingerprint: CapabilityBOMFingerprint;
+}
+
 export interface CompiledActor {
   readonly id: string;
   readonly role: string;
@@ -660,6 +743,7 @@ export interface CompiledHarness {
   readonly missionRefs: readonly string[];
   readonly evalRefs: readonly string[];
   readonly packageVersions: Readonly<Record<string, string>>;
+  readonly capabilityBOM: CapabilityBOM;
   readonly fingerprint: HarnessFingerprint;
 }
 
@@ -1249,6 +1333,7 @@ export interface BenchmarkReportCandidate {
   readonly harnessId: string;
   readonly trialCount: number;
   readonly scorecard: readonly MetricValue[];
+  readonly capabilityBOM?: CapabilityBOM;
   readonly passK?: BenchmarkPassKSummary;
   readonly traceCompleteness: number;
   readonly recommendation: RecommendationBoundary;
@@ -1275,6 +1360,7 @@ export interface BenchmarkReport {
   readonly recommendations: readonly string[];
   readonly candidates: readonly BenchmarkReportCandidate[];
   readonly confidence: BenchmarkReportConfidence;
+  readonly capabilityBOMs: readonly CapabilityBOM[];
   readonly reversibility?: BenchmarkReversibilitySummary;
   readonly evidence: {
     readonly traceEventCount: number;
