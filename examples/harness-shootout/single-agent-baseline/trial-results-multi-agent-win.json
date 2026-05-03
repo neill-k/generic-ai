@@ -1,0 +1,68 @@
+[
+  {
+    "candidateId": "single-agent-baseline",
+    "harnessId": "harness.single-agent-baseline:compiled",
+    "trialId": "single-agent-baseline:trial-1",
+    "metrics": [
+      { "metricId": "task_success", "value": 0.8, "evidenceRefs": ["single-agent:task-success"] },
+      { "metricId": "cost_usd", "value": 1, "evidenceRefs": ["single-agent:cost"] },
+      { "metricId": "wall_time", "value": 100, "evidenceRefs": ["single-agent:wall-time"] },
+      { "metricId": "handoff_count", "value": 0, "evidenceRefs": ["single-agent:handoffs"] },
+      { "metricId": "trace_completeness", "value": 1, "evidenceRefs": ["single-agent:trace"] }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "verifier-loop",
+    "harnessId": "harness.baseline-verifier-loop:compiled",
+    "trialId": "verifier-loop:trial-1",
+    "metrics": [
+      { "metricId": "task_success", "value": 0.9, "evidenceRefs": ["verifier-loop:task-success"] },
+      { "metricId": "cost_usd", "value": 1.8, "evidenceRefs": ["verifier-loop:cost"] },
+      { "metricId": "wall_time", "value": 140, "evidenceRefs": ["verifier-loop:wall-time"] },
+      { "metricId": "handoff_count", "value": 2, "evidenceRefs": ["verifier-loop:handoffs"] },
+      { "metricId": "trace_completeness", "value": 1, "evidenceRefs": ["verifier-loop:trace"] }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 2,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "hierarchy",
+    "harnessId": "harness.baseline-hierarchy:compiled",
+    "trialId": "hierarchy:trial-1",
+    "metrics": [
+      { "metricId": "task_success", "value": 0.82, "evidenceRefs": ["hierarchy:task-success"] },
+      { "metricId": "cost_usd", "value": 1.4, "evidenceRefs": ["hierarchy:cost"] },
+      { "metricId": "wall_time", "value": 125, "evidenceRefs": ["hierarchy:wall-time"] },
+      { "metricId": "handoff_count", "value": 3, "evidenceRefs": ["hierarchy:handoffs"] },
+      { "metricId": "trace_completeness", "value": 1, "evidenceRefs": ["hierarchy:trace"] }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 3,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  }
+]

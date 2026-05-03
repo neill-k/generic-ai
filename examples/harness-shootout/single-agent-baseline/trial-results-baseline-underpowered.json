@@ -1,0 +1,90 @@
+[
+  {
+    "candidateId": "single-agent-baseline",
+    "harnessId": "harness.single-agent-baseline:compiled",
+    "trialId": "single-agent-baseline:trial-1",
+    "metrics": [
+      { "metricId": "task_success", "value": 0.8, "evidenceRefs": ["single-agent:task-success"] },
+      { "metricId": "cost_usd", "value": 1, "evidenceRefs": ["single-agent:cost"] },
+      { "metricId": "wall_time", "value": 100, "evidenceRefs": ["single-agent:wall-time"] },
+      { "metricId": "handoff_count", "value": 0, "evidenceRefs": ["single-agent:handoffs"] },
+      { "metricId": "trace_completeness", "value": 1, "evidenceRefs": ["single-agent:trace"] }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 0,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "verifier-loop",
+    "harnessId": "harness.baseline-verifier-loop:compiled",
+    "trialId": "verifier-loop:trial-1",
+    "metrics": [
+      { "metricId": "task_success", "value": 0.95, "evidenceRefs": ["verifier-loop:task-success-1"] },
+      { "metricId": "cost_usd", "value": 1.8, "evidenceRefs": ["verifier-loop:cost-1"] },
+      { "metricId": "wall_time", "value": 140, "evidenceRefs": ["verifier-loop:wall-time-1"] },
+      { "metricId": "handoff_count", "value": 2, "evidenceRefs": ["verifier-loop:handoffs-1"] },
+      { "metricId": "trace_completeness", "value": 1, "evidenceRefs": ["verifier-loop:trace-1"] }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 2,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "verifier-loop",
+    "harnessId": "harness.baseline-verifier-loop:compiled",
+    "trialId": "verifier-loop:trial-2",
+    "metrics": [
+      { "metricId": "task_success", "value": 0.95, "evidenceRefs": ["verifier-loop:task-success-2"] },
+      { "metricId": "cost_usd", "value": 1.8, "evidenceRefs": ["verifier-loop:cost-2"] },
+      { "metricId": "wall_time", "value": 140, "evidenceRefs": ["verifier-loop:wall-time-2"] },
+      { "metricId": "handoff_count", "value": 2, "evidenceRefs": ["verifier-loop:handoffs-2"] },
+      { "metricId": "trace_completeness", "value": 1, "evidenceRefs": ["verifier-loop:trace-2"] }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 2,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  },
+  {
+    "candidateId": "verifier-loop",
+    "harnessId": "harness.baseline-verifier-loop:compiled",
+    "trialId": "verifier-loop:trial-3",
+    "metrics": [
+      { "metricId": "task_success", "value": 0.95, "evidenceRefs": ["verifier-loop:task-success-3"] },
+      { "metricId": "cost_usd", "value": 1.8, "evidenceRefs": ["verifier-loop:cost-3"] },
+      { "metricId": "wall_time", "value": 140, "evidenceRefs": ["verifier-loop:wall-time-3"] },
+      { "metricId": "handoff_count", "value": 2, "evidenceRefs": ["verifier-loop:handoffs-3"] },
+      { "metricId": "trace_completeness", "value": 1, "evidenceRefs": ["verifier-loop:trace-3"] }
+    ],
+    "traceEvents": [],
+    "artifacts": [],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 2,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 0
+    }
+  }
+]

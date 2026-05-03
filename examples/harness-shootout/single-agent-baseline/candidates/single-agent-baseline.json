@@ -1,0 +1,31 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.single-agent-baseline",
+  "name": "Single-agent baseline",
+  "description": "A one-agent harness with the same mission, tools, model budget, and stop conditions as the compared multi-agent candidates.",
+  "packages": [
+    {
+      "id": "protocol.pipeline",
+      "package": "@generic-ai/protocol-pipeline",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "implementer",
+      "role": "single-agent implementer",
+      "packageRefs": ["protocol.pipeline"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "pipeline",
+      "protocol": "pipeline",
+      "packageRef": "protocol.pipeline",
+      "actorRefs": ["implementer"]
+    }
+  ],
+  "missionRefs": ["mission.single-agent-baseline"],
+  "evalRefs": ["benchmark.single-agent-baseline.v0"]
+}

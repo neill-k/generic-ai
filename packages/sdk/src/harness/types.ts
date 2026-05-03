@@ -83,6 +83,13 @@ export type ProtocolTerminalState = "blocked" | "idle" | "ready" | "done" | "fai
 export type RecommendationBoundary = "recommended" | "not_recommended" | "insufficient_evidence";
 export type BenchmarkTrialOutcomeStatus = "passed" | "failed" | "skipped" | "excluded";
 export type BenchmarkFailureSeverity = "none" | "low" | "medium" | "high" | "critical";
+export type BenchmarkCandidateKind = "harness" | "single_agent_baseline";
+export type BenchmarkSingleAgentBaselineOutcome =
+  | "baseline"
+  | "beats_baseline"
+  | "within_threshold"
+  | "trails_baseline"
+  | "insufficient_evidence";
 export type BenchmarkConfidenceLevel =
   | "confident_recommendation"
   | "bounded_recommendation"
@@ -702,7 +709,22 @@ export interface MissionSpec {
 export interface BenchmarkCandidateSpec {
   readonly id: string;
   readonly harnessRef: string;
+  readonly kind?: BenchmarkCandidateKind;
   readonly label?: string;
+}
+
+export interface BenchmarkSingleAgentBaselineSpec {
+  /** Defaults to the candidate marked kind: "single_agent_baseline". */
+  readonly candidateId?: string;
+  /** Defaults to BenchmarkSpec.primaryMetric. */
+  readonly metricId?: string;
+  /**
+   * Minimum normalized improvement over the baseline before a non-baseline
+   * candidate can be recommended. Defaults to 0.
+   */
+  readonly minimumDelta?: number;
+  /** Defaults to true so cost, latency, tool, and trace deltas stay visible. */
+  readonly compareGuardrailMetrics?: boolean;
 }
 
 export interface BenchmarkSpec {
@@ -719,6 +741,7 @@ export interface BenchmarkSpec {
   readonly toolUse?: BenchmarkToolUseProfile;
   readonly contextualIntegrity?: ContextualIntegrityProfile;
   readonly webResearch?: WebResearchProfile;
+  readonly singleAgentBaseline?: BenchmarkSingleAgentBaselineSpec;
   readonly trials?: {
     /** Defaults to 1 until v1.0 flips repeated trials from recommended to required. */
     readonly count?: number;
@@ -1226,6 +1249,39 @@ export interface BenchmarkPassKSummary {
   readonly evidenceRefs: readonly string[];
 }
 
+export interface BenchmarkMetricDelta {
+  readonly metricId: string;
+  readonly direction: MetricDefinition["direction"];
+  readonly baselineValue?: number;
+  readonly candidateValue?: number;
+  /** Positive values mean the candidate improved over the baseline. */
+  readonly delta?: number;
+  readonly evidenceRefs: readonly string[];
+}
+
+export interface BenchmarkSingleAgentBaselineComparison {
+  readonly candidateId: string;
+  readonly baselineCandidateId: string;
+  readonly metricId: string;
+  readonly requiredDelta: number;
+  readonly outcome: BenchmarkSingleAgentBaselineOutcome;
+  readonly baselineValue?: number;
+  readonly candidateValue?: number;
+  /** Positive values mean the candidate improved over the baseline. */
+  readonly delta?: number;
+  readonly metricDeltas: readonly BenchmarkMetricDelta[];
+  readonly evidenceRefs: readonly string[];
+  readonly rationale: readonly string[];
+}
+
+export interface BenchmarkSingleAgentBaselineReport {
+  readonly baselineCandidateId: string;
+  readonly metricId: string;
+  readonly requiredDelta: number;
+  readonly recommendedCandidateIds: readonly string[];
+  readonly comparisons: readonly BenchmarkSingleAgentBaselineComparison[];
+}
+
 export interface BenchmarkReportConfidence {
   readonly level: BenchmarkConfidenceLevel;
   readonly minTrials: number;
@@ -1254,6 +1310,7 @@ export interface BenchmarkReportCandidate {
   readonly recommendation: RecommendationBoundary;
   readonly reliability?: BenchmarkReliabilitySummary;
   readonly confidence: BenchmarkReportConfidence;
+  readonly singleAgentBaselineComparison?: BenchmarkSingleAgentBaselineComparison;
   readonly reversibility?: BenchmarkReversibilitySummary;
   readonly rationale: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
@@ -1275,6 +1332,7 @@ export interface BenchmarkReport {
   readonly recommendations: readonly string[];
   readonly candidates: readonly BenchmarkReportCandidate[];
   readonly confidence: BenchmarkReportConfidence;
+  readonly singleAgentBaseline?: BenchmarkSingleAgentBaselineReport;
   readonly reversibility?: BenchmarkReversibilitySummary;
   readonly evidence: {
     readonly traceEventCount: number;
