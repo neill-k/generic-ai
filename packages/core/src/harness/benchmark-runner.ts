@@ -5,6 +5,7 @@ import {
   compileHarnessDsl,
   createBenchmarkReport,
   createStableFingerprint,
+  normalizeToolError,
   type ArtifactReference,
   type BenchmarkReport,
   type BenchmarkSpec,
@@ -13,6 +14,7 @@ import {
   type HarnessDsl,
   type MetricValue,
   type MissionSpec,
+  type ToolRecoveryObservation,
   type TraceDiagnostics,
   type TraceEvent,
   type TraceEventType,
@@ -368,6 +370,7 @@ async function runTrial(input: {
     let outputText = "";
     let artifactSummary = "Assistant final output captured as benchmark evidence.";
     let completedSummary: string;
+    const toolRecovery: ToolRecoveryObservation[] = [];
 
     try {
       const response = await runtime.run(prompt);
@@ -377,10 +380,26 @@ async function runTrial(input: {
       outputText = "";
       artifactSummary = `Runtime failed: ${error instanceof Error ? error.message : String(error)}`;
       completedSummary = artifactSummary;
-      traceEvents.push(
-        createEvent({
-          type: "diagnostic",
-          summary: artifactSummary,
+      const diagnostic = createEvent({
+        type: "diagnostic",
+        summary: artifactSummary,
+      });
+      traceEvents.push(diagnostic);
+      toolRecovery.push(
+        Object.freeze({
+          caseRef: "runtime.run",
+          attemptRef: `${input.trialId}:runtime-run`,
+          toolRef: "runtime.adapter",
+          status: "failed",
+          error: normalizeToolError({
+            error,
+            safeMessage: artifactSummary,
+            metadata: {
+              adapter: runtime.adapter,
+              model: runtime.model,
+            },
+          }),
+          evidenceRefs: Object.freeze([diagnostic.id]),
         }),
       );
     }
@@ -438,6 +457,7 @@ async function runTrial(input: {
       traceEvents: Object.freeze(traceEvents),
       artifacts: Object.freeze([artifact]),
       diagnostics,
+      ...(toolRecovery.length === 0 ? {} : { toolRecovery: Object.freeze(toolRecovery) }),
     });
   } finally {
     await runtime.close?.();

@@ -147,6 +147,26 @@ export type WebResearchSourceRole =
   | "contradicting"
   | "stale"
   | "background";
+export type ToolErrorKind =
+  | "timeout"
+  | "budget_exhausted"
+  | "policy_blocked"
+  | "invalid_input"
+  | "upstream_unavailable"
+  | "auth_required"
+  | "not_found"
+  | "rate_limited"
+  | "unknown";
+export type ToolAttemptStatus = "succeeded" | "failed" | "skipped" | "retried" | "policy_blocked";
+export type ToolRecoveryHintKind =
+  | "retry"
+  | "adjust_input"
+  | "request_auth"
+  | "change_policy"
+  | "reduce_scope"
+  | "wait"
+  | "inspect_raw_cause"
+  | "custom";
 
 export interface AgentHarnessRole {
   readonly id: string;
@@ -199,6 +219,40 @@ export interface AgentHarnessBudget {
   readonly maxTokens?: number;
   readonly maxToolCalls?: number;
   readonly maxWallTimeMs?: number;
+}
+
+export interface ToolTimeoutBudget {
+  readonly totalMs?: number;
+  readonly spentMs?: number;
+  readonly remainingMs?: number;
+  readonly reservedMs?: number;
+  readonly exhausted?: boolean;
+}
+
+export interface ToolRecoveryHint {
+  readonly kind: ToolRecoveryHintKind;
+  readonly message: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface ToolErrorRawCause {
+  readonly name?: string;
+  readonly message?: string;
+  readonly code?: string;
+  readonly status?: number;
+  readonly metadata?: JsonObject;
+}
+
+export interface ToolErrorEnvelope {
+  readonly kind: ToolErrorKind;
+  readonly safeMessage: string;
+  readonly retryable: boolean;
+  readonly transient: boolean;
+  readonly userActionable: boolean;
+  readonly rawCause?: ToolErrorRawCause;
+  readonly remediationHints?: readonly ToolRecoveryHint[];
+  readonly timeoutBudget?: ToolTimeoutBudget;
+  readonly metadata?: JsonObject;
 }
 
 export interface AgentHarnessRunInput<TCapabilities = unknown> {
@@ -717,6 +771,7 @@ export interface BenchmarkSpec {
   readonly guardrailMetrics?: readonly string[];
   readonly faultInjections?: readonly FaultInjectionSpec[];
   readonly toolUse?: BenchmarkToolUseProfile;
+  readonly toolRecovery?: BenchmarkToolRecoveryProfile;
   readonly contextualIntegrity?: ContextualIntegrityProfile;
   readonly webResearch?: WebResearchProfile;
   readonly trials?: {
@@ -771,6 +826,22 @@ export interface BenchmarkToolUseCaseSpec {
   readonly expectedToolCalls?: number;
   readonly directAnswerEligible?: boolean;
   readonly targetTools?: readonly string[];
+  readonly rationale?: string;
+  readonly metadata?: JsonObject;
+}
+
+export interface BenchmarkToolRecoveryProfile {
+  readonly id?: string;
+  readonly cases: readonly BenchmarkToolRecoveryCaseSpec[];
+}
+
+export interface BenchmarkToolRecoveryCaseSpec {
+  readonly id: string;
+  readonly taskRef: string;
+  readonly expectedToolRefs?: readonly string[];
+  readonly expectedStatuses?: readonly ToolAttemptStatus[];
+  readonly expectedErrorKinds?: readonly ToolErrorKind[];
+  readonly timeoutBudgetMs?: number;
   readonly rationale?: string;
   readonly metadata?: JsonObject;
 }
@@ -875,6 +946,56 @@ export interface ToolUseReportSummary {
   readonly totalCostUsd?: number;
   readonly totalLatencyMs?: number;
   readonly byExpectation: readonly ToolUseExpectationSummary[];
+  readonly evidenceRefs: readonly string[];
+  readonly warnings: readonly string[];
+}
+
+export interface ToolRecoveryObservation {
+  readonly caseRef: string;
+  readonly attemptRef: string;
+  readonly toolRef: string;
+  readonly status: ToolAttemptStatus;
+  readonly error?: ToolErrorEnvelope;
+  readonly retryOfAttemptRef?: string;
+  readonly timeoutBudget?: ToolTimeoutBudget;
+  readonly latencyMs?: number;
+  readonly evidenceRefs: readonly string[];
+  readonly notes?: readonly string[];
+}
+
+export interface ToolRecoveryErrorKindSummary {
+  readonly kind: ToolErrorKind;
+  readonly count: number;
+}
+
+export interface ToolRecoveryCaseSummary {
+  readonly caseRef: string;
+  readonly attemptCount: number;
+  readonly failedAttemptCount: number;
+  readonly retriedAttemptCount: number;
+  readonly policyBlockedAttemptCount: number;
+  readonly retryableErrorCount: number;
+  readonly timeoutBudgetExhaustionCount: number;
+}
+
+export interface ToolRecoveryReportSummary {
+  readonly profileId?: string;
+  readonly plannedCaseCount: number;
+  readonly observedCaseCount: number;
+  readonly attemptCount: number;
+  readonly succeededAttemptCount: number;
+  readonly failedAttemptCount: number;
+  readonly skippedAttemptCount: number;
+  readonly retriedAttemptCount: number;
+  readonly policyBlockedAttemptCount: number;
+  readonly retryableErrorCount: number;
+  readonly transientErrorCount: number;
+  readonly userActionableErrorCount: number;
+  readonly timeoutCount: number;
+  readonly budgetExhaustedCount: number;
+  readonly timeoutBudgetExhaustionCount: number;
+  readonly byErrorKind: readonly ToolRecoveryErrorKindSummary[];
+  readonly byCase: readonly ToolRecoveryCaseSummary[];
   readonly evidenceRefs: readonly string[];
   readonly warnings: readonly string[];
 }
@@ -1177,6 +1298,7 @@ export interface BenchmarkTrialResult {
   readonly diagnostics: TraceDiagnostics;
   readonly faultInjections?: readonly FaultInjectionObservation[];
   readonly toolUse?: readonly ToolUseObservation[];
+  readonly toolRecovery?: readonly ToolRecoveryObservation[];
   readonly contextualIntegrity?: readonly ContextualIntegrityObservation[];
   readonly webResearch?: readonly WebResearchObservation[];
 }
@@ -1258,6 +1380,7 @@ export interface BenchmarkReportCandidate {
   readonly rationale: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
+  readonly toolRecovery?: ToolRecoveryReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
   readonly webResearch?: WebResearchReportSummary;
 }
@@ -1284,6 +1407,7 @@ export interface BenchmarkReport {
   readonly insufficientEvidence: readonly string[];
   readonly faultInjection?: FaultInjectionReportSummary;
   readonly toolUse?: ToolUseReportSummary;
+  readonly toolRecovery?: ToolRecoveryReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
   readonly webResearch?: WebResearchReportSummary;
 }
