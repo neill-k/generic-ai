@@ -412,6 +412,17 @@ function allowsAllEffects(
   return effects.every((effect) => policy.allow.has(effect) && !deniedEffects.has(effect));
 }
 
+function deniedCapabilityEffects(
+  rolePolicy: AgentHarnessRolePolicy,
+  effects: readonly AgentHarnessCapabilityEffect[],
+  deniedEffects: ReadonlySet<AgentHarnessCapabilityEffect>,
+): readonly AgentHarnessCapabilityEffect[] {
+  const policy = ROLE_EFFECT_POLICIES[rolePolicy];
+  return Object.freeze(
+    effects.filter((effect) => !policy.allow.has(effect) || deniedEffects.has(effect)),
+  );
+}
+
 async function evaluateCapabilityBinding(input: {
   readonly runId: string;
   readonly actorId: string;
@@ -423,13 +434,18 @@ async function evaluateCapabilityBinding(input: {
   readonly decisions: PolicyDecisionRecord[];
 }): Promise<boolean> {
   if (!allowsAllEffects(input.rolePolicy, input.effects, input.deniedEffects)) {
+    const deniedEffects = deniedCapabilityEffects(
+      input.rolePolicy,
+      input.effects,
+      input.deniedEffects,
+    );
     input.decisions.push(
       capabilityDeniedDecision({
         runId: input.runId,
         actorId: input.actorId,
         rolePolicy: input.rolePolicy,
         capabilityId: input.capabilityId,
-        effects: input.effects,
+        deniedEffects,
       }),
     );
     return false;
@@ -457,7 +473,7 @@ function capabilityDeniedDecision(input: {
   readonly actorId: string;
   readonly rolePolicy: AgentHarnessRolePolicy;
   readonly capabilityId: string;
-  readonly effects: readonly AgentHarnessCapabilityEffect[];
+  readonly deniedEffects: readonly AgentHarnessCapabilityEffect[];
 }): PolicyDecisionRecord {
   return policyDecision({
     runId: input.runId,
@@ -469,7 +485,7 @@ function capabilityDeniedDecision(input: {
     },
     effect: "deny",
     decision: "denied",
-    reason: `Denied capability "${input.capabilityId}" for ${input.rolePolicy} role policy because it exposes effect(s): ${input.effects.join(", ")}.`,
+    reason: `Denied capability "${input.capabilityId}" for ${input.rolePolicy} role policy because it exposes denied effect(s): ${input.deniedEffects.join(", ")}.`,
   });
 }
 
@@ -690,6 +706,7 @@ function createPolicyDecisions(input: {
   readonly profile: AgentHarnessPolicyProfileId;
   readonly allowNetwork: boolean;
   readonly allowMcp: boolean;
+  readonly allowLsp: boolean;
 }): readonly PolicyDecisionRecord[] {
   const decisions: PolicyDecisionRecord[] = [];
   const common = {
@@ -743,6 +760,18 @@ function createPolicyDecisions(input: {
     reason: input.allowMcp
       ? "MCP access was explicitly allowed for this harness run."
       : "MCP launch defaults to denied for this harness profile.",
+  });
+
+  decisions.push({
+    ...common,
+    id: `${input.runId}:policy:lsp`,
+    action: "lsp_server_spawn",
+    resource: { kind: "custom", id: "lsp" },
+    effect: input.allowLsp ? "allow" : "deny",
+    decision: input.allowLsp ? "allowed" : "denied",
+    reason: input.allowLsp
+      ? "LSP server spawning was explicitly allowed for this harness run."
+      : "LSP server spawning defaults to denied for this harness profile.",
   });
 
   return Object.freeze(decisions);
@@ -922,6 +951,7 @@ function profileDeniedEffects(input: {
   readonly profile: AgentHarnessPolicyProfileId;
   readonly allowNetwork: boolean;
   readonly allowMcp: boolean;
+  readonly allowLsp: boolean;
 }): ReadonlySet<AgentHarnessCapabilityEffect> {
   const effects = new Set<AgentHarnessCapabilityEffect>();
   if (input.profile === BENCHMARK_CONTAINER_POLICY_PROFILE || !input.allowNetwork) {
@@ -933,6 +963,9 @@ function profileDeniedEffects(input: {
   }
   if (input.profile === BENCHMARK_CONTAINER_POLICY_PROFILE) {
     effects.add("sandbox.create");
+  }
+  if (!input.allowLsp) {
+    effects.add("lsp.read");
   }
   return effects;
 }
@@ -1563,6 +1596,7 @@ function createPiAgentHarnessAdapter(
       const profile = input.harness.policyProfile ?? LOCAL_DEV_FULL_POLICY_PROFILE;
       const allowMcp = input.harness.allowMcp ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
       const allowNetwork = input.harness.allowNetwork ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
+      const allowLsp = input.harness.allowLsp ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
       const turnMode = input.harness.execution?.turnMode;
       const maxTurns = input.harness.execution?.maxTurns;
       if (context.signal?.aborted) {
@@ -1591,13 +1625,14 @@ function createPiAgentHarnessAdapter(
       const modelId = input.harness.model ?? DEFAULT_OPENAI_CODEX_MODEL;
       const piSessionInputs = options.sessionInputs ?? resolvePiSessionInputs(modelId);
       const baseCapabilities = applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp);
-      const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp });
+      const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp, allowLsp });
       const profilePolicyDecisions = createPolicyDecisions({
         runId,
         actorId: rootAgentId,
         profile,
         allowNetwork,
         allowMcp,
+        allowLsp,
       });
       const policyDecisions: PolicyDecisionRecord[] = [...profilePolicyDecisions];
       let rootRuntimeSessionId: string | undefined;

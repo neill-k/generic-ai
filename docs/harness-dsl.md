@@ -170,6 +170,13 @@ and may declare retry semantics. Trace events can carry `reversibility` and
 `supersedesEventId`, and reports surface that metadata when it exists instead of
 guessing rollback cost from the tool name.
 
+The `benchmark-container` policy profile is enforced before tools are bound into
+Pi sessions, not only after artifacts are inspected. It denies declared
+`network.egress`, `mcp.launch`, `secret.read`, `sandbox.create`, and LSP
+server-spawn surfaces by effect unless the harness explicitly opts into the
+relevant allowance such as `allowNetwork`, `allowMcp`, or `allowLsp`. Tools that
+do not declare Generic AI effect metadata fail closed in harness roles.
+
 ## Three-Tier Benchmark Stack
 
 Generic AI uses the same `MissionSpec` / `BenchmarkSpec` / report pipeline at
