@@ -5,6 +5,9 @@ import type {
   BenchmarkReport,
   BenchmarkReportCandidate,
   BenchmarkReportConfidence,
+  BenchmarkSingleAgentBaselineComparison,
+  BenchmarkSingleAgentBaselineReport,
+  BenchmarkSingleAgentBaselineSpec,
   BenchmarkReversibilitySummary,
   BenchmarkPassKSummary,
   BenchmarkSpec,
@@ -148,6 +151,58 @@ function metricDirection(
   }
 
   return DEFAULT_LOWER_IS_BETTER_METRICS.has(metricId) ? "lower_is_better" : "higher_is_better";
+}
+
+function singleAgentBaselineConfig(
+  benchmark: BenchmarkSpec,
+):
+  | (Required<Pick<BenchmarkSingleAgentBaselineSpec, "metricId" | "minimumDelta">> & {
+      readonly candidateId: string;
+      readonly compareGuardrailMetrics: boolean;
+    })
+  | undefined {
+  const markedBaseline = benchmark.candidates.find(
+    (candidate) => candidate.kind === "single_agent_baseline",
+  )?.id;
+  const candidateId = benchmark.singleAgentBaseline?.candidateId ?? markedBaseline;
+
+  if (candidateId === undefined) {
+    return undefined;
+  }
+
+  return Object.freeze({
+    candidateId,
+    metricId: benchmark.singleAgentBaseline?.metricId ?? benchmark.primaryMetric,
+    minimumDelta: Math.max(0, benchmark.singleAgentBaseline?.minimumDelta ?? 0),
+    compareGuardrailMetrics: benchmark.singleAgentBaseline?.compareGuardrailMetrics ?? true,
+  });
+}
+
+function scorecardMetric(
+  candidate: BenchmarkReportCandidate,
+  metricId: string,
+): MetricValue | undefined {
+  return candidate.scorecard.find((metric) => metric.metricId === metricId);
+}
+
+function normalizedMetricDelta(input: {
+  readonly benchmark: BenchmarkSpec;
+  readonly metricId: string;
+  readonly candidateValue: number | undefined;
+  readonly baselineValue: number | undefined;
+}): number | undefined {
+  if (input.candidateValue === undefined || input.baselineValue === undefined) {
+    return undefined;
+  }
+
+  const direction = metricDirection(input.benchmark, input.metricId);
+  if (direction === "informational") {
+    return undefined;
+  }
+
+  return direction === "lower_is_better"
+    ? input.baselineValue - input.candidateValue
+    : input.candidateValue - input.baselineValue;
 }
 
 function metricValue(result: BenchmarkTrialResult, metricId: string): number | undefined {
@@ -1278,6 +1333,199 @@ function candidateReport(input: {
   });
 }
 
+function baselineMetricDeltas(input: {
+  readonly benchmark: BenchmarkSpec;
+  readonly config: ReturnType<typeof singleAgentBaselineConfig> & {};
+  readonly candidate: BenchmarkReportCandidate;
+  readonly baseline: BenchmarkReportCandidate;
+}): readonly {
+  readonly metricId: string;
+  readonly direction: MetricDefinition["direction"];
+  readonly baselineValue?: number;
+  readonly candidateValue?: number;
+  readonly delta?: number;
+  readonly evidenceRefs: readonly string[];
+}[] {
+  const metricIds = [
+    input.config.metricId,
+    ...(input.config.compareGuardrailMetrics ? (input.benchmark.guardrailMetrics ?? []) : []),
+  ];
+
+  return Object.freeze(
+    [...new Set(metricIds)].map((metricId) => {
+      const candidateMetric = scorecardMetric(input.candidate, metricId);
+      const baselineMetric = scorecardMetric(input.baseline, metricId);
+      const delta = normalizedMetricDelta({
+        benchmark: input.benchmark,
+        metricId,
+        candidateValue: candidateMetric?.value,
+        baselineValue: baselineMetric?.value,
+      });
+
+      return Object.freeze({
+        metricId,
+        direction: metricDirection(input.benchmark, metricId),
+        ...(baselineMetric === undefined ? {} : { baselineValue: baselineMetric.value }),
+        ...(candidateMetric === undefined ? {} : { candidateValue: candidateMetric.value }),
+        ...(delta === undefined ? {} : { delta }),
+        evidenceRefs: Object.freeze([
+          ...new Set([
+            ...(baselineMetric?.evidenceRefs ?? []),
+            ...(candidateMetric?.evidenceRefs ?? []),
+          ]),
+        ]),
+      });
+    }),
+  );
+}
+
+function baselineComparison(input: {
+  readonly benchmark: BenchmarkSpec;
+  readonly config: ReturnType<typeof singleAgentBaselineConfig> & {};
+  readonly candidate: BenchmarkReportCandidate;
+  readonly baseline: BenchmarkReportCandidate;
+}): BenchmarkSingleAgentBaselineComparison {
+  const primaryDelta = baselineMetricDeltas(input).find(
+    (entry) => entry.metricId === input.config.metricId,
+  );
+  const delta = primaryDelta?.delta;
+  const isBaseline = input.candidate.candidateId === input.baseline.candidateId;
+  const baselineValue = primaryDelta?.baselineValue;
+  const candidateValue = primaryDelta?.candidateValue;
+  const missingMetric = baselineValue === undefined || candidateValue === undefined;
+  const baselineInsufficient = input.baseline.confidence.level === "insufficient_evidence";
+  const candidateInsufficient = input.candidate.confidence.level === "insufficient_evidence";
+  const informationalMetric =
+    metricDirection(input.benchmark, input.config.metricId) === "informational";
+  const outcome =
+    isBaseline
+      ? "baseline"
+      : baselineInsufficient || candidateInsufficient || missingMetric || informationalMetric
+        ? "insufficient_evidence"
+        : delta !== undefined && delta >= input.config.minimumDelta
+          ? "beats_baseline"
+          : delta !== undefined && delta >= 0
+            ? "within_threshold"
+            : "trails_baseline";
+  const rationale = [
+    isBaseline
+      ? "candidate is the declared single-agent baseline"
+      : `single-agent baseline: ${input.baseline.candidateId}`,
+    ...(baselineInsufficient ? ["baseline evidence is insufficient"] : []),
+    ...(candidateInsufficient && !isBaseline ? ["candidate evidence is insufficient"] : []),
+    ...(missingMetric ? [`baseline metric ${input.config.metricId} is missing`] : []),
+    ...(informationalMetric ? [`baseline metric ${input.config.metricId} is informational`] : []),
+    ...(delta === undefined || isBaseline
+      ? []
+      : [`normalized delta: ${delta}; required delta: ${input.config.minimumDelta}`]),
+  ];
+
+  return Object.freeze({
+    candidateId: input.candidate.candidateId,
+    baselineCandidateId: input.baseline.candidateId,
+    metricId: input.config.metricId,
+    requiredDelta: input.config.minimumDelta,
+    outcome,
+    ...(baselineValue === undefined ? {} : { baselineValue }),
+    ...(candidateValue === undefined ? {} : { candidateValue }),
+    ...(delta === undefined ? {} : { delta }),
+    metricDeltas: baselineMetricDeltas(input),
+    evidenceRefs: Object.freeze(primaryDelta?.evidenceRefs ?? []),
+    rationale: Object.freeze(rationale),
+  });
+}
+
+function applySingleAgentBaseline(input: {
+  readonly benchmark: BenchmarkSpec;
+  readonly candidates: readonly BenchmarkReportCandidate[];
+}): {
+  readonly candidates: readonly BenchmarkReportCandidate[];
+  readonly singleAgentBaseline?: BenchmarkSingleAgentBaselineReport;
+  readonly evidenceGap: readonly string[];
+} {
+  const config = singleAgentBaselineConfig(input.benchmark);
+  if (config === undefined) {
+    return Object.freeze({
+      candidates: input.candidates,
+      evidenceGap: Object.freeze([]),
+    });
+  }
+
+  const baseline = input.candidates.find((candidate) => candidate.candidateId === config.candidateId);
+  if (baseline === undefined) {
+    return Object.freeze({
+      candidates: input.candidates,
+      evidenceGap: Object.freeze([
+        `Single-agent baseline candidate "${config.candidateId}" is configured but not present in candidates.`,
+      ]),
+    });
+  }
+
+  const comparisons = input.candidates.map((candidate) =>
+    baselineComparison({ benchmark: input.benchmark, config, candidate, baseline }),
+  );
+  const comparisonByCandidate = new Map(
+    comparisons.map((comparison, index) => [
+      input.candidates[index]?.candidateId,
+      comparison,
+    ]),
+  );
+  const hasMultiAgentWinner = input.candidates.some((candidate) => {
+    if (candidate.candidateId === baseline.candidateId) {
+      return false;
+    }
+    const comparison = comparisonByCandidate.get(candidate.candidateId);
+    return candidate.recommendation === "recommended" && comparison?.outcome === "beats_baseline";
+  });
+  const candidates = input.candidates.map((candidate) => {
+    const comparison = comparisonByCandidate.get(candidate.candidateId);
+    if (comparison === undefined) {
+      return candidate;
+    }
+
+    const isBaseline = candidate.candidateId === baseline.candidateId;
+    const recommendation: RecommendationBoundary = isBaseline
+      ? candidate.confidence.level === "insufficient_evidence"
+        ? "insufficient_evidence"
+        : hasMultiAgentWinner
+          ? "not_recommended"
+          : "recommended"
+      : candidate.recommendation === "insufficient_evidence" ||
+          comparison.outcome === "insufficient_evidence"
+        ? "insufficient_evidence"
+        : candidate.recommendation === "recommended" && comparison.outcome === "beats_baseline"
+          ? "recommended"
+          : "not_recommended";
+
+    return Object.freeze({
+      ...candidate,
+      recommendation,
+      singleAgentBaselineComparison: comparison,
+      rationale: Object.freeze([
+        ...candidate.rationale,
+        `single-agent baseline outcome: ${comparison.outcome}`,
+        ...comparison.rationale,
+      ]),
+    });
+  });
+
+  return Object.freeze({
+    candidates: Object.freeze(candidates),
+    singleAgentBaseline: Object.freeze({
+      baselineCandidateId: baseline.candidateId,
+      metricId: config.metricId,
+      requiredDelta: config.minimumDelta,
+      recommendedCandidateIds: Object.freeze(
+        candidates
+          .filter((candidate) => candidate.recommendation === "recommended")
+          .map((candidate) => candidate.candidateId),
+      ),
+      comparisons: Object.freeze(comparisons),
+    }),
+    evidenceGap: Object.freeze([]),
+  });
+}
+
 function reportConfidence(
   candidates: readonly BenchmarkReportCandidate[],
 ): BenchmarkReportConfidence {
@@ -1345,7 +1593,7 @@ export function createBenchmarkReport(input: {
     primaryMetricDirection === "informational"
       ? undefined
       : bestMetricValue(primaryValues, primaryMetricDirection);
-  const candidates = input.benchmark.candidates.map((candidate) =>
+  const initialCandidates = input.benchmark.candidates.map((candidate) =>
     candidateReport({
       benchmark: input.benchmark,
       candidateId: candidate.id,
@@ -1355,6 +1603,11 @@ export function createBenchmarkReport(input: {
       bestPrimaryMetricValue,
     }),
   );
+  const baselineApplied = applySingleAgentBaseline({
+    benchmark: input.benchmark,
+    candidates: initialCandidates,
+  });
+  const candidates = baselineApplied.candidates;
   const confidence = reportConfidence(candidates);
   const insufficientEvidence = candidates
     .filter((candidate) => candidate.recommendation === "insufficient_evidence")
@@ -1449,6 +1702,11 @@ export function createBenchmarkReport(input: {
               0,
             )} scored trial outcomes without hiding skips, exclusions, or retries.`,
           ]),
+      ...(baselineApplied.singleAgentBaseline === undefined
+        ? []
+        : [
+            `Single-agent baseline ${baselineApplied.singleAgentBaseline.baselineCandidateId} compared ${baselineApplied.singleAgentBaseline.comparisons.length} candidate(s) on ${baselineApplied.singleAgentBaseline.metricId}.`,
+          ]),
       ...(faultInjection === undefined
         ? []
         : [
@@ -1504,6 +1762,17 @@ export function createBenchmarkReport(input: {
             ...(reversibility === undefined
               ? []
               : ["Reversibility metadata is included in the evidence boundary."]),
+            ...(baselineApplied.singleAgentBaseline === undefined
+              ? []
+              : baselineApplied.singleAgentBaseline.recommendedCandidateIds.includes(
+                    baselineApplied.singleAgentBaseline.baselineCandidateId,
+                  )
+                ? [
+                    "The single-agent baseline remains recommended because no multi-agent candidate cleared the configured baseline delta.",
+                  ]
+                : [
+                    "At least one non-baseline candidate cleared the configured single-agent baseline delta.",
+                  ]),
           ]),
       ...reliabilityCandidates.flatMap((candidate) =>
         candidate.reliability.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
@@ -1559,6 +1828,13 @@ export function createBenchmarkReport(input: {
             : [
                 `web_research_answer_correct=${candidate.webResearch.answerCorrectRate}, citation_coverage=${candidate.webResearch.citationCoverageRate}, reconciliation_rate=${candidate.webResearch.reconciliationRate}, stale_source_uses=${candidate.webResearch.staleSourceUseCount}`,
               ]),
+          ...(candidate.singleAgentBaselineComparison === undefined
+            ? []
+            : [
+                `single_agent_baseline=${candidate.singleAgentBaselineComparison.outcome}, delta=${
+                  candidate.singleAgentBaselineComparison.delta ?? "missing"
+                }, required_delta=${candidate.singleAgentBaselineComparison.requiredDelta}`,
+              ]),
         ];
 
         return [`${candidate.candidateId}: ${candidate.recommendation}`, ...details].join("; ");
@@ -1566,6 +1842,9 @@ export function createBenchmarkReport(input: {
     ),
     candidates: Object.freeze(candidates),
     confidence,
+    ...(baselineApplied.singleAgentBaseline === undefined
+      ? {}
+      : { singleAgentBaseline: baselineApplied.singleAgentBaseline }),
     ...(reversibility === undefined ? {} : { reversibility }),
     evidence: Object.freeze({
       traceEventCount,
@@ -1578,6 +1857,7 @@ export function createBenchmarkReport(input: {
       ...toolUseEvidenceGap,
       ...contextualIntegrityEvidenceGap,
       ...webResearchEvidenceGap,
+      ...baselineApplied.evidenceGap,
     ]),
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
@@ -1649,6 +1929,35 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
     ),
     "",
   ];
+
+  if (report.singleAgentBaseline !== undefined) {
+    lines.push(
+      "## Single-Agent Baseline",
+      "",
+      `Baseline: ${report.singleAgentBaseline.baselineCandidateId}`,
+      `Metric: ${report.singleAgentBaseline.metricId}`,
+      `Required delta: ${report.singleAgentBaseline.requiredDelta}`,
+      `Recommended candidate(s): ${
+        report.singleAgentBaseline.recommendedCandidateIds.length === 0
+          ? "none"
+          : report.singleAgentBaseline.recommendedCandidateIds.join(", ")
+      }`,
+      "",
+      "| Candidate | Outcome | Candidate value | Baseline value | Delta | Required delta | Recommendation |",
+      "| --- | --- | ---: | ---: | ---: | ---: | --- |",
+      ...report.singleAgentBaseline.comparisons.map((comparison) => {
+        const candidate = report.candidates.find((entry) => entry.candidateId === comparison.candidateId);
+        return `| ${comparison.candidateId} | ${comparison.outcome} | ${
+          comparison.candidateValue ?? "missing"
+        } | ${
+          comparison.baselineValue ?? "missing"
+        } | ${comparison.delta ?? "missing"} | ${comparison.requiredDelta} | ${
+          candidate?.recommendation ?? "n/a"
+        } |`;
+      }),
+      "",
+    );
+  }
 
   if (reliabilityCandidates.length > 0) {
     lines.push(

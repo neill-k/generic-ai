@@ -44,6 +44,9 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
   web-research fixture that separates answer correctness from source
   provenance, cross-source reconciliation, stale-source use, and Chinese text
   preservation.
+- [`single-agent-baseline/`](single-agent-baseline/): deterministic comparator
+  fixture showing multi-agent wins, single-agent wins, and underpowered
+  baseline outcomes under the same mission.
 
 ## Programmatic Shape
 
@@ -89,6 +92,8 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
   requirements, reconciliation evidence, stale-source warnings, and
   provider-gated live-search expectations without binding reports to one search
   vendor.
+- Single-agent baseline comparators can prevent multi-agent recommendations
+  unless same-mission evidence clears the configured primary-metric delta.
 
 ## What It Does Not Prove Yet
 

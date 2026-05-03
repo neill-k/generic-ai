@@ -38,6 +38,29 @@ lower-is-better, or informational direction. Report helpers use those directions
 when choosing bounded recommendations, and a missing primary metric sample stays
 `insufficient_evidence` rather than being treated as zero.
 
+## Single-Agent Baseline Comparator
+
+Benchmarks can opt into a same-mission single-agent baseline by marking one
+candidate with `kind: "single_agent_baseline"` or by setting
+`BenchmarkSpec.singleAgentBaseline.candidateId`. The comparator is deliberately
+opt-in: older benchmark profiles and smoke checks are not forced to invent a
+baseline.
+
+When active, report helpers compare non-baseline candidates against the
+baseline on `BenchmarkSpec.singleAgentBaseline.metricId`, defaulting to the
+primary metric. The normalized delta is positive when the candidate improves
+over the baseline, respecting higher-is-better and lower-is-better metric
+directions. `minimumDelta` defines the improvement floor that a non-baseline
+candidate must clear before it can be recommended. Guardrail metrics are also
+shown as deltas by default so cost, latency, handoffs, and trace completeness
+stay visible beside the primary score.
+
+If the baseline itself lacks enough observed trials, primary-metric samples, or
+required trace completeness, non-baseline candidates remain
+`insufficient_evidence` even when their own samples look strong. This keeps
+Generic AI from recommending extra coordination structure without a comparable
+single-agent measurement.
+
 ## Trial Reliability And pass^k
 
 Repeated trials are part of the benchmark contract. `BenchmarkSpec.trials.count`

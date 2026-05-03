@@ -1,0 +1,36 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.baseline-verifier-loop",
+  "name": "Verifier loop",
+  "description": "A solver and critic loop that must beat the same-mission single-agent baseline before it can be recommended.",
+  "packages": [
+    {
+      "id": "protocol.verifier-loop",
+      "package": "@generic-ai/protocol-verifier-loop",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "solver",
+      "role": "solver",
+      "packageRefs": ["protocol.verifier-loop"]
+    },
+    {
+      "id": "critic",
+      "role": "critic",
+      "packageRefs": ["protocol.verifier-loop"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "verifier-loop",
+      "protocol": "verifier-loop",
+      "packageRef": "protocol.verifier-loop",
+      "actorRefs": ["solver", "critic"]
+    }
+  ],
+  "missionRefs": ["mission.single-agent-baseline"],
+  "evalRefs": ["benchmark.single-agent-baseline.v0"]
+}

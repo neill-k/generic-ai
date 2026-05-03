@@ -403,6 +403,93 @@ describe("Benchmark reports", () => {
     );
   });
 
+  it("requires multi-agent candidates to clear the single-agent baseline delta", () => {
+    const report = createBenchmarkReport({
+      benchmark: singleAgentBaselineBenchmark(),
+      mission,
+      generatedAt: "2026-05-03T00:00:00.000Z",
+      results: [
+        baselineTrial("single-agent-baseline", 0.8, 1, 100, 0),
+        baselineTrial("verifier-loop", 0.9, 1.8, 140, 2),
+        baselineTrial("hierarchy", 0.82, 1.4, 125, 3),
+      ],
+    });
+    const baseline = report.candidates.find(
+      (candidate) => candidate.candidateId === "single-agent-baseline",
+    );
+    const verifierLoop = report.candidates.find(
+      (candidate) => candidate.candidateId === "verifier-loop",
+    );
+    const hierarchy = report.candidates.find((candidate) => candidate.candidateId === "hierarchy");
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(report.singleAgentBaseline?.baselineCandidateId).toBe("single-agent-baseline");
+    expect(verifierLoop?.singleAgentBaselineComparison?.outcome).toBe("beats_baseline");
+    expect(verifierLoop?.singleAgentBaselineComparison?.delta).toBeCloseTo(0.1);
+    expect(verifierLoop?.recommendation).toBe("recommended");
+    expect(hierarchy?.singleAgentBaselineComparison?.outcome).toBe("within_threshold");
+    expect(hierarchy?.recommendation).toBe("not_recommended");
+    expect(baseline?.recommendation).toBe("not_recommended");
+    expect(markdown).toContain("## Single-Agent Baseline");
+    expect(markdown).toContain("single_agent_baseline=beats_baseline");
+  });
+
+  it("recommends the single-agent baseline when no multi-agent candidate clears the delta", () => {
+    const report = createBenchmarkReport({
+      benchmark: singleAgentBaselineBenchmark(),
+      mission,
+      generatedAt: "2026-05-03T00:00:00.000Z",
+      results: [
+        baselineTrial("single-agent-baseline", 0.9, 1, 100, 0),
+        baselineTrial("verifier-loop", 0.92, 1.8, 140, 2),
+      ],
+    });
+    const baseline = report.candidates.find(
+      (candidate) => candidate.candidateId === "single-agent-baseline",
+    );
+    const verifierLoop = report.candidates.find(
+      (candidate) => candidate.candidateId === "verifier-loop",
+    );
+
+    expect(verifierLoop?.singleAgentBaselineComparison?.outcome).toBe("within_threshold");
+    expect(verifierLoop?.recommendation).toBe("not_recommended");
+    expect(baseline?.recommendation).toBe("recommended");
+    expect(report.singleAgentBaseline?.recommendedCandidateIds).toEqual(["single-agent-baseline"]);
+  });
+
+  it("blocks multi-agent recommendations when the single-agent baseline is underpowered", () => {
+    const benchmarkWithThreeTrialFloor: BenchmarkSpec = {
+      ...singleAgentBaselineBenchmark(),
+      minTrials: 3,
+      trials: {
+        count: 3,
+        pairing: "paired",
+      },
+      validity: {
+        minimumTrialsForRecommendation: 3,
+      },
+    };
+    const report = createBenchmarkReport({
+      benchmark: benchmarkWithThreeTrialFloor,
+      mission,
+      generatedAt: "2026-05-03T00:00:00.000Z",
+      results: [
+        baselineTrial("single-agent-baseline", 0.8, 1, 100, 0),
+        ...Array.from({ length: 3 }, (_, index) => ({
+          ...baselineTrial("verifier-loop", 0.95, 1.8, 140, 2),
+          trialId: `verifier-loop:trial-${index + 1}`,
+        })),
+      ],
+    });
+    const verifierLoop = report.candidates.find(
+      (candidate) => candidate.candidateId === "verifier-loop",
+    );
+
+    expect(verifierLoop?.singleAgentBaselineComparison?.outcome).toBe("insufficient_evidence");
+    expect(verifierLoop?.recommendation).toBe("insufficient_evidence");
+    expect(report.insufficientEvidence.join("\n")).toContain("baseline evidence is insufficient");
+  });
+
   it("treats missing primary metric samples as insufficient evidence", () => {
     const report = createBenchmarkReport({
       benchmark: {
@@ -952,6 +1039,103 @@ describe("Benchmark reports", () => {
     );
   });
 });
+
+function singleAgentBaselineBenchmark(): BenchmarkSpec {
+  return {
+    ...benchmark,
+    candidates: [
+      {
+        id: "single-agent-baseline",
+        harnessRef: "harness.single-agent-baseline",
+        kind: "single_agent_baseline",
+      },
+      {
+        id: "verifier-loop",
+        harnessRef: "harness.verifier-loop",
+      },
+      {
+        id: "hierarchy",
+        harnessRef: "harness.hierarchy",
+      },
+    ],
+    metricDefinitions: [
+      {
+        id: "task_success",
+        name: "Task success",
+        unit: "ratio",
+        direction: "higher_is_better",
+        source: "grader",
+      },
+      {
+        id: "cost_usd",
+        name: "Cost",
+        unit: "usd",
+        direction: "lower_is_better",
+        source: "runtime",
+      },
+      {
+        id: "wall_time",
+        name: "Wall time",
+        unit: "seconds",
+        direction: "lower_is_better",
+        source: "runtime",
+      },
+      {
+        id: "handoff_count",
+        name: "Handoff count",
+        unit: "count",
+        direction: "lower_is_better",
+        source: "trace",
+      },
+    ],
+    guardrailMetrics: ["cost_usd", "wall_time", "handoff_count"],
+    singleAgentBaseline: {
+      minimumDelta: 0.05,
+    },
+    minTrials: 1,
+    trials: {
+      count: 1,
+      pairing: "paired",
+    },
+    validity: {
+      minimumTrialsForRecommendation: 1,
+    },
+  };
+}
+
+function baselineTrial(
+  candidateId: string,
+  taskSuccess: number,
+  costUsd: number,
+  wallTime: number,
+  handoffCount: number,
+): BenchmarkTrialResult {
+  return {
+    ...trialResult(candidateId, `harness.${candidateId}:compiled`, "task_success", taskSuccess),
+    metrics: [
+      {
+        metricId: "task_success",
+        value: taskSuccess,
+        evidenceRefs: [`${candidateId}:task-success`],
+      },
+      {
+        metricId: "cost_usd",
+        value: costUsd,
+        evidenceRefs: [`${candidateId}:cost`],
+      },
+      {
+        metricId: "wall_time",
+        value: wallTime,
+        evidenceRefs: [`${candidateId}:wall-time`],
+      },
+      {
+        metricId: "handoff_count",
+        value: handoffCount,
+        evidenceRefs: [`${candidateId}:handoffs`],
+      },
+    ],
+  };
+}
 
 function trialResult(
   candidateId: string,

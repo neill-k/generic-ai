@@ -36,6 +36,79 @@ describe("harness shootout fixtures", () => {
     }
   });
 
+  it("demonstrates single-agent baseline, multi-agent win, and underpowered-baseline outcomes", async () => {
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/single-agent-baseline/benchmark.json",
+    );
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/single-agent-baseline/mission.json",
+    );
+    const candidatePaths = [
+      "examples/harness-shootout/single-agent-baseline/candidates/single-agent-baseline.json",
+      "examples/harness-shootout/single-agent-baseline/candidates/verifier-loop.json",
+      "examples/harness-shootout/single-agent-baseline/candidates/hierarchy.json",
+    ];
+    const candidates = await Promise.all(candidatePaths.map((path) => readJson<HarnessDsl>(path)));
+
+    for (const candidate of candidates) {
+      const result = compileHarnessDsl(candidate);
+      expect(result.diagnostics).toEqual([]);
+      expect(result.compiled?.missionRefs).toContain(mission.id);
+      expect(result.compiled?.evalRefs).toContain(benchmark.id);
+    }
+
+    const multiAgentWin = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-05-03T00:00:00.000Z",
+      results: await readJson<BenchmarkTrialResult[]>(
+        "examples/harness-shootout/single-agent-baseline/trial-results-multi-agent-win.json",
+      ),
+    });
+    const singleAgentWin = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-05-03T00:00:00.000Z",
+      results: await readJson<BenchmarkTrialResult[]>(
+        "examples/harness-shootout/single-agent-baseline/trial-results-single-agent-win.json",
+      ),
+    });
+    const baselineUnderpowered = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        minTrials: 3,
+        trials: {
+          count: 3,
+          pairing: "paired",
+        },
+        validity: {
+          minimumTrialsForRecommendation: 3,
+          requireTraceCompleteness: true,
+        },
+      },
+      mission,
+      generatedAt: "2026-05-03T00:00:00.000Z",
+      results: await readJson<BenchmarkTrialResult[]>(
+        "examples/harness-shootout/single-agent-baseline/trial-results-baseline-underpowered.json",
+      ),
+    });
+
+    expect(
+      multiAgentWin.candidates.find((candidate) => candidate.candidateId === "verifier-loop")
+        ?.recommendation,
+    ).toBe("recommended");
+    expect(
+      singleAgentWin.candidates.find(
+        (candidate) => candidate.candidateId === "single-agent-baseline",
+      )?.recommendation,
+    ).toBe("recommended");
+    expect(
+      baselineUnderpowered.candidates.find((candidate) => candidate.candidateId === "verifier-loop")
+        ?.recommendation,
+    ).toBe("insufficient_evidence");
+    expect(renderBenchmarkReportMarkdown(multiAgentWin)).toContain("## Single-Agent Baseline");
+  });
+
   it("distinguishes average score from repeated-run reliability", async () => {
     const benchmark = await readJson<BenchmarkSpec>(
       "examples/harness-shootout/reliability/benchmark.json",

@@ -1,0 +1,44 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.baseline-hierarchy",
+  "name": "Hierarchy",
+  "description": "A manager and worker hierarchy that remains bounded by the single-agent baseline comparator.",
+  "packages": [
+    {
+      "id": "protocol.hierarchy",
+      "package": "@generic-ai/protocol-hierarchy",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "manager",
+      "role": "manager",
+      "packageRefs": ["protocol.hierarchy"]
+    },
+    {
+      "id": "worker",
+      "role": "worker",
+      "packageRefs": ["protocol.hierarchy"]
+    }
+  ],
+  "relationships": [
+    {
+      "id": "manager-delegates-to-worker",
+      "kind": "delegates_to",
+      "fromAgentRef": "manager",
+      "toAgentRef": "worker"
+    }
+  ],
+  "protocols": [
+    {
+      "id": "hierarchy",
+      "protocol": "hierarchy",
+      "packageRef": "protocol.hierarchy",
+      "actorRefs": ["manager", "worker"]
+    }
+  ],
+  "missionRefs": ["mission.single-agent-baseline"],
+  "evalRefs": ["benchmark.single-agent-baseline.v0"]
+}

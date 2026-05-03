@@ -1,0 +1,82 @@
+{
+  "kind": "generic-ai.benchmark",
+  "schemaVersion": "0.1",
+  "id": "benchmark.single-agent-baseline.v0",
+  "missionRef": "mission.single-agent-baseline",
+  "hypothesis": "Multi-agent coordination should only be recommended when it clears a same-mission single-agent baseline by the configured primary-metric delta.",
+  "candidates": [
+    {
+      "id": "single-agent-baseline",
+      "harnessRef": "harness.single-agent-baseline",
+      "kind": "single_agent_baseline",
+      "label": "Single-agent baseline"
+    },
+    {
+      "id": "verifier-loop",
+      "harnessRef": "harness.baseline-verifier-loop",
+      "label": "Verifier loop"
+    },
+    {
+      "id": "hierarchy",
+      "harnessRef": "harness.baseline-hierarchy",
+      "label": "Hierarchy"
+    }
+  ],
+  "primaryMetric": "task_success",
+  "metricDefinitions": [
+    {
+      "id": "task_success",
+      "name": "Task success",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "grader"
+    },
+    {
+      "id": "cost_usd",
+      "name": "Cost",
+      "unit": "usd",
+      "direction": "lower_is_better",
+      "source": "runtime"
+    },
+    {
+      "id": "wall_time",
+      "name": "Wall time",
+      "unit": "seconds",
+      "direction": "lower_is_better",
+      "source": "runtime"
+    },
+    {
+      "id": "handoff_count",
+      "name": "Handoff count",
+      "unit": "count",
+      "direction": "lower_is_better",
+      "source": "trace"
+    },
+    {
+      "id": "trace_completeness",
+      "name": "Trace completeness",
+      "unit": "ratio",
+      "direction": "higher_is_better",
+      "source": "trace"
+    }
+  ],
+  "guardrailMetrics": ["cost_usd", "wall_time", "handoff_count", "trace_completeness"],
+  "singleAgentBaseline": {
+    "minimumDelta": 0.05,
+    "compareGuardrailMetrics": true
+  },
+  "trials": {
+    "count": 1,
+    "pairing": "paired"
+  },
+  "minTrials": 1,
+  "validity": {
+    "minimumTrialsForRecommendation": 1,
+    "requireTraceCompleteness": true,
+    "allowSingleRunRecommendation": false
+  },
+  "report": {
+    "formats": ["json", "markdown"],
+    "includeRecommendations": true
+  }
+}

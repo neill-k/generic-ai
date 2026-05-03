@@ -1,0 +1,18 @@
+{
+  "kind": "generic-ai.mission",
+  "schemaVersion": "0.1",
+  "id": "mission.single-agent-baseline",
+  "objective": "Repair a small OAuth callback regression while preserving public behavior and documenting evidence.",
+  "objectiveClass": "coding",
+  "tasks": [
+    {
+      "id": "task.oauth-callback-regression",
+      "description": "Patch a localized OAuth callback handling regression, run the focused tests, and report the evidence boundary."
+    }
+  ],
+  "successCriteria": [
+    "The focused regression test passes.",
+    "The report distinguishes correctness from coordination overhead.",
+    "A multi-agent recommendation is only made when it beats the single-agent baseline by the configured delta."
+  ]
+}
