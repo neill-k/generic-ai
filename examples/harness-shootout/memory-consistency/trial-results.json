@@ -1,0 +1,195 @@
+[
+  {
+    "candidateId": "consistency-aware-team",
+    "harnessId": "harness.memory-consistency.consistency-aware-team:compiled",
+    "trialId": "consistency-aware-team:trial-1",
+    "seed": "memory-consistency-fixture",
+    "metrics": [
+      {
+        "metricId": "memory_consistency_score",
+        "value": 1,
+        "evidenceRefs": ["artifact.consistency-aware-summary"]
+      },
+      {
+        "metricId": "task_success",
+        "value": 1,
+        "evidenceRefs": ["artifact.consistency-aware-summary"]
+      },
+      {
+        "metricId": "stale_read_rate",
+        "value": 0,
+        "evidenceRefs": ["artifact.consistency-aware-summary"]
+      },
+      {
+        "metricId": "unresolved_memory_conflicts",
+        "value": 0,
+        "evidenceRefs": ["artifact.consistency-aware-summary"]
+      },
+      {
+        "metricId": "handoff_drift_count",
+        "value": 0,
+        "evidenceRefs": ["artifact.consistency-aware-summary"]
+      },
+      {
+        "metricId": "provenance_gap_count",
+        "value": 0,
+        "evidenceRefs": ["artifact.consistency-aware-summary"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.consistency-aware-summary",
+        "kind": "report",
+        "uri": "memory:///memory-consistency/consistency-aware-summary.json",
+        "redaction": "metadata_only",
+        "summary": "Consistency-aware candidate resolved write conflicts, preserved handoff state, deduplicated projections, and enforced namespace ACLs."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 2,
+      "reworkCount": 1,
+      "policyDecisionCount": 1,
+      "artifactCount": 1
+    },
+    "memoryConsistency": [
+      {
+        "caseRef": "concurrent-preference-write",
+        "operations": [
+          {
+            "id": "op.consistency-aware.planner-write",
+            "kind": "write",
+            "agentRef": "planner",
+            "namespaceRef": "team-shared",
+            "version": "pref-v1",
+            "provenanceRefs": ["message.user.pref-a"],
+            "conflictStatus": "detected"
+          },
+          {
+            "id": "op.consistency-aware.reconcile",
+            "kind": "reconcile",
+            "agentRef": "reviewer",
+            "namespaceRef": "team-shared",
+            "version": "pref-v2",
+            "causalParentRefs": ["op.consistency-aware.planner-write"],
+            "provenanceRefs": ["message.user.pref-a", "message.user.pref-b"],
+            "conflictStatus": "resolved"
+          }
+        ],
+        "conflictDetected": true,
+        "conflictResolved": true,
+        "provenanceComplete": true,
+        "consistencySatisfied": true,
+        "evidenceRefs": ["trace.consistency-aware.conflict"]
+      },
+      {
+        "caseRef": "worker-handoff",
+        "handoffPreserved": true,
+        "provenanceComplete": true,
+        "consistencySatisfied": true,
+        "evidenceRefs": ["trace.consistency-aware.handoff"]
+      },
+      {
+        "caseRef": "message-projection-idempotency",
+        "projectionIdempotent": true,
+        "provenanceComplete": true,
+        "consistencySatisfied": true,
+        "evidenceRefs": ["trace.consistency-aware.projection"]
+      },
+      {
+        "caseRef": "restricted-namespace-denial",
+        "aclEnforced": true,
+        "consistencySatisfied": true,
+        "evidenceRefs": ["trace.consistency-aware.acl"]
+      }
+    ]
+  },
+  {
+    "candidateId": "eventual-memory-team",
+    "harnessId": "harness.memory-consistency.eventual-memory-team:compiled",
+    "trialId": "eventual-memory-team:trial-1",
+    "seed": "memory-consistency-fixture",
+    "metrics": [
+      {
+        "metricId": "memory_consistency_score",
+        "value": 0.25,
+        "evidenceRefs": ["artifact.eventual-memory-summary"]
+      },
+      {
+        "metricId": "task_success",
+        "value": 1,
+        "evidenceRefs": ["artifact.eventual-memory-summary"]
+      },
+      {
+        "metricId": "stale_read_rate",
+        "value": 1,
+        "evidenceRefs": ["artifact.eventual-memory-summary"]
+      },
+      {
+        "metricId": "unresolved_memory_conflicts",
+        "value": 1,
+        "evidenceRefs": ["artifact.eventual-memory-summary"]
+      },
+      {
+        "metricId": "handoff_drift_count",
+        "value": 1,
+        "evidenceRefs": ["artifact.eventual-memory-summary"]
+      },
+      {
+        "metricId": "provenance_gap_count",
+        "value": 2,
+        "evidenceRefs": ["artifact.eventual-memory-summary"]
+      }
+    ],
+    "traceEvents": [],
+    "artifacts": [
+      {
+        "id": "artifact.eventual-memory-summary",
+        "kind": "report",
+        "uri": "memory:///memory-consistency/eventual-memory-summary.json",
+        "redaction": "metadata_only",
+        "summary": "Eventual-memory candidate answered the task but retained stale handoff state, left a write conflict unresolved, duplicated a projection, and lost provenance."
+      }
+    ],
+    "diagnostics": {
+      "completeness": 1,
+      "missingRequiredEventTypes": [],
+      "handoffCount": 2,
+      "reworkCount": 0,
+      "policyDecisionCount": 0,
+      "artifactCount": 1
+    },
+    "memoryConsistency": [
+      {
+        "caseRef": "concurrent-preference-write",
+        "conflictDetected": true,
+        "conflictResolved": false,
+        "provenanceComplete": false,
+        "consistencySatisfied": false,
+        "evidenceRefs": ["trace.eventual-memory.conflict"]
+      },
+      {
+        "caseRef": "worker-handoff",
+        "staleReadDetected": true,
+        "handoffPreserved": false,
+        "provenanceComplete": false,
+        "consistencySatisfied": false,
+        "evidenceRefs": ["trace.eventual-memory.handoff"]
+      },
+      {
+        "caseRef": "message-projection-idempotency",
+        "projectionIdempotent": false,
+        "consistencySatisfied": false,
+        "evidenceRefs": ["trace.eventual-memory.projection"]
+      },
+      {
+        "caseRef": "restricted-namespace-denial",
+        "aclEnforced": true,
+        "consistencySatisfied": true,
+        "evidenceRefs": ["trace.eventual-memory.acl"]
+      }
+    ]
+  }
+]

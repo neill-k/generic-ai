@@ -44,6 +44,10 @@ runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
   web-research fixture that separates answer correctness from source
   provenance, cross-source reconciliation, stale-source use, and Chinese text
   preservation.
+- [`memory-consistency/`](memory-consistency/): deterministic multi-agent memory
+  fixture that separates final task success from stale reads, unresolved
+  conflicts, handoff drift, duplicate projections, ACL violations, and
+  provenance gaps.
 
 ## Programmatic Shape
 
@@ -89,6 +93,10 @@ Otherwise, log in with Pi so the agent directory contains OpenAI Codex auth.
   requirements, reconciliation evidence, stale-source warnings, and
   provider-gated live-search expectations without binding reports to one search
   vendor.
+- Memory-consistency profiles can model private/shared namespaces, consistency
+  guarantees, operation envelopes, and multi-agent memory cases so reports
+  expose stale reads, conflicts, handoff drift, projection duplication, ACL
+  failures, and provenance gaps separately from final task success.
 
 ## What It Does Not Prove Yet
 

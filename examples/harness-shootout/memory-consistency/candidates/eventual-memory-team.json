@@ -1,0 +1,80 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.memory-consistency.eventual-memory-team",
+  "name": "Eventual Memory Team",
+  "packages": [
+    {
+      "id": "capability.memory",
+      "package": "@generic-ai/plugin-memory-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.messaging",
+      "package": "@generic-ai/plugin-messaging",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.memory-consistency",
+      "package": "@generic-ai/grader-memory-consistency",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "planner",
+      "role": "planner",
+      "instructions": "Use shared memory opportunistically and prefer the latest visible summary.",
+      "packageRefs": ["capability.memory", "capability.messaging"],
+      "artifactRefs": ["artifact.memory-summary"]
+    },
+    {
+      "id": "worker",
+      "role": "builder",
+      "instructions": "Write worker notes to memory and continue without checking for conflicts.",
+      "packageRefs": ["capability.memory", "capability.messaging"],
+      "artifactRefs": ["artifact.worker-notes"]
+    },
+    {
+      "id": "reviewer",
+      "role": "verifier",
+      "instructions": "Grade the final answer and summarize memory behavior after the fact.",
+      "packageRefs": ["grader.memory-consistency"],
+      "artifactRefs": ["artifact.memory-consistency-summary"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "single-pass",
+      "protocol": "pipeline",
+      "packageRef": "capability.messaging",
+      "actorRefs": ["planner", "worker", "reviewer"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.memory-summary",
+      "name": "memory-summary.json",
+      "kind": "metric",
+      "producedBy": ["planner"],
+      "reviewedBy": ["reviewer"]
+    },
+    {
+      "id": "artifact.worker-notes",
+      "name": "worker-notes.md",
+      "kind": "message",
+      "producedBy": ["worker"],
+      "reviewedBy": ["reviewer"]
+    },
+    {
+      "id": "artifact.memory-consistency-summary",
+      "name": "memory-consistency-summary.json",
+      "kind": "report",
+      "producedBy": ["reviewer"],
+      "reviewedBy": ["reviewer"]
+    }
+  ],
+  "missionRefs": ["mission.memory-consistency"],
+  "evalRefs": ["benchmark.memory-consistency.v0"]
+}
+

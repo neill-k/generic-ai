@@ -449,6 +449,66 @@ describe("harness shootout fixtures", () => {
     }
   });
 
+  it("reports multi-agent memory consistency separately from final correctness", async () => {
+    const mission = await readJson<MissionSpec>(
+      "examples/harness-shootout/memory-consistency/mission.json",
+    );
+    const benchmark = await readJson<BenchmarkSpec>(
+      "examples/harness-shootout/memory-consistency/benchmark.json",
+    );
+    const candidatePaths = [
+      "examples/harness-shootout/memory-consistency/candidates/consistency-aware-team.json",
+      "examples/harness-shootout/memory-consistency/candidates/eventual-memory-team.json",
+    ];
+    const candidates = await Promise.all(candidatePaths.map((path) => readJson<HarnessDsl>(path)));
+    const results = await readJson<BenchmarkTrialResult[]>(
+      "examples/harness-shootout/memory-consistency/trial-results.json",
+    );
+
+    for (const candidate of candidates) {
+      const result = compileHarnessDsl(candidate);
+      expect(result.diagnostics).toEqual([]);
+      expect(result.compiled?.missionRefs).toContain(mission.id);
+      expect(result.compiled?.evalRefs).toContain(benchmark.id);
+    }
+
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-05-03T00:00:00.000Z",
+      results,
+    });
+    const consistencyAware = report.candidates.find(
+      (candidate) => candidate.candidateId === "consistency-aware-team",
+    );
+    const eventualMemory = report.candidates.find(
+      (candidate) => candidate.candidateId === "eventual-memory-team",
+    );
+    const markdown = renderBenchmarkReportMarkdown(report);
+
+    expect(benchmark.memoryConsistency?.cases.map((entry) => entry.kind)).toEqual([
+      "concurrent_write",
+      "child_agent_handoff",
+      "message_projection",
+      "acl_denial",
+    ]);
+    expect(
+      consistencyAware?.scorecard.find((metric) => metric.metricId === "task_success")?.value,
+    ).toBe(1);
+    expect(
+      eventualMemory?.scorecard.find((metric) => metric.metricId === "task_success")?.value,
+    ).toBe(1);
+    expect(consistencyAware?.memoryConsistency?.consistencyScore).toBe(1);
+    expect(eventualMemory?.memoryConsistency?.consistencyScore).toBe(0.25);
+    expect(eventualMemory?.memoryConsistency?.staleReadCount).toBe(1);
+    expect(eventualMemory?.memoryConsistency?.unresolvedConflictCount).toBe(1);
+    expect(eventualMemory?.memoryConsistency?.handoffDriftCount).toBe(1);
+    expect(eventualMemory?.memoryConsistency?.duplicateProjectionCount).toBe(1);
+    expect(eventualMemory?.memoryConsistency?.provenanceGapCount).toBe(2);
+    expect(report.memoryConsistency?.observedCaseCount).toBe(4);
+    expect(markdown).toContain("## Memory Consistency");
+  });
+
   it("renders separate navigation and tool-output failure evidence", async () => {
     const benchmark = await readJson<BenchmarkSpec>(
       "examples/harness-shootout/dag-navigation/benchmark.json",

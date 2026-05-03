@@ -31,6 +31,9 @@ import type {
   WebResearchObservation,
   WebResearchProfile,
   WebResearchReportSummary,
+  MemoryConsistencyObservation,
+  MemoryConsistencyProfile,
+  MemoryConsistencyReportSummary,
 } from "./types.js";
 
 type ComparableMetricDirection = Exclude<MetricDefinition["direction"], "informational">;
@@ -180,6 +183,12 @@ function webResearchObservations(
   results: readonly BenchmarkTrialResult[],
 ): readonly WebResearchObservation[] {
   return Object.freeze(results.flatMap((result) => result.webResearch ?? []));
+}
+
+function memoryConsistencyObservations(
+  results: readonly BenchmarkTrialResult[],
+): readonly MemoryConsistencyObservation[] {
+  return Object.freeze(results.flatMap((result) => result.memoryConsistency ?? []));
 }
 
 function plannedToolUseCase(
@@ -749,6 +758,106 @@ function webResearchSummary(input: {
   });
 }
 
+function memoryConsistencySummary(input: {
+  readonly profile: MemoryConsistencyProfile | undefined;
+  readonly observations: readonly MemoryConsistencyObservation[];
+}): MemoryConsistencyReportSummary | undefined {
+  if (input.profile === undefined && input.observations.length === 0) {
+    return undefined;
+  }
+
+  const plannedCaseCount = input.profile?.cases.length ?? 0;
+  const observedCaseRefs = new Set(input.observations.map((observation) => observation.caseRef));
+  const missingPlannedCases =
+    input.profile?.cases.filter((entry) => !observedCaseRefs.has(entry.id)) ?? [];
+  const byCase = input.observations.map((observation) =>
+    Object.freeze({
+      caseRef: observation.caseRef,
+      operationCount: observation.operations?.length ?? 0,
+      consistencySatisfied: observation.consistencySatisfied,
+      staleReadDetected: observation.staleReadDetected === true,
+      conflictDetected: observation.conflictDetected === true,
+      conflictResolved: observation.conflictResolved === true,
+      ...(observation.handoffPreserved === undefined
+        ? {}
+        : { handoffPreserved: observation.handoffPreserved }),
+      ...(observation.projectionIdempotent === undefined
+        ? {}
+        : { projectionIdempotent: observation.projectionIdempotent }),
+      ...(observation.aclEnforced === undefined ? {} : { aclEnforced: observation.aclEnforced }),
+      ...(observation.supersessionPropagated === undefined
+        ? {}
+        : { supersessionPropagated: observation.supersessionPropagated }),
+      ...(observation.provenanceComplete === undefined
+        ? {}
+        : { provenanceComplete: observation.provenanceComplete }),
+    }),
+  );
+  const consistencySatisfiedCount = byCase.filter(
+    (observation) => observation.consistencySatisfied,
+  ).length;
+  const staleReadCount = byCase.filter((observation) => observation.staleReadDetected).length;
+  const conflictCount = byCase.filter((observation) => observation.conflictDetected).length;
+  const unresolvedConflictCount = byCase.filter(
+    (observation) => observation.conflictDetected && !observation.conflictResolved,
+  ).length;
+  const handoffDriftCount = byCase.filter(
+    (observation) => observation.handoffPreserved === false,
+  ).length;
+  const duplicateProjectionCount = byCase.filter(
+    (observation) => observation.projectionIdempotent === false,
+  ).length;
+  const aclViolationCount = byCase.filter((observation) => observation.aclEnforced === false)
+    .length;
+  const provenanceGapCount = byCase.filter(
+    (observation) => observation.provenanceComplete === false,
+  ).length;
+  const warnings = [
+    ...(missingPlannedCases.length > 0
+      ? [
+          `Missing memory-consistency observations for ${missingPlannedCases
+            .map((entry) => entry.id)
+            .join(", ")}.`,
+        ]
+      : []),
+    ...(staleReadCount > 0 ? [`${staleReadCount} stale memory read(s) recorded.`] : []),
+    ...(unresolvedConflictCount > 0
+      ? [`${unresolvedConflictCount} unresolved memory conflict(s) recorded.`]
+      : []),
+    ...(handoffDriftCount > 0 ? [`${handoffDriftCount} memory handoff drift(s) recorded.`] : []),
+    ...(duplicateProjectionCount > 0
+      ? [`${duplicateProjectionCount} duplicate memory projection(s) recorded.`]
+      : []),
+    ...(aclViolationCount > 0 ? [`${aclViolationCount} memory ACL violation(s) recorded.`] : []),
+    ...(provenanceGapCount > 0
+      ? [`${provenanceGapCount} memory provenance gap(s) recorded.`]
+      : []),
+  ];
+
+  return Object.freeze({
+    ...(input.profile?.id === undefined ? {} : { profileId: input.profile.id }),
+    plannedCaseCount,
+    observedCaseCount: observedCaseRefs.size,
+    consistencySatisfiedCount,
+    consistencyScore:
+      input.observations.length === 0
+        ? null
+        : rate(consistencySatisfiedCount, input.observations.length),
+    staleReadCount,
+    conflictCount,
+    unresolvedConflictCount,
+    handoffDriftCount,
+    duplicateProjectionCount,
+    aclViolationCount,
+    provenanceGapCount,
+    byCase: Object.freeze(byCase),
+    evidenceRefs: Object.freeze([
+      ...new Set(input.observations.flatMap((observation) => observation.evidenceRefs)),
+    ]),
+    warnings: Object.freeze(warnings),
+  });
+}
+
 function reversibilitySummary(
   results: readonly BenchmarkTrialResult[],
 ): BenchmarkReversibilitySummary | undefined {
@@ -1201,6 +1310,10 @@ function candidateReport(input: {
     profile: input.benchmark.webResearch,
     observations: webResearchObservations(input.results),
   });
+  const memoryConsistency = memoryConsistencySummary({
+    profile: input.benchmark.memoryConsistency,
+    observations: memoryConsistencyObservations(input.results),
+  });
   const passK = passKSummary({ benchmark: input.benchmark, results: input.results });
   const reversibility = reversibilitySummary(input.results);
   const rationale = [
@@ -1254,6 +1367,14 @@ function candidateReport(input: {
           `web-research citation coverage: ${webResearch.citationCoverageRate}`,
           `web-research stale-source uses: ${webResearch.staleSourceUseCount}`,
         ]),
+    ...(memoryConsistency === undefined
+      ? []
+      : [
+          `memory-consistency cases observed: ${memoryConsistency.observedCaseCount}/${memoryConsistency.plannedCaseCount}`,
+          `memory-consistency score: ${memoryConsistency.consistencyScore ?? "missing"}`,
+          `stale memory reads: ${memoryConsistency.staleReadCount}`,
+          `unresolved memory conflicts: ${memoryConsistency.unresolvedConflictCount}`,
+        ]),
   ];
 
   return Object.freeze({
@@ -1275,6 +1396,7 @@ function candidateReport(input: {
     ...(toolUse === undefined ? {} : { toolUse }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
     ...(webResearch === undefined ? {} : { webResearch }),
+    ...(memoryConsistency === undefined ? {} : { memoryConsistency }),
   });
 }
 
@@ -1375,6 +1497,10 @@ export function createBenchmarkReport(input: {
     profile: input.benchmark.webResearch,
     observations: webResearchObservations(input.results),
   });
+  const memoryConsistency = memoryConsistencySummary({
+    profile: input.benchmark.memoryConsistency,
+    observations: memoryConsistencyObservations(input.results),
+  });
   const reversibility = reversibilitySummary(input.results);
   const faultInjectionEvidenceGap =
     (input.benchmark.faultInjections ?? []).length > 0 &&
@@ -1400,6 +1526,14 @@ export function createBenchmarkReport(input: {
     input.benchmark.webResearch.cases.length > 0 &&
     (webResearch?.observedCaseCount ?? 0) === 0
       ? ["Web-research cases were configured but no trial observations recorded source evidence."]
+      : [];
+  const memoryConsistencyEvidenceGap =
+    input.benchmark.memoryConsistency !== undefined &&
+    input.benchmark.memoryConsistency.cases.length > 0 &&
+    (memoryConsistency?.observedCaseCount ?? 0) === 0
+      ? [
+          "Memory-consistency cases were configured but no trial observations recorded consistency outcomes.",
+        ]
       : [];
   const traceEventCount = input.results.reduce(
     (total, result) => total + result.traceEvents.length,
@@ -1429,6 +1563,13 @@ export function createBenchmarkReport(input: {
       candidate,
     ): candidate is BenchmarkReportCandidate & { webResearch: WebResearchReportSummary } =>
       candidate.webResearch !== undefined,
+  );
+  const memoryConsistencyCandidates = candidates.filter(
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & {
+      memoryConsistency: MemoryConsistencyReportSummary;
+    } => candidate.memoryConsistency !== undefined,
   );
 
   return Object.freeze({
@@ -1469,6 +1610,11 @@ export function createBenchmarkReport(input: {
         : [
             `Web-research profile summarized ${webResearch.observedCaseCount}/${webResearch.plannedCaseCount} planned source-reconciliation case(s).`,
           ]),
+      ...(memoryConsistency === undefined
+        ? []
+        : [
+            `Memory-consistency profile summarized ${memoryConsistency.observedCaseCount}/${memoryConsistency.plannedCaseCount} planned multi-agent memory case(s).`,
+          ]),
       ...(reversibility === undefined
         ? []
         : [`Captured reversibility metadata on ${reversibility.totalEventCount} trace events.`]),
@@ -1479,7 +1625,8 @@ export function createBenchmarkReport(input: {
       faultInjectionEvidenceGap.length > 0 ||
       toolUseEvidenceGap.length > 0 ||
       contextualIntegrityEvidenceGap.length > 0 ||
-      webResearchEvidenceGap.length > 0
+      webResearchEvidenceGap.length > 0 ||
+      memoryConsistencyEvidenceGap.length > 0
         ? ["At least one candidate lacks enough evidence for a confident recommendation."]
         : [
             confidence.level === "confident_recommendation"
@@ -1501,6 +1648,11 @@ export function createBenchmarkReport(input: {
               : [
                   "Web-research source evidence is reported separately from final answer correctness.",
                 ]),
+            ...(memoryConsistency === undefined
+              ? []
+              : [
+                  "Memory-consistency evidence is reported separately from final task correctness.",
+                ]),
             ...(reversibility === undefined
               ? []
               : ["Reversibility metadata is included in the evidence boundary."]),
@@ -1518,6 +1670,11 @@ export function createBenchmarkReport(input: {
       ),
       ...webResearchCandidates.flatMap((candidate) =>
         candidate.webResearch.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
+      ),
+      ...memoryConsistencyCandidates.flatMap((candidate) =>
+        candidate.memoryConsistency.warnings.map(
+          (warning) => `${candidate.candidateId}: ${warning}`,
+        ),
       ),
     ]),
     recommendations: Object.freeze(
@@ -1559,6 +1716,15 @@ export function createBenchmarkReport(input: {
             : [
                 `web_research_answer_correct=${candidate.webResearch.answerCorrectRate}, citation_coverage=${candidate.webResearch.citationCoverageRate}, reconciliation_rate=${candidate.webResearch.reconciliationRate}, stale_source_uses=${candidate.webResearch.staleSourceUseCount}`,
               ]),
+          ...(candidate.memoryConsistency === undefined
+            ? []
+            : [
+                `memory_consistency_score=${
+                  candidate.memoryConsistency.consistencyScore === null
+                    ? "missing"
+                    : candidate.memoryConsistency.consistencyScore
+                }, stale_reads=${candidate.memoryConsistency.staleReadCount}, unresolved_conflicts=${candidate.memoryConsistency.unresolvedConflictCount}, handoff_drifts=${candidate.memoryConsistency.handoffDriftCount}, provenance_gaps=${candidate.memoryConsistency.provenanceGapCount}`,
+              ]),
         ];
 
         return [`${candidate.candidateId}: ${candidate.recommendation}`, ...details].join("; ");
@@ -1578,11 +1744,13 @@ export function createBenchmarkReport(input: {
       ...toolUseEvidenceGap,
       ...contextualIntegrityEvidenceGap,
       ...webResearchEvidenceGap,
+      ...memoryConsistencyEvidenceGap,
     ]),
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
     ...(webResearch === undefined ? {} : { webResearch }),
+    ...(memoryConsistency === undefined ? {} : { memoryConsistency }),
   });
 }
 
@@ -1609,6 +1777,13 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
       candidate,
     ): candidate is BenchmarkReportCandidate & { webResearch: WebResearchReportSummary } =>
       candidate.webResearch !== undefined,
+  );
+  const memoryConsistencyCandidates = report.candidates.filter(
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & {
+      memoryConsistency: MemoryConsistencyReportSummary;
+    } => candidate.memoryConsistency !== undefined,
   );
   const lines = [
     `# Benchmark Report: ${report.benchmarkId}`,
@@ -1764,6 +1939,34 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
         "### Web Research Warnings",
         "",
         ...webResearchWarnings.map((warning) => `- ${warning}`),
+        "",
+      );
+    }
+  }
+
+  if (memoryConsistencyCandidates.length > 0) {
+    lines.push(
+      "## Memory Consistency",
+      "",
+      "| Candidate | Observed / Planned cases | Consistency score | Stale reads | Conflicts | Unresolved conflicts | Handoff drifts | Duplicate projections | ACL violations | Provenance gaps |",
+      "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+      ...memoryConsistencyCandidates.map((candidate) => {
+        const memoryConsistency = candidate.memoryConsistency;
+        return `| ${candidate.candidateId} | ${memoryConsistency.observedCaseCount}/${memoryConsistency.plannedCaseCount} | ${memoryConsistency.consistencyScore ?? "n/a"} | ${memoryConsistency.staleReadCount} | ${memoryConsistency.conflictCount} | ${memoryConsistency.unresolvedConflictCount} | ${memoryConsistency.handoffDriftCount} | ${memoryConsistency.duplicateProjectionCount} | ${memoryConsistency.aclViolationCount} | ${memoryConsistency.provenanceGapCount} |`;
+      }),
+      "",
+    );
+
+    const memoryConsistencyWarnings = memoryConsistencyCandidates.flatMap((candidate) =>
+      candidate.memoryConsistency.warnings.map(
+        (warning) => `${candidate.candidateId}: ${warning}`,
+      ),
+    );
+    if (memoryConsistencyWarnings.length > 0) {
+      lines.push(
+        "### Memory Consistency Warnings",
+        "",
+        ...memoryConsistencyWarnings.map((warning) => `- ${warning}`),
         "",
       );
     }

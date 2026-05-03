@@ -1,0 +1,85 @@
+{
+  "kind": "generic-ai.harness",
+  "schemaVersion": "0.1",
+  "id": "harness.memory-consistency.consistency-aware-team",
+  "name": "Consistency-Aware Memory Team",
+  "packages": [
+    {
+      "id": "protocol.verifier-loop",
+      "package": "@generic-ai/protocol-verifier-loop",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.memory",
+      "package": "@generic-ai/plugin-memory-files",
+      "version": "0.1.0"
+    },
+    {
+      "id": "capability.messaging",
+      "package": "@generic-ai/plugin-messaging",
+      "version": "0.1.0"
+    },
+    {
+      "id": "grader.memory-consistency",
+      "package": "@generic-ai/grader-memory-consistency",
+      "version": "0.1.0"
+    }
+  ],
+  "agents": [
+    {
+      "id": "planner",
+      "role": "planner",
+      "instructions": "Write memory updates with version, projection id, source message, and expected namespace visibility.",
+      "packageRefs": ["capability.memory", "capability.messaging"],
+      "artifactRefs": ["artifact.memory-plan"]
+    },
+    {
+      "id": "worker",
+      "role": "builder",
+      "instructions": "Publish worker discoveries to shared memory only with causal parent and provenance refs.",
+      "packageRefs": ["capability.memory", "capability.messaging"],
+      "artifactRefs": ["artifact.worker-handoff"]
+    },
+    {
+      "id": "reviewer",
+      "role": "verifier",
+      "instructions": "Detect conflicts, stale reads, duplicate projections, ACL violations, and provenance gaps before finalizing.",
+      "packageRefs": ["protocol.verifier-loop", "capability.memory", "grader.memory-consistency"],
+      "artifactRefs": ["artifact.memory-consistency-summary"]
+    }
+  ],
+  "protocols": [
+    {
+      "id": "verifier-loop",
+      "protocol": "verifier-loop",
+      "packageRef": "protocol.verifier-loop",
+      "actorRefs": ["planner", "worker", "reviewer"]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "artifact.memory-plan",
+      "name": "memory-plan.json",
+      "kind": "metric",
+      "producedBy": ["planner"],
+      "reviewedBy": ["reviewer"]
+    },
+    {
+      "id": "artifact.worker-handoff",
+      "name": "worker-handoff.json",
+      "kind": "message",
+      "producedBy": ["worker"],
+      "reviewedBy": ["reviewer"]
+    },
+    {
+      "id": "artifact.memory-consistency-summary",
+      "name": "memory-consistency-summary.json",
+      "kind": "report",
+      "producedBy": ["reviewer"],
+      "reviewedBy": ["reviewer"]
+    }
+  ],
+  "missionRefs": ["mission.memory-consistency"],
+  "evalRefs": ["benchmark.memory-consistency.v0"]
+}
+
