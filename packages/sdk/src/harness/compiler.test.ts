@@ -4,8 +4,11 @@ import {
   createPipelineProtocol,
   createSquadProtocol,
   createBenchmarkReport,
+  createToolErrorEnvelope,
+  GenericAIToolError,
   getAgentHarnessToolReversibility,
   HARNESS_SCHEMA_VERSION,
+  normalizeToolError,
   renderBenchmarkReportMarkdown,
   withAgentHarnessToolEffects,
   type BenchmarkSpec,
@@ -456,6 +459,171 @@ describe("tool effect descriptors", () => {
     expect(tool.genericAi?.effects).toEqual(["fs.write"]);
     expect(getAgentHarnessToolReversibility(tool)).toBe("irreversible");
     expect(tool.genericAi?.descriptor?.retrySemantics).toBe("retry-may-duplicate");
+  });
+});
+
+describe("structured tool errors", () => {
+  it("normalizes native errors into redaction-safe recovery envelopes", () => {
+    const envelope = normalizeToolError({
+      error: Object.assign(new Error("provider status 429 rate limit"), {
+        status: 429,
+      }),
+      remediationHints: [
+        {
+          kind: "wait",
+          message: "Retry after the provider quota window resets.",
+        },
+      ],
+    });
+
+    expect(envelope.kind).toBe("rate_limited");
+    expect(envelope.retryable).toBe(true);
+    expect(envelope.transient).toBe(true);
+    expect(envelope.rawCause?.status).toBe(429);
+    expect(envelope.remediationHints?.[0]?.kind).toBe("wait");
+
+    const objectEnvelope = normalizeToolError({
+      error: {
+        message: "upstream returned 503",
+        statusCode: 503,
+        metadata: {
+          requestId: "req-1",
+        },
+      },
+    });
+    expect(objectEnvelope.kind).toBe("upstream_unavailable");
+    expect(objectEnvelope.rawCause?.metadata).toEqual({ requestId: "req-1" });
+
+    const wrapped = new GenericAIToolError(
+      createToolErrorEnvelope({
+        kind: "unknown",
+        safeMessage: "original redacted message",
+        metadata: {
+          source: "plugin",
+        },
+      }),
+    );
+    const merged = normalizeToolError({
+      error: wrapped,
+      safeMessage: "runtime-safe message",
+      metadata: {
+        attemptRef: "attempt-1",
+      },
+    });
+    expect(merged.safeMessage).toBe("runtime-safe message");
+    expect(merged.metadata).toEqual({ source: "plugin", attemptRef: "attempt-1" });
+  });
+
+  it("summarizes tool recovery and timeout budgets separately from success", () => {
+    const timeoutBudget = {
+      totalMs: 1000,
+      spentMs: 1000,
+      remainingMs: 0,
+      exhausted: true,
+    };
+    const timeoutEnvelope = createToolErrorEnvelope({
+      kind: "timeout",
+      safeMessage: "shell command timed out after 1000ms",
+      rawCause: new Error("process exceeded test deadline"),
+      timeoutBudget,
+    });
+    const policyEnvelope = createToolErrorEnvelope({
+      kind: "policy_blocked",
+      safeMessage: "web_fetch targets a blocked host",
+      rawCause: new Error("blocked host"),
+    });
+    const report = createBenchmarkReport({
+      benchmark: {
+        ...benchmark,
+        validity: {
+          minimumTrialsForRecommendation: 1,
+        },
+        toolRecovery: {
+          id: "tool-recovery-v0",
+          cases: [
+            {
+              id: "terminal-timeout",
+              taskRef: "task.run-tests",
+              expectedToolRefs: ["terminal.bash"],
+              expectedStatuses: ["failed"],
+              expectedErrorKinds: ["timeout"],
+              timeoutBudgetMs: 1000,
+            },
+            {
+              id: "blocked-egress",
+              taskRef: "task.lookup-docs",
+              expectedToolRefs: ["web.fetch"],
+              expectedStatuses: ["policy_blocked"],
+              expectedErrorKinds: ["policy_blocked"],
+            },
+          ],
+        },
+      },
+      mission,
+      generatedAt: "2026-05-03T00:00:00.000Z",
+      results: [
+        {
+          ...trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1),
+          toolRecovery: [
+            {
+              caseRef: "terminal-timeout",
+              attemptRef: "attempt.terminal.1",
+              toolRef: "terminal.bash",
+              status: "failed",
+              error: timeoutEnvelope,
+              timeoutBudget,
+              evidenceRefs: ["trace.timeout"],
+            },
+            {
+              caseRef: "terminal-timeout",
+              attemptRef: "attempt.terminal.2",
+              toolRef: "terminal.bash",
+              status: "retried",
+              retryOfAttemptRef: "attempt.terminal.1",
+              evidenceRefs: ["trace.retry"],
+            },
+            {
+              caseRef: "blocked-egress",
+              attemptRef: "attempt.web.1",
+              toolRef: "web.fetch",
+              status: "policy_blocked",
+              error: policyEnvelope,
+              evidenceRefs: ["trace.policy"],
+            },
+            {
+              caseRef: "runtime.run",
+              attemptRef: "attempt.runtime.1",
+              toolRef: "runtime.adapter",
+              status: "failed",
+              error: createToolErrorEnvelope({
+                kind: "unknown",
+                safeMessage: "runtime failed before a planned tool case executed",
+              }),
+              evidenceRefs: ["trace.runtime"],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(report.toolRecovery?.observedCaseCount).toBe(2);
+    expect(report.toolRecovery?.failedAttemptCount).toBe(2);
+    expect(report.toolRecovery?.retriedAttemptCount).toBe(1);
+    expect(report.toolRecovery?.policyBlockedAttemptCount).toBe(1);
+    expect(report.toolRecovery?.retryableErrorCount).toBe(1);
+    expect(report.toolRecovery?.timeoutBudgetExhaustionCount).toBe(1);
+    expect(report.toolRecovery?.warnings).toContain(
+      "runtime.run: observed without a configured tool-recovery case.",
+    );
+    expect(report.toolRecovery?.warnings).not.toContain(
+      "terminal-timeout: expected timeout budget metadata was not observed.",
+    );
+    expect(report.candidates[0]?.toolRecovery?.byErrorKind).toEqual([
+      { kind: "policy_blocked", count: 1 },
+      { kind: "timeout", count: 1 },
+      { kind: "unknown", count: 1 },
+    ]);
+    expect(renderBenchmarkReportMarkdown(report)).toContain("## Tool Recovery");
   });
 });
 

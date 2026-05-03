@@ -113,6 +113,26 @@ affordance justified; routing decides which model should run, caching decides
 how context is assembled, and production scorecards combine broader operational
 dimensions.
 
+## Tool-Error Recovery
+
+`BenchmarkSpec.toolRecovery` describes cases where tool attempts may fail,
+timeout, get skipped, retry, or be blocked by policy. Trial results can attach
+`toolRecovery` observations with a normalized `ToolErrorEnvelope`, retryability,
+transient/permanent status, user-actionable remediation hints, redaction-safe
+messages, raw local causes, and optional timeout budget metadata.
+
+The SDK report helper aggregates these observations into failed, skipped,
+retried, and policy-blocked attempt counts, error-kind summaries, retryable and
+user-actionable error totals, and timeout-budget exhaustion counts. These values
+are reported beside final task correctness so a benchmark can distinguish "the
+agent failed because the tool timed out and retry was safe" from "the agent
+failed because policy correctly blocked the action" without asking the kernel to
+own tool-specific recovery policy.
+
+Tool plugins own native error mapping. The SDK owns the shared envelope and
+report vocabulary; package-specific provider codes and raw stack details stay in
+extension fields or local raw-cause metadata.
+
 ## Contextual-Integrity Privacy
 
 `BenchmarkSpec.contextualIntegrity` describes workspace privacy as contextual

@@ -21,11 +21,17 @@ import type {
   BenchmarkToolUseExpectation,
   BenchmarkToolUseProfile,
   BenchmarkToolUseCaseSpec,
+  BenchmarkToolRecoveryCaseSpec,
+  BenchmarkToolRecoveryProfile,
   ContextualIntegrityCaseSpec,
   ContextualIntegrityObservation,
   ContextualIntegrityProfile,
   ContextualIntegrityReportSummary,
   ContextualIntegrityTransmissionExpectation,
+  ToolAttemptStatus,
+  ToolErrorKind,
+  ToolRecoveryObservation,
+  ToolRecoveryReportSummary,
   ToolUseObservation,
   ToolUseReportSummary,
   WebResearchCaseSpec,
@@ -169,6 +175,12 @@ function toolUseObservations(
   results: readonly BenchmarkTrialResult[],
 ): readonly ToolUseObservation[] {
   return Object.freeze(results.flatMap((result) => result.toolUse ?? []));
+}
+
+function toolRecoveryObservations(
+  results: readonly BenchmarkTrialResult[],
+): readonly ToolRecoveryObservation[] {
+  return Object.freeze(results.flatMap((result) => result.toolRecovery ?? []));
 }
 
 function contextualIntegrityObservations(
@@ -378,6 +390,183 @@ function toolUseSummary(input: {
       ? {}
       : { totalLatencyMs: totalLatencyValues.reduce((total, value) => total + value, 0) }),
     byExpectation: Object.freeze(byExpectation),
+    evidenceRefs: Object.freeze([
+      ...new Set(input.observations.flatMap((observation) => observation.evidenceRefs)),
+    ]),
+    warnings: Object.freeze(warnings),
+  });
+}
+
+function plannedToolRecoveryCase(
+  profile: BenchmarkToolRecoveryProfile | undefined,
+  caseRef: string,
+): BenchmarkToolRecoveryCaseSpec | undefined {
+  return profile?.cases.find((entry) => entry.id === caseRef);
+}
+
+function toolRecoveryStatusCount(
+  observations: readonly ToolRecoveryObservation[],
+  status: ToolAttemptStatus,
+): number {
+  return observations.filter((observation) => observation.status === status).length;
+}
+
+function toolRecoveryErrorKindCount(
+  observations: readonly ToolRecoveryObservation[],
+  kind: ToolErrorKind,
+): number {
+  return observations.filter((observation) => observation.error?.kind === kind).length;
+}
+
+function toolRecoveryBudgetExhausted(observation: ToolRecoveryObservation): boolean {
+  return (
+    observation.timeoutBudget?.exhausted === true ||
+    observation.error?.timeoutBudget?.exhausted === true
+  );
+}
+
+function toolRecoveryHasTimeoutBudget(observation: ToolRecoveryObservation): boolean {
+  return observation.timeoutBudget !== undefined || observation.error?.timeoutBudget !== undefined;
+}
+
+function formatToolRecoveryCaseCoverage(summary: ToolRecoveryReportSummary): string {
+  if (summary.plannedCaseCount === 0) {
+    return `${summary.observedCaseCount} observed (planned=n/a)`;
+  }
+
+  return `${summary.observedCaseCount}/${summary.plannedCaseCount}`;
+}
+
+function toolRecoverySummary(input: {
+  readonly profile: BenchmarkToolRecoveryProfile | undefined;
+  readonly observations: readonly ToolRecoveryObservation[];
+}): ToolRecoveryReportSummary | undefined {
+  if (input.profile === undefined && input.observations.length === 0) {
+    return undefined;
+  }
+
+  const plannedCaseCount = input.profile?.cases.length ?? 0;
+  const plannedCaseRefs = new Set(input.profile?.cases.map((entry) => entry.id) ?? []);
+  const observedCaseRefs = new Set(input.observations.map((observation) => observation.caseRef));
+  const observedPlannedCaseRefs =
+    input.profile === undefined
+      ? observedCaseRefs
+      : new Set(Array.from(observedCaseRefs).filter((caseRef) => plannedCaseRefs.has(caseRef)));
+  const missingPlannedCases =
+    input.profile?.cases.filter((entry) => !observedPlannedCaseRefs.has(entry.id)) ?? [];
+  const errorKinds = Array.from(
+    new Set(
+      input.observations
+        .map((observation) => observation.error?.kind)
+        .filter((kind): kind is ToolErrorKind => kind !== undefined),
+    ),
+  ).sort();
+  const byErrorKind = errorKinds.map((kind) =>
+    Object.freeze({
+      kind,
+      count: toolRecoveryErrorKindCount(input.observations, kind),
+    }),
+  );
+  const byCase = Array.from(observedCaseRefs)
+    .sort()
+    .map((caseRef) => {
+      const observations = input.observations.filter(
+        (observation) => observation.caseRef === caseRef,
+      );
+      return Object.freeze({
+        caseRef,
+        attemptCount: observations.length,
+        failedAttemptCount: toolRecoveryStatusCount(observations, "failed"),
+        retriedAttemptCount: toolRecoveryStatusCount(observations, "retried"),
+        policyBlockedAttemptCount: toolRecoveryStatusCount(observations, "policy_blocked"),
+        retryableErrorCount: observations.filter((observation) => observation.error?.retryable)
+          .length,
+        timeoutBudgetExhaustionCount: observations.filter(toolRecoveryBudgetExhausted).length,
+      });
+    });
+  const warnings = [
+    ...(missingPlannedCases.length > 0
+      ? [
+          `Missing tool-recovery observations for ${missingPlannedCases
+            .map((entry) => entry.id)
+            .join(", ")}.`,
+        ]
+      : []),
+    ...(input.profile === undefined
+      ? []
+      : Array.from(observedCaseRefs)
+          .filter((caseRef) => !plannedCaseRefs.has(caseRef))
+          .sort()
+          .map((caseRef) => `${caseRef}: observed without a configured tool-recovery case.`)),
+    ...(input.profile?.cases.flatMap((planned) => {
+      if (planned.timeoutBudgetMs === undefined) {
+        return [];
+      }
+
+      const observations = input.observations.filter(
+        (observation) => observation.caseRef === planned.id,
+      );
+      if (observations.length === 0 || observations.some(toolRecoveryHasTimeoutBudget)) {
+        return [];
+      }
+
+      return [`${planned.id}: expected timeout budget metadata was not observed.`];
+    }) ?? []),
+    ...input.observations.flatMap((observation) => {
+      const planned = plannedToolRecoveryCase(input.profile, observation.caseRef);
+      const expectedToolRefs = planned?.expectedToolRefs ?? [];
+      const expectedStatuses = planned?.expectedStatuses ?? [];
+      const expectedKinds = planned?.expectedErrorKinds ?? [];
+      return [
+        ...(expectedToolRefs.length > 0 && !expectedToolRefs.includes(observation.toolRef)
+          ? [
+              `${observation.caseRef}: observed tool ${observation.toolRef} outside expected tools ${expectedToolRefs.join(
+                ", ",
+              )}.`,
+            ]
+          : []),
+        ...(expectedStatuses.length > 0 && !expectedStatuses.includes(observation.status)
+          ? [
+              `${observation.caseRef}: observed status ${observation.status} outside expected statuses ${expectedStatuses.join(
+                ", ",
+              )}.`,
+            ]
+          : []),
+        ...(observation.error !== undefined &&
+        expectedKinds.length > 0 &&
+        !expectedKinds.includes(observation.error.kind)
+          ? [
+              `${observation.caseRef}: observed error kind ${observation.error.kind} outside expected kinds ${expectedKinds.join(
+                ", ",
+              )}.`,
+            ]
+          : []),
+      ];
+    }),
+  ];
+
+  return Object.freeze({
+    ...(input.profile?.id === undefined ? {} : { profileId: input.profile.id }),
+    plannedCaseCount,
+    observedCaseCount: observedPlannedCaseRefs.size,
+    attemptCount: input.observations.length,
+    succeededAttemptCount: toolRecoveryStatusCount(input.observations, "succeeded"),
+    failedAttemptCount: toolRecoveryStatusCount(input.observations, "failed"),
+    skippedAttemptCount: toolRecoveryStatusCount(input.observations, "skipped"),
+    retriedAttemptCount: toolRecoveryStatusCount(input.observations, "retried"),
+    policyBlockedAttemptCount: toolRecoveryStatusCount(input.observations, "policy_blocked"),
+    retryableErrorCount: input.observations.filter((observation) => observation.error?.retryable)
+      .length,
+    transientErrorCount: input.observations.filter((observation) => observation.error?.transient)
+      .length,
+    userActionableErrorCount: input.observations.filter(
+      (observation) => observation.error?.userActionable,
+    ).length,
+    timeoutCount: toolRecoveryErrorKindCount(input.observations, "timeout"),
+    budgetExhaustedCount: toolRecoveryErrorKindCount(input.observations, "budget_exhausted"),
+    timeoutBudgetExhaustionCount: input.observations.filter(toolRecoveryBudgetExhausted).length,
+    byErrorKind: Object.freeze(byErrorKind),
+    byCase: Object.freeze(byCase),
     evidenceRefs: Object.freeze([
       ...new Set(input.observations.flatMap((observation) => observation.evidenceRefs)),
     ]),
@@ -1205,6 +1394,10 @@ function candidateReport(input: {
     profile: input.benchmark.toolUse,
     observations: toolUseObservations(input.results),
   });
+  const toolRecovery = toolRecoverySummary({
+    profile: input.benchmark.toolRecovery,
+    observations: toolRecoveryObservations(input.results),
+  });
   const contextualIntegrity = contextualIntegritySummary({
     profile: input.benchmark.contextualIntegrity,
     observations: contextualIntegrityObservations(input.results),
@@ -1252,6 +1445,15 @@ function candidateReport(input: {
           `unnecessary tool calls: ${toolUse.unnecessaryToolCalls}`,
           `tool budget violations: ${toolUse.budgetViolations}`,
         ]),
+    ...(toolRecovery === undefined
+      ? []
+      : [
+          `tool-recovery cases observed: ${formatToolRecoveryCaseCoverage(toolRecovery)}`,
+          `failed tool attempts: ${toolRecovery.failedAttemptCount}`,
+          `retried tool attempts: ${toolRecovery.retriedAttemptCount}`,
+          `policy-blocked tool attempts: ${toolRecovery.policyBlockedAttemptCount}`,
+          `timeout budget exhaustions: ${toolRecovery.timeoutBudgetExhaustionCount}`,
+        ]),
     ...(contextualIntegrity === undefined
       ? []
       : [
@@ -1287,6 +1489,7 @@ function candidateReport(input: {
     rationale: Object.freeze(rationale),
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
+    ...(toolRecovery === undefined ? {} : { toolRecovery }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
     ...(webResearch === undefined ? {} : { webResearch }),
   });
@@ -1419,6 +1622,10 @@ export function createBenchmarkReport(input: {
     profile: input.benchmark.toolUse,
     observations: toolUseObservations(input.results),
   });
+  const toolRecovery = toolRecoverySummary({
+    profile: input.benchmark.toolRecovery,
+    observations: toolRecoveryObservations(input.results),
+  });
   const contextualIntegrity = contextualIntegritySummary({
     profile: input.benchmark.contextualIntegrity,
     observations: contextualIntegrityObservations(input.results),
@@ -1438,6 +1645,14 @@ export function createBenchmarkReport(input: {
     input.benchmark.toolUse.cases.length > 0 &&
     (toolUse?.observedCaseCount ?? 0) === 0
       ? ["Tool-use cases were configured but no trial observations recorded tool discipline."]
+      : [];
+  const toolRecoveryEvidenceGap =
+    input.benchmark.toolRecovery !== undefined &&
+    input.benchmark.toolRecovery.cases.length > 0 &&
+    (toolRecovery?.observedCaseCount ?? 0) === 0
+      ? [
+          "Tool-recovery cases were configured but no trial observations recorded structured error outcomes.",
+        ]
       : [];
   const contextualIntegrityEvidenceGap =
     input.benchmark.contextualIntegrity !== undefined &&
@@ -1468,6 +1683,12 @@ export function createBenchmarkReport(input: {
   const toolUseCandidates = candidates.filter(
     (candidate): candidate is BenchmarkReportCandidate & { toolUse: ToolUseReportSummary } =>
       candidate.toolUse !== undefined,
+  );
+  const toolRecoveryCandidates = candidates.filter(
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & { toolRecovery: ToolRecoveryReportSummary } =>
+      candidate.toolRecovery !== undefined,
   );
   const contextualIntegrityCandidates = candidates.filter(
     (
@@ -1514,6 +1735,13 @@ export function createBenchmarkReport(input: {
         : [
             `Tool-use profile summarized ${toolUse.observedCaseCount}/${toolUse.plannedCaseCount} planned cases across ${toolUse.totalToolCalls} tool call(s).`,
           ]),
+      ...(toolRecovery === undefined
+        ? []
+        : [
+            `Tool-recovery profile summarized ${formatToolRecoveryCaseCoverage(
+              toolRecovery,
+            )} cases across ${toolRecovery.attemptCount} tool attempt(s).`,
+          ]),
       ...(contextualIntegrity === undefined
         ? []
         : [
@@ -1533,6 +1761,7 @@ export function createBenchmarkReport(input: {
       insufficientEvidence.length > 0 ||
       faultInjectionEvidenceGap.length > 0 ||
       toolUseEvidenceGap.length > 0 ||
+      toolRecoveryEvidenceGap.length > 0 ||
       contextualIntegrityEvidenceGap.length > 0 ||
       webResearchEvidenceGap.length > 0
         ? ["At least one candidate lacks enough evidence for a confident recommendation."]
@@ -1546,6 +1775,11 @@ export function createBenchmarkReport(input: {
             ...(toolUse === undefined
               ? []
               : ["Tool-use efficiency is reported separately from final task correctness."]),
+            ...(toolRecovery === undefined
+              ? []
+              : [
+                  "Tool-recovery errors and timeout budgets are reported separately from final task correctness.",
+                ]),
             ...(contextualIntegrity === undefined
               ? []
               : [
@@ -1570,6 +1804,9 @@ export function createBenchmarkReport(input: {
       ),
       ...toolUseCandidates.flatMap((candidate) =>
         candidate.toolUse.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
+      ),
+      ...toolRecoveryCandidates.flatMap((candidate) =>
+        candidate.toolRecovery.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
       ),
       ...contextualIntegrityCandidates.flatMap((candidate) =>
         candidate.contextualIntegrity.warnings.map(
@@ -1605,6 +1842,11 @@ export function createBenchmarkReport(input: {
                     : candidate.toolUse.efficiencyScore
                 }, unnecessary_tool_calls=${candidate.toolUse.unnecessaryToolCalls}, budget_violations=${candidate.toolUse.budgetViolations}`,
               ]),
+          ...(candidate.toolRecovery === undefined
+            ? []
+            : [
+                `tool_recovery_failed=${candidate.toolRecovery.failedAttemptCount}, retried=${candidate.toolRecovery.retriedAttemptCount}, policy_blocked=${candidate.toolRecovery.policyBlockedAttemptCount}, timeout_budget_exhaustions=${candidate.toolRecovery.timeoutBudgetExhaustionCount}`,
+              ]),
           ...(candidate.contextualIntegrity === undefined
             ? []
             : [
@@ -1637,11 +1879,13 @@ export function createBenchmarkReport(input: {
       ...insufficientEvidence,
       ...faultInjectionEvidenceGap,
       ...toolUseEvidenceGap,
+      ...toolRecoveryEvidenceGap,
       ...contextualIntegrityEvidenceGap,
       ...webResearchEvidenceGap,
     ]),
     ...(faultInjection === undefined ? {} : { faultInjection }),
     ...(toolUse === undefined ? {} : { toolUse }),
+    ...(toolRecovery === undefined ? {} : { toolRecovery }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
     ...(webResearch === undefined ? {} : { webResearch }),
   });
@@ -1657,6 +1901,12 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
   const toolUseCandidates = report.candidates.filter(
     (candidate): candidate is BenchmarkReportCandidate & { toolUse: ToolUseReportSummary } =>
       candidate.toolUse !== undefined,
+  );
+  const toolRecoveryCandidates = report.candidates.filter(
+    (
+      candidate,
+    ): candidate is BenchmarkReportCandidate & { toolRecovery: ToolRecoveryReportSummary } =>
+      candidate.toolRecovery !== undefined,
   );
   const contextualIntegrityCandidates = report.candidates.filter(
     (
@@ -1787,6 +2037,38 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
         "### Tool Use Warnings",
         "",
         ...toolUseWarnings.map((warning) => `- ${warning}`),
+        "",
+      );
+    }
+  }
+
+  if (toolRecoveryCandidates.length > 0) {
+    lines.push(
+      "## Tool Recovery",
+      "",
+      "| Candidate | Observed / Planned cases | Attempts | Failed | Skipped | Retried | Policy-blocked | Retryable errors | Timeout budget exhausted | Error kinds |",
+      "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+      ...toolRecoveryCandidates.map((candidate) => {
+        const toolRecovery = candidate.toolRecovery;
+        const errorKinds =
+          toolRecovery.byErrorKind.length === 0
+            ? "none"
+            : toolRecovery.byErrorKind
+                .map((entry) => `${entry.kind}=${entry.count}`)
+                .join(", ");
+        return `| ${candidate.candidateId} | ${formatToolRecoveryCaseCoverage(toolRecovery)} | ${toolRecovery.attemptCount} | ${toolRecovery.failedAttemptCount} | ${toolRecovery.skippedAttemptCount} | ${toolRecovery.retriedAttemptCount} | ${toolRecovery.policyBlockedAttemptCount} | ${toolRecovery.retryableErrorCount} | ${toolRecovery.timeoutBudgetExhaustionCount} | ${errorKinds} |`;
+      }),
+      "",
+    );
+
+    const toolRecoveryWarnings = toolRecoveryCandidates.flatMap((candidate) =>
+      candidate.toolRecovery.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
+    );
+    if (toolRecoveryWarnings.length > 0) {
+      lines.push(
+        "### Tool Recovery Warnings",
+        "",
+        ...toolRecoveryWarnings.map((warning) => `- ${warning}`),
         "",
       );
     }

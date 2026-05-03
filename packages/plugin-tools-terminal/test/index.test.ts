@@ -5,7 +5,13 @@ import path from "node:path";
 import type { BashOperations } from "@generic-ai/sdk/pi";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createTerminalToolPlugin, kind, name, resolveTerminalCwd } from "../src/index.js";
+import {
+  createTerminalToolPlugin,
+  kind,
+  name,
+  resolveTerminalCwd,
+  TerminalToolError,
+} from "../src/index.js";
 
 const tempRoots: string[] = [];
 
@@ -98,6 +104,43 @@ describe("@generic-ai/plugin-tools-terminal", () => {
         path.join(root, "workspace", "shared"),
       );
       await expect(resolveTerminalCwd(root, "..")).rejects.toThrow(/escapes the workspace root/i);
+    });
+  });
+
+  it("emits structured timeout and native error envelopes", async () => {
+    await withTempRoot(async (root) => {
+      const timeoutOperations: BashOperations = {
+        exec: async () => ({ exitCode: null }),
+      };
+      const timeoutResult = await createTerminalToolPlugin({
+        root,
+        operations: timeoutOperations,
+      }).run({
+        command: "sleep 10",
+        timeoutMs: 1000,
+      });
+
+      expect(timeoutResult.timedOut).toBe(true);
+      expect(timeoutResult.error).toMatchObject({
+        kind: "timeout",
+        retryable: true,
+        timeoutBudget: {
+          totalMs: 1000,
+          remainingMs: 0,
+          exhausted: true,
+        },
+      });
+
+      const failingOperations: BashOperations = {
+        exec: async () => {
+          throw new Error("spawn ENOENT");
+        },
+      };
+      await expect(
+        createTerminalToolPlugin({ root, operations: failingOperations }).run({
+          command: "missing-binary",
+        }),
+      ).rejects.toBeInstanceOf(TerminalToolError);
     });
   });
 });
