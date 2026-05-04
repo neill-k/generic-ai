@@ -314,6 +314,17 @@ describe("Harness DSL compiler", () => {
       grantCount: 1,
       grantPolicyEffects: ["allow"],
       grantResourceKinds: ["tool"],
+      grants: [
+        {
+          id: "grant.files.read",
+          capabilityRef: "files.read",
+          subject: "agent.solver",
+          effect: "allow",
+          resourceKind: "tool",
+          resourceId: "read_file",
+          reversibility: "reversible-cheap",
+        },
+      ],
     });
     expect(
       first?.capabilityBOM.capabilities.find((entry) => entry.id === "markdown.report")?.schemaHash,
@@ -321,6 +332,68 @@ describe("Harness DSL compiler", () => {
     expect(first?.capabilityBOM.fingerprint).toEqual(reordered?.capabilityBOM.fingerprint);
     expect(changed?.capabilityBOM.fingerprint.value).not.toBe(
       first?.capabilityBOM.fingerprint.value,
+    );
+  });
+
+  it("includes grant selectors and policy condition hashes in capability BOM fingerprints", () => {
+    const base = compileHarnessDsl(capabilityBomHarness).compiled;
+    const changedGrant = compileHarnessDsl({
+      ...capabilityBomHarness,
+      capabilities: (capabilityBomHarness.capabilities ?? []).map((capability) =>
+        capability.id === "files.read"
+          ? {
+              ...capability,
+              grants: (capability.grants ?? []).map((grant) => ({
+                ...grant,
+                resource: {
+                  kind: "tool" as const,
+                  id: "write_file",
+                },
+              })),
+            }
+          : capability,
+      ),
+    }).compiled;
+    const conditioned = compileHarnessDsl({
+      ...capabilityBomHarness,
+      policies: (capabilityBomHarness.policies ?? []).map((policy) => ({
+        ...policy,
+        conditions: [
+          {
+            field: "budget.calls",
+            operator: "under_budget" as const,
+            value: 5,
+          },
+        ],
+      })),
+    }).compiled;
+    const changedCondition = compileHarnessDsl({
+      ...capabilityBomHarness,
+      policies: (capabilityBomHarness.policies ?? []).map((policy) => ({
+        ...policy,
+        conditions: [
+          {
+            field: "budget.calls",
+            operator: "under_budget" as const,
+            value: 10,
+          },
+        ],
+      })),
+    }).compiled;
+
+    expect(base).toBeDefined();
+    expect(changedGrant).toBeDefined();
+    expect(conditioned).toBeDefined();
+    expect(changedCondition).toBeDefined();
+    expect(changedGrant?.capabilityBOM.fingerprint.value).not.toBe(
+      base?.capabilityBOM.fingerprint.value,
+    );
+    expect(conditioned?.capabilityBOM.policies[0]).toMatchObject({
+      conditionCount: 1,
+    });
+    expect(conditioned?.capabilityBOM.policies[0]?.conditionHash).toBeDefined();
+    expect(changedCondition?.capabilityBOM.fingerprint.value).not.toBe(
+      conditioned?.capabilityBOM.fingerprint.value,
     );
   });
 });
@@ -427,8 +500,15 @@ describe("Benchmark reports", () => {
 
   it("attaches capability BOM fingerprints to reports", () => {
     const compiled = compileHarnessDsl(capabilityBomHarness).compiled;
+    const alternate = compileHarnessDsl({
+      ...capabilityBomHarness,
+      id: "harness.capability-bom-alt",
+    }).compiled;
     if (compiled === undefined) {
       throw new Error("Expected the capability BOM fixture to compile.");
+    }
+    if (alternate === undefined) {
+      throw new Error("Expected the alternate capability BOM fixture to compile.");
     }
 
     const report = createBenchmarkReport({
@@ -447,16 +527,19 @@ describe("Benchmark reports", () => {
       mission,
       generatedAt: "2026-05-03T00:00:00.000Z",
       results: [trialResult("capability-bom", compiled.id, "task_success", 1)],
-      capabilityBOMs: [compiled.capabilityBOM],
+      capabilityBOMs: [alternate.capabilityBOM, compiled.capabilityBOM, compiled.capabilityBOM],
     });
     const markdown = renderBenchmarkReportMarkdown(report);
 
-    expect(report.capabilityBOMs).toHaveLength(1);
+    expect(report.capabilityBOMs.map((bom) => bom.harnessId)).toEqual([
+      alternate.id,
+      compiled.id,
+    ]);
     expect(report.candidates[0]?.capabilityBOM?.fingerprint.value).toBe(
       compiled.capabilityBOM.fingerprint.value,
     );
     expect(report.observations).toContain(
-      "Attached 1 deterministic capability BOM(s) to the report.",
+      "Attached 2 deterministic capability BOM(s) to the report.",
     );
     expect(markdown).toContain("## Capability BOMs");
     expect(markdown).toContain(compiled.capabilityBOM.fingerprint.value);

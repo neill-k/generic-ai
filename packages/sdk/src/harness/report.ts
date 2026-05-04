@@ -1332,6 +1332,31 @@ function reportConfidence(
   });
 }
 
+function compareStableStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compareCapabilityBOM(left: CapabilityBOM, right: CapabilityBOM): number {
+  return (
+    compareStableStrings(left.harnessId, right.harnessId) ||
+    compareStableStrings(left.sourceId, right.sourceId) ||
+    compareStableStrings(left.fingerprint.value, right.fingerprint.value)
+  );
+}
+
+function normalizeCapabilityBOMs(values: readonly CapabilityBOM[] | undefined): readonly CapabilityBOM[] {
+  const seen = new Set<string>();
+  const normalized: CapabilityBOM[] = [];
+  for (const bom of [...(values ?? [])].sort(compareCapabilityBOM)) {
+    const key = `${bom.harnessId}\0${bom.fingerprint.value}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      normalized.push(bom);
+    }
+  }
+  return Object.freeze(normalized);
+}
+
 export function createBenchmarkReport(input: {
   readonly benchmark: BenchmarkSpec;
   readonly mission: MissionSpec;
@@ -1343,10 +1368,13 @@ export function createBenchmarkReport(input: {
   for (const result of input.results) {
     byCandidate.set(result.candidateId, [...(byCandidate.get(result.candidateId) ?? []), result]);
   }
-  const capabilityBOMs = Object.freeze([...(input.capabilityBOMs ?? [])]);
-  const capabilityBOMByHarnessId = new Map(
-    capabilityBOMs.map((bom) => [bom.harnessId, bom] as const),
-  );
+  const capabilityBOMs = normalizeCapabilityBOMs(input.capabilityBOMs);
+  const capabilityBOMByHarnessId = new Map<string, CapabilityBOM>();
+  for (const bom of capabilityBOMs) {
+    if (!capabilityBOMByHarnessId.has(bom.harnessId)) {
+      capabilityBOMByHarnessId.set(bom.harnessId, bom);
+    }
+  }
 
   const primaryMetricDirection = metricDirection(input.benchmark, input.benchmark.primaryMetric);
   const primaryValues = [...byCandidate.values()]

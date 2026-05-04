@@ -494,7 +494,10 @@ export async function runHarnessBenchmark(
       mission: options.mission,
       generatedAt: options.now?.() ?? new Date().toISOString(),
       results: trialResults,
-      capabilityBOMs: Object.values(compiledHarnesses).map((compiled) => compiled.capabilityBOM),
+      capabilityBOMs: options.benchmark.candidates.flatMap((candidate) => {
+        const compiled = compiledHarnesses[candidate.harnessRef];
+        return compiled === undefined ? [] : [compiled.capabilityBOM];
+      }),
     }),
     compiledHarnesses: Object.freeze(compiledHarnesses),
     trialResults: Object.freeze(trialResults),

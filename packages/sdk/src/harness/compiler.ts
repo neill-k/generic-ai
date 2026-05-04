@@ -6,10 +6,12 @@ import type {
   CapabilityBOMAgentBinding,
   CapabilityBOMArtifact,
   CapabilityBOMCapability,
+  CapabilityBOMGrant,
   CapabilityBOMPackage,
   CapabilityBOMPolicy,
   CapabilityBOMProtocol,
   CapabilityBOMSummary,
+  CapabilityGrant,
   CapabilitySpec,
   CompileDiagnostic,
   CompileHarnessResult,
@@ -20,6 +22,7 @@ import type {
   HarnessSchemaVersion,
   PackageUseSpec,
   PolicyEffect,
+  PolicySpec,
   ProtocolBindingSpec,
   RelationshipSpec,
   ResourceSelector,
@@ -364,12 +367,16 @@ function versionMap(packages: readonly PackageUseSpec[]): Readonly<Record<string
   return Object.freeze(next);
 }
 
+function compareStableStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function sortedStrings(values: readonly string[] | undefined): readonly string[] {
-  return Object.freeze([...(values ?? [])].sort());
+  return Object.freeze([...(values ?? [])].sort(compareStableStrings));
 }
 
 function sortedUnique<T extends string>(values: readonly T[]): readonly T[] {
-  return Object.freeze([...new Set(values)].sort());
+  return Object.freeze([...new Set(values)].sort(compareStableStrings));
 }
 
 function capabilityKindCounts(
@@ -397,7 +404,7 @@ function policyEffectCounts(policies: readonly { readonly effect: PolicyEffect }
 }
 
 function sortedById<T extends { readonly id: string }>(values: readonly T[]): readonly T[] {
-  return Object.freeze([...values].sort((left, right) => left.id.localeCompare(right.id)));
+  return Object.freeze([...values].sort((left, right) => compareStableStrings(left.id, right.id)));
 }
 
 function packageBomEntry(packageUse: PackageUseSpec): CapabilityBOMPackage {
@@ -409,8 +416,32 @@ function packageBomEntry(packageUse: PackageUseSpec): CapabilityBOMPackage {
   });
 }
 
+function grantBomEntry(grant: CapabilityGrant): CapabilityBOMGrant {
+  return Object.freeze({
+    id: grant.id,
+    capabilityRef: grant.capabilityRef,
+    subject: grant.subject,
+    effect: grant.effect,
+    resourceKind: grant.resource.kind,
+    ...(grant.resource.id === undefined ? {} : { resourceId: grant.resource.id }),
+    ...(grant.resource.pattern === undefined ? {} : { resourcePattern: grant.resource.pattern }),
+    ...(grant.reversibility === undefined ? {} : { reversibility: grant.reversibility }),
+    ...(grant.budget === undefined
+      ? {}
+      : {
+          budget: Object.freeze({
+            unit: grant.budget.unit,
+            limit: grant.budget.limit,
+          }),
+        }),
+    ...(grant.sandboxProfile === undefined ? {} : { sandboxProfile: grant.sandboxProfile }),
+    ...(grant.expiresAfter === undefined ? {} : { expiresAfter: grant.expiresAfter }),
+  });
+}
+
 function capabilityBomEntry(capability: CapabilitySpec): CapabilityBOMCapability {
   const grants = capability.grants ?? [];
+  const grantEntries = sortedById(grants.map((grant) => grantBomEntry(grant)));
   const grantPolicyEffects = sortedUnique(grants.map((grant) => grant.effect));
   const grantResourceKinds = sortedUnique(
     grants.map((grant) => grant.resource.kind as ResourceSelector["kind"]),
@@ -423,6 +454,7 @@ function capabilityBomEntry(capability: CapabilitySpec): CapabilityBOMCapability
     grantCount: grants.length,
     grantPolicyEffects,
     grantResourceKinds,
+    grants: grantEntries,
     ...(capability.schema === undefined
       ? {}
       : { schemaHash: createStableFingerprint(capability.schema) }),
@@ -444,8 +476,10 @@ function policyBomEntry(policy: {
   readonly action: string;
   readonly resource: ResourceSelector;
   readonly effect: PolicyEffect;
-  readonly conditions?: readonly unknown[];
+  readonly conditions?: PolicySpec["conditions"];
+  readonly approval?: PolicySpec["approval"];
 }): CapabilityBOMPolicy {
+  const conditions = policy.conditions ?? [];
   return Object.freeze({
     id: policy.id,
     subject: policy.subject,
@@ -454,7 +488,14 @@ function policyBomEntry(policy: {
     resourceKind: policy.resource.kind,
     ...(policy.resource.id === undefined ? {} : { resourceId: policy.resource.id }),
     ...(policy.resource.pattern === undefined ? {} : { resourcePattern: policy.resource.pattern }),
-    conditionCount: policy.conditions?.length ?? 0,
+    conditionCount: conditions.length,
+    ...(conditions.length === 0 ? {} : { conditionHash: createStableFingerprint(conditions) }),
+    ...(policy.approval?.requiredBy === undefined
+      ? {}
+      : { approvalRequiredBy: sortedStrings(policy.approval.requiredBy) }),
+    ...(policy.approval?.expiresAfter === undefined
+      ? {}
+      : { approvalExpiresAfter: policy.approval.expiresAfter }),
   });
 }
 
@@ -509,7 +550,7 @@ export function createCapabilityBOM(
   const agentBindings = Object.freeze(
     compiled.agents
       .map((agent) => agentBindingBomEntry(agent))
-      .sort((left, right) => left.agentId.localeCompare(right.agentId)),
+      .sort((left, right) => compareStableStrings(left.agentId, right.agentId)),
   );
   const artifacts = sortedById(compiled.artifacts.map((artifact) => artifactBomEntry(artifact)));
   const summary = capabilityBomSummary({

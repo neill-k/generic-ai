@@ -644,6 +644,20 @@ export interface CapabilityBOMPackage {
   readonly compatibility: readonly string[];
 }
 
+export interface CapabilityBOMGrant {
+  readonly id: string;
+  readonly capabilityRef: string;
+  readonly subject: string;
+  readonly effect: PolicyEffect;
+  readonly resourceKind: ResourceSelector["kind"];
+  readonly resourceId?: string;
+  readonly resourcePattern?: string;
+  readonly reversibility?: AgentHarnessReversibility;
+  readonly budget?: CapabilityGrant["budget"];
+  readonly sandboxProfile?: string;
+  readonly expiresAfter?: string;
+}
+
 export interface CapabilityBOMCapability {
   readonly id: string;
   readonly kind: CapabilitySpec["kind"];
@@ -651,6 +665,7 @@ export interface CapabilityBOMCapability {
   readonly grantCount: number;
   readonly grantPolicyEffects: readonly PolicyEffect[];
   readonly grantResourceKinds: readonly ResourceSelector["kind"][];
+  readonly grants: readonly CapabilityBOMGrant[];
   readonly schemaHash?: string;
 }
 
@@ -670,6 +685,9 @@ export interface CapabilityBOMPolicy {
   readonly resourceId?: string;
   readonly resourcePattern?: string;
   readonly conditionCount: number;
+  readonly conditionHash?: string;
+  readonly approvalRequiredBy?: readonly string[];
+  readonly approvalExpiresAfter?: string;
 }
 
 export interface CapabilityBOMAgentBinding {
