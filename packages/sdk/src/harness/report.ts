@@ -1,5 +1,6 @@
 import type {
   BenchmarkFailureSeverity,
+  CapabilityBOM,
   BenchmarkReliabilityProfile,
   BenchmarkReliabilitySummary,
   BenchmarkReport,
@@ -787,6 +788,16 @@ function formatReversibility(summary: BenchmarkReversibilitySummary | undefined)
   ].join(", ");
 }
 
+function formatCapabilityBOM(bom: CapabilityBOM | undefined): string {
+  if (bom === undefined) {
+    return "not attached";
+  }
+
+  return `${bom.fingerprint.value.slice(0, 12)} (${bom.summary.packageCount} pkg, ${
+    bom.summary.capabilityCount
+  } cap, ${bom.summary.policyCount} policy)`;
+}
+
 function faultInjectionSummary(input: {
   readonly planned: readonly FaultInjectionSpec[];
   readonly observations: readonly FaultInjectionObservation[];
@@ -1153,6 +1164,7 @@ function candidateReport(input: {
   readonly benchmark: BenchmarkSpec;
   readonly candidateId: string;
   readonly harnessId: string;
+  readonly capabilityBOM?: CapabilityBOM;
   readonly results: readonly BenchmarkTrialResult[];
   readonly primaryMetricDirection: MetricDefinition["direction"];
   readonly bestPrimaryMetricValue: number | undefined;
@@ -1213,6 +1225,7 @@ function candidateReport(input: {
     `trials: ${input.results.length}/${configuredTrialCount(input.benchmark)}`,
     `minTrials: ${minTrialsForRecommendation(input.benchmark)}`,
     `confidence: ${confidence.level}`,
+    `capability BOM: ${formatCapabilityBOM(input.capabilityBOM)}`,
     `reversibility: ${formatReversibility(reversibility)}`,
     ...(reliability === undefined
       ? []
@@ -1264,6 +1277,7 @@ function candidateReport(input: {
       ...(primaryMetric === undefined ? [] : [primaryMetric]),
       ...guardrails,
     ]),
+    ...(input.capabilityBOM === undefined ? {} : { capabilityBOM: input.capabilityBOM }),
     ...(passK === undefined ? {} : { passK }),
     traceCompleteness,
     recommendation,
@@ -1318,15 +1332,48 @@ function reportConfidence(
   });
 }
 
+function compareStableStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function compareCapabilityBOM(left: CapabilityBOM, right: CapabilityBOM): number {
+  return (
+    compareStableStrings(left.harnessId, right.harnessId) ||
+    compareStableStrings(left.sourceId, right.sourceId) ||
+    compareStableStrings(left.fingerprint.value, right.fingerprint.value)
+  );
+}
+
+function normalizeCapabilityBOMs(values: readonly CapabilityBOM[] | undefined): readonly CapabilityBOM[] {
+  const seen = new Set<string>();
+  const normalized: CapabilityBOM[] = [];
+  for (const bom of [...(values ?? [])].sort(compareCapabilityBOM)) {
+    const key = `${bom.harnessId}\0${bom.fingerprint.value}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      normalized.push(bom);
+    }
+  }
+  return Object.freeze(normalized);
+}
+
 export function createBenchmarkReport(input: {
   readonly benchmark: BenchmarkSpec;
   readonly mission: MissionSpec;
   readonly generatedAt: string;
   readonly results: readonly BenchmarkTrialResult[];
+  readonly capabilityBOMs?: readonly CapabilityBOM[];
 }): BenchmarkReport {
   const byCandidate = new Map<string, BenchmarkTrialResult[]>();
   for (const result of input.results) {
     byCandidate.set(result.candidateId, [...(byCandidate.get(result.candidateId) ?? []), result]);
+  }
+  const capabilityBOMs = normalizeCapabilityBOMs(input.capabilityBOMs);
+  const capabilityBOMByHarnessId = new Map<string, CapabilityBOM>();
+  for (const bom of capabilityBOMs) {
+    if (!capabilityBOMByHarnessId.has(bom.harnessId)) {
+      capabilityBOMByHarnessId.set(bom.harnessId, bom);
+    }
   }
 
   const primaryMetricDirection = metricDirection(input.benchmark, input.benchmark.primaryMetric);
@@ -1345,16 +1392,21 @@ export function createBenchmarkReport(input: {
     primaryMetricDirection === "informational"
       ? undefined
       : bestMetricValue(primaryValues, primaryMetricDirection);
-  const candidates = input.benchmark.candidates.map((candidate) =>
-    candidateReport({
+  const candidates = input.benchmark.candidates.map((candidate) => {
+    const harnessId = byCandidate.get(candidate.id)?.[0]?.harnessId ?? candidate.harnessRef;
+    const capabilityBOM =
+      capabilityBOMByHarnessId.get(harnessId) ??
+      capabilityBOMByHarnessId.get(`${candidate.harnessRef}:compiled`);
+    return candidateReport({
       benchmark: input.benchmark,
       candidateId: candidate.id,
-      harnessId: byCandidate.get(candidate.id)?.[0]?.harnessId ?? candidate.harnessRef,
+      harnessId,
+      ...(capabilityBOM === undefined ? {} : { capabilityBOM }),
       results: byCandidate.get(candidate.id) ?? [],
       primaryMetricDirection,
       bestPrimaryMetricValue,
-    }),
-  );
+    });
+  });
   const confidence = reportConfidence(candidates);
   const insufficientEvidence = candidates
     .filter((candidate) => candidate.recommendation === "insufficient_evidence")
@@ -1441,6 +1493,9 @@ export function createBenchmarkReport(input: {
     primaryMetric: input.benchmark.primaryMetric,
     observations: Object.freeze([
       `Collected ${traceEventCount} trace events across ${input.results.length} trial runs.`,
+      ...(capabilityBOMs.length === 0
+        ? []
+        : [`Attached ${capabilityBOMs.length} deterministic capability BOM(s) to the report.`]),
       ...(reliabilityCandidates.length === 0
         ? []
         : [
@@ -1504,6 +1559,11 @@ export function createBenchmarkReport(input: {
             ...(reversibility === undefined
               ? []
               : ["Reversibility metadata is included in the evidence boundary."]),
+            ...(capabilityBOMs.length === 0
+              ? []
+              : [
+                  "Capability BOM fingerprints make package/capability drift explicit; they are inventory evidence, not approval or trust.",
+                ]),
           ]),
       ...reliabilityCandidates.flatMap((candidate) =>
         candidate.reliability.warnings.map((warning) => `${candidate.candidateId}: ${warning}`),
@@ -1566,6 +1626,7 @@ export function createBenchmarkReport(input: {
     ),
     candidates: Object.freeze(candidates),
     confidence,
+    capabilityBOMs,
     ...(reversibility === undefined ? {} : { reversibility }),
     evidence: Object.freeze({
       traceEventCount,
@@ -1635,20 +1696,36 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
     "",
     "## Candidates",
     "",
-    "| Candidate | Harness | Trials | pass^k | Reversibility | Trace completeness | Confidence | Recommendation |",
-    "| --- | --- | ---: | ---: | --- | ---: | --- | --- |",
+    "| Candidate | Harness | Trials | pass^k | Capability BOM | Reversibility | Trace completeness | Confidence | Recommendation |",
+    "| --- | --- | ---: | ---: | --- | --- | ---: | --- | --- |",
     ...report.candidates.map(
       (candidate) =>
         `| ${candidate.candidateId} | ${candidate.harnessId} | ${candidate.trialCount} | ${
           candidate.passK === undefined
             ? "missing"
             : `pass^${candidate.passK.k}=${candidate.passK.value}`
-        } | ${formatReversibility(candidate.reversibility)} | ${candidate.traceCompleteness} | ${candidate.confidence.level} | ${
+        } | ${formatCapabilityBOM(candidate.capabilityBOM)} | ${formatReversibility(
+          candidate.reversibility,
+        )} | ${candidate.traceCompleteness} | ${candidate.confidence.level} | ${
           candidate.recommendation
         } |`,
     ),
     "",
   ];
+
+  if (report.capabilityBOMs.length > 0) {
+    lines.push(
+      "## Capability BOMs",
+      "",
+      "| Harness | Fingerprint | Packages | Capabilities | Protocols | Policies | Agents | Artifacts |",
+      "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+      ...report.capabilityBOMs.map(
+        (bom) =>
+          `| ${bom.harnessId} | ${bom.fingerprint.value} | ${bom.summary.packageCount} | ${bom.summary.capabilityCount} | ${bom.summary.protocolCount} | ${bom.summary.policyCount} | ${bom.summary.agentCount} | ${bom.summary.artifactCount} |`,
+      ),
+      "",
+    );
+  }
 
   if (reliabilityCandidates.length > 0) {
     lines.push(

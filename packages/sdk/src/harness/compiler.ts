@@ -2,6 +2,16 @@ import { createHash } from "node:crypto";
 import type {
   AgentSpec,
   ArtifactContract,
+  CapabilityBOM,
+  CapabilityBOMAgentBinding,
+  CapabilityBOMArtifact,
+  CapabilityBOMCapability,
+  CapabilityBOMGrant,
+  CapabilityBOMPackage,
+  CapabilityBOMPolicy,
+  CapabilityBOMProtocol,
+  CapabilityBOMSummary,
+  CapabilityGrant,
   CapabilitySpec,
   CompileDiagnostic,
   CompileHarnessResult,
@@ -11,13 +21,34 @@ import type {
   HarnessFingerprint,
   HarnessSchemaVersion,
   PackageUseSpec,
+  PolicyEffect,
+  PolicySpec,
   ProtocolBindingSpec,
   RelationshipSpec,
+  ResourceSelector,
   SpaceSpec,
 } from "./types.js";
 import { HARNESS_SCHEMA_VERSION } from "./types.js";
 
 const COMPILER_VERSION = "0.1.0";
+const CAPABILITY_KINDS: readonly CapabilitySpec["kind"][] = Object.freeze([
+  "tool",
+  "memory",
+  "protocol",
+  "grader",
+  "trace-exporter",
+  "report-renderer",
+  "policy",
+  "runtime",
+  "custom",
+]);
+const POLICY_EFFECTS: readonly PolicyEffect[] = Object.freeze([
+  "allow",
+  "deny",
+  "require_approval",
+  "redact",
+  "rewrite",
+]);
 
 function stableNormalize(value: unknown): unknown {
   if (Array.isArray(value)) {
@@ -336,6 +367,225 @@ function versionMap(packages: readonly PackageUseSpec[]): Readonly<Record<string
   return Object.freeze(next);
 }
 
+function compareStableStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function sortedStrings(values: readonly string[] | undefined): readonly string[] {
+  return Object.freeze([...(values ?? [])].sort(compareStableStrings));
+}
+
+function sortedUnique<T extends string>(values: readonly T[]): readonly T[] {
+  return Object.freeze([...new Set(values)].sort(compareStableStrings));
+}
+
+function capabilityKindCounts(
+  capabilities: readonly { readonly kind: CapabilitySpec["kind"] }[],
+): Readonly<Record<CapabilitySpec["kind"], number>> {
+  const counts = Object.fromEntries(CAPABILITY_KINDS.map((kind) => [kind, 0])) as Record<
+    CapabilitySpec["kind"],
+    number
+  >;
+  for (const capability of capabilities) {
+    counts[capability.kind] += 1;
+  }
+  return Object.freeze(counts);
+}
+
+function policyEffectCounts(policies: readonly { readonly effect: PolicyEffect }[]) {
+  const counts = Object.fromEntries(POLICY_EFFECTS.map((effect) => [effect, 0])) as Record<
+    PolicyEffect,
+    number
+  >;
+  for (const policy of policies) {
+    counts[policy.effect] += 1;
+  }
+  return Object.freeze(counts);
+}
+
+function sortedById<T extends { readonly id: string }>(values: readonly T[]): readonly T[] {
+  return Object.freeze([...values].sort((left, right) => compareStableStrings(left.id, right.id)));
+}
+
+function packageBomEntry(packageUse: PackageUseSpec): CapabilityBOMPackage {
+  return Object.freeze({
+    id: packageUse.id,
+    package: packageUse.package,
+    version: packageUse.version ?? "0.0.0",
+    compatibility: sortedStrings(packageUse.compatibility),
+  });
+}
+
+function grantBomEntry(grant: CapabilityGrant): CapabilityBOMGrant {
+  return Object.freeze({
+    id: grant.id,
+    capabilityRef: grant.capabilityRef,
+    subject: grant.subject,
+    effect: grant.effect,
+    resourceKind: grant.resource.kind,
+    ...(grant.resource.id === undefined ? {} : { resourceId: grant.resource.id }),
+    ...(grant.resource.pattern === undefined ? {} : { resourcePattern: grant.resource.pattern }),
+    ...(grant.reversibility === undefined ? {} : { reversibility: grant.reversibility }),
+    ...(grant.budget === undefined
+      ? {}
+      : {
+          budget: Object.freeze({
+            unit: grant.budget.unit,
+            limit: grant.budget.limit,
+          }),
+        }),
+    ...(grant.sandboxProfile === undefined ? {} : { sandboxProfile: grant.sandboxProfile }),
+    ...(grant.expiresAfter === undefined ? {} : { expiresAfter: grant.expiresAfter }),
+  });
+}
+
+function capabilityBomEntry(capability: CapabilitySpec): CapabilityBOMCapability {
+  const grants = capability.grants ?? [];
+  const grantEntries = sortedById(grants.map((grant) => grantBomEntry(grant)));
+  const grantPolicyEffects = sortedUnique(grants.map((grant) => grant.effect));
+  const grantResourceKinds = sortedUnique(
+    grants.map((grant) => grant.resource.kind as ResourceSelector["kind"]),
+  );
+
+  return Object.freeze({
+    id: capability.id,
+    kind: capability.kind,
+    packageRef: capability.packageRef,
+    grantCount: grants.length,
+    grantPolicyEffects,
+    grantResourceKinds,
+    grants: grantEntries,
+    ...(capability.schema === undefined
+      ? {}
+      : { schemaHash: createStableFingerprint(capability.schema) }),
+  });
+}
+
+function protocolBomEntry(protocol: ProtocolBindingSpec): CapabilityBOMProtocol {
+  return Object.freeze({
+    id: protocol.id,
+    protocol: protocol.protocol,
+    packageRef: protocol.packageRef,
+    actorRefs: sortedStrings(protocol.actorRefs),
+  });
+}
+
+function policyBomEntry(policy: {
+  readonly id: string;
+  readonly subject: string;
+  readonly action: string;
+  readonly resource: ResourceSelector;
+  readonly effect: PolicyEffect;
+  readonly conditions?: PolicySpec["conditions"];
+  readonly approval?: PolicySpec["approval"];
+}): CapabilityBOMPolicy {
+  const conditions = policy.conditions ?? [];
+  return Object.freeze({
+    id: policy.id,
+    subject: policy.subject,
+    action: policy.action,
+    effect: policy.effect,
+    resourceKind: policy.resource.kind,
+    ...(policy.resource.id === undefined ? {} : { resourceId: policy.resource.id }),
+    ...(policy.resource.pattern === undefined ? {} : { resourcePattern: policy.resource.pattern }),
+    conditionCount: conditions.length,
+    ...(conditions.length === 0 ? {} : { conditionHash: createStableFingerprint(conditions) }),
+    ...(policy.approval?.requiredBy === undefined
+      ? {}
+      : { approvalRequiredBy: sortedStrings(policy.approval.requiredBy) }),
+    ...(policy.approval?.expiresAfter === undefined
+      ? {}
+      : { approvalExpiresAfter: policy.approval.expiresAfter }),
+  });
+}
+
+function agentBindingBomEntry(agent: CompiledActor): CapabilityBOMAgentBinding {
+  return Object.freeze({
+    agentId: agent.id,
+    role: agent.role,
+    packageRefs: sortedStrings(agent.packageRefs),
+    capabilityRefs: sortedStrings(agent.capabilityRefs),
+  });
+}
+
+function artifactBomEntry(artifact: ArtifactContract): CapabilityBOMArtifact {
+  return Object.freeze({
+    id: artifact.id,
+    kind: artifact.kind,
+    requiredBy: sortedStrings(artifact.requiredBy),
+    producedBy: sortedStrings(artifact.producedBy),
+    reviewedBy: sortedStrings(artifact.reviewedBy),
+  });
+}
+
+function capabilityBomSummary(input: {
+  readonly packages: readonly CapabilityBOMPackage[];
+  readonly capabilities: readonly CapabilityBOMCapability[];
+  readonly protocols: readonly CapabilityBOMProtocol[];
+  readonly policies: readonly CapabilityBOMPolicy[];
+  readonly agentBindings: readonly CapabilityBOMAgentBinding[];
+  readonly artifacts: readonly CapabilityBOMArtifact[];
+}): CapabilityBOMSummary {
+  return Object.freeze({
+    packageCount: input.packages.length,
+    capabilityCount: input.capabilities.length,
+    protocolCount: input.protocols.length,
+    policyCount: input.policies.length,
+    agentCount: input.agentBindings.length,
+    artifactCount: input.artifacts.length,
+    capabilityKinds: capabilityKindCounts(input.capabilities),
+    policyEffects: policyEffectCounts(input.policies),
+  });
+}
+
+export function createCapabilityBOM(
+  compiled: Omit<CompiledHarness, "capabilityBOM" | "fingerprint">,
+): CapabilityBOM {
+  const packages = sortedById(compiled.packages.map((packageUse) => packageBomEntry(packageUse)));
+  const capabilities = sortedById(
+    compiled.capabilities.map((capability) => capabilityBomEntry(capability)),
+  );
+  const protocols = sortedById(compiled.protocols.map((protocol) => protocolBomEntry(protocol)));
+  const policies = sortedById(compiled.policies.map((policy) => policyBomEntry(policy)));
+  const agentBindings = Object.freeze(
+    compiled.agents
+      .map((agent) => agentBindingBomEntry(agent))
+      .sort((left, right) => compareStableStrings(left.agentId, right.agentId)),
+  );
+  const artifacts = sortedById(compiled.artifacts.map((artifact) => artifactBomEntry(artifact)));
+  const summary = capabilityBomSummary({
+    packages,
+    capabilities,
+    protocols,
+    policies,
+    agentBindings,
+    artifacts,
+  });
+  const withoutFingerprint = Object.freeze({
+    kind: "generic-ai.capability-bom" as const,
+    schemaVersion: compiled.schemaVersion,
+    harnessId: compiled.id,
+    sourceId: compiled.sourceId,
+    packages,
+    capabilities,
+    protocols,
+    policies,
+    agentBindings,
+    artifacts,
+    summary,
+  });
+
+  return Object.freeze({
+    ...withoutFingerprint,
+    fingerprint: Object.freeze({
+      algorithm: "sha256" as const,
+      value: createStableFingerprint(withoutFingerprint),
+      schemaVersion: HARNESS_SCHEMA_VERSION,
+      compilerVersion: COMPILER_VERSION,
+    }),
+  });
+}
+
 function assertSchemaVersion(
   diagnostics: CompileDiagnostic[],
   schemaVersion: HarnessSchemaVersion,
@@ -387,7 +637,10 @@ export function compileHarnessDsl(source: HarnessDsl): CompileHarnessResult {
     return Object.freeze({ diagnostics: Object.freeze(diagnostics) });
   }
 
-  const compiledWithoutFingerprint: Omit<CompiledHarness, "fingerprint"> = Object.freeze({
+  const compiledWithoutCapabilityBomAndFingerprint: Omit<
+    CompiledHarness,
+    "capabilityBOM" | "fingerprint"
+  > = Object.freeze({
     kind: "generic-ai.compiled-harness",
     schemaVersion: HARNESS_SCHEMA_VERSION,
     id: `${source.id}:compiled`,
@@ -404,6 +657,11 @@ export function compileHarnessDsl(source: HarnessDsl): CompileHarnessResult {
     missionRefs: Object.freeze([...(source.missionRefs ?? [])]),
     evalRefs: Object.freeze([...(source.evalRefs ?? [])]),
     packageVersions: versionMap(source.packages),
+  });
+  const capabilityBOM = createCapabilityBOM(compiledWithoutCapabilityBomAndFingerprint);
+  const compiledWithoutFingerprint: Omit<CompiledHarness, "fingerprint"> = Object.freeze({
+    ...compiledWithoutCapabilityBomAndFingerprint,
+    capabilityBOM,
   });
 
   const compiled: CompiledHarness = Object.freeze({

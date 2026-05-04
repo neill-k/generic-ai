@@ -170,6 +170,20 @@ and may declare retry semantics. Trace events can carry `reversibility` and
 `supersedesEventId`, and reports surface that metadata when it exists instead of
 guessing rollback cost from the tool name.
 
+## Capability BOMs
+
+Compiled harnesses emit a deterministic `CapabilityBOM` inventory. The BOM
+records the harness package set, capability kinds, grant policy effects,
+protocol bindings, policies, agent package/capability bindings, artifact
+contracts, and a stable fingerprint. Equivalent capability inventories produce
+the same BOM fingerprint even when source arrays are reordered; adding,
+removing, or changing package/capability inventory changes the fingerprint.
+
+Benchmark reports can attach those BOMs next to candidate results so package,
+tool, policy, grader, report-renderer, and protocol drift is visible before two
+runs are compared. This is inventory and provenance evidence only. It is not a
+package trust approval, supply-chain attestation, or runtime permission grant.
+
 ## Three-Tier Benchmark Stack
 
 Generic AI uses the same `MissionSpec` / `BenchmarkSpec` / report pipeline at

@@ -33,6 +33,7 @@ The compiler validates references and topology, then emits:
 - compiled actors with invocation templates,
 - package version maps,
 - capability, protocol, policy, and artifact contracts,
+- a deterministic capability BOM inventory and fingerprint,
 - stable source and compiled fingerprints,
 - deterministic diagnostics before runtime execution.
 
@@ -47,6 +48,11 @@ incomplete traces produce `insufficient_evidence` rather than a winner claim.
 Metric definitions may declare whether higher or lower values are better; report
 recommendations must honor that direction and must not turn missing primary
 metric samples into zero-valued evidence.
+
+Benchmark reports may attach capability BOMs for each compiled candidate
+harness. The BOM makes package, capability, protocol, policy, and artifact drift
+visible as provenance evidence; it is not a trust approval or runtime permission
+grant.
 
 Repeated-run reliability metadata is report evidence, not a separate winner
 oracle. Benchmark profiles may define success thresholds, pass@k cuts,
