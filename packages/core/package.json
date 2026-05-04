@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@generic-ai/sdk": "0.0.0",
-    "@mariozechner/pi-coding-agent": "0.70.6",
+    "@mariozechner/pi-coding-agent": "0.72.1",
     "@sinclair/typebox": "0.34.49"
   }
 }
