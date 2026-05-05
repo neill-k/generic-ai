@@ -12,8 +12,10 @@ import {
   renderBenchmarkReportMarkdown,
   type AgentHarnessEventProjection,
   type ArtifactReference,
+  type BenchmarkFailureSeverity,
   type BenchmarkReport,
   type BenchmarkSpec,
+  type BenchmarkTrialOutcome,
   type BenchmarkTrialResult,
   type MetricValue,
   type MissionSpec,
@@ -40,6 +42,7 @@ export interface HarborImportResult {
   readonly benchmark: BenchmarkSpec;
   readonly trialResults: readonly BenchmarkTrialResult[];
   readonly trialTranscripts: readonly CommandTranscript[];
+  readonly failureTaxonomy: TerminalBenchFailureTaxonomy;
   readonly smokeArtifactProof: SmokeArtifactProof;
   readonly report: BenchmarkReport;
   readonly validation: HarborValidationSummary;
@@ -47,6 +50,16 @@ export interface HarborImportResult {
 
 type JsonRecord = Record<string, unknown>;
 type ValidationGateKind = "smoke" | "quick" | "validation" | "full" | "custom";
+type TerminalBenchFailureCategory =
+  | "none"
+  | "timeout"
+  | "missing_artifact"
+  | "functional_test_failure"
+  | "missing_build_output"
+  | "runtime_exception"
+  | "insufficient_evidence";
+type TerminalBenchVerifierStatus = "passed" | "failed" | "missing" | "unknown";
+type TerminalBenchHarnessExecutionStatus = "completed" | "failed" | "unknown";
 
 const EXAMPLE_ROOT = resolve(import.meta.dirname, "..");
 const DEFAULT_REPORTS_ROOT = resolve(EXAMPLE_ROOT, "reports", "imported");
@@ -58,6 +71,27 @@ const REQUIRED_SMOKE_ARTIFACTS = Object.freeze([
   "integrity.json",
   "trajectory.json",
 ]);
+const FAILURE_CATEGORIES: readonly TerminalBenchFailureCategory[] = Object.freeze([
+  "none",
+  "timeout",
+  "missing_artifact",
+  "functional_test_failure",
+  "missing_build_output",
+  "runtime_exception",
+  "insufficient_evidence",
+]);
+const TEXT_EVIDENCE_EXTENSIONS = new Set([".json", ".log", ".md", ".txt", ".out", ".err"]);
+const FAILURE_SEVERITY_BY_CATEGORY: Readonly<
+  Record<TerminalBenchFailureCategory, BenchmarkFailureSeverity>
+> = Object.freeze({
+  none: "none",
+  timeout: "high",
+  missing_artifact: "high",
+  functional_test_failure: "medium",
+  missing_build_output: "high",
+  runtime_exception: "medium",
+  insufficient_evidence: "low",
+});
 
 export interface SmokeArtifactFileCheck {
   readonly path: string;
@@ -84,6 +118,29 @@ export interface SmokeArtifactProof {
   readonly completeTrialCount: number;
   readonly trialCount: number;
   readonly trials: readonly SmokeArtifactTrialProof[];
+  readonly decisionBoundary: string;
+}
+
+export interface TerminalBenchFailureClassification {
+  readonly trialId: string;
+  readonly category: TerminalBenchFailureCategory;
+  readonly verifierStatus: TerminalBenchVerifierStatus;
+  readonly harnessExecution: TerminalBenchHarnessExecutionStatus;
+  readonly reward?: number;
+  readonly success?: number;
+  readonly reason: string;
+  readonly artifactPaths: readonly string[];
+  readonly evidenceRefs: readonly string[];
+}
+
+export interface TerminalBenchFailureTaxonomy {
+  readonly kind: "generic-ai.terminal-bench-failure-taxonomy";
+  readonly generatedAt: string;
+  readonly jobDir: string;
+  readonly trialCount: number;
+  readonly failureCount: number;
+  readonly categories: Readonly<Record<TerminalBenchFailureCategory, number>>;
+  readonly trials: readonly TerminalBenchFailureClassification[];
   readonly decisionBoundary: string;
 }
 
@@ -137,6 +194,16 @@ export interface HarborValidationSummary {
   readonly nextActions: readonly string[];
 }
 
+interface ImportedHarborTrial {
+  readonly trialResult: BenchmarkTrialResult;
+  readonly failureClassification: TerminalBenchFailureClassification;
+}
+
+interface TextEvidence {
+  readonly path: string;
+  readonly text: string;
+}
+
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -155,6 +222,77 @@ async function readJsonIfExists(path: string): Promise<unknown | undefined> {
 
     throw error;
   }
+}
+
+async function readTextIfExists(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, "utf-8");
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
+      return undefined;
+    }
+
+    throw error;
+  }
+}
+
+function isTextEvidencePath(filePath: string): boolean {
+  const extension = path.extname(filePath).toLowerCase();
+  return TEXT_EVIDENCE_EXTENSIONS.has(extension);
+}
+
+async function collectTextEvidence(
+  root: string,
+  baseUri: string,
+  maxFiles = 80,
+): Promise<readonly TextEvidence[]> {
+  if (maxFiles <= 0 || !existsSync(root)) {
+    return [];
+  }
+
+  const item = await stat(root);
+  if (item.isFile()) {
+    if (!isTextEvidencePath(root)) {
+      return [];
+    }
+
+    const text = await readTextIfExists(root);
+    return text === undefined
+      ? []
+      : [
+          Object.freeze({
+            path: baseUri,
+            text: text.slice(0, 16_000),
+          }),
+        ];
+  }
+
+  if (!item.isDirectory()) {
+    return [];
+  }
+
+  const evidence: TextEvidence[] = [];
+  const entries = (await readdir(root, { withFileTypes: true })).sort((left, right) =>
+    left.name.localeCompare(right.name),
+  );
+  for (const entry of entries) {
+    if (evidence.length >= maxFiles) {
+      break;
+    }
+
+    const nextEvidence = await collectTextEvidence(
+      join(root, entry.name),
+      `${baseUri}/${entry.name}`,
+      maxFiles - evidence.length,
+    );
+    evidence.push(...nextEvidence);
+  }
+
+  return Object.freeze(evidence);
 }
 
 function findFirstNumber(value: unknown, names: ReadonlySet<string>): number | undefined {
@@ -701,12 +839,292 @@ async function listTrialDirs(jobDir: string): Promise<readonly string[]> {
   return dirs.sort((left, right) => left.localeCompare(right));
 }
 
+function normalizeEvidenceText(value: string): string {
+  return value.toLowerCase();
+}
+
+function includesAny(value: string, needles: readonly string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
+}
+
+function compactReason(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
+function firstMatchingEvidence(
+  evidence: readonly TextEvidence[],
+  matches: (normalizedText: string, path: string) => boolean,
+): TextEvidence | undefined {
+  return evidence.find((item) => matches(normalizeEvidenceText(item.text), item.path.toLowerCase()));
+}
+
+function firstUsefulLine(evidence: TextEvidence | undefined): string | undefined {
+  if (evidence === undefined) {
+    return undefined;
+  }
+
+  for (const line of evidence.text.split(/\r?\n/)) {
+    const cleaned = compactReason(line);
+    if (cleaned.length > 0) {
+      return `${evidence.path}: ${cleaned}`;
+    }
+  }
+
+  return evidence.path;
+}
+
+function hasTimeoutSignal(resultJson: unknown, evidence: readonly TextEvidence[]): TextEvidence | undefined {
+  const timeoutFlag = findFirstBoolean(resultJson, new Set(["timeout", "timed_out", "timedout"]));
+  if (timeoutFlag === true) {
+    return Object.freeze({
+      path: "result.json",
+      text: "Harbor result JSON reported a timeout.",
+    });
+  }
+
+  return firstMatchingEvidence(evidence, (text) =>
+    includesAny(text, [
+      "timed out",
+      "timeout exceeded",
+      "timeout_error",
+      "deadline exceeded",
+      "time limit exceeded",
+    ]),
+  );
+}
+
+function hasMissingBuildOutputSignal(evidence: readonly TextEvidence[]): TextEvidence | undefined {
+  return firstMatchingEvidence(
+    evidence,
+    (text) =>
+      includesAny(text, ["missing build output", "did not produce", "not produced"]) ||
+      (includesAny(text, ["/usr/local/bin", "/app/", "povray", "binary"]) &&
+        includesAny(text, ["missing", "not found", "no such file", "does not exist"])),
+  );
+}
+
+function hasMissingArtifactSignal(evidence: readonly TextEvidence[]): TextEvidence | undefined {
+  return firstMatchingEvidence(
+    evidence,
+    (text, evidencePath) =>
+      includesAny(text, ["missing expected artifact", "missing artifact", "expected artifact"]) ||
+      (includesAny(text, ["not found", "no such file", "does not exist", "missing"]) &&
+        (text.includes("/tmp/") ||
+          text.includes("artifact") ||
+          evidencePath.includes("verifier") ||
+          evidencePath.includes("result.json"))),
+  );
+}
+
+function hasFunctionalTestFailureSignal(evidence: readonly TextEvidence[]): TextEvidence | undefined {
+  return firstMatchingEvidence(evidence, (text) =>
+    includesAny(text, [
+      "assertionerror",
+      "test failed",
+      "tests failed",
+      "failed tests",
+      "pytest",
+      "unittest",
+      "expected",
+      "actual",
+      "test_",
+    ]),
+  );
+}
+
+function hasRuntimeExceptionSignal(evidence: readonly TextEvidence[]): TextEvidence | undefined {
+  return firstMatchingEvidence(evidence, (text) =>
+    includesAny(text, [
+      "traceback",
+      "uncaught",
+      "exception",
+      "syntaxerror",
+      "typeerror",
+      "referenceerror",
+      "segmentation fault",
+      "runtime error",
+      "non-zero exit",
+    ]),
+  );
+}
+
+function verifierStatus(input: {
+  readonly reward?: number;
+  readonly success?: number;
+  readonly artifactPaths: readonly string[];
+}): TerminalBenchVerifierStatus {
+  if ((input.success ?? 0) >= 1 || (input.reward ?? 0) > 0) {
+    return "passed";
+  }
+
+  if (input.success === 0 || input.reward !== undefined) {
+    return "failed";
+  }
+
+  if (input.artifactPaths.some((artifactPath) => artifactPath.includes("/verifier/"))) {
+    return "unknown";
+  }
+
+  return "missing";
+}
+
+function harnessExecutionStatus(
+  events: readonly TraceEvent[],
+): TerminalBenchHarnessExecutionStatus {
+  if (
+    events.some(
+      (event) =>
+        event.type === "actor.completed" &&
+        includesAny(normalizeEvidenceText(event.summary), ["failed", "error"]),
+    )
+  ) {
+    return "failed";
+  }
+
+  if (events.some((event) => event.type === "actor.completed")) {
+    return "completed";
+  }
+
+  return "unknown";
+}
+
+function classifyFailureCategory(input: {
+  readonly resultJson: unknown;
+  readonly evidence: readonly TextEvidence[];
+  readonly verifierStatus: TerminalBenchVerifierStatus;
+}): { readonly category: TerminalBenchFailureCategory; readonly evidence?: TextEvidence } {
+  if (input.verifierStatus === "passed") {
+    return Object.freeze({ category: "none" });
+  }
+
+  const timeout = hasTimeoutSignal(input.resultJson, input.evidence);
+  if (timeout !== undefined) {
+    return Object.freeze({ category: "timeout", evidence: timeout });
+  }
+
+  const missingBuildOutput = hasMissingBuildOutputSignal(input.evidence);
+  if (missingBuildOutput !== undefined) {
+    return Object.freeze({ category: "missing_build_output", evidence: missingBuildOutput });
+  }
+
+  const missingArtifact = hasMissingArtifactSignal(input.evidence);
+  if (missingArtifact !== undefined) {
+    return Object.freeze({ category: "missing_artifact", evidence: missingArtifact });
+  }
+
+  const functionalTestFailure = hasFunctionalTestFailureSignal(input.evidence);
+  if (functionalTestFailure !== undefined) {
+    return Object.freeze({
+      category: "functional_test_failure",
+      evidence: functionalTestFailure,
+    });
+  }
+
+  const runtimeException = hasRuntimeExceptionSignal(input.evidence);
+  if (runtimeException !== undefined) {
+    return Object.freeze({ category: "runtime_exception", evidence: runtimeException });
+  }
+
+  return Object.freeze({ category: "insufficient_evidence" });
+}
+
+function failureReason(input: {
+  readonly category: TerminalBenchFailureCategory;
+  readonly matchedEvidence?: TextEvidence;
+  readonly harnessExecution: TerminalBenchHarnessExecutionStatus;
+  readonly verifierStatus: TerminalBenchVerifierStatus;
+  readonly reward?: number;
+  readonly success?: number;
+}): string {
+  if (input.category === "none") {
+    return "Verifier passed.";
+  }
+
+  const harnessBoundary =
+    input.harnessExecution === "completed" && input.verifierStatus === "failed"
+      ? "Harness execution completed while verifier reward failed"
+      : `Harness execution ${input.harnessExecution}; verifier status ${input.verifierStatus}`;
+  const metricBoundary = `reward=${input.reward ?? "n/a"} success=${input.success ?? "n/a"}`;
+  const evidence = firstUsefulLine(input.matchedEvidence);
+  return evidence === undefined
+    ? `${harnessBoundary}; ${metricBoundary}; category=${input.category}.`
+    : `${harnessBoundary}; ${metricBoundary}; ${evidence}`;
+}
+
+async function classifyTerminalBenchFailure(input: {
+  readonly trialDir: string;
+  readonly trialId: string;
+  readonly resultJson: unknown;
+  readonly metrics: readonly MetricValue[];
+  readonly events: readonly TraceEvent[];
+  readonly artifacts: readonly ArtifactReference[];
+}): Promise<TerminalBenchFailureClassification> {
+  const artifactPaths = input.artifacts.map((artifact) => artifact.uri);
+  const evidence = [
+    Object.freeze({
+      path: `${input.trialId}/result.json`,
+      text: JSON.stringify(input.resultJson ?? {}, null, 2),
+    }),
+    ...(await collectTextEvidence(join(input.trialDir, "verifier"), `${input.trialId}/verifier`)),
+    ...(await collectTextEvidence(join(input.trialDir, "agent"), `${input.trialId}/agent`)),
+    ...(await collectTextEvidence(
+      join(input.trialDir, "artifacts", "generic-ai"),
+      `${input.trialId}/artifacts/generic-ai`,
+    )),
+  ];
+  const reward = input.metrics.find((metric) => metric.metricId === "reward")?.value;
+  const success = input.metrics.find((metric) => metric.metricId === "success")?.value;
+  const status = verifierStatus({
+    ...(reward === undefined ? {} : { reward }),
+    ...(success === undefined ? {} : { success }),
+    artifactPaths,
+  });
+  const harnessExecution = harnessExecutionStatus(input.events);
+  const classification = classifyFailureCategory({
+    resultJson: input.resultJson,
+    evidence,
+    verifierStatus: status,
+  });
+  const reason = failureReason({
+    category: classification.category,
+    ...(classification.evidence === undefined ? {} : { matchedEvidence: classification.evidence }),
+    harnessExecution,
+    verifierStatus: status,
+    ...(reward === undefined ? {} : { reward }),
+    ...(success === undefined ? {} : { success }),
+  });
+
+  return Object.freeze({
+    trialId: input.trialId,
+    category: classification.category,
+    verifierStatus: status,
+    harnessExecution,
+    ...(reward === undefined ? {} : { reward }),
+    ...(success === undefined ? {} : { success }),
+    reason,
+    artifactPaths: Object.freeze(artifactPaths),
+    evidenceRefs: Object.freeze(input.artifacts.map((artifact) => artifact.id)),
+  });
+}
+
+function trialOutcomeFromClassification(
+  classification: TerminalBenchFailureClassification,
+): BenchmarkTrialOutcome {
+  return Object.freeze({
+    status: classification.category === "none" ? "passed" : "failed",
+    failureSeverity: FAILURE_SEVERITY_BY_CATEGORY[classification.category],
+  });
+}
+
 async function importTrial(input: {
   readonly jobDir: string;
   readonly trialDir: string;
   readonly runId: string;
   readonly timestamp: string;
-}): Promise<BenchmarkTrialResult> {
+}): Promise<ImportedHarborTrial> {
   const trialId = basename(input.trialDir);
   const resultJson = await readJsonIfExists(join(input.trialDir, "result.json"));
   const artifacts = [
@@ -765,14 +1183,29 @@ async function importTrial(input: {
     );
   }
 
-  return Object.freeze({
+  const metrics = extractMetrics(resultJson, artifactRefs);
+  const diagnostics = traceDiagnostics(events, artifacts.length);
+  const failureClassification = await classifyTerminalBenchFailure({
+    trialDir: input.trialDir,
+    trialId,
+    resultJson,
+    metrics,
+    events,
+    artifacts,
+  });
+  const trialResult: BenchmarkTrialResult = Object.freeze({
     candidateId: "generic-ai",
     harnessId: "harbor-installed-agent",
     trialId,
-    metrics: extractMetrics(resultJson, artifactRefs),
+    outcome: trialOutcomeFromClassification(failureClassification),
+    metrics,
     traceEvents: Object.freeze(events.sort((left, right) => left.sequence - right.sequence)),
     artifacts: Object.freeze(artifacts),
-    diagnostics: traceDiagnostics(events, artifacts.length),
+    diagnostics,
+  });
+  return Object.freeze({
+    trialResult,
+    failureClassification,
   });
 }
 
@@ -1096,6 +1529,72 @@ function renderValidationSummaryMarkdown(summary: HarborValidationSummary): stri
   return `${lines.join("\n")}\n`;
 }
 
+function createFailureTaxonomy(input: {
+  readonly jobDir: string;
+  readonly generatedAt: string;
+  readonly trials: readonly TerminalBenchFailureClassification[];
+}): TerminalBenchFailureTaxonomy {
+  const categories: Record<TerminalBenchFailureCategory, number> = Object.fromEntries(
+    FAILURE_CATEGORIES.map((category) => [category, 0]),
+  ) as Record<TerminalBenchFailureCategory, number>;
+  for (const trial of input.trials) {
+    categories[trial.category] += 1;
+  }
+
+  return Object.freeze({
+    kind: "generic-ai.terminal-bench-failure-taxonomy",
+    generatedAt: input.generatedAt,
+    jobDir: input.jobDir,
+    trialCount: input.trials.length,
+    failureCount: input.trials.filter((trial) => trial.category !== "none").length,
+    categories: Object.freeze(categories),
+    trials: Object.freeze([...input.trials]),
+    decisionBoundary:
+      "Failure taxonomy classifies imported Harbor evidence for debugging; it is not a reward, success, pass-rate, or SOTA improvement claim.",
+  });
+}
+
+function renderFailureTaxonomyMarkdown(taxonomy: TerminalBenchFailureTaxonomy): string {
+  const lines = [
+    "## Terminal-Bench Failure Taxonomy",
+    "",
+    `- Trial count: ${taxonomy.trialCount}`,
+    `- Failed trials: ${taxonomy.failureCount}`,
+    `- Decision boundary: ${taxonomy.decisionBoundary}`,
+    "",
+    "### Category Counts",
+    "",
+    "| Category | Count |",
+    "| --- | ---: |",
+    ...FAILURE_CATEGORIES.map((category) => `| ${category} | ${taxonomy.categories[category]} |`),
+    "",
+    "### Trial Classifications",
+    "",
+    "| Trial | Category | Verifier | Reward | Success | Harness execution | Reason | Artifact paths |",
+    "| --- | --- | --- | ---: | ---: | --- | --- | --- |",
+  ];
+
+  for (const trial of taxonomy.trials) {
+    lines.push(
+      `| ${[
+        `\`${trial.trialId}\``,
+        trial.category,
+        trial.verifierStatus,
+        trial.reward ?? "n/a",
+        trial.success ?? "n/a",
+        trial.harnessExecution,
+        trial.reason.replace(/\|/g, "\\|"),
+        trial.artifactPaths.length === 0
+          ? "none"
+          : trial.artifactPaths.slice(0, 8).map((artifactPath) => `\`${artifactPath}\``).join("<br>"),
+      ].join(" | ")} |`,
+    );
+  }
+
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+}
+
 async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 }
@@ -1210,9 +1709,15 @@ export async function importHarborResults(
   const timestamp = options.now?.() ?? new Date().toISOString();
   const runId = `harbor:${createStableFingerprint(jobDir).slice(0, 12)}`;
   const trialDirs = await listTrialDirs(jobDir);
-  const trialResults = await Promise.all(
+  const importedTrials = await Promise.all(
     trialDirs.map((trialDir) => importTrial({ jobDir, trialDir, runId, timestamp })),
   );
+  const trialResults = importedTrials.map((trial) => trial.trialResult);
+  const failureTaxonomy = createFailureTaxonomy({
+    jobDir,
+    generatedAt: timestamp,
+    trials: importedTrials.map((trial) => trial.failureClassification),
+  });
   const harnessProjectionRows = await Promise.all(
     trialDirs.map(async (trialDir) =>
       Object.freeze({
@@ -1257,6 +1762,12 @@ export async function importHarborResults(
   await writeJson(join(outputDir, "mission.json"), mission);
   await writeJson(join(outputDir, "benchmark.json"), benchmark);
   await writeJson(join(outputDir, "trial-results.json"), trialResults);
+  await writeJson(join(outputDir, "failure-taxonomy.json"), failureTaxonomy);
+  await writeFile(
+    join(outputDir, "failure-taxonomy.md"),
+    renderFailureTaxonomyMarkdown(failureTaxonomy),
+    "utf-8",
+  );
   await writeJson(join(outputDir, "trial-harness-projections.json"), harnessProjectionRows);
   await writeFile(
     join(outputDir, "trial-harness-projections.md"),
@@ -1273,7 +1784,9 @@ export async function importHarborResults(
   await writeJson(join(outputDir, "validation-summary.json"), validation);
   await writeFile(
     join(outputDir, "benchmark-report.md"),
-    `${renderBenchmarkReportMarkdown(report)}${renderValidationSummaryMarkdown(validation)}`,
+    `${renderBenchmarkReportMarkdown(report)}${renderValidationSummaryMarkdown(
+      validation,
+    )}${renderFailureTaxonomyMarkdown(failureTaxonomy)}`,
   );
   await writeJson(join(outputDir, "smoke-artifact-proof.json"), smokeArtifactProof);
   await writeFile(
@@ -1288,6 +1801,7 @@ export async function importHarborResults(
     benchmark,
     trialResults: Object.freeze(trialResults),
     trialTranscripts: Object.freeze(trialTranscripts),
+    failureTaxonomy,
     smokeArtifactProof,
     report,
     validation,

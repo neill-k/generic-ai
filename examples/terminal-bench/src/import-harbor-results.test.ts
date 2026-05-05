@@ -23,7 +23,11 @@ describe("importHarborResults", () => {
       ],
     });
 
-    async function writeTrial(trialId: string, reward: number): Promise<void> {
+    async function writeTrial(
+      trialId: string,
+      reward: number,
+      failureLog?: string,
+    ): Promise<void> {
       const trialDir = join(jobDir, trialId);
       await mkdir(join(trialDir, "verifier"), { recursive: true });
       await mkdir(join(trialDir, "artifacts", "generic-ai", "harness"), { recursive: true });
@@ -104,9 +108,16 @@ describe("importHarborResults", () => {
         ],
       );
       await writeFile(join(trialDir, "verifier", "reward.txt"), `${reward}\n`, "utf-8");
+      if (failureLog !== undefined) {
+        await writeFile(join(trialDir, "verifier", "stderr.log"), failureLog, "utf-8");
+      }
     }
 
-    await writeTrial("task-one__abc1234", 0);
+    await writeTrial(
+      "task-one__abc1234",
+      0,
+      "Expected artifact /tmp/frame.bmp was not found after verifier execution.\n",
+    );
     await writeTrial("task-one__def5678", 1);
 
     const outputDir = join(jobDir, "generic-ai-report");
@@ -128,6 +139,26 @@ describe("importHarborResults", () => {
     expect(result.validation.reward.values).toEqual([0, 1]);
     expect(result.validation.reward.standardDeviation).toBeCloseTo(Math.SQRT1_2, 4);
     expect(result.validation.flakeSignals).toHaveLength(1);
+    expect(result.failureTaxonomy.failureCount).toBe(1);
+    expect(result.failureTaxonomy.categories.missing_artifact).toBe(1);
+    expect(result.failureTaxonomy.categories.timeout).toBe(0);
+    expect(result.failureTaxonomy.trials[0]).toMatchObject({
+      category: "missing_artifact",
+      verifierStatus: "failed",
+      reward: 0,
+      success: 0,
+      harnessExecution: "completed",
+    });
+    expect(result.failureTaxonomy.trials[0]?.reason).toContain(
+      "Harness execution completed while verifier reward failed",
+    );
+    expect(result.failureTaxonomy.trials[0]?.artifactPaths).toContain(
+      "task-one__abc1234/verifier/stderr.log",
+    );
+    expect(result.trialResults[0]?.outcome).toMatchObject({
+      status: "failed",
+      failureSeverity: "high",
+    });
     expect(result.smokeArtifactProof.completeTrialCount).toBe(2);
     expect(result.smokeArtifactProof.trials[0]?.harnessArtifactRefs).toHaveLength(2);
     expect(result.report.insufficientEvidence).toHaveLength(1);
@@ -158,6 +189,15 @@ describe("importHarborResults", () => {
     );
     await expect(readFile(join(outputDir, "benchmark-report.md"), "utf-8")).resolves.toContain(
       "## Terminal-Bench Validation Gate",
+    );
+    await expect(readFile(join(outputDir, "benchmark-report.md"), "utf-8")).resolves.toContain(
+      "## Terminal-Bench Failure Taxonomy",
+    );
+    await expect(readFile(join(outputDir, "failure-taxonomy.json"), "utf-8")).resolves.toContain(
+      "missing_artifact",
+    );
+    await expect(readFile(join(outputDir, "failure-taxonomy.md"), "utf-8")).resolves.toContain(
+      "Expected artifact /tmp/frame.bmp",
     );
     await expect(readFile(join(outputDir, "validation-summary.json"), "utf-8")).resolves.toContain(
       "standardDeviation",

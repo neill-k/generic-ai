@@ -116,6 +116,8 @@ examples/terminal-bench/reports/imported/<job-name>/
   mission.json
   benchmark.json
   trial-results.json
+  failure-taxonomy.json
+  failure-taxonomy.md
   trial-harness-projections.json
   trial-harness-projections.md
   trial-command-transcripts.json
@@ -133,6 +135,13 @@ success distributions, trace completeness, flake rerun signals, limitations,
 and next actions. Smoke and quick profiles still stay below
 recommendation-quality evidence unless repeated validation trials support that
 claim.
+
+The failure taxonomy appends a Terminal-Bench failure section to the benchmark
+report and writes `failure-taxonomy.*`. It classifies failed imported trials by
+timeout, missing artifact, functional test failure, missing build output,
+runtime exception, or insufficient evidence, while preserving artifact paths and
+making it explicit when Generic AI harness execution completed but Harbor
+verifier reward failed.
 
 The smoke artifact proof checks each imported trial for the live-smoke artifact
 set required by the benchmark gate: `summary.json`, `trace-events.json`,
