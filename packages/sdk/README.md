@@ -25,6 +25,9 @@ Current SDK contents:
   skipped/excluded-trial, perturbation, and bounded failure-severity reporting
 - Capability BOM contracts and compiler helpers that make package, capability,
   policy, protocol, and artifact inventory drift visible in benchmark reports
+- Structured tool-error recovery contracts for retryable, user-actionable,
+  policy-blocked, timeout, and budget-exhausted tool attempts in benchmark
+  evidence
 - Agent execution config for the default stop-tool loop and the
   `single-turn` opt-out used when a caller truly wants one provider turn. When
   `maxTurns` is omitted, stop-tool loop execution is unbounded by default.
@@ -52,6 +55,9 @@ The SDK defines the contract families planned in
   web, MCP, messaging, and storage boundaries
 - capability BOM contracts for deterministic compiled-harness inventory and
   report fingerprints; these are provenance evidence, not trust approval
+- tool-recovery benchmark contracts and helpers for normalized error envelopes,
+  timeout budgets, remediation hints, and failed/skipped/retried/policy-blocked
+  attempt summaries
 - composable agent harness contracts for adapters, role policy profiles,
   effect-described tools, artifact stores, and canonical harness events
 

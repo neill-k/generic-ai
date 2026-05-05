@@ -15,6 +15,9 @@ This package is the explicit host-execution path. It is intentionally local-firs
 - the tool declares `process.spawn`, `fs.read`, `fs.write`, and
   `network.egress` effects so `AgentHarness` can withhold it from read-only or
   network-restricted roles
+- timed-out public `run()` calls include an SDK `ToolErrorEnvelope`, and native
+  backend failures are thrown as `TerminalToolError` with the same structured
+  envelope for benchmark and trace consumers
 
 Sandboxed code execution is tracked separately in [`docs/decisions/0013-sandboxed-execution.md`](../../docs/decisions/0013-sandboxed-execution.md). The planned migration path is a dedicated `@generic-ai/plugin-tools-terminal-sandbox` package that can replace this package in the starter preset's `terminalTools` slot without changing kernel boundaries.
 

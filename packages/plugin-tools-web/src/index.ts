@@ -1,7 +1,12 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
+import {
+  GenericAIToolError,
+  normalizeToolError,
+  withAgentHarnessToolEffects,
+  type ToolErrorEnvelope,
+} from "@generic-ai/sdk";
 import { createWorkspaceLayout, type WorkspaceRootInput } from "@generic-ai/plugin-workspace-fs";
 import { Type, type Static, type TSchema } from "@sinclair/typebox";
 
@@ -195,6 +200,13 @@ export interface WebToolsPlugin {
   readonly piTools: readonly [WebFetchTool, WebSearchTool];
   fetch(request: WebFetchRequest, signal?: AbortSignal): Promise<WebFetchResult>;
   search(request: WebSearchRequest, signal?: AbortSignal): Promise<WebSearchResponse>;
+}
+
+export class WebToolError extends GenericAIToolError {
+  constructor(envelope: ToolErrorEnvelope, options: { readonly cause?: unknown } = {}) {
+    super(envelope, options);
+    this.name = "WebToolError";
+  }
 }
 
 interface RedirectedResponse {
@@ -969,23 +981,26 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
     request: WebFetchRequest,
     signal?: AbortSignal,
   ): Promise<WebFetchResult> => {
-    const requestedUrl = assertAllowedUrl(
-      request.url,
-      policy,
-      allowPrivateNetwork,
-      "web_fetch url",
-    );
-    const timeoutMs =
-      request.timeoutMs === undefined
-        ? defaultTimeoutMs
-        : normalizeTimeoutMs(request.timeoutMs, "web_fetch timeoutMs");
-    const maxChars =
-      request.maxChars === undefined
-        ? maxContentChars
-        : normalizeContentCharLimit(request.maxChars, "web_fetch maxChars");
-    const execution = createAbortSignal(timeoutMs, signal);
+    let execution: ReturnType<typeof createAbortSignal> | undefined;
+    let requestedUrl: URL | undefined;
+    let timeoutMs: number | undefined;
 
     try {
+      requestedUrl = assertAllowedUrl(
+        request.url,
+        policy,
+        allowPrivateNetwork,
+        "web_fetch url",
+      );
+      timeoutMs =
+        request.timeoutMs === undefined
+          ? defaultTimeoutMs
+          : normalizeTimeoutMs(request.timeoutMs, "web_fetch timeoutMs");
+      const maxChars =
+        request.maxChars === undefined
+          ? maxContentChars
+          : normalizeContentCharLimit(request.maxChars, "web_fetch maxChars");
+      execution = createAbortSignal(timeoutMs, signal);
       const redirected = await fetchWithRedirects(
         fetcher,
         requestedUrl,
@@ -1026,13 +1041,33 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
         fetchedAt: normalizeTimestamp(options.now),
       });
     } catch (error) {
-      if (execution.didTimeout()) {
-        throw new Error(`Fetching ${requestedUrl} timed out after ${timeoutMs}ms.`);
-      }
-
-      throw error;
+      const didTimeout = execution?.didTimeout() === true;
+      const safeMessage =
+        didTimeout && requestedUrl !== undefined && timeoutMs !== undefined
+          ? `Fetching ${requestedUrl} timed out after ${timeoutMs}ms.`
+          : undefined;
+      throw new WebToolError(
+        normalizeToolError({
+          error,
+          ...(didTimeout ? { kind: "timeout" } : {}),
+          ...(safeMessage === undefined ? {} : { safeMessage }),
+          ...(timeoutMs === undefined
+            ? {}
+            : {
+                timeoutBudget: {
+                  totalMs: timeoutMs,
+                  ...(didTimeout ? { remainingMs: 0 } : {}),
+                  exhausted: didTimeout,
+                },
+              }),
+          metadata: {
+            toolRef: "web.fetch",
+          },
+        }),
+        { cause: error },
+      );
     } finally {
-      execution.cleanup();
+      execution?.cleanup();
     }
   };
 
@@ -1040,18 +1075,20 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
     request: WebSearchRequest,
     signal?: AbortSignal,
   ): Promise<WebSearchResponse> => {
-    const query = assertNonEmpty(request.query, "web_search query");
-    const limit =
-      request.limit === undefined
-        ? DEFAULT_SEARCH_LIMIT
-        : normalizeSearchLimit(request.limit, "web_search limit");
-    const timeoutMs =
-      request.timeoutMs === undefined
-        ? defaultTimeoutMs
-        : normalizeTimeoutMs(request.timeoutMs, "web_search timeoutMs");
-    const execution = createAbortSignal(timeoutMs, signal);
+    let execution: ReturnType<typeof createAbortSignal> | undefined;
+    let timeoutMs: number | undefined;
 
     try {
+      const query = assertNonEmpty(request.query, "web_search query");
+      const limit =
+        request.limit === undefined
+          ? DEFAULT_SEARCH_LIMIT
+          : normalizeSearchLimit(request.limit, "web_search limit");
+      timeoutMs =
+        request.timeoutMs === undefined
+          ? defaultTimeoutMs
+          : normalizeTimeoutMs(request.timeoutMs, "web_search timeoutMs");
+      execution = createAbortSignal(timeoutMs, signal);
       const rawResults = await options.searchProvider.search({
         query,
         limit,
@@ -1103,15 +1140,33 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
         searchedAt: normalizeTimestamp(options.now),
       });
     } catch (error) {
-      if (execution.didTimeout()) {
-        throw new Error(
-          `Search provider "${options.searchProvider.name}" timed out after ${timeoutMs}ms.`,
-        );
-      }
-
-      throw error;
+      const didTimeout = execution?.didTimeout() === true;
+      const safeMessage =
+        didTimeout && timeoutMs !== undefined
+          ? `Search provider "${options.searchProvider.name}" timed out after ${timeoutMs}ms.`
+          : undefined;
+      throw new WebToolError(
+        normalizeToolError({
+          error,
+          ...(didTimeout ? { kind: "timeout" } : {}),
+          ...(safeMessage === undefined ? {} : { safeMessage }),
+          ...(timeoutMs === undefined
+            ? {}
+            : {
+                timeoutBudget: {
+                  totalMs: timeoutMs,
+                  ...(didTimeout ? { remainingMs: 0 } : {}),
+                  exhausted: didTimeout,
+                },
+              }),
+          metadata: {
+            toolRef: "web.search",
+          },
+        }),
+        { cause: error },
+      );
     } finally {
-      execution.cleanup();
+      execution?.cleanup();
     }
   };
 

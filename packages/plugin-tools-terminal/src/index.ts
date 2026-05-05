@@ -1,4 +1,9 @@
-import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
+import {
+  GenericAIToolError,
+  normalizeToolError,
+  withAgentHarnessToolEffects,
+  type ToolErrorEnvelope,
+} from "@generic-ai/sdk";
 import {
   createBashTool,
   createLocalBashOperations,
@@ -41,6 +46,7 @@ export interface TerminalRunResult {
   readonly durationMs: number;
   readonly timedOut: boolean;
   readonly unrestrictedLocal: boolean;
+  readonly error?: ToolErrorEnvelope;
 }
 
 export interface TerminalToolPlugin {
@@ -50,6 +56,13 @@ export interface TerminalToolPlugin {
   readonly unrestrictedLocal: boolean;
   readonly tool: ReturnType<typeof createBashTool>;
   run(request: TerminalRunRequest): Promise<TerminalRunResult>;
+}
+
+export class TerminalToolError extends GenericAIToolError {
+  constructor(envelope: ToolErrorEnvelope, options: { readonly cause?: unknown } = {}) {
+    super(envelope, options);
+    this.name = "TerminalToolError";
+  }
 }
 
 const MINIMAL_PROCESS_ENV_KEYS = new Set([
@@ -193,16 +206,49 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
         ...(request.signal === undefined ? {} : { signal: request.signal }),
         ...(timeoutSeconds === undefined ? {} : { timeout: timeoutSeconds }),
       };
-      const result = await operations.exec(command, cwd, executionOptions);
+      let result: Awaited<ReturnType<BashOperations["exec"]>>;
+      try {
+        result = await operations.exec(command, cwd, executionOptions);
+      } catch (error) {
+        throw new TerminalToolError(
+          normalizeToolError({
+            error,
+            metadata: {
+              toolRef: "terminal.bash",
+            },
+          }),
+          { cause: error },
+        );
+      }
+      const durationMs = Date.now() - startedAt;
+      const timedOut = timeoutMs !== undefined && result.exitCode === null;
+      const structuredError =
+        timedOut && timeoutMs !== undefined
+          ? normalizeToolError({
+              error: new Error(`Command timed out after ${timeoutMs}ms.`),
+              kind: "timeout",
+              safeMessage: `Command timed out after ${timeoutMs}ms.`,
+              timeoutBudget: {
+                totalMs: timeoutMs,
+                spentMs: durationMs,
+                remainingMs: 0,
+                exhausted: true,
+              },
+              metadata: {
+                toolRef: "terminal.bash",
+              },
+            })
+          : undefined;
 
       return Object.freeze({
         command,
         cwd,
         exitCode: result.exitCode,
         output: outputChunks.join(""),
-        durationMs: Date.now() - startedAt,
-        timedOut: timeoutMs !== undefined && result.exitCode === null,
+        durationMs,
+        timedOut,
         unrestrictedLocal,
+        ...(structuredError === undefined ? {} : { error: structuredError }),
       });
     },
   });
