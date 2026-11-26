@@ -29,6 +29,7 @@
       "@generic-ai/plugin-queue-memory": ["./packages/plugin-queue-memory/src/index.ts"],
       "@generic-ai/plugin-repo-map": ["./packages/plugin-repo-map/src/index.ts"],
       "@generic-ai/plugin-storage-memory": ["./packages/plugin-storage-memory/src/index.ts"],
+      "@generic-ai/plugin-storage-postgres": ["./packages/plugin-storage-postgres/src/index.ts"],
       "@generic-ai/plugin-storage-sqlite": ["./packages/plugin-storage-sqlite/src/index.ts"],
       "@generic-ai/plugin-tools-files": ["./packages/plugin-tools-files/src/index.ts"],
       "@generic-ai/plugin-tools-terminal": ["./packages/plugin-tools-terminal/src/index.ts"],
@@ -42,7 +43,8 @@
       "@generic-ai/plugin-web-ui/server": ["./packages/plugin-web-ui/src/server.ts"],
       "@generic-ai/plugin-workspace-fs": ["./packages/plugin-workspace-fs/src/index.ts"],
       "@generic-ai/preset-starter-hono": ["./packages/preset-starter-hono/src/index.ts"],
-      "@generic-ai/sdk": ["./packages/sdk/src/index.ts"]
+      "@generic-ai/sdk": ["./packages/sdk/src/index.ts"],
+      "@generic-ai/sdk/testing": ["./packages/sdk/src/testing/index.ts"]
     }
   },
   "include": [

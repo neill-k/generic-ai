@@ -22,3 +22,19 @@ export * as contracts from "./contracts/index.js";
 export * as helpers from "./helpers/index.js";
 export * as harness from "./harness/index.js";
 export * as scope from "./scope/index.js";
+
+export {
+  attachRunEventLog,
+  createQueueWorker,
+  NonRetryableJobError,
+  replayRunEvents,
+} from "./helpers/index.js";
+export type {
+  AttachRunEventLogOptions,
+  QueueWorker,
+  QueueWorkerEvent,
+  QueueWorkerHandler,
+  QueueWorkerJobContext,
+  QueueWorkerOptions,
+  ReplayRunEventsOptions,
+} from "./helpers/index.js";
