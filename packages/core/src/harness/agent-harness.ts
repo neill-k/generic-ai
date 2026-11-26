@@ -27,6 +27,7 @@ import {
   type AgentHarnessRunResult,
   type CanonicalEvent,
   getAgentHarnessToolEffects,
+  goalTraceFromCanonicalEvents,
   type JsonObject,
   type PolicyDecisionRecord,
   type ResourceSelector,
@@ -1973,10 +1974,13 @@ export async function runAgentHarnessTopology(
       name: "handoff.accepted",
       data: { roleId: role.id },
     });
-    const delegatedTask =
-      invocation.context.length > 0
-        ? `${invocation.task}\n\nContext from other agents:\n${invocation.context}`
-        : invocation.task;
+    const delegatedTask = [
+      invocation.task,
+      ...(invocation.goalBrief === undefined ? [] : ["", invocation.goalBrief]),
+      ...(invocation.context.length > 0
+        ? ["", "Context from other agents:", invocation.context]
+        : []),
+    ].join("\n");
     let roleResult: RoleSessionResult;
     try {
       roleResult = await runRoleSession({
@@ -2053,6 +2057,16 @@ export async function runAgentHarnessTopology(
     ...(rest.approve === undefined ? {} : { approve: rest.approve }),
     ...(rest.onTraceEvent === undefined ? {} : { onTraceEvent: rest.onTraceEvent }),
     ...(rest.onOutcome === undefined ? {} : { onOutcome: rest.onOutcome }),
+    ...(rest.resumeFrom === undefined ? {} : { resumeFrom: rest.resumeFrom }),
+    ...(rest.goal === undefined ? {} : { goal: rest.goal }),
+    ...(rest.goalValidators === undefined ? {} : { goalValidators: rest.goalValidators }),
+    collectGoalEvidence: async (evidenceInput) => {
+      const custom = await rest.collectGoalEvidence?.(evidenceInput);
+      return {
+        trace: goalTraceFromCanonicalEvents(eventStream.snapshot()),
+        ...(custom ?? {}),
+      };
+    },
   }).finally(() => {
     runSignal.cleanup();
   });

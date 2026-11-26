@@ -24,6 +24,13 @@ import {
   STANDARD_PROTOCOLS,
   type TraceEvent,
   type TraceEventType,
+  describeGoalForAgent,
+  type GoalEvidence,
+  type GoalValidationReport,
+  goalTraceFromCanonicalEvents,
+  type RunGoalValidatorsOptions,
+  runGoalValidators,
+  type SealedGoal,
 } from "@generic-ai/sdk";
 
 /**
@@ -69,6 +76,8 @@ export interface TopologyActorInvocation {
   readonly context: string;
   /** A ready-to-send prompt combining the instruction, task, and context. */
   readonly prompt: string;
+  /** The goal's objective, definition of done, and checks, when the run has a goal. */
+  readonly goalBrief?: string;
   readonly signal?: AbortSignal;
 }
 
@@ -127,6 +136,32 @@ export interface RunHarnessTopologyOptions {
    * stopped and does not repeat actions that already ran.
    */
   readonly resumeFrom?: readonly ProtocolActionOutcome[];
+  /**
+   * The sealed goal that decides whether the topology's work is done. Actors
+   * see its definition of done, protocols can request `validate_goal` checks
+   * (the verifier loop does by default), and a run only succeeds when the
+   * goal's required validators pass on the final output.
+   */
+  readonly goal?: SealedGoal;
+  /** Host-owned judges, checks, and timeouts for the goal's validators. */
+  readonly goalValidators?: Omit<RunGoalValidatorsOptions, "signal">;
+  /**
+   * Adds evidence for goal validators, such as metrics, artifacts, or a fuller
+   * trace than the actor results carry. Merged over the default evidence (the
+   * candidate output and a trace built from collected canonical events).
+   */
+  readonly collectGoalEvidence?: (
+    input: TopologyGoalEvidenceInput,
+  ) => Awaitable<Partial<GoalEvidence> | undefined>;
+}
+
+export interface TopologyGoalEvidenceInput {
+  readonly runId: string;
+  readonly outputText: string;
+  /** The action outcome that produced the output being checked, when known. */
+  readonly candidate?: ProtocolActionOutcome;
+  readonly outcomes: readonly ProtocolActionOutcome[];
+  readonly events: readonly CanonicalEvent[];
 }
 
 export type HarnessTopologyRunStatus = "succeeded" | "failed" | "blocked" | "cancelled";
@@ -150,6 +185,8 @@ export interface HarnessTopologyRunResult {
   readonly policyDecisions: readonly PolicyDecisionRecord[];
   readonly artifacts: readonly AgentHarnessArtifactRef[];
   readonly costUsd?: number;
+  /** The latest goal validation report, when the run had a goal. */
+  readonly goalReport?: GoalValidationReport;
 }
 
 const TOPOLOGY_ROLE_KIND_ALIASES: Readonly<Record<string, AgentHarnessRole["kind"]>> =
@@ -371,12 +408,15 @@ export function buildTopologyActorPrompt(input: {
   readonly action: ProtocolAction;
   readonly task: string;
   readonly context: string;
+  /** Rendered goal (objective, definition of done, checks), when the run has one. */
+  readonly goalBrief?: string;
 }): string {
   const phase = payloadString(input.action, "phase");
   return [
     "Overall task:",
     input.instruction,
     "",
+    ...(input.goalBrief === undefined || input.goalBrief.length === 0 ? [] : [input.goalBrief, ""]),
     `Your assignment (${input.protocol}${phase.length > 0 ? ` / ${phase}` : ""}):`,
     input.task.length > 0 ? input.task : "Work on the overall task.",
     ...(input.context.length > 0 ? ["", "Context from other agents:", input.context] : []),
@@ -470,6 +510,88 @@ export async function runHarnessTopology(
   let steps = outcomes.reduce((max, outcome) => Math.max(max, outcome.step), 0);
   const notes: string[] = [];
 
+  const goal = options.goal;
+  const goalBrief = goal === undefined ? undefined : describeGoalForAgent(goal);
+  let goalReport: GoalValidationReport | undefined;
+
+  async function validateGoal(input: {
+    readonly outputText: string;
+    readonly candidate?: ProtocolActionOutcome;
+    readonly causedByEventId?: string;
+  }): Promise<GoalValidationReport> {
+    if (goal === undefined) {
+      throw new Error("No goal was supplied to the topology runner.");
+    }
+    const extra = await options.collectGoalEvidence?.({
+      runId,
+      outputText: input.outputText,
+      ...(input.candidate === undefined ? {} : { candidate: input.candidate }),
+      outcomes: [...outcomes],
+      events: [...events],
+    });
+    const evidence: GoalEvidence = {
+      outputText: input.outputText,
+      trace: goalTraceFromCanonicalEvents(events),
+      ...(extra ?? {}),
+    };
+    const startedAt = Date.now();
+    const report = await runGoalValidators(goal, evidence, {
+      ...(options.goalValidators ?? {}),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      expectedFingerprint: goal.fingerprint,
+    });
+    goalReport = report;
+    await record({
+      type: "grader.completed",
+      ...(input.causedByEventId === undefined ? {} : { causedByEventId: input.causedByEventId }),
+      latencyMs: Date.now() - startedAt,
+      summary: `Goal ${report.goalId} ${report.status}: ${report.summary.passed} passed, ${report.summary.failed} failed, ${report.summary.errored} errored.`,
+    });
+    return report;
+  }
+
+  /**
+   * Gate success on the goal: when the final output was not already accepted
+   * by a `validate_goal` action, run the validators on it once more.
+   */
+  async function succeed(): Promise<HarnessTopologyRunResult> {
+    if (goal === undefined) {
+      return finish({ status: "succeeded" });
+    }
+    const stateOutput = state.data?.["output"];
+    const lastSucceeded = [...outcomes]
+      .reverse()
+      .find((outcome) => outcome.status === "succeeded" && outcome.outputText !== undefined);
+    const outputText =
+      typeof stateOutput === "string" ? stateOutput : (lastSucceeded?.outputText ?? "");
+    const lastValidation = [...outcomes]
+      .reverse()
+      .find((outcome) => outcome.kind === "validate_goal" && outcome.status === "succeeded");
+    const validatedCandidate =
+      lastValidation?.verdict === "pass"
+        ? outcomes.find(
+            (outcome) => outcome.actionId === lastValidation.data?.["candidateActionId"],
+          )
+        : undefined;
+    if (validatedCandidate !== undefined && validatedCandidate.outputText === outputText) {
+      return finish({ status: "succeeded" });
+    }
+    let report: GoalValidationReport;
+    try {
+      report = await validateGoal({ outputText });
+    } catch (error) {
+      return finish({
+        status: "failed",
+        failureMessage: `Goal validation could not run: ${errorMessage(error)}`,
+      });
+    }
+    if (report.complete) {
+      return finish({ status: "succeeded" });
+    }
+    notes.push(`Goal ${report.goalId} is INCOMPLETE.`);
+    return finish({ status: "failed", failureMessage: report.feedback });
+  }
+
   function finish(input: {
     readonly status: HarnessTopologyRunStatus;
     readonly diagnostics?: readonly CompileDiagnostic[];
@@ -501,6 +623,7 @@ export async function runHarnessTopology(
       policyDecisions: Object.freeze([...policyDecisions]),
       artifacts: Object.freeze([...artifacts]),
       ...(totalCostUsd === undefined ? {} : { costUsd: totalCostUsd }),
+      ...(goalReport === undefined ? {} : { goalReport }),
     });
   }
 
@@ -563,6 +686,7 @@ export async function runHarnessTopology(
       action: planned,
       task,
       context,
+      ...(goalBrief === undefined ? {} : { goalBrief }),
     });
 
     let last: ProtocolActionOutcome | undefined;
@@ -592,6 +716,7 @@ export async function runHarnessTopology(
           task,
           context,
           prompt,
+          ...(goalBrief === undefined ? {} : { goalBrief }),
           ...(options.signal === undefined ? {} : { signal: options.signal }),
         });
       } catch (error) {
@@ -677,6 +802,43 @@ export async function runHarnessTopology(
     switch (planned.kind) {
       case "complete":
         return { terminal: "succeeded" };
+      case "validate_goal": {
+        const candidateId = payloadString(planned, "candidateActionId");
+        const candidate =
+          outcomes.find((outcome) => outcome.actionId === candidateId) ??
+          [...outcomes]
+            .reverse()
+            .find((outcome) => outcome.status === "succeeded" && outcome.kind !== "validate_goal");
+        try {
+          const report = await validateGoal({
+            outputText: candidate?.outputText ?? "",
+            ...(candidate === undefined ? {} : { candidate }),
+            causedByEventId: plannedEvent.id,
+          });
+          return Object.freeze({
+            ...base,
+            status: "succeeded",
+            verdict: report.complete ? "pass" : "fail",
+            outputText: report.feedback,
+            data: {
+              goalId: report.goalId,
+              goalFingerprint: report.goalFingerprint,
+              goalStatus: report.status,
+              ...(candidate === undefined ? {} : { candidateActionId: candidate.actionId }),
+              required: report.summary.required,
+              passed: report.summary.passed,
+              failed: report.summary.failed,
+              errored: report.summary.errored,
+            },
+          });
+        } catch (error) {
+          return Object.freeze({
+            ...base,
+            status: "failed",
+            failureMessage: `Goal validation could not run: ${errorMessage(error)}`,
+          });
+        }
+      }
       case "fail":
         return {
           terminal: "failed",
@@ -758,6 +920,7 @@ export async function runHarnessTopology(
       outcomes,
       binding,
       instruction,
+      ...(goal === undefined ? {} : { goal: { id: goal.spec.id, fingerprint: goal.fingerprint } }),
     });
     state = reduction.state;
     notes.push(...(reduction.summary.notes ?? []));
@@ -767,7 +930,7 @@ export async function runHarnessTopology(
 
     if (fresh.length === 0) {
       if (state.status === "done") {
-        return finish({ status: "succeeded" });
+        return succeed();
       }
       if (state.status === "failed") {
         return finish({
@@ -802,6 +965,9 @@ export async function runHarnessTopology(
       }
       outcomes.push(item);
       await options.onOutcome?.(item);
+    }
+    if (terminal?.terminal === "succeeded") {
+      return succeed();
     }
     if (terminal !== undefined) {
       return finish({

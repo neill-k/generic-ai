@@ -147,3 +147,12 @@ Errors carry a JSONPath and a message written for the agent to act on.
 `describeGoalForAgent(goal)` renders the objective, definition of done, every
 check with its threshold, and the protected paths. Thresholds are shown on
 purpose: the agent needs to know how it will be verified.
+
+## Topologies
+
+`runHarnessTopology()` and `runAgentHarnessTopology()` take `goal` and
+`goalValidators`. The verifier loop validates each candidate against the goal
+before (or instead of) its critic, and every protocol only succeeds when the
+goal is `COMPLETE` on the final output. See "Goals decide when a topology is
+done" in [harness-dsl.md](harness-dsl.md).
+
