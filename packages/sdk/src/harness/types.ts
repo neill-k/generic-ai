@@ -2,6 +2,7 @@ import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
 import type { CanonicalEvent } from "../events/index.js";
 import type { RunEnvelope } from "../run-envelope/index.js";
 import type { ToolEffectJournal } from "./effect-journal.js";
+import type { AgentHarnessHostTool } from "./host-tools.js";
 import type { RunActor } from "../contracts/identity.js";
 import type { GoalSpec } from "../goals/types.js";
 import type {
@@ -289,6 +290,8 @@ export interface AgentHarnessRunInput<TCapabilities = unknown> {
    * with an outward effect so a retried attempt replays finished calls instead of repeating them.
    */
   readonly effectJournal?: ToolEffectJournal;
+  /** Runtime-neutral tools the host adds to this run, such as the cascade's `delegate_task`. */
+  readonly hostTools?: readonly AgentHarnessHostTool[];
 }
 
 export interface AgentHarnessToolDescriptor {
