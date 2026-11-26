@@ -1,0 +1,37 @@
+{
+  "name": "@generic-ai/ai",
+  "version": "0.0.0",
+  "description": "Provider-neutral LLM layer for the Generic AI native runtime: one message and streaming protocol over Anthropic, OpenAI Responses, and OpenAI-compatible Chat Completions, with a scripted faux provider for tests.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.91.1",
+    "openai": "6.26.0"
+  },
+  "devDependencies": {
+    "@sinclair/typebox": "0.34.49"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

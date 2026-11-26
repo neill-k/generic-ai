@@ -4,6 +4,8 @@ import { defineConfig } from "vitest/config";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageAliases = [
+  "ai",
+  "agent",
   "core",
   "sdk",
   "observability",
