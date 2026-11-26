@@ -346,6 +346,7 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 - [`@generic-ai/plugin-tools-terminal`](packages/plugin-tools-terminal) — local command execution as a shipped `pi` tool (host execution, no isolation).
 - [`@generic-ai/plugin-tools-terminal-sandbox`](packages/plugin-tools-terminal-sandbox) — Docker-backed terminal execution with per-session containers, resource ceilings, timeout enforcement, network policy modes, file bridge, and structured output capture. Opt-in via `GENERIC_AI_SANDBOX=docker` on the starter preset.
 - [`@generic-ai/plugin-tools-files`](packages/plugin-tools-files) — local file read/write/list/edit `pi` tools.
+- [`@generic-ai/plugin-tools-documents`](packages/plugin-tools-documents) — read PDF, Word, Excel and HTML documents as Markdown and write Markdown, HTML, Word, Excel, CSV and JSON.
 - [`@generic-ai/plugin-tools-web`](packages/plugin-tools-web) — configurable web fetch/search tools with shared host allow/block policies.
 - [`@generic-ai/plugin-mcp`](packages/plugin-mcp) — Model Context Protocol support as a replaceable plugin.
 - [`@generic-ai/plugin-agent-skills`](packages/plugin-agent-skills) — Agent Skills compatibility with progressive disclosure.
