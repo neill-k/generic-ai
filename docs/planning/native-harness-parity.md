@@ -85,7 +85,8 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Google Gemini and Vertex (thinking level and budget, thought-signature replay, multimodal tool results, tool schema conversion, finish-reason mapping) | ✓ | `@generic-ai/ai` `google.ts` on `@google/genai`; cases from pi `google-*` suites in `google-azure.test.ts` |
 | Azure OpenAI Responses (endpoint normalisation, deployment map, API version) | ✓ | `azure-openai.ts`; cases from pi `azure-openai-base-url` and `azure-models` |
 | Mistral native (thinking chunks, 9-character tool-call ids, `reasoning_effort` level maps and Magistral `prompt_mode`, prompt-cache key and affinity, cached-token usage, raw stop reasons, SSE split across chunks, retries) | ✓ | `mistral.ts` over `fetch`; cases from pi `mistral-*` suites in `mistral.test.ts` |
-| Bedrock, Cloudflare | ○ | pi `bedrock-*` suites (slice 8b part 2) |
+| Amazon Bedrock Converse (SigV4 and API-key auth, region and endpoint resolution, Claude adaptive and budget thinking with block binding, signed and encrypted reasoning replay, cache points, grouped tool results, OpenAI and flat reasoning efforts, prefixed exceptions, SDK retries) | ✓ | `bedrock.ts` on `@aws-sdk/client-bedrock-runtime`; cases from pi `bedrock-*` suites in `bedrock.test.ts`, driving the real SDK over replayed event-stream frames |
+| Cloudflare Workers AI | ○ | not planned for v1 |
 | OAuth login flows (Claude, ChatGPT, Copilot) and credential storage | ○ | pi `oauth*`, `*-oauth.test.ts` |
 | Context-overflow detection, max-token clamping, compact-and-retry on overflow | ✓ | pi `overflow.test.ts` ported whole, `clamp-max-tokens` cases; `runWithRetry` `onContextOverflow`, used by native sessions |
 | Cross-provider handoff matrix | ○ | pi `cross-provider-handoff` (needs live keys) |

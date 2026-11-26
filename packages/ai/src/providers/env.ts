@@ -11,6 +11,8 @@ export const PROVIDER_API_KEY_ENV: Record<string, readonly string[]> = {
   // Vertex falls back to application default credentials when no key is set.
   "google-vertex": ["GOOGLE_CLOUD_API_KEY"],
   "azure-openai": ["AZURE_OPENAI_API_KEY"],
+  // Bedrock API keys; without one the AWS credential chain signs requests.
+  "amazon-bedrock": ["AWS_BEARER_TOKEN_BEDROCK"],
   // Local servers accept any key.
   ollama: ["OLLAMA_API_KEY"],
 };

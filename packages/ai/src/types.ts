@@ -20,6 +20,7 @@ export type KnownApi =
   | "google-generative-ai"
   | "google-vertex"
   | "mistral-conversations"
+  | "bedrock-converse-stream"
   | "faux";
 export type Api = KnownApi | (string & {});
 
@@ -35,6 +36,7 @@ export type KnownProvider =
   | "google"
   | "google-vertex"
   | "azure-openai"
+  | "amazon-bedrock"
   | "faux";
 export type ProviderId = KnownProvider | (string & {});
 

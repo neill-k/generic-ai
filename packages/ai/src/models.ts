@@ -31,6 +31,9 @@ export const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   "google-vertex": { api: "google-vertex", baseUrl: "" },
   // Set the resource URL (`https://<resource>.openai.azure.com/openai/v1`) or AZURE_OPENAI_BASE_URL.
   "azure-openai": { api: "azure-openai-responses", baseUrl: "" },
+  // Model ids are Bedrock ids or inference profiles (`us.anthropic.claude-opus-5-5-v1:0`, ARNs).
+  // The region comes from AWS_REGION or the profile; set a base URL for a VPC endpoint or proxy.
+  "amazon-bedrock": { api: "bedrock-converse-stream", baseUrl: "" },
 };
 
 function claude(id: string, name: string, input: number, output: number, cacheRead: number): Model {

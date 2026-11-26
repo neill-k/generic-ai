@@ -1,5 +1,6 @@
 import { streamAnthropic } from "./providers/anthropic-messages.js";
 import { streamAzureOpenAIResponses } from "./providers/azure-openai.js";
+import { streamBedrock } from "./providers/bedrock.js";
 import { streamGoogle, streamGoogleVertex } from "./providers/google.js";
 import { streamMistral } from "./providers/mistral.js";
 import { streamOpenAICompletions } from "./providers/openai-completions.js";
@@ -13,6 +14,7 @@ registerApi("azure-openai-responses", streamAzureOpenAIResponses);
 registerApi("google-generative-ai", streamGoogle);
 registerApi("google-vertex", streamGoogleVertex);
 registerApi("mistral-conversations", streamMistral);
+registerApi("bedrock-converse-stream", streamBedrock);
 
 export * from "./event-stream.js";
 export * from "./http.js";
@@ -21,6 +23,7 @@ export * from "./models.js";
 export * from "./overflow.js";
 export * from "./providers/anthropic-messages.js";
 export * from "./providers/azure-openai.js";
+export * from "./providers/bedrock.js";
 export * from "./providers/env.js";
 export * from "./providers/faux.js";
 export * from "./providers/google.js";
