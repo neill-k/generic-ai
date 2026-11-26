@@ -32,6 +32,11 @@ Current SDK contents:
   `single-turn` opt-out used when a caller truly wants one provider turn. When
   `maxTurns` is omitted, stop-tool loop execution is unbounded by default.
 - Deterministic Harness DSL compiler and evidence report helpers
+- Goal contracts (`src/goals/`): `GoalSpec` with a definition of done and
+  numeric, rubric, trace, output-schema, and host-check validators; `sealGoal`
+  to freeze and fingerprint goals so agents cannot edit their validators;
+  `runGoalValidators` for `COMPLETE`/`INCOMPLETE` verdicts with actionable
+  feedback; and structured-output JSON Schemas. See `docs/goals.md`.
 
 ## Contract surface
 
@@ -100,4 +105,5 @@ staying faithful to the public contract shape.
 - `docs/planning/02-architecture.md`
 - `docs/package-boundaries.md`
 - `docs/harness-dsl.md`
+- `docs/goals.md`
 - `specs/harness-v0.1/README.md`
