@@ -96,6 +96,18 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
     .string()
     .min(1, "agent id cannot be empty")
     .regex(new RegExp(AGENT_ID_PATTERN), "must be a valid agent identifier");
+  const secretGrants = (fieldName: string) =>
+    ensureUniqueStrings(
+      z.array(
+        z
+          .string()
+          .regex(
+            /^(?:\*|[A-Za-z_][A-Za-z0-9_]{0,127}\*?)$/,
+            `${fieldName} entries must be a secret name, a NAME_* prefix pattern, or *`,
+          ),
+      ),
+      fieldName,
+    );
   const execution = z.object({
     turnMode: z
       .string()
@@ -313,6 +325,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
               "role.tools",
             ).optional(),
             readOnly: z.boolean().optional(),
+            secrets: secretGrants("role.secrets").optional(),
             metadata: z.record(z.unknown()).optional(),
           }),
         )
@@ -324,6 +337,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
       ).optional(),
       allowNetwork: z.boolean().optional(),
       allowMcp: z.boolean().optional(),
+      secrets: secretGrants("harness.secrets").optional(),
       artifactDir: z.string().min(1, "artifactDir cannot be empty").optional(),
       metadata: z.record(z.unknown()).optional(),
     })

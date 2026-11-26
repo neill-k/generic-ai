@@ -1,3 +1,4 @@
+import { estimatePassHatK } from "../evals/pass-k.js";
 import type {
   BenchmarkFailureSeverity,
   CapabilityBOM,
@@ -1047,7 +1048,7 @@ function passKSummary(input: {
     sampleCount: values.length,
     trialCount: input.results.length,
     observedPassRate,
-    value: 1 - (1 - observedPassRate) ** k,
+    value: estimatePassHatK(passCount, values.length, k),
     evidenceRefs: Object.freeze([...new Set(evidenceRefs)]),
   });
 }

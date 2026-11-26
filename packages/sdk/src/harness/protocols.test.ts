@@ -416,3 +416,108 @@ describe("squad protocol", () => {
     expect((await plugin.validate?.(compiled))?.[0]?.code).toBe("missing_shared_space");
   });
 });
+
+describe("verifier-loop protocol with a goal", () => {
+  const plugin = createVerifierLoopProtocol();
+  const goal = { id: "goal.fix", fingerprint: "abc" };
+  const withCritic = compile({
+    id: "h.verifier.goal",
+    protocol: "verifier-loop",
+    agents: [
+      { id: "solver", role: "solver" },
+      { id: "critic", role: "critic" },
+    ],
+  });
+
+  async function reduceWithGoal(
+    compiled: CompiledHarness,
+    outcomes: readonly ProtocolActionOutcome[],
+    withGoal = true,
+  ) {
+    return plugin.reduce({
+      compiled,
+      state: { status: "ready" },
+      events: [],
+      outcomes,
+      instruction: "Fix it.",
+      ...(withGoal ? { goal } : {}),
+    });
+  }
+
+  it("checks the goal validators before the critic and repairs from their feedback", async () => {
+    const solve = (await reduceWithGoal(withCritic, [])).actions[0] as ProtocolAction;
+    const validate = (await reduceWithGoal(withCritic, [outcome(solve)]))
+      .actions[0] as ProtocolAction;
+    expect(validate.kind).toBe("validate_goal");
+    expect(validate.actorRef).toBeUndefined();
+    expect(validate.payload?.["candidateActionId"]).toBe(solve.id);
+
+    const failedCheck = outcome(validate, {
+      verdict: "fail",
+      outputText: "GOAL INCOMPLETE: tests failed",
+    });
+    const repair = (await reduceWithGoal(withCritic, [outcome(solve), failedCheck]))
+      .actions[0] as ProtocolAction;
+    expect(repair.actorRef).toBe("solver");
+    expect(repair.payload?.["context"]).toContain("GOAL INCOMPLETE: tests failed");
+    expect(repair.payload?.["context"]).toContain("Goal check feedback");
+
+    const repaired = outcome(repair, { outputText: "fixed" });
+    const validate2 = (await reduceWithGoal(withCritic, [outcome(solve), failedCheck, repaired]))
+      .actions[0] as ProtocolAction;
+    const passed = outcome(validate2, { verdict: "pass" });
+    const review = (
+      await reduceWithGoal(withCritic, [outcome(solve), failedCheck, repaired, passed])
+    ).actions[0] as ProtocolAction;
+    expect(review.kind).toBe("review_artifact");
+    expect(review.payload?.["context"]).toContain("fixed");
+
+    const done = await reduceWithGoal(withCritic, [
+      outcome(solve),
+      failedCheck,
+      repaired,
+      passed,
+      outcome(review, { verdict: "pass" }),
+    ]);
+    expect(done.state.status).toBe("done");
+    expect(done.state.data?.["output"]).toBe("fixed");
+    expect(done.state.data?.["acceptance"]).toBe("goal-then-critic");
+  });
+
+  it("uses only the validators when there is no critic, and needs a goal for that", async () => {
+    const goalOnly = compile({
+      id: "h.verifier.goal-only",
+      protocol: "verifier-loop",
+      agents: [{ id: "solver", role: "solver" }],
+      config: { acceptance: "goal" },
+    });
+    expect(await plugin.validate?.(goalOnly)).toEqual([]);
+    const solve = (await reduceWithGoal(goalOnly, [])).actions[0] as ProtocolAction;
+    const validate = (await reduceWithGoal(goalOnly, [outcome(solve)]))
+      .actions[0] as ProtocolAction;
+    const done = await reduceWithGoal(goalOnly, [
+      outcome(solve),
+      outcome(validate, { verdict: "pass" }),
+    ]);
+    expect(done.state.status).toBe("done");
+
+    const noGoal = await reduceWithGoal(goalOnly, [], false);
+    expect(noGoal.state.status).toBe("blocked");
+    expect(noGoal.summary.notes?.[0]).toContain("sealed goal");
+  });
+
+  it("keeps critic-only acceptance when configured even with a goal", async () => {
+    const criticOnly = compile({
+      id: "h.verifier.critic-only",
+      protocol: "verifier-loop",
+      agents: [
+        { id: "solver", role: "solver" },
+        { id: "critic", role: "critic" },
+      ],
+      config: { acceptance: "critic" },
+    });
+    const solve = (await reduceWithGoal(criticOnly, [])).actions[0] as ProtocolAction;
+    const next = (await reduceWithGoal(criticOnly, [outcome(solve)])).actions[0];
+    expect(next?.kind).toBe("review_artifact");
+  });
+});
