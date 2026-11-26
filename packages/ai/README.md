@@ -41,6 +41,11 @@ What it covers:
 - Gemini thinking: `thinkingLevel` on Gemini 3+, `thinkingBudget` on 2.5, explicitly off when no
   reasoning is asked for; thought signatures are replayed to the same model only.
 - Usage and cost per response, including cache reads and writes.
+- Virtual models: `registerVirtualModel({ provider, id, route })` adds a catalog entry whose router
+  picks the physical model and reasoning level for each request; responses name the model that
+  answered, and the caller's key is only forwarded to a routed model of the same provider.
+  `createFallbackModel({ provider, id, models })` tries models in order and moves on when one
+  fails before producing output.
 - `isContextOverflow()` recognises context-overflow errors from every supported provider (and
   silent overflows when given the context window); `clampMaxTokensToContext()` fits an output
   budget into the window with a safety margin. Native sessions compact and retry once on overflow.
