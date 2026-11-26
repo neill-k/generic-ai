@@ -1,38 +1,31 @@
 import { readFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
+import { PROVIDER_API_KEY_ENV } from "@generic-ai/ai";
 import {
-  createStopAndRespondTool,
-  runStopToolLoop,
+  type CanonicalEvent,
+  resolveNativeModel,
+  runCapabilityNativeAgentSession,
   STOP_AND_RESPOND_TOOL_NAME,
-  type StopAndRespondState,
 } from "@generic-ai/core";
 import { createHonoPlugin } from "@generic-ai/plugin-hono";
 import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
-import {
-  type AgentSessionEvent,
-  AuthStorage,
-  createAgentSession,
-  DefaultResourceLoader,
-  ModelRegistry,
-  SessionManager,
-  SettingsManager,
-} from "@generic-ai/sdk/pi";
 
-const DEFAULT_LIVE_PROVIDER = "openai-codex";
+const DEFAULT_LIVE_PROVIDER = "openai";
 const DEFAULT_LIVE_MODEL_BY_PROVIDER = {
-  "openai-codex": "gpt-5.5",
   openai: "gpt-5.5",
+  anthropic: "claude-opus-5-5",
 } as const;
 
 export const LIVE_SMOKE_ENABLE_ENV = "GENERIC_AI_ENABLE_LIVE_SMOKE";
 export const LIVE_SMOKE_PROVIDER_ENV = "GENERIC_AI_LIVE_PROVIDER";
 export const LIVE_SMOKE_MODEL_ENV = "GENERIC_AI_LIVE_MODEL";
-export const LIVE_SMOKE_AGENT_DIR_ENV = "GENERIC_AI_LIVE_AGENT_DIR";
 export const LIVE_SMOKE_PROVIDER_API_KEY_ENV = "GENERIC_AI_LIVE_PROVIDER_API_KEY";
 export const LIVE_SMOKE_DONE_TEXT = "LIVE_SMOKE_DONE";
 export const LIVE_SMOKE_FILE_PATH = "workspace/shared/live-smoke.txt";
 export const LIVE_SMOKE_FILE_CONTENT = "generic-ai-live-smoke";
+
+const NATIVE_TOOL_START_EVENT = "plugin.generic-ai-runtime.native.tool_execution_start";
+const NATIVE_AGENT_END_EVENT = "plugin.generic-ai-runtime.native.agent_end";
 
 export interface LiveProviderSmokeOptions {
   readonly root: string;
@@ -48,7 +41,6 @@ export interface LiveProviderSmokeSkippedResult {
   readonly skipped: true;
   readonly provider: string;
   readonly modelId: string;
-  readonly agentDir: string;
   readonly reason: string;
 }
 
@@ -56,7 +48,6 @@ export interface LiveProviderSmokeCompletedResult {
   readonly skipped: false;
   readonly provider: string;
   readonly modelId: string;
-  readonly agentDir: string;
   readonly assistantText: string;
   readonly toolCalls: readonly LiveProviderToolCall[];
   readonly filePath: string;
@@ -67,10 +58,6 @@ export interface LiveProviderSmokeCompletedResult {
 export type LiveProviderSmokeResult =
   | LiveProviderSmokeSkippedResult
   | LiveProviderSmokeCompletedResult;
-
-function getDefaultAgentDir(): string {
-  return path.join(os.homedir(), ".pi", "agent");
-}
 
 function resolveLiveProvider(env: NodeJS.ProcessEnv): string {
   return env[LIVE_SMOKE_PROVIDER_ENV]?.trim() || DEFAULT_LIVE_PROVIDER;
@@ -94,22 +81,24 @@ function createSmokePrompt(): string {
   ].join(" ");
 }
 
-function createSmokeResourceLoader(root: string, agentDir: string): DefaultResourceLoader {
-  return new DefaultResourceLoader({
-    cwd: root,
-    agentDir,
-    noExtensions: true,
-    noSkills: true,
-    noPromptTemplates: true,
-    noThemes: true,
-    systemPrompt: [
-      "You are running a deterministic Generic AI live-provider smoke test.",
-      "Follow the numbered instructions exactly.",
-      `After all required tool calls succeed, call ${STOP_AND_RESPOND_TOOL_NAME} with response exactly ${LIVE_SMOKE_DONE_TEXT}.`,
-    ].join(" "),
-    agentsFilesOverride: () => ({ agentsFiles: [] }),
-    appendSystemPromptOverride: () => [],
-  });
+const SMOKE_SYSTEM_PROMPT = [
+  "You are running a deterministic Generic AI live-provider smoke test.",
+  "Follow the numbered instructions exactly.",
+  `After all required tool calls succeed, call ${STOP_AND_RESPOND_TOOL_NAME} with response exactly ${LIVE_SMOKE_DONE_TEXT}.`,
+].join(" ");
+
+function resolveLiveApiKey(env: NodeJS.ProcessEnv, provider: string): string | undefined {
+  const explicit = env[LIVE_SMOKE_PROVIDER_API_KEY_ENV]?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  for (const name of PROVIDER_API_KEY_ENV[provider] ?? []) {
+    const value = env[name]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function shouldEnableLiveSmoke(env: NodeJS.ProcessEnv): boolean {
@@ -119,16 +108,9 @@ function shouldEnableLiveSmoke(env: NodeJS.ProcessEnv): boolean {
 function createSkippedResult(
   provider: string,
   modelId: string,
-  agentDir: string,
   reason: string,
 ): LiveProviderSmokeSkippedResult {
-  return {
-    skipped: true,
-    provider,
-    modelId,
-    agentDir,
-    reason,
-  };
+  return { skipped: true, provider, modelId, reason };
 }
 
 export async function runLiveProviderSmoke(
@@ -137,13 +119,11 @@ export async function runLiveProviderSmoke(
   const env = options.env ?? process.env;
   const provider = resolveLiveProvider(env);
   const modelId = resolveLiveModel(env, provider);
-  const agentDir = env[LIVE_SMOKE_AGENT_DIR_ENV]?.trim() || getDefaultAgentDir();
 
   if (modelId === undefined) {
     return createSkippedResult(
       provider,
       "<unset>",
-      agentDir,
       `No default live model is configured for provider "${provider}". Set ${LIVE_SMOKE_MODEL_ENV}.`,
     );
   }
@@ -152,109 +132,78 @@ export async function runLiveProviderSmoke(
     return createSkippedResult(
       provider,
       modelId,
-      agentDir,
       `Set ${LIVE_SMOKE_ENABLE_ENV}=1 to opt into the live provider smoke test.`,
     );
   }
 
-  const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
-  const runtimeApiKey = env[LIVE_SMOKE_PROVIDER_API_KEY_ENV]?.trim();
-  if (runtimeApiKey && runtimeApiKey.length > 0) {
-    authStorage.setRuntimeApiKey(provider, runtimeApiKey);
-  }
-
-  const modelRegistry = ModelRegistry.create(authStorage);
-  const model = modelRegistry.find(provider, modelId);
-  if (model === undefined) {
-    return createSkippedResult(
-      provider,
-      modelId,
-      agentDir,
-      `Model "${provider}/${modelId}" is unavailable in the pi model registry.`,
-    );
-  }
-
-  if (!modelRegistry.hasConfiguredAuth(model)) {
-    return createSkippedResult(
-      provider,
-      modelId,
-      agentDir,
-      [
-        `No credentials are configured for ${provider}/${modelId}.`,
-        `Use pi login or provide ${LIVE_SMOKE_AGENT_DIR_ENV} / ${LIVE_SMOKE_PROVIDER_API_KEY_ENV}.`,
-      ].join(" "),
-    );
-  }
-
-  const resourceLoader = createSmokeResourceLoader(options.root, agentDir);
-  await resourceLoader.reload();
-
-  const fileTools = createWorkspaceFileTools({ root: options.root });
-  const stopState: StopAndRespondState = { stopped: false };
-  const stopTool = createStopAndRespondTool(stopState);
-  const settingsManager = SettingsManager.inMemory({
-    compaction: { enabled: false },
-    retry: { enabled: false, maxRetries: 0 },
-  });
-  const { session } = await createAgentSession({
-    cwd: options.root,
-    agentDir,
-    model,
-    thinkingLevel: "minimal",
-    authStorage,
-    modelRegistry,
-    resourceLoader,
-    tools: [...fileTools.piTools.map((tool) => tool.name), STOP_AND_RESPOND_TOOL_NAME],
-    customTools: [...fileTools.piTools, stopTool] as never,
-    sessionManager: SessionManager.inMemory(),
-    settingsManager,
-  });
-
-  const toolCalls: LiveProviderToolCall[] = [];
-  let sawAgentEnd = false;
-  const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
-    if (event.type === "tool_execution_start") {
-      toolCalls.push({
-        toolName: event.toolName,
-        args: event.args,
-      });
-    }
-
-    if (event.type === "agent_end") {
-      sawAgentEnd = true;
-    }
-  });
-
-  let assistantText = "";
+  let model: ReturnType<typeof resolveNativeModel>;
   try {
-    const loop = await runStopToolLoop({
-      prompt: createSmokePrompt(),
-      state: stopState,
-      runPrompt: (prompt) => session.prompt(prompt),
-    });
-    if (!loop.stopped || loop.outputText === undefined) {
-      throw new Error(
-        `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop.turnCount} turn(s).`,
-      );
-    }
-    assistantText = loop.outputText;
-  } finally {
-    unsubscribe();
-    session.dispose();
+    model = resolveNativeModel(`${provider}/${modelId}`);
+  } catch (error) {
+    return createSkippedResult(
+      provider,
+      modelId,
+      `Model "${provider}/${modelId}" is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 
+  const apiKey = resolveLiveApiKey(env, provider);
+  if (apiKey === undefined) {
+    const names = [LIVE_SMOKE_PROVIDER_API_KEY_ENV, ...(PROVIDER_API_KEY_ENV[provider] ?? [])];
+    return createSkippedResult(
+      provider,
+      modelId,
+      `No credentials are configured for ${provider}/${modelId}. Set one of: ${names.join(", ")}.`,
+    );
+  }
+
+  const result = await runCapabilityNativeAgentSession({
+    cwd: options.root,
+    model,
+    apiKey,
+    thinkingLevel: "minimal",
+    systemPrompt: SMOKE_SYSTEM_PROMPT,
+    prompt: createSmokePrompt(),
+    capabilities: { fileTools: createWorkspaceFileTools({ root: options.root }) },
+    compaction: false,
+    retry: false,
+    offload: false,
+  });
+
+  if (result.failureMessage !== undefined) {
+    throw new Error(result.failureMessage);
+  }
+  if (result.outputText === undefined) {
+    throw new Error(`${STOP_AND_RESPOND_TOOL_NAME} was not called.`);
+  }
+
+  const toolCalls = collectToolCalls(result.events);
+  const sawAgentEnd = result.events.some((event) => event.name === NATIVE_AGENT_END_EVENT);
   const fileContents = await readFile(path.join(options.root, LIVE_SMOKE_FILE_PATH), "utf8");
   return {
     skipped: false,
     provider,
     modelId: model.id,
-    agentDir,
-    assistantText,
+    assistantText: result.outputText,
     toolCalls,
     filePath: LIVE_SMOKE_FILE_PATH,
     fileContents,
     sawAgentEnd,
   };
+}
+
+function collectToolCalls(events: readonly CanonicalEvent[]): LiveProviderToolCall[] {
+  const calls: LiveProviderToolCall[] = [];
+  for (const event of events) {
+    if (event.name !== NATIVE_TOOL_START_EVENT) {
+      continue;
+    }
+    const data = event.data as { readonly toolName?: unknown; readonly args?: unknown };
+    if (typeof data.toolName === "string") {
+      calls.push({ toolName: data.toolName, args: data.args });
+    }
+  }
+  return calls;
 }
 
 export function createLiveProviderSmokeTransport(options: LiveProviderSmokeOptions) {

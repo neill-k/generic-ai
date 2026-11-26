@@ -52,7 +52,7 @@
     "requiredArtifacts": ["tool-call-trace.json", "grounded-answer.md"]
   },
   "providerPolicy": {
-    "adapter": "openai-codex",
+    "adapter": "native",
     "model": "deterministic-micro-adapter",
     "cache": "deny",
     "network": "isolated"

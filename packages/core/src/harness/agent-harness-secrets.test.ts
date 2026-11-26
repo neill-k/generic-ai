@@ -2,7 +2,16 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
+import {
+  type AssistantMessage,
+  type Context,
+  type FauxProviderRegistration,
+  fauxAssistantMessage,
+  fauxToolCall,
+  type JsonObject,
+  type Model,
+  registerFauxProvider,
+} from "@generic-ai/ai";
 import {
   findSecretPlaceholders,
   isSecretGranted,
@@ -12,7 +21,7 @@ import {
   secretRedactionMarker,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { STOP_AND_RESPOND_TOOL_NAME } from "../runtime/index.js";
 import { createAgentHarness } from "./agent-harness.js";
@@ -73,87 +82,93 @@ function fakeSecrets(values: Readonly<Record<string, string>>): SecretsBinding {
   };
 }
 
-type FakeTool = { readonly name?: string; readonly execute?: unknown };
-
-async function callTool(tools: readonly FakeTool[] | undefined, name: string, params: unknown) {
-  const tool = tools?.find((candidate) => candidate.name === name);
-  if (tool === undefined || typeof tool.execute !== "function") {
-    throw new Error(`Expected tool ${name}.`);
-  }
-  return (tool.execute as (...args: unknown[]) => Promise<unknown>)(
-    `${name}-call`,
-    params,
-    undefined,
-    undefined,
-    {} as never,
-  );
+function promptText(context: Context): string {
+  const user = context.messages.find((message) => message.role === "user");
+  const text =
+    user === undefined
+      ? ""
+      : typeof user.content === "string"
+        ? user.content
+        : user.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+  return `${context.systemPrompt ?? ""}\n${text}`;
 }
+
+function lastToolResult(context: Context): { text: string; isError: boolean } | undefined {
+  const last = context.messages.at(-1);
+  if (last?.role !== "toolResult") {
+    return undefined;
+  }
+  return {
+    text: last.content.map((block) => (block.type === "text" ? block.text : "")).join(""),
+    isError: last.isError,
+  };
+}
+
+function call(name: string, args: JsonObject): AssistantMessage {
+  return fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
+}
+
+const registrations: FauxProviderRegistration[] = [];
+
+afterEach(() => {
+  for (const registration of registrations.splice(0)) {
+    registration.unregister();
+  }
+});
 
 describe("agent harness secrets", () => {
   it("resolves granted placeholders per role, scrubs results and events, and audits use", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-secrets-"));
     const commands: string[] = [];
-    const prompts: string[] = [];
-    const toolResults: unknown[] = [];
-    let explorerError: string | undefined;
-    let sessionIndex = 0;
+    const prompts: Record<string, string> = {};
+    const toolResults: { text: string; isError: boolean }[] = [];
+    const command = "git push https://x:{{secret:GITHUB_TOKEN}}@example.test";
+
+    const provider = registerFauxProvider({ models: [{ id: "test-model" }] });
+    registrations.push(provider);
+    const record = (context: Context) => {
+      const result = lastToolResult(context);
+      if (result !== undefined) {
+        toolResults.push(result);
+      }
+    };
+    provider.setResponses([
+      (context) => {
+        prompts["root"] = promptText(context);
+        return call("delegate_agent", { roleId: "builder", task: "push" });
+      },
+      (context) => {
+        prompts["builder"] = promptText(context);
+        return call("bash", { command });
+      },
+      (context) => {
+        record(context);
+        return call(STOP_AND_RESPOND_TOOL_NAME, { response: "pushed" });
+      },
+      () => call("delegate_agent", { roleId: "verifier", task: "check" }),
+      (context) => {
+        prompts["verifier"] = promptText(context);
+        return call("bash", { command });
+      },
+      (context) => {
+        record(context);
+        return call(STOP_AND_RESPOND_TOOL_NAME, { response: "checked" });
+      },
+      () => call(STOP_AND_RESPOND_TOOL_NAME, { response: "root done" }),
+    ]);
+    const model = provider.getModel("test-model") as Model;
 
     const harness = createAgentHarness(
       {
         id: "secrets-harness",
-        adapter: "pi",
-        model: "fake-model",
+        adapter: "native",
+        model: "faux/test-model",
         roles: [
           { id: "builder", kind: "builder", secrets: ["GITHUB_*"] },
           { id: "verifier", kind: "verifier" },
         ],
       },
-      {
-        sessionInputs: {
-          agentDir: root,
-          authStorage: {} as never,
-          modelRegistry: {} as never,
-          model: {} as never,
-          sessionManager: SessionManager.inMemory(),
-          settingsManager: SettingsManager.inMemory(),
-        },
-        factories: {
-          createAgentSession: async (options) => {
-            if (options === undefined) {
-              throw new Error("Expected createAgentSession options.");
-            }
-            const sessionId = `session-${++sessionIndex}`;
-            const tools = options.customTools as readonly FakeTool[] | undefined;
-            return {
-              session: {
-                sessionId,
-                messages: [],
-                subscribe: () => () => undefined,
-                async prompt(prompt: string) {
-                  prompts.push(prompt);
-                  if (prompt.includes("root coordinator")) {
-                    await callTool(tools, "delegate_agent", { roleId: "builder", task: "push" });
-                    await callTool(tools, "delegate_agent", { roleId: "verifier", task: "check" });
-                    await callTool(tools, STOP_AND_RESPOND_TOOL_NAME, { response: "root done" });
-                    return;
-                  }
-                  const command = "git push https://x:{{secret:GITHUB_TOKEN}}@example.test";
-                  if (prompt.includes('role "builder"')) {
-                    toolResults.push(await callTool(tools, "bash", { command }));
-                    await callTool(tools, STOP_AND_RESPOND_TOOL_NAME, { response: "pushed" });
-                  } else {
-                    explorerError = await callTool(tools, "bash", { command }).then(
-                      () => undefined,
-                      (error: unknown) => (error as Error).message,
-                    );
-                    await callTool(tools, STOP_AND_RESPOND_TOOL_NAME, { response: "checked" });
-                  }
-                },
-              },
-            } as never;
-          },
-        },
-      },
+      { native: { resolveModel: () => model } },
     );
 
     const result = await harness.run({
@@ -164,10 +179,19 @@ describe("agent harness secrets", () => {
           tool: withAgentHarnessToolEffects(
             {
               name: "bash",
+              label: "bash",
               description: "terminal",
+              parameters: {
+                type: "object",
+                properties: { command: { type: "string" } },
+                required: ["command"],
+              },
               execute: async (_id: string, params: { command: string }) => {
                 commands.push(params.command);
-                return { content: [{ type: "text", text: `ran: ${params.command}` }] };
+                return {
+                  content: [{ type: "text" as const, text: `ran: ${params.command}` }],
+                  details: {},
+                };
               },
             },
             ["process.spawn", "fs.read", "fs.write"],
@@ -181,19 +205,18 @@ describe("agent harness secrets", () => {
     expect(result.status).toBe("succeeded");
     // The builder's command ran with the real value; the verifier was refused before running.
     expect(commands).toEqual([`git push https://x:${FAKE_TOKEN}@example.test`]);
-    expect(explorerError).toMatch(/not granted to "verifier"/);
+    expect(toolResults[1]?.isError).toBe(true);
+    expect(toolResults[1]?.text).toMatch(/not granted to "verifier"/);
     // Nothing the model or the event log sees holds the value.
+    expect(toolResults[0]?.isError).toBe(false);
     expect(JSON.stringify(toolResults)).not.toContain(FAKE_TOKEN);
     expect(JSON.stringify(toolResults)).toContain("[REDACTED:GITHUB_TOKEN]");
     expect(JSON.stringify(result.events)).not.toContain(FAKE_TOKEN);
     expect(JSON.stringify(result.policyDecisions)).not.toContain(FAKE_TOKEN);
     // Only the granted role is told about the secret, by name.
-    expect(prompts.find((prompt) => prompt.includes('role "builder"'))).toContain(
-      "Available secrets: GITHUB_TOKEN.",
-    );
-    expect(prompts.find((prompt) => prompt.includes("root coordinator"))).not.toContain(
-      "Available secrets",
-    );
+    expect(prompts["builder"]).toContain("Available secrets: GITHUB_TOKEN.");
+    expect(prompts["root"]).not.toContain("Available secrets");
+    expect(prompts["verifier"]).not.toContain("Available secrets");
     // Each use is audited as a policy decision.
     expect(result.policyDecisions).toEqual(
       expect.arrayContaining([

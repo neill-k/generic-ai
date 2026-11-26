@@ -87,10 +87,10 @@ const benchmark: BenchmarkSpec = {
 
 function fakeRuntime(outputText: string): GenericAILlmRuntime {
   return {
-    adapter: "openai-codex",
+    adapter: "native",
     model: "gpt-5.5",
     run: vi.fn(async () => ({
-      adapter: "openai-codex" as const,
+      adapter: "native" as const,
       model: "gpt-5.5",
       outputText,
     })),
@@ -98,7 +98,7 @@ function fakeRuntime(outputText: string): GenericAILlmRuntime {
       yield {
         type: "response",
         response: {
-          adapter: "openai-codex" as const,
+          adapter: "native" as const,
           model: "gpt-5.5",
           outputText,
         },
@@ -110,7 +110,7 @@ function fakeRuntime(outputText: string): GenericAILlmRuntime {
 
 function failingRuntime(error: Error): GenericAILlmRuntime {
   return {
-    adapter: "openai-codex",
+    adapter: "native",
     model: "gpt-5.5",
     run: vi.fn(async () => {
       throw error;
@@ -416,13 +416,13 @@ describe("runHarnessBenchmark", () => {
           [harnessWithModel.id]: harnessWithModel,
         },
         runtimeOptions: {
-          adapter: "openai-codex",
+          adapter: "native",
         },
       });
 
       expect(createRuntime).toHaveBeenCalledWith(
         expect.objectContaining({
-          adapter: "openai-codex",
+          adapter: "native",
           instructions: "Use the harness-specific model.",
           model: "gpt-5.5",
         }),

@@ -75,7 +75,7 @@ The shell wrappers in `scripts/` run the same commands after building the worksp
 
 - `GENERIC_AI_PROVIDER_API_KEY`: optional runtime API key.
 - `GENERIC_AI_MODEL`: model id passed to Generic AI, defaulting to `gpt-5.5`.
-- `GENERIC_AI_RUNTIME_ADAPTER`: `pi`/`openai-codex` both select the Pi-backed harness adapter in P1.
+- `GENERIC_AI_RUNTIME_ADAPTER`: `native` (default) or `external`.
 - `GENERIC_AI_REPO_ARCHIVE`: optional prebuilt repo archive for the Harbor adapter. If unset, the adapter creates a filtered archive from the local repo and uploads it into the task container.
 - `GENERIC_AI_NODE_VERSION`: Node version installed in the task container when Node 24 is missing. Defaults to `v24.13.0`.
 - `GENERIC_AI_BENCHMARK_IMMUTABLE_PATHS`: comma-separated verifier/task paths to snapshot before and after the run. Defaults to `/tests,/solution,task.toml`.

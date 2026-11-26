@@ -107,15 +107,15 @@ function readTrimmedEnv(env: NodeJS.ProcessEnv, key: string): string | undefined
 }
 
 function normalizeAdapter(value: string | undefined): AgentHarnessAdapterKind {
-  if (value === undefined || value === "openai-codex" || value === "pi") {
-    return "pi";
+  if (value === undefined) {
+    return "native";
   }
 
   if (value === "external" || value === "native") {
     return value;
   }
 
-  throw new Error("GENERIC_AI_RUNTIME_ADAPTER must be openai-codex, pi, native, or external.");
+  throw new Error("GENERIC_AI_RUNTIME_ADAPTER must be native or external.");
 }
 
 function splitCsv(value: string | undefined): readonly string[] {
@@ -320,7 +320,7 @@ function createAtifTrajectory(input: {
       version: "0.0.0",
       model_name: input.model,
       extra: {
-        adapter: "pi",
+        adapter: "native",
         profile: "terminal-bench",
       },
     },

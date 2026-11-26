@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createLiveProviderSmokeTransport,
-  LIVE_SMOKE_AGENT_DIR_ENV,
   LIVE_SMOKE_ENABLE_ENV,
+  LIVE_SMOKE_PROVIDER_ENV,
   runLiveProviderSmoke,
 } from "./live-smoke.ts";
 
@@ -50,7 +50,8 @@ describe("@generic-ai/example-starter-hono live smoke", () => {
         root,
         env: {
           [LIVE_SMOKE_ENABLE_ENV]: "1",
-          [LIVE_SMOKE_AGENT_DIR_ENV]: path.join(root, "empty-pi-agent"),
+          [LIVE_SMOKE_PROVIDER_ENV]: "openai",
+          OPENAI_API_KEY: "",
         },
       });
 

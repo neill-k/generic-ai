@@ -43,7 +43,7 @@ export async function loadToolCallingFixture(): Promise<ToolCallingFixture> {
 
 function createResult(context: HarnessBenchmarkRuntimeContext, outputText: string): GenericAILlmRunResult {
   return Object.freeze({
-    adapter: "openai-codex",
+    adapter: "native",
     model: "deterministic-micro-adapter",
     outputText: [
       `Candidate ${context.candidateId}`,
@@ -77,7 +77,7 @@ export async function createDeterministicToolCallingRuntime(
     createResult(context, deterministicOutput(context));
 
   return Object.freeze({
-    adapter: "openai-codex",
+    adapter: "native",
     model: "deterministic-micro-adapter",
     ...(context.compiled.agents[0]?.instructions === undefined
       ? {}

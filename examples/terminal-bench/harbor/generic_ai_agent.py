@@ -14,7 +14,7 @@ from harbor.models.agent.context import AgentContext
 
 
 DEFAULT_CONTAINER_REPO_DIR = "/opt/generic-ai"
-DEFAULT_CONTAINER_AGENT_DIR = "/opt/generic-ai-pi-agent"
+DEFAULT_CONTAINER_AGENT_DIR = "/opt/generic-ai-agent"
 DEFAULT_NODE_VERSION = "v24.13.0"
 REMOTE_ARTIFACT_DIR = "/logs/artifacts/generic-ai"
 REMOTE_INSTRUCTION_PATH = "/tmp/generic-ai-instruction.md"
@@ -110,7 +110,7 @@ class GenericAIInstalledAgent(BaseInstalledAgent):
         if override:
             candidate = Path(override).expanduser().resolve()
         else:
-            candidate = Path.home() / ".pi" / "agent"
+            candidate = Path.home() / ".generic-ai" / "agent"
 
         return candidate if candidate.exists() else None
 
@@ -175,7 +175,7 @@ class GenericAIInstalledAgent(BaseInstalledAgent):
             "GENERIC_AI_DISABLE_NESTED_SANDBOX": "1",
             "GENERIC_AI_MODEL": self._resolve_model(),
             "GENERIC_AI_RUNTIME_ADAPTER": self._get_env("GENERIC_AI_RUNTIME_ADAPTER")
-            or "openai-codex",
+            or "native",
         }
 
         api_key = self._get_env("GENERIC_AI_PROVIDER_API_KEY")

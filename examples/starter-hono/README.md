@@ -9,23 +9,22 @@ What this example does now:
 - exposes `/starter/health`, `/starter/run`, and `/starter/run/stream`
 - serves a production-built prompt playground at `/`
 - uses a runtime adapter boundary in `@generic-ai/core`
-- defaults to Pi's OpenAI Codex provider path for `gpt-5.5`
-- keeps `pi` available as an explicit compatibility adapter
+- runs agents on the native runtime (`@generic-ai/ai` and `@generic-ai/agent`), defaulting to `gpt-5.5`
 - runs agents in the default stop-tool loop: the model must call
   `stop_and_respond` to end the run and return the final response
 
 The main server entrypoint is `examples/starter-hono/src/index.ts`. The playground source lives under `examples/starter-hono/ui/` and builds into `examples/starter-hono/dist/public/`, which the same Hono process serves at `/`.
 
-The core package now also exposes a capability-to-`pi` runtime bridge (`createCapabilityPiAgentSession` / `runCapabilityPiAgentSession`) so the same starter capability stack can be projected into a real `AgentSession` when provider-facing runtime work is needed.
+The core package also exposes `runCapabilityNativeAgentSession`, which runs the same starter capability stack as a native agent session when provider-facing runtime work is needed.
 
 ## Required environment
 
 The server reads these values before it starts:
 
 - `GENERIC_AI_PROVIDER_API_KEY` optional runtime key override. If unset, the
-  server relies on Pi auth in the configured agent directory.
+  server uses the provider's normal environment variable, such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
 - `GENERIC_AI_MODEL` optional model override
-- `GENERIC_AI_RUNTIME_ADAPTER` optional: `openai-codex` or `pi`
+- `GENERIC_AI_RUNTIME_ADAPTER` optional: `native` (the only runtime adapter)
 - `GENERIC_AI_WORKSPACE_ROOT` optional workspace root override
 - `GENERIC_AI_HOST` or `HOST` optional host, default `127.0.0.1`
 - `GENERIC_AI_PORT` or `PORT` optional port, default `3000`
@@ -40,9 +39,7 @@ The server reads these values before it starts:
 
 Default model behavior:
 
-- adapter `openai-codex`: uses Pi's `openai-codex` provider through
-  `AuthStorage`, `ModelRegistry`, and `createAgentSession`
-- adapter `pi`: uses `pi` with the OpenAI provider as an explicit compatibility path
+- a bare model id is routed by family: `claude-*` to Anthropic, anything else to OpenAI; use `provider/id` for other providers
 - if `GENERIC_AI_MODEL` is unset, the example falls back to the primary agent model from `.generic-ai/agents/starter.yaml`
 - agent and harness configs default to `execution.turnMode: stop-tool-loop`;
   set `execution.turnMode: single-turn` only for deliberately one-turn demos or
@@ -189,11 +186,11 @@ curl -N -X POST http://127.0.0.1:3000/starter/run/stream \
   -d '{"input":"Summarize the starter stack in three bullets."}'
 ```
 
-The stream endpoint emits canonical run lifecycle events, forwards runtime activity events such as `pi.tool_execution_start` and `pi.tool_execution_end` when the provider session reports them, and finishes with a terminal `run.envelope` event that contains the real provider response payload.
+The stream endpoint emits canonical run lifecycle events, forwards runtime activity events such as `plugin.generic-ai-runtime.native.tool_execution_start` and `plugin.generic-ai-runtime.native.tool_execution_end` when the provider session reports them, and finishes with a terminal `run.envelope` event that contains the real provider response payload.
 
 ## Live provider smoke test
 
-`RT-05` adds an opt-in smoke test that drives the real provider path with a deterministic write/read task. The default provider target is OpenAI Codex via pi auth (`openai-codex` + `gpt-5.5`), but the harness stays provider-aware so local runs can override the provider/model without rewriting the test contract.
+`RT-05` adds an opt-in smoke test that drives the real provider path with a deterministic write/read task. The default target is OpenAI (`openai` + `gpt-5.5`) on the native runtime, but the harness stays provider-aware so local runs can override the provider/model without rewriting the test contract.
 
 Local setup:
 
@@ -202,9 +199,7 @@ export GENERIC_AI_ENABLE_LIVE_SMOKE=1
 npm run -w @generic-ai/example-starter-hono test:live
 ```
 
-For OpenAI Codex, log in first with `pi` so `~/.pi/agent/auth.json` contains an `openai-codex` entry. To point the test at a different auth directory, set `GENERIC_AI_LIVE_AGENT_DIR=/path/to/pi-agent-dir`.
-
-For API-key providers, set `GENERIC_AI_LIVE_PROVIDER` / `GENERIC_AI_LIVE_MODEL` as needed and provide credentials either through the provider's normal environment variable (for example `OPENAI_API_KEY`) or `GENERIC_AI_LIVE_PROVIDER_API_KEY`.
+Set `GENERIC_AI_LIVE_PROVIDER` / `GENERIC_AI_LIVE_MODEL` as needed and provide credentials either through the provider's normal environment variable (for example `OPENAI_API_KEY`) or `GENERIC_AI_LIVE_PROVIDER_API_KEY`.
 
 Safety and teardown notes:
 

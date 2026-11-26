@@ -69,7 +69,7 @@ describe("canonical config transactions", () => {
           key: "default",
           value: {
             displayName: "Default Harness",
-            adapter: "pi",
+            adapter: "native",
             controller: "model-directed",
             model: "gpt-5.5",
             primaryAgent: "starter",

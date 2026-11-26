@@ -12,8 +12,15 @@ import {
   type JsonObject,
   type ProtocolPlugin,
   sealGoal,
+  withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
-import { SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
+import {
+  type Context,
+  fauxAssistantMessage,
+  fauxToolCall,
+  type Model,
+  registerFauxProvider,
+} from "@generic-ai/ai";
 import { describe, expect, it } from "vitest";
 
 import { STOP_AND_RESPOND_TOOL_NAME } from "../runtime/index.js";
@@ -516,10 +523,10 @@ describe("resolveTopologyActorRole", () => {
 });
 
 describe("runAgentHarnessTopology", () => {
-  it("runs each actor as a policy-scoped Pi role session and writes topology artifacts", async () => {
+  it("runs each actor as a policy-scoped role session and writes topology artifacts", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-topology-"));
     const compiled = compile({
-      id: "h.pi-verifier",
+      id: "h.native-verifier",
       protocol: "verifier-loop",
       agents: [
         { id: "solver", role: "solver" },
@@ -528,80 +535,61 @@ describe("runAgentHarnessTopology", () => {
     });
     const toolSets: Record<string, string[]> = {};
     const prompts: string[] = [];
-    let sessionIndex = 0;
+    const provider = registerFauxProvider({ models: [{ id: "test-model" }] });
+    const model = provider.getModel("test-model") as Model;
+    const answer = (context: Context) => {
+      const user = context.messages.find((message) => message.role === "user");
+      const content = user?.content ?? "";
+      const prompt =
+        typeof content === "string"
+          ? content
+          : content.map((block) => (block.type === "text" ? block.text : "")).join("");
+      prompts.push(prompt);
+      const isCritic = prompt.includes('role "critic"');
+      toolSets[isCritic ? "critic" : "solver"] = (context.tools ?? []).map((tool) => tool.name);
+      return fauxAssistantMessage(
+        [
+          fauxToolCall(STOP_AND_RESPOND_TOOL_NAME, {
+            response: isCritic ? "Looks right.\nVERDICT: PASS" : "patched the test",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      );
+    };
+    provider.setResponses([answer, answer]);
+    const fileTool = (name: string, effect: "fs.read" | "fs.write") =>
+      withAgentHarnessToolEffects(
+        {
+          name,
+          label: name,
+          description: name,
+          parameters: { type: "object", properties: {} },
+          execute: async () => ({ content: [], details: {} }),
+        },
+        [effect],
+      );
 
-    const result = await runAgentHarnessTopology({
-      harness: {
-        id: "pi-topology",
-        adapter: "pi",
-        model: "fake-model",
-        policyProfile: "benchmark-container",
-      },
-      compiled,
-      instruction: "Fix the failing test.",
-      workspaceRoot: root,
-      artifactDir: join(root, "artifacts"),
-      runId: "topology-run",
-      sessionInputs: {
-        agentDir: root,
-        authStorage: {} as never,
-        modelRegistry: {} as never,
-        model: {} as never,
-        sessionManager: SessionManager.inMemory(),
-        settingsManager: SettingsManager.inMemory(),
-      },
-      capabilities: {
-        fileTools: {
-          piTools: [
-            {
-              name: "read",
-              description: "read",
-              execute: async () => ({}),
-              genericAi: { effects: ["fs.read"] },
-            },
-            {
-              name: "write",
-              description: "write",
-              execute: async () => ({}),
-              genericAi: { effects: ["fs.write"] },
-            },
-          ] as never,
+    let result: Awaited<ReturnType<typeof runAgentHarnessTopology>>;
+    try {
+      result = await runAgentHarnessTopology({
+        harness: {
+          id: "native-topology",
+          model: "faux/test-model",
+          policyProfile: "benchmark-container",
         },
-      },
-      factories: {
-        createAgentSession: async (options) => {
-          if (options === undefined) {
-            throw new Error("Expected createAgentSession options.");
-          }
-          const sessionId = `session-${++sessionIndex}`;
-          const messages: unknown[] = [];
-          return {
-            session: {
-              sessionId,
-              messages,
-              subscribe() {
-                return () => undefined;
-              },
-              async prompt(prompt: string) {
-                prompts.push(prompt);
-                const isCritic = prompt.includes('role "critic"');
-                toolSets[isCritic ? "critic" : "solver"] = [...(options.tools ?? [])];
-                const stop = options.customTools?.find(
-                  (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
-                );
-                await stop?.execute(
-                  "stop",
-                  { response: isCritic ? "Looks right.\nVERDICT: PASS" : "patched the test" },
-                  undefined,
-                  undefined,
-                  {} as never,
-                );
-              },
-            },
-          } as never;
+        compiled,
+        instruction: "Fix the failing test.",
+        workspaceRoot: root,
+        artifactDir: join(root, "artifacts"),
+        runId: "topology-run",
+        native: { resolveModel: () => model },
+        capabilities: {
+          fileTools: { piTools: [fileTool("read", "fs.read"), fileTool("write", "fs.write")] },
         },
-      },
-    });
+      });
+    } finally {
+      provider.unregister();
+    }
 
     expect(result.status).toBe("succeeded");
     expect(result.outputText).toBe("patched the test");
@@ -631,6 +619,7 @@ describe("runAgentHarnessTopology", () => {
       unknown
     >;
     expect(summary).toMatchObject({
+      adapter: "native",
       mode: "topology",
       protocol: "verifier-loop",
       status: "succeeded",

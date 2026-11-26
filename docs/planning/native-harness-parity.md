@@ -193,9 +193,11 @@ Each slice is a reviewable PR that keeps every existing test green.
    `@generic-ai/auth`: credential stores, locked token refresh, the OAuth building blocks and
    OpenRouter's sign-in. Sign-ins that reuse another product's OAuth client wait on a decision.
 9. **Make native the default and remove pi**: 9a makes `native` the default harness
-   and LLM runtime adapter (ADR 0068); 9b (in review) moves the plugin tool API off
-   `@generic-ai/sdk/pi` to `defineTool` in the root `@generic-ai/sdk`; 9c
-   removes the `pi` and `openai-codex` adapters and the `pi` dependencies.
+   and LLM runtime adapter (ADR 0068); 9b moves the plugin tool API off
+   `@generic-ai/sdk/pi` to `defineTool` in the root `@generic-ai/sdk`; 9c (in review)
+   removes the `pi` and `openai-codex` adapters, the `@generic-ai/sdk/pi` subpath and
+   the `pi` dependencies, ports the harness tests to the native runtime with the faux
+   provider, and rewrites the starter's live smoke on a native session.
 
 ## Running the parity suites
 

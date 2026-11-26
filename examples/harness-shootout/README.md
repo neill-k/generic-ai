@@ -12,8 +12,8 @@ package-composed candidate harnesses:
 - Squad
 
 The benchmark runner compiles each Harness DSL file into Generic Agent IR before
-runtime execution. Runtime inference uses `GenericAILlmRuntime`, whose default
-`openai-codex` adapter uses Pi's `openai-codex` provider path.
+runtime execution. Runtime inference uses `GenericAILlmRuntime`, which runs on
+the native runtime (`@generic-ai/ai` and `@generic-ai/agent`).
 
 ## Files
 
@@ -55,7 +55,7 @@ await runHarnessBenchmark({
   mission,
   harnesses,
   runtimeOptions: {
-    adapter: "openai-codex",
+    adapter: "native",
     model: "gpt-5.5",
     agentDir: ".pi/agent",
   },

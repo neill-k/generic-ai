@@ -47,12 +47,10 @@ import {
   type ToolDefinition,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
-import { AuthStorage, ModelRegistry, SessionManager, SettingsManager } from "@generic-ai/sdk/pi";
 import {
   type CompactionSettings,
   SessionManager as NativeSessionManager,
 } from "@generic-ai/session";
-import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
 import { type CanonicalEventStream, createCanonicalEventStream } from "../events/index.js";
@@ -61,7 +59,6 @@ import {
   expandMcpCapabilityTools,
   type PiCapabilityBindings,
   type PiCapabilitySessionLifecycleHooks,
-  runCapabilityPiAgentSession,
 } from "../runtime/capability-runtime.js";
 import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
 import type { NativeSessionSchedules } from "../runtime/native-schedules.js";
@@ -74,8 +71,6 @@ import {
   type RunCapabilityNativeAgentSessionOptions,
   runCapabilityNativeAgentSession,
 } from "../runtime/native-session.js";
-import type { PiRuntimeFactories } from "../runtime/pi.js";
-import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 import { createUsageMeter, type UsageMeter } from "../usage/index.js";
 import {
   type AgentLifecycleHookExecutor,
@@ -168,8 +163,6 @@ export interface CreateAgentHarnessOptions<
   TCapabilities = PiCapabilityBindings,
   TOutput = unknown,
 > {
-  readonly factories?: PiRuntimeFactories;
-  readonly sessionInputs?: PiSessionInputs;
   readonly native?: NativeAgentHarnessOptions;
   /**
    * Prompt templates (see `loadPromptTemplates` in `@generic-ai/resources`). A run instruction
@@ -182,13 +175,10 @@ export interface CreateAgentHarnessOptions<
   readonly adapters?: AgentHarnessAdapterRegistry<TCapabilities, TOutput>;
 }
 
-export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilityBindings> {
-  readonly factories?: PiRuntimeFactories;
-}
+export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilityBindings> {}
 
 type AgentHarnessRolePolicy = "coordinator" | "read-only" | "build" | "verify";
 type AgentHarnessTurnMode = NonNullable<NonNullable<AgentHarnessConfig["execution"]>["turnMode"]>;
-type PiSessionInputs = ReturnType<typeof resolvePiSessionInputs>;
 
 interface EffectPolicy {
   readonly allow: ReadonlySet<AgentHarnessCapabilityEffect>;
@@ -241,8 +231,6 @@ const MUTATING_EFFECTS: readonly AgentHarnessCapabilityEffect[] = Object.freeze(
   "external.write",
   "payment.spend",
 ]);
-
-const OPENAI_CODEX_PI_PROVIDER = "openai-codex";
 
 const ALL_LOCAL_EFFECTS: readonly AgentHarnessCapabilityEffect[] = Object.freeze([
   ...READ_EFFECTS,
@@ -304,52 +292,6 @@ export const DEFAULT_AGENT_HARNESS_ROLES: readonly AgentHarnessRole[] = Object.f
   },
 ]);
 
-function isTextPart(value: unknown): value is { readonly type: "text"; readonly text: string } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    value.type === "text" &&
-    "text" in value &&
-    typeof value.text === "string"
-  );
-}
-
-function isAssistantLikeMessage(value: unknown): value is {
-  readonly role: "assistant";
-  readonly content: unknown;
-} {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "role" in value &&
-    value.role === "assistant" &&
-    "content" in value
-  );
-}
-
-function extractLatestAssistantText(messages: readonly unknown[]): string {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (!isAssistantLikeMessage(message)) {
-      continue;
-    }
-
-    if (typeof message.content === "string") {
-      return message.content;
-    }
-
-    if (Array.isArray(message.content)) {
-      return message.content
-        .filter(isTextPart)
-        .map((part) => part.text)
-        .join("");
-    }
-  }
-
-  return "";
-}
-
 function getToolName(tool: { readonly name?: string }): string {
   const name = tool.name?.trim();
   if (name && name.length > 0) {
@@ -367,32 +309,6 @@ function readTrimmedEnv(key: string): string | undefined {
 
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function resolvePiSessionInputs(modelId: string) {
-  const agentDir = resolve(readTrimmedEnv("GENERIC_AI_AGENT_DIR") ?? getAgentDir());
-  const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
-  const apiKey = readTrimmedEnv("GENERIC_AI_PROVIDER_API_KEY");
-  if (apiKey !== undefined) {
-    authStorage.setRuntimeApiKey(OPENAI_CODEX_PI_PROVIDER, apiKey);
-  }
-
-  const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, "models.json"));
-  const model = modelRegistry.find(OPENAI_CODEX_PI_PROVIDER, modelId);
-  if (model === undefined) {
-    throw new Error(
-      `Pi could not resolve model "${OPENAI_CODEX_PI_PROVIDER}/${modelId}". Set GENERIC_AI_MODEL to a model available in Pi.`,
-    );
-  }
-
-  return {
-    agentDir,
-    authStorage,
-    modelRegistry,
-    model,
-    sessionManager: SessionManager.inMemory(),
-    settingsManager: SettingsManager.inMemory(),
-  };
 }
 
 function policyDecision(input: {
@@ -1309,55 +1225,6 @@ export interface HarnessSessionBackend {
   run(options: HarnessSessionRunOptions): Promise<HarnessSessionRunResult>;
 }
 
-function createPiSessionBackend(
-  config: AgentHarnessConfig,
-  options: Pick<CreateAgentHarnessOptions, "factories" | "sessionInputs">,
-): HarnessSessionBackend {
-  const sessionInputsByModel = new Map<string, PiSessionInputs>();
-  const sessionInputsFor = (role: AgentHarnessRole | undefined): PiSessionInputs => {
-    if (options.sessionInputs !== undefined) {
-      return options.sessionInputs;
-    }
-    const modelId = role?.model ?? config.model ?? DEFAULT_OPENAI_CODEX_MODEL;
-    let inputs = sessionInputsByModel.get(modelId);
-    if (inputs === undefined) {
-      inputs = resolvePiSessionInputs(modelId);
-      sessionInputsByModel.set(modelId, inputs);
-    }
-    return inputs;
-  };
-
-  return Object.freeze({
-    kind: "pi" as const,
-    label: "Pi",
-    async run(runOptions: HarnessSessionRunOptions): Promise<HarnessSessionRunResult> {
-      const { role, cwd, usageMeter: _usageMeter, ...rest } = runOptions;
-      const sessionInputs = sessionInputsFor(role);
-      const piOptions = {
-        ...rest,
-        cwd,
-        agentDir: sessionInputs.agentDir,
-        authStorage: sessionInputs.authStorage as never,
-        modelRegistry: sessionInputs.modelRegistry as never,
-        model: sessionInputs.model as never,
-        sessionManager: sessionInputs.sessionManager as never,
-        settingsManager: sessionInputs.settingsManager as never,
-      };
-      const result =
-        options.factories === undefined
-          ? await runCapabilityPiAgentSession(piOptions)
-          : await runCapabilityPiAgentSession(piOptions, options.factories);
-      return {
-        sessionId: result.session.sessionId,
-        outputText: result.outputText ?? extractLatestAssistantText(result.session.messages),
-        ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
-        events: result.events,
-        envelope: result.envelope,
-      };
-    },
-  });
-}
-
 function createNativeSessionBackend(
   config: AgentHarnessConfig,
   options: NativeAgentHarnessOptions,
@@ -1886,14 +1753,6 @@ export function createAgentHarness<TCapabilities = PiCapabilityBindings, TOutput
     ...(options.promptTemplates === undefined ? {} : { promptTemplates: options.promptTemplates }),
   };
   const adapters = {
-    pi: createSessionAgentHarnessAdapter(
-      config,
-      sessionAdapterOptions,
-      createPiSessionBackend(config, {
-        ...(options.factories === undefined ? {} : { factories: options.factories }),
-        ...(options.sessionInputs === undefined ? {} : { sessionInputs: options.sessionInputs }),
-      }),
-    ) as unknown as AgentHarnessAdapter<TCapabilities, TOutput>,
     native: createSessionAgentHarnessAdapter(
       config,
       sessionAdapterOptions,
@@ -2335,10 +2194,7 @@ function usageBudgetLimits(budget: AgentHarnessBudget): UsageBudgetLimits {
 export async function runAgentHarness(
   options: RunAgentHarnessOptions,
 ): Promise<AgentHarnessRunResult<unknown>> {
-  const harness = createAgentHarness(
-    options.harness,
-    options.factories === undefined ? {} : { factories: options.factories },
-  );
+  const harness = createAgentHarness(options.harness);
   return harness.run(options);
 }
 
@@ -2351,9 +2207,7 @@ export interface RunAgentHarnessTopologyOptions
   readonly artifactDir?: string;
   readonly rootScopeId?: string;
   readonly deadline?: string;
-  readonly factories?: PiRuntimeFactories;
-  readonly sessionInputs?: PiSessionInputs;
-  /** Options for the native runtime, used when `harness.adapter` is `"native"`. */
+  /** Options for the native runtime. */
   readonly native?: NativeAgentHarnessOptions;
   readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
   readonly policy?: AgentHarnessPolicyEvaluator;
@@ -2450,13 +2304,13 @@ export async function runAgentHarnessTopology(
     signal: withUsageSignal(options.signal, usageMeter),
     ...(options.deadline === undefined ? {} : { deadline: new Date(options.deadline) }),
   });
-  const backend =
-    (harness.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER) === "pi"
-      ? createPiSessionBackend(harness, {
-          ...(options.factories === undefined ? {} : { factories: options.factories }),
-          ...(options.sessionInputs === undefined ? {} : { sessionInputs: options.sessionInputs }),
-        })
-      : createNativeSessionBackend(harness, options.native ?? {});
+  const adapterKind = harness.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER;
+  if (adapterKind !== "native") {
+    throw new Error(
+      `Topology runs need the native adapter; harness "${harness.id}" names "${adapterKind}".`,
+    );
+  }
+  const backend = createNativeSessionBackend(harness, options.native ?? {});
   const eventContext = {
     runId,
     scopeId: rootScopeId,

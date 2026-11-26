@@ -32,7 +32,7 @@ ADRs must be written when:
 - [`0008-canonical-event-stream.md`](0008-canonical-event-stream.md) — the canonical event taxonomy and streaming surface emitted by the kernel.
 - [`0009-shared-run-modes.md`](0009-shared-run-modes.md) — shared session machinery for sync and async execution modes.
 - [`0010-run-envelope.md`](0010-run-envelope.md) — the minimal stable run envelope the kernel returns before output plugins finalize payloads.
-- [`0011-pi-direct-boundary.md`](0011-pi-direct-boundary.md) — direct `pi` exposure and the thin boundary Generic AI keeps around runtime/tool primitives.
+- [`0011-pi-direct-boundary.md`](0011-pi-direct-boundary.md) — direct `pi` exposure and the thin boundary Generic AI kept around runtime/tool primitives. Superseded by 0068.
 - [`0012-bootstrap-api.md`](0012-bootstrap-api.md) - `createGenericAI()`, starter-preset defaulting, and config-aware bootstrap composition.
 - [`0013-sandboxed-execution.md`](0013-sandboxed-execution.md) - Docker-backed sandbox execution, migration posture, and trade-offs.
 - [`0014-runtime-governance-and-security-controls.md`](0014-runtime-governance-and-security-controls.md) - deferred runtime governance architecture: plugin-owned enforcement, a future shared SDK policy contract, and the least-privilege roadmap for terminal, file, and MCP capabilities.

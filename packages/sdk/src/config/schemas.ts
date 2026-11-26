@@ -295,7 +295,7 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
       displayName: z.string().min(1, "displayName cannot be empty").optional(),
       adapter: z
         .string()
-        .regex(/^(pi|native|external)$/, "adapter must be pi, native, or external")
+        .regex(/^(native|external)$/, "adapter must be native or external")
         .optional(),
       controller: z
         .string()

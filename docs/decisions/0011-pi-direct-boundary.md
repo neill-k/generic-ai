@@ -1,6 +1,6 @@
 # 0011. Direct `pi` integration with a thin adapter boundary
 
-- Status: accepted
+- Status: superseded by [0068](0068-native-runtime-default.md) (the `pi` dependency was removed in native harness slice 9c)
 - Date: 2026-04-13
 - Amended: 2026-04-29 (`NEI-555`)
 - Amended: 2026-04-29 (research-harness runtime boundary)

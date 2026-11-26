@@ -65,7 +65,7 @@
     ]
   },
   "providerPolicy": {
-    "adapter": "openai-codex",
+    "adapter": "native",
     "model": "gpt-5.5",
     "cache": "deny",
     "network": "isolated"

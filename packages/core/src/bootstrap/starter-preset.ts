@@ -179,11 +179,11 @@ const starterPorts: BootstrapPorts = Object.freeze({
     status: "provided",
     note: "Core creates canonical run envelopes for bootstrap run and stream calls.",
   }),
-  piBoundary: Object.freeze({
-    module: "@generic-ai/sdk",
-    symbol: "pi",
-    status: "expected",
-    note: "The bootstrap layer expects the SDK boundary, not a kernel-owned reimplementation.",
+  runtimeBoundary: Object.freeze({
+    module: "@generic-ai/core",
+    symbol: "createNativeRuntime",
+    status: "provided",
+    note: "Agent sessions run on the native runtime (@generic-ai/ai and @generic-ai/agent).",
   }),
 });
 
@@ -196,7 +196,7 @@ const freezeBootstrapPorts = (ports: BootstrapPortOverrides | undefined): Bootst
     pluginHost: Object.freeze({ ...starterPorts.pluginHost, ...(ports.pluginHost ?? {}) }),
     runMode: Object.freeze({ ...starterPorts.runMode, ...(ports.runMode ?? {}) }),
     runEnvelope: Object.freeze({ ...starterPorts.runEnvelope, ...(ports.runEnvelope ?? {}) }),
-    piBoundary: Object.freeze({ ...starterPorts.piBoundary, ...(ports.piBoundary ?? {}) }),
+    runtimeBoundary: Object.freeze({ ...starterPorts.runtimeBoundary, ...(ports.runtimeBoundary ?? {}) }),
   });
 };
 

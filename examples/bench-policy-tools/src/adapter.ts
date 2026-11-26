@@ -43,7 +43,7 @@ export async function loadPolicyToolsFixture(): Promise<PolicyToolsFixture> {
 
 function createResult(context: HarnessBenchmarkRuntimeContext, outputText: string): GenericAILlmRunResult {
   return Object.freeze({
-    adapter: "openai-codex",
+    adapter: "native",
     model: "deterministic-meso-adapter",
     outputText: [
       `Candidate ${context.candidateId}`,
@@ -78,7 +78,7 @@ export async function createDeterministicPolicyToolsRuntime(
     createResult(context, deterministicOutput(context));
 
   return Object.freeze({
-    adapter: "openai-codex",
+    adapter: "native",
     model: "deterministic-meso-adapter",
     ...(context.compiled.agents[0]?.instructions === undefined
       ? {}
