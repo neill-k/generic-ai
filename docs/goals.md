@@ -143,6 +143,12 @@ and the `output_schema` validator. It supports `type`, `enum`, `const`,
 number bounds, `pattern`, `anyOf`, `oneOf`, `allOf`, `not`, and local `$ref`.
 Errors carry a JSONPath and a message written for the agent to act on.
 
+## Evals
+
+[Goal evals](goal-evals.md) replay goals over repeated attempts and score
+each attempt from its trace: pass rate, pass^k, NOVA's three checks, tokens
+per completed goal, held-out validators, and integrity findings.
+
 ## Prompting
 
 `describeGoalForAgent(goal)` renders the objective, definition of done, every

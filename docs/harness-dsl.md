@@ -120,8 +120,11 @@ trial floor required before a recommendation can be confident, and
 comparison. While the contract stays additive before v1.0, omitted
 `trials.count` is interpreted as one trial so older fixtures keep running.
 
-`pass^k` is the reliability estimate for binary primary metrics: given an
-observed pass rate `p` across sampled trials, `pass^k = 1 - (1 - p)^k`. The
+`pass^k` is the reliability estimate for binary primary metrics: the
+probability that `k` attempts in a row all pass. With `n >= k` sampled trials
+and `c` passes it is `C(c, k) / C(n, k)`; with fewer trials it falls back to
+`p^k` for the observed pass rate `p`. It is not pass@k (at least one of `k`
+attempts passes), which rises with `k` and would hide flaky candidates. The
 default `k` is the configured trial count, and specs may override it with
 `BenchmarkSpec.trials.passK`. Reports render pass^k next to each candidate so a
 single lucky run does not read like a stable architecture result.
