@@ -7,6 +7,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import { Minimatch } from "minimatch";
 import { pathExists, resolveToCwd } from "./path-utils.js";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.js";
+import { getAgentCommandEnv } from "./env.js";
 import { ensureTool } from "./tools-manager.js";
 import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.js";
 import type { ExtensionContext, ToolDefinition } from "./types.js";
@@ -318,7 +319,10 @@ export function createFindToolDefinition(
             // An abort during the .git lookup above already rejected the call, but there was no
             // child to stop yet. Do not start fd.
             if (signal?.aborted) return;
-            const child = spawn(fdPath, args, { stdio: ["ignore", "pipe", "pipe"] });
+            const child = spawn(fdPath, args, {
+              env: getAgentCommandEnv(),
+              stdio: ["ignore", "pipe", "pipe"],
+            });
             const rl = createInterface({ input: child.stdout });
             let stderr = "";
             // Results within the limit, stored only up to the first one past the byte cap:

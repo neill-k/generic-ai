@@ -50,7 +50,7 @@ ADR 0043 added the durable run store and queue. This decision uses them.
    ids, enqueued, and the parent moves to `waiting` and releases its worker. When
    the last child settles, the parent is re-queued for a new round whose prompt
    includes every child's result or failure. Directives are read with the SDK's
-   `parseActorDirectives`, so any runtime can drive the cascade. Since ADR 0060
+   `parseActorDirectives`, so any runtime can drive the cascade. Since ADR 0062
    agents get real `delegate_task` and `finish_task` tools that record the same
    directives; the JSON block remains the fallback.
 6. **Guard rails are enforced by the scheduler, not the prompt.** Delegation is

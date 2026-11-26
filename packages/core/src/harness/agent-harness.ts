@@ -881,7 +881,7 @@ function applyProfilePolicy(
 }
 
 /**
- * Turns runtime-neutral host tools (ADR 0060) into tools both the pi and native runtimes run, with
+ * Turns runtime-neutral host tools (ADR 0062) into tools both the pi and native runtimes run, with
  * their declared effects so role policy treats them like any other tool.
  */
 export function toHarnessToolDefinition(tool: AgentHarnessHostTool): ToolDefinition {

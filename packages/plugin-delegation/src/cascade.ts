@@ -1118,7 +1118,7 @@ export function createDelegationCascade(
   }
 
   /**
-   * The `delegate_task` and `finish_task` tools for one turn (ADR 0060). They check what they can
+   * The `delegate_task` and `finish_task` tools for one turn (ADR 0062). They check what they can
    * right away so the agent can fix a bad delegation in the same turn, and record the rest; the
    * cascade acts on what was recorded once the turn ends, exactly as it would on a fenced-JSON
    * reply.
