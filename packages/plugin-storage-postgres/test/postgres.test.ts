@@ -13,6 +13,7 @@ import {
   migratePostgres,
   openPostgresStorage,
   type PostgresPool,
+  resolvePostgresConnection,
   type PostgresStorage,
 } from "../src/index.js";
 import { createTestPool, dropSchema, postgresUrl, uniqueSchema } from "./helpers.js";
@@ -38,6 +39,25 @@ describe("openPostgresStorage configuration", () => {
         migrate: false,
       }),
     ).rejects.toThrow(/Invalid Postgres schema name/);
+  });
+
+  it("survives an idle connection error on a pool it creates", async () => {
+    const errors: Error[] = [];
+    const { pool, ownsPool } = resolvePostgresConnection({
+      connectionString: "postgres://user:pass@127.0.0.1:1/db",
+      onPoolError: (error) => errors.push(error),
+    });
+    expect(ownsPool).toBe(true);
+    // pg emits "error" on the pool when an idle client's connection drops,
+    // for example when Postgres restarts. Without a listener that throws.
+    const emitter = pool as unknown as { emit(event: string, error: Error): boolean };
+    expect(() =>
+      emitter.emit("error", new Error("terminating connection due to administrator command")),
+    ).not.toThrow();
+    expect(errors.map((error) => error.message)).toEqual([
+      "terminating connection due to administrator command",
+    ]);
+    await pool.end();
   });
 });
 

@@ -96,6 +96,37 @@ describe("@generic-ai/plugin-tools-terminal", () => {
     });
   });
 
+  it("keeps ambient process secrets out of commands the agent tool runs", async () => {
+    await withTempRoot(async (root) => {
+      const secrets = {
+        ANTHROPIC_API_KEY: "sk-ant-terminal-probe",
+        DATABASE_URL: "postgres://probe:hunter2@db/app",
+        GENERIC_AI_SECRETS_KEY: "secrets-key-terminal-probe",
+        GENERIC_AI_OWNER_SETUP_TOKEN: "setup-token-terminal-probe",
+      };
+      Object.assign(process.env, secrets);
+      try {
+        const runEnv = async (plugin: ReturnType<typeof createTerminalToolPlugin>) => {
+          const result = await plugin.tool.execute("probe", { command: "env" });
+          return JSON.stringify(result.content);
+        };
+
+        const output = await runEnv(createTerminalToolPlugin({ root }));
+        for (const value of Object.values(secrets)) {
+          expect(output).not.toContain(value);
+        }
+        expect(output).toContain("PATH=");
+
+        const inherited = await runEnv(createTerminalToolPlugin({ root, inheritProcessEnv: true }));
+        expect(inherited).toContain(secrets.ANTHROPIC_API_KEY);
+      } finally {
+        for (const key of Object.keys(secrets)) {
+          delete process.env[key];
+        }
+      }
+    });
+  });
+
   it("resolves explicit working directories inside the workspace", async () => {
     await withTempRoot(async (root) => {
       const { mkdir } = await import("node:fs/promises");
