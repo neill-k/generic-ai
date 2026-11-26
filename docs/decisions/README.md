@@ -63,6 +63,7 @@ ADRs must be written when:
 - [`0038-tool-overuse-budget-evaluator.md`](0038-tool-overuse-budget-evaluator.md) - optional SDK tool-use discipline profiles and report summaries for benchmark harnesses.
 - [`0039-contextual-integrity-privacy-harness.md`](0039-contextual-integrity-privacy-harness.md) - optional SDK contextual-integrity privacy profiles and report summaries for workspace-agent benchmarks.
 - [`0041-structured-tool-error-recovery.md`](0041-structured-tool-error-recovery.md) - SDK structured tool-error envelopes, timeout budgets, and report summaries for recovery evidence.
+- [`0050-generic-corp-app-on-generic-ai.md`](0050-generic-corp-app-on-generic-ai.md) - Generic AI is the framework and Generic Corp is the flagship app in `apps/generic-corp`; records product decisions D1 to D6 and the NOVA framing.
 
 ## Planning Baseline
 

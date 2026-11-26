@@ -4,7 +4,7 @@
 
 Work really hard.
 
-This repository is the Generic AI research-harness monorepo. Treat the planning pack as the source of truth before changing package boundaries or public contracts:
+This repository is the Generic AI framework monorepo, which also holds the Generic Corp app under `apps/` (see `docs/decisions/0050-generic-corp-app-on-generic-ai.md`). Treat the planning pack as the source of truth before changing package boundaries or public contracts:
 
 - `docs/planning/README.md`
 - `docs/planning/01-scope-and-decisions.md`

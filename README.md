@@ -1,34 +1,67 @@
 # Generic AI
 
-Generic AI is a composable agents-as-code research harness for specifying,
-running, tracing, evaluating, and comparing agentic system architectures under
-controlled conditions.
+Generic AI is a TypeScript framework for building complex multi-agent systems
+that pursue a goal, without today's complexity. You describe the goal, the
+agents and how they work together; Generic AI runs them, checks the work
+against the goal, and keeps a trace of what happened and what it cost.
 
-Developers keep the mission stable and vary the harness: topology, runtime
-constraints, plugins, evaluator choices, and evidence requirements. The output is
-bounded comparison, not just another way to ship an agent.
+Its flagship app is **Generic Corp**, built in this monorepo at
+[`apps/generic-corp`](apps/generic-corp): one owner runs a company of
+persistent agents. The owner chats with a CEO agent, work is delegated down an
+org chart and results come back up, and a dashboard shows the conversation,
+the org chart, the board, costs and approvals. Generic Corp is the first
+consumer of every framework feature, so the framework is shaped by a real
+production app. The decision is recorded in
+[`ADR 0050`](docs/decisions/0050-generic-corp-app-on-generic-ai.md).
+
+## Design Principles
+
+The framework follows the NOVA framework from *Building Production Agents*,
+whose aim is an agent that is "reliable and repeatable while reducing token
+consumption by 90%":
+
+- **Set a defined goal.** "What is the definition of done? Is there some
+  condition that can be tested to determine that the work is complete?" Tasks
+  and delegations carry a goal and the checks that prove it is met. This
+  mirrors how models are trained, so agents stay "in distribution".
+- **Offload to files and code.** "Offload as much work as possible out of the
+  model." Results go to files instead of the context window, and scripts an
+  agent writes can become reusable tools.
+- **Validate results.** Work is finished when its validators pass, and a
+  failed check tells the agent what to fix.
+- **Evals.** "Start as simply as possible and add complexity to address issues
+  you find in the Evaluation process." Topologies and validators are optional
+  scaffolding, not mandatory structure, because "if the entire process is
+  deterministic and needs to be exact same every time, you should just write a
+  program to do it."
 
 ## First-Class Surfaces
 
 - **Harness DSL** - declarative mission and candidate-harness configuration.
 - **Generic Agent IR** - typed compiled form shared by runtime, plugins, and
   evaluators.
-- **Runtime adapters** - the execution boundary around `pi` today, kept explicit
-  so runtime choices stay inspectable.
+- **Runtime adapters** - the execution boundary around the agent runtime. Generic
+  AI is growing its own native runtime with parity against `pi`
+  ([plan](docs/planning/native-harness-parity.md)); `pi` stays available as an
+  adapter, and the boundary stays explicit so runtime choices are inspectable.
 - **Method plugins** - replaceable packages for planning, coordination, memory,
   tools, policy, evaluation, reporting, and transport, cataloged in
   [`docs/slots.md`](docs/slots.md).
+- **Apps** - production applications composed from presets and plugins, under
+  `apps/`. Generic Corp is the first.
 - **Benchmark suites** - repeatable mission families that run candidate
   harnesses through the normal runtime path.
 - **Evidence reports** - trace-backed outputs that separate observations,
   inferences, recommendations, and insufficient-evidence boundaries.
 
-## Why A Research Harness
+## The Research Harness As The Evaluation Layer
 
 Agentic architecture choices are easy to demo and hard to compare. Generic AI
 turns those choices into package-composed harnesses so the same mission can run
 through a hierarchy, squad, pipeline, verifier loop, or future method family
-without rewriting the product code around it.
+without rewriting the product code around it. That is how apps built on the
+framework, Generic Corp included, measure whether a change to prompts,
+topology or validators actually helps.
 
 The harness spine is captured in
 [`ADR 0021`](docs/decisions/0021-agents-as-code-harness-spine.md) and the
@@ -220,6 +253,7 @@ Notes elsewhere in the repo are not planning source-of-truth material unless the
 ## Repository Layout
 
 - `packages/` — framework source. Holds `@generic-ai/core`, `@generic-ai/sdk`, every base plugin, and the starter preset. One directory per package.
+- `apps/` — production applications built on the framework. `apps/generic-corp/` is the Generic Corp app ([ADR 0050](docs/decisions/0050-generic-corp-app-on-generic-ai.md)).
 - `examples/` — runnable reference usage of the framework. `examples/starter-hono/` is the `TRN-03` reference example that exercises the full starter stack.
 - `contracts/` — frozen interface contracts produced by kernel and config work (KRN-01, CFG-01, and later).
 - `specs/` - specifications consumed by docs-as-code and contract-testing workflows, including Harness DSL v0.1.
