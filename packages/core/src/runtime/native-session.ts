@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import { Agent, type AgentEvent, type AgentTool, type StreamFn } from "@generic-ai/agent";
+import {
+  Agent,
+  type AgentEvent,
+  type AgentTool,
+  type RequestAuth,
+  type StreamFn,
+} from "@generic-ai/agent";
 import type { AssistantMessage, Model, RetryPolicy, ThinkingLevel } from "@generic-ai/ai";
 import {
   discoverAndLoadExtensions,
@@ -112,6 +118,11 @@ export interface RunCapabilityNativeAgentSessionOptions {
   /** Base system prompt. Tool guidance, skills, and the working directory are appended. */
   readonly systemPrompt?: string;
   readonly apiKey?: string;
+  /**
+   * Request auth per request from a credential store (for example `createModelAuthResolver` from
+   * `@generic-ai/auth`). Needed for subscription sign-ins that also set headers or a base URL.
+   */
+  readonly getAuth?: (provider: string) => Promise<RequestAuth | undefined>;
   readonly thinkingLevel?: ThinkingLevel;
   readonly streamFn?: StreamFn;
   readonly signal?: AbortSignal;
@@ -657,6 +668,7 @@ export async function runCapabilityNativeAgentSession(
     convertToLlm,
     ...(options.streamFn === undefined ? {} : { streamFn: options.streamFn }),
     ...(apiKey === undefined || apiKey.length === 0 ? {} : { getApiKey: () => apiKey }),
+    ...(options.getAuth === undefined ? {} : { getAuth: options.getAuth }),
   });
 
   restoreAgentContext(agent, sessionManager);

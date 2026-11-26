@@ -259,6 +259,88 @@ describe("agentLoop with AgentMessage", () => {
     expect((await stream.result()).map((message) => message.role)).toEqual(["user", "assistant"]);
   });
 
+  it("applies getAuth's key, headers and base URL to each request", async () => {
+    const seen: Array<{ baseUrl: string; apiKey?: string; headers?: Record<string, string> }> = [];
+    const stream = agentLoop(
+      [createUserMessage("Hello")],
+      { systemPrompt: "", messages: [], tools: [] },
+      {
+        model: createModel(),
+        convertToLlm: identityConverter,
+        apiKey: "static-key",
+        headers: { "X-Caller": "app", "X-Shared": "caller" },
+        getApiKey: () => "fallback-key",
+        getAuth: async (provider) => {
+          expect(provider).toBe("openai");
+          return {
+            apiKey: "copilot-token",
+            baseUrl: "https://api.enterprise.githubcopilot.com",
+            headers: { "Editor-Version": "vscode/1.107.0", "X-Shared": "auth" },
+          };
+        },
+      },
+      undefined,
+      (model, _context, options) => {
+        seen.push({
+          baseUrl: model.baseUrl,
+          ...(options?.apiKey ? { apiKey: options.apiKey } : {}),
+          ...(options?.headers ? { headers: options.headers } : {}),
+        });
+        const response = createAssistantMessageEventStream();
+        queueMicrotask(() => {
+          response.push({
+            type: "done",
+            reason: "stop",
+            message: createAssistantMessage([{ type: "text", text: "done" }]),
+          });
+        });
+        return response;
+      },
+    );
+    for await (const _event of stream) {
+      // consume
+    }
+    expect(seen).toEqual([
+      {
+        baseUrl: "https://api.enterprise.githubcopilot.com",
+        apiKey: "copilot-token",
+        headers: { "Editor-Version": "vscode/1.107.0", "X-Caller": "app", "X-Shared": "caller" },
+      },
+    ]);
+  });
+
+  it("falls back to getApiKey when getAuth has nothing for the provider", async () => {
+    const keys: Array<string | undefined> = [];
+    const stream = agentLoop(
+      [createUserMessage("Hello")],
+      { systemPrompt: "", messages: [], tools: [] },
+      {
+        model: createModel(),
+        convertToLlm: identityConverter,
+        getApiKey: () => "env-key",
+        getAuth: async () => undefined,
+      },
+      undefined,
+      (model, _context, options) => {
+        expect(model.baseUrl).toBe("https://example.invalid");
+        keys.push(options?.apiKey);
+        const response = createAssistantMessageEventStream();
+        queueMicrotask(() => {
+          response.push({
+            type: "done",
+            reason: "stop",
+            message: createAssistantMessage([{ type: "text", text: "done" }]),
+          });
+        });
+        return response;
+      },
+    );
+    for await (const _event of stream) {
+      // consume
+    }
+    expect(keys).toEqual(["env-key"]);
+  });
+
   it("should handle custom message types via convertToLlm", async () => {
     // Create a custom message type
     interface CustomNotification {

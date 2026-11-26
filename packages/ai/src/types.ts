@@ -16,6 +16,7 @@ export type KnownApi =
   | "anthropic-messages"
   | "openai-responses"
   | "azure-openai-responses"
+  | "openai-codex-responses"
   | "openai-completions"
   | "google-generative-ai"
   | "google-vertex"
@@ -37,6 +38,8 @@ export type KnownProvider =
   | "google-vertex"
   | "azure-openai"
   | "amazon-bedrock"
+  | "openai-codex"
+  | "github-copilot"
   | "faux";
 export type ProviderId = KnownProvider | (string & {});
 

@@ -1,4 +1,5 @@
 import { AssistantMessageEventStream } from "./event-stream.js";
+import { githubCopilotRequestHeaders } from "./providers/github-copilot.js";
 import type {
   Api,
   AssistantMessage,
@@ -44,6 +45,12 @@ export function stream(
     message.errorMessage = `No provider registered for API "${model.api}"`;
     events.push({ type: "error", reason: "error", error: message });
     return events;
+  }
+  if (model.provider === "github-copilot") {
+    return implementation(model, context, {
+      ...options,
+      headers: { ...githubCopilotRequestHeaders(context), ...(options?.headers ?? {}) },
+    });
   }
   return implementation(model, context, options);
 }

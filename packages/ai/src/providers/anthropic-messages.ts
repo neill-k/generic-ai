@@ -77,6 +77,17 @@ export function streamAnthropic(
 }
 
 function createClient(model: Model, apiKey: string, options: StreamOptions | undefined): Anthropic {
+  // Copilot tokens authenticate with a bearer header.
+  if (model.provider === "github-copilot") {
+    return new Anthropic({
+      apiKey: null,
+      authToken: apiKey,
+      baseURL: model.baseUrl,
+      defaultHeaders: mergeHeaders({ accept: "application/json" }, model, options),
+      maxRetries: options?.maxRetries ?? 2,
+      ...(options?.fetch ? { fetch: options.fetch } : {}),
+    });
+  }
   // Claude subscription OAuth tokens authenticate with a bearer header and the oauth beta.
   const oauth = apiKey.startsWith("sk-ant-oat");
   const headers = mergeHeaders(

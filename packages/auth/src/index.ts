@@ -33,6 +33,7 @@ export { trustedHttpUrl } from "./oauth/trusted-url.js";
 export {
   type CredentialResolverOptions,
   createApiKeyResolver,
+  createModelAuthResolver,
   login,
   logout,
   type ResolvedAuth,

@@ -142,6 +142,12 @@ export interface AgentLoopConfig extends Omit<StreamOptions, "signal" | "reasoni
   transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
   /** Resolve an API key per request (short-lived tokens). Must not throw. */
   getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
+  /**
+   * Resolve full request auth per request: an API key plus any headers and base URL the sign-in
+   * needs (GitHub Copilot's account endpoint, ChatGPT's account id). Takes precedence over
+   * `getApiKey` when it returns something. Must not throw.
+   */
+  getAuth?: (provider: string) => Promise<RequestAuth | undefined> | RequestAuth | undefined;
   finishTurn?: FinishTurn;
   prepareRequest?: PrepareRequest;
   /** Called after `turn_end` when the loop continues, before the next turn starts. */
@@ -278,3 +284,10 @@ export type AgentEvent =
       isError: boolean;
       durationMs?: number;
     };
+
+/** Request auth from a credential: matches `ModelAuth` in `@generic-ai/auth`. */
+export interface RequestAuth {
+  apiKey?: string;
+  headers?: Record<string, string>;
+  baseUrl?: string;
+}

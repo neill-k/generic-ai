@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { StreamFn } from "@generic-ai/agent";
+import type { RequestAuth, StreamFn } from "@generic-ai/agent";
 import { type Model, type RetryPolicy, resolveApiKey, type ThinkingLevel } from "@generic-ai/ai";
 import type { PromptTemplate } from "@generic-ai/resources";
 import {
@@ -107,6 +107,12 @@ export interface NativeAgentHarnessOptions {
   readonly resolveModel?: (ref: string) => Model;
   /** API key for every provider. Defaults to the provider's own environment variable, then `GENERIC_AI_PROVIDER_API_KEY`. */
   readonly apiKey?: string;
+  /**
+   * Request auth per request from a credential store, tried before `apiKey` (for example
+   * `createModelAuthResolver` from `@generic-ai/auth`, which handles the Claude, ChatGPT and GitHub
+   * Copilot subscription sign-ins).
+   */
+  readonly getAuth?: (provider: string) => Promise<RequestAuth | undefined>;
   readonly thinkingLevel?: ThinkingLevel;
   /** Replace the provider stream (tests, recording, proxies). */
   readonly streamFn?: StreamFn;
@@ -1271,6 +1277,7 @@ function createNativeSessionBackend(
         ...rest,
         model,
         ...(apiKey === undefined ? {} : { apiKey }),
+        ...(options.getAuth === undefined ? {} : { getAuth: options.getAuth }),
         ...(options.thinkingLevel === undefined ? {} : { thinkingLevel: options.thinkingLevel }),
         ...(options.streamFn === undefined ? {} : { streamFn: options.streamFn }),
         ...(options.systemPrompt === undefined ? {} : { systemPrompt: options.systemPrompt }),

@@ -87,6 +87,8 @@ export interface AgentOptions {
   /** Defaults to `stream` from `@generic-ai/ai`. */
   streamFn?: StreamFn;
   getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
+  /** Full request auth per request (key, headers, base URL); see `AgentLoopConfig.getAuth`. */
+  getAuth?: AgentLoopConfig["getAuth"];
   /** Extra provider options for every request (maxTokens, temperature, headers, fetch, ...). */
   streamOptions?: Omit<StreamOptions, "signal" | "reasoning" | "sessionId">;
   beforeToolCall?: (
@@ -169,6 +171,7 @@ export class Agent {
   transformContext: AgentOptions["transformContext"];
   streamFn: StreamFn;
   getApiKey: AgentOptions["getApiKey"];
+  getAuth: AgentOptions["getAuth"];
   streamOptions: AgentOptions["streamOptions"];
   beforeToolCall: AgentOptions["beforeToolCall"];
   afterToolCall: AgentOptions["afterToolCall"];
@@ -184,6 +187,7 @@ export class Agent {
     this.transformContext = options.transformContext;
     this.streamFn = options.streamFn ?? getDefaultStreamFn();
     this.getApiKey = options.getApiKey;
+    this.getAuth = options.getAuth;
     this.streamOptions = options.streamOptions;
     this.beforeToolCall = options.beforeToolCall;
     this.afterToolCall = options.afterToolCall;
@@ -369,6 +373,7 @@ export class Agent {
       convertToLlm: this.convertToLlm,
       ...(this.transformContext ? { transformContext: this.transformContext } : {}),
       ...(this.getApiKey ? { getApiKey: this.getApiKey } : {}),
+      ...(this.getAuth ? { getAuth: this.getAuth } : {}),
       ...(this.beforeToolCall ? { beforeToolCall: this.beforeToolCall } : {}),
       ...(this.afterToolCall ? { afterToolCall: this.afterToolCall } : {}),
       ...(this.finishTurn ? { finishTurn: this.finishTurn } : {}),
