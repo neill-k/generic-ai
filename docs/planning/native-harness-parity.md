@@ -112,7 +112,9 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Usage totals | ✓ | ported `usage-totals` (provider-reported total flag dropped) |
 | Context-overflow recovery (compact then retry the turn), cache stats, auto-compaction queue | ○ | pi `agent-session-auto-compaction-queue`, `cache-stats`, `context-overflow` |
 | Session files through the durable store contract (R6) | ○ | once the store lands, `SessionManager` gains a store-backed writer |
-| Skills, prompt templates, system prompt assembly | ○ | `skills`, `sdk-skills`, `prompt-templates`, `system-prompt*` |
+| Skills: discovery, validation, collisions, prompt block, `/skill:name` commands | ✓ | ported `skills` into `@generic-ai/resources`; `plugin-agent-skills` now uses it; `native-agent-harness.test.ts` covers `/skill:` runs |
+| Prompt templates: loading, `argument-hint`, `$1` / `$@` / `${@:N}` / defaults, `/name` commands | ✓ | ported `prompt-templates`; `promptTemplates` harness option |
+| System prompt assembly (pi's full builder, context files such as `AGENTS.md`) | ○ | `system-prompt*` |
 | Extensions and event bus | ○ | `extensions-*` |
 | MCP client and OAuth | ○ | `mcp-*` (Generic AI already has `plugin-mcp`; port only what it lacks) |
 | RPC / print modes | ○ | `rpc*`, `print-mode` |
@@ -151,8 +153,10 @@ Each slice is a reviewable PR that keeps every existing test green.
    manager, compaction and branch summaries; `@generic-ai/ai` gains the retry classifier and
    backoff. The native harness records sessions (in memory, or as files under `native.sessionDir`),
    compacts before a prompt that would overflow, and retries transient provider errors.
-4. **Skills, prompt templates, extensions**: reuse `plugin-agent-skills`; port pi's extension hooks
-   that Generic AI lacks.
+4. **Skills, prompt templates, extensions**: 4a (in review) adds `@generic-ai/resources` with pi's
+   skill loader and prompt templates, moves `plugin-agent-skills` onto it, and expands
+   `/skill:name` and `/template` instructions in harness runs on both backends. 4b ports pi's
+   extension hooks that Generic AI lacks.
 5. **Subagents and messaging**: native subagent spawning and agent-to-agent messages, wired to the
    topology scheduler.
 6. **Long-running agents**: daemon sessions, goals, heartbeats and schedules, autonomous mode, on

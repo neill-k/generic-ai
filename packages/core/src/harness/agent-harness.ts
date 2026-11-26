@@ -53,6 +53,7 @@ import {
   type CompactionSettings,
   SessionManager as NativeSessionManager,
 } from "@generic-ai/session";
+import type { PromptTemplate } from "@generic-ai/resources";
 import { Type } from "@sinclair/typebox";
 
 import { createCanonicalEventStream, type CanonicalEventStream } from "../events/index.js";
@@ -65,7 +66,7 @@ import {
 } from "../runtime/capability-runtime.js";
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
-import { runCapabilityNativeAgentSession } from "../runtime/native-session.js";
+import { expandPrompt, runCapabilityNativeAgentSession } from "../runtime/native-session.js";
 import { createUsageMeter, type UsageMeter } from "../usage/index.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 import {
@@ -126,6 +127,12 @@ export interface CreateAgentHarnessOptions<
   readonly factories?: PiRuntimeFactories;
   readonly sessionInputs?: PiSessionInputs;
   readonly native?: NativeAgentHarnessOptions;
+  /**
+   * Prompt templates (see `loadPromptTemplates` in `@generic-ai/resources`). A run instruction
+   * that starts with `/name args` expands to template `name`. An instruction that starts with
+   * `/skill:name args` expands to that skill from the `skills` capability.
+   */
+  readonly promptTemplates?: readonly PromptTemplate[];
   readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
   readonly policy?: AgentHarnessPolicyEvaluator;
   readonly adapters?: AgentHarnessAdapterRegistry<TCapabilities, TOutput>;
@@ -1740,6 +1747,7 @@ export function createAgentHarness<TCapabilities = PiCapabilityBindings, TOutput
 ): AgentHarness<TCapabilities, TOutput> {
   const sessionAdapterOptions: CreateAgentHarnessOptions = {
     ...(options.hookHandlers === undefined ? {} : { hookHandlers: options.hookHandlers }),
+    ...(options.promptTemplates === undefined ? {} : { promptTemplates: options.promptTemplates }),
   };
   const adapters = {
     pi: createSessionAgentHarnessAdapter(
@@ -1842,9 +1850,27 @@ function failedHarnessResult(input: {
   });
 }
 
+/**
+ * Expand a run instruction that is a skill command (`/skill:name args`) or a prompt template
+ * (`/name args`). Other instructions are returned unchanged.
+ */
+async function expandHarnessInstruction(
+  instruction: string,
+  capabilities: PiCapabilityBindings,
+  templates: readonly PromptTemplate[] | undefined,
+): Promise<string> {
+  if (!instruction.startsWith("/")) {
+    return instruction;
+  }
+  const skills = instruction.startsWith("/skill:")
+    ? ((await capabilities.skills?.load())?.skills ?? [])
+    : [];
+  return expandPrompt(instruction, skills, templates ?? []);
+}
+
 function createSessionAgentHarnessAdapter(
   config: AgentHarnessConfig,
-  options: Pick<CreateAgentHarnessOptions, "hookHandlers">,
+  options: Pick<CreateAgentHarnessOptions, "hookHandlers" | "promptTemplates">,
   backend: HarnessSessionBackend,
 ): AgentHarnessAdapter<PiCapabilityBindings, unknown> {
   return Object.freeze({
@@ -1908,6 +1934,11 @@ function createSessionAgentHarnessAdapter(
       const baseCapabilities = await expandMcpCapabilityTools(
         applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
       );
+      const instruction = await expandHarnessInstruction(
+        input.instruction,
+        baseCapabilities,
+        options.promptTemplates,
+      );
       const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp });
       const profilePolicyDecisions = createPolicyDecisions({
         runId,
@@ -1934,7 +1965,7 @@ function createSessionAgentHarnessAdapter(
               rootScopeId,
               rootAgentId,
               workspaceRoot: input.workspaceRoot,
-              instruction: input.instruction,
+              instruction,
               ...(turnMode === undefined ? {} : { turnMode }),
               ...(maxTurns === undefined ? {} : { maxTurns }),
               roles,
@@ -1998,7 +2029,7 @@ function createSessionAgentHarnessAdapter(
           ...(rootRole === undefined ? {} : { role: rootRole }),
           capabilities: rootCapabilities,
           prompt: `${buildRootPrompt({
-            instruction: input.instruction,
+            instruction,
             roles,
             policyProfile: profile,
             ...(turnMode === undefined ? {} : { turnMode }),
