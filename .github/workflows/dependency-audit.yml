@@ -4,9 +4,8 @@ on:
   pull_request:
     branches:
       - main
-  push:
-    branches:
-      - main
+  # No push-to-main run: every PR is audited before merge, and the weekly run catches
+  # advisories published after that.
   schedule:
     - cron: "22 13 * * 1"
   workflow_dispatch:

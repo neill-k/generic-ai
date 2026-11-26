@@ -5,35 +5,50 @@ name: Reliability gate (live template evals)
 # report gives pass rate and pass^k over repeated tries, and tokens and dollars
 # per completed goal.
 #
+# This workflow is optional. The same run works on your own machine with the key in your
+# environment, so the key never has to go to GitHub:
+#   npm run reliability -w @generic-ai/app-generic-corp            (quick, about $1-3)
+#   npm run reliability -w @generic-ai/app-generic-corp -- --full  (the real gate)
+# See apps/generic-corp/README.md, "Reliability gate".
+#
 # Every run spends money on the provider account behind ANTHROPIC_API_KEY, so:
 # - it only runs when started by hand, or on the weekly schedule once the
 #   repository variable TEMPLATE_EVALS_SCHEDULE is set to "on" (off by default);
 # - without the ANTHROPIC_API_KEY secret it skips cleanly and spends nothing;
-# - the whole run stops at a dollar cap and a token cap (the per-run budgets in
-#   the harness), and attempts that would start after the cap count as failures.
+# - quick mode (the default) is one attempt per goal on cheaper models, capped at $5;
+#   full mode uses the templates' models and five attempts, capped at $50;
+# - the whole run stops at its dollar and token caps, and attempts that would
+#   start after the cap count as failures.
 #
 # The offline replay of the same suites runs on every pull request in the
-# Quality Gate workflow and needs no key.
+# baseline-quality-gate workflow and needs no key.
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: "quick: 1 attempt, cheaper models, $5 cap. full: template models, 5 attempts, $50 cap"
+        type: choice
+        options:
+          - quick
+          - full
+        default: quick
       template:
         description: "Template to evaluate (blank for every template)"
         required: false
         default: ""
       trials:
-        description: "Attempts per case (blank for each suite's own count, 5)"
+        description: "Attempts per case (blank for the mode's default)"
         required: false
         default: ""
       max_usd:
-        description: "Dollar cap for the whole run, judge included"
+        description: "Dollar cap for the whole run, judge included (blank for the mode's default)"
         required: false
-        default: "50"
+        default: ""
       max_tokens:
-        description: "Token cap for the whole run (cache reads count)"
+        description: "Token cap for the whole run, cache reads count (blank for the mode's default)"
         required: false
-        default: "40000000"
+        default: ""
   schedule:
     # Mondays 06:00 UTC. Does nothing unless vars.TEMPLATE_EVALS_SCHEDULE is "on".
     - cron: "0 6 * * 1"
@@ -94,27 +109,28 @@ jobs:
         if: steps.key.outputs.present == 'true'
         run: npm ci
 
-      - name: Build
-        if: steps.key.outputs.present == 'true'
-        run: npm run build
-
       - name: Run live template evals
         if: steps.key.outputs.present == 'true'
         env:
+          # The weekly schedule runs the full gate; a manual run defaults to quick.
+          MODE: ${{ inputs.mode || 'full' }}
           TEMPLATE: ${{ inputs.template }}
           TRIALS: ${{ inputs.trials }}
-          MAX_USD: ${{ inputs.max_usd || '50' }}
-          MAX_TOKENS: ${{ inputs.max_tokens || '40000000' }}
+          MAX_USD: ${{ inputs.max_usd }}
+          MAX_TOKENS: ${{ inputs.max_tokens }}
         run: |
-          args=(--live --out "$RUNNER_TEMP/template-evals" --max-usd "$MAX_USD" --max-tokens "$MAX_TOKENS")
+          args=(--out "$RUNNER_TEMP/template-evals")
+          if [ "$MODE" = "full" ]; then args+=(--full); fi
           if [ -n "$TEMPLATE" ]; then args+=(--template "$TEMPLATE"); fi
           if [ -n "$TRIALS" ]; then args+=(--trials "$TRIALS"); fi
+          if [ -n "$MAX_USD" ]; then args+=(--max-usd "$MAX_USD"); fi
+          if [ -n "$MAX_TOKENS" ]; then args+=(--max-tokens "$MAX_TOKENS"); fi
           set +e
-          npm run evals -w @generic-ai/app-generic-corp -- "${args[@]}" | tee "$RUNNER_TEMP/template-evals.log"
+          bash apps/generic-corp/scripts/reliability.sh "${args[@]}" | tee "$RUNNER_TEMP/template-evals.log"
           status=${PIPESTATUS[0]}
           set -e
           {
-            echo "## Live template evals"
+            echo "## Live template evals ($MODE)"
             echo
             for report in "$RUNNER_TEMP"/template-evals/*.md; do
               [ -f "$report" ] && cat "$report" && echo

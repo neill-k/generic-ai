@@ -12,6 +12,9 @@ on:
 permissions:
   contents: read
 
+# The one always-on gate. Its four jobs are the checks PRs must pass to merge. To keep Actions
+# minutes down, nothing else repeats them: the Quality Gate workflow only adds e2e, and only when
+# the app or packages change.
 concurrency:
   group: baseline-quality-gate-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -92,6 +95,21 @@ jobs:
     name: baseline-test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # The durable store and queue tests run against a real Postgres.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      GENERIC_AI_TEST_POSTGRES_URL: postgres://postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v7
 
@@ -170,3 +188,9 @@ jobs:
 
       - name: Build project references
         run: npm run build
+
+      # One goal eval suite per company template, replayed offline from recorded agent turns.
+      # Fails the build when any template's gate fails. Live runs on real models are the
+      # reliability gate: npm run reliability -w @generic-ai/app-generic-corp.
+      - name: Run company template evals (offline replay)
+        run: npm run evals -w @generic-ai/app-generic-corp
