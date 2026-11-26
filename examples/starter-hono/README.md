@@ -193,7 +193,7 @@ The stream endpoint emits canonical run lifecycle events, forwards runtime activ
 
 ## Live provider smoke test
 
-`RT-05` adds an opt-in smoke test that drives the real provider path with a deterministic write/read task. The default provider target is OpenAI Codex via pi auth (`openai-codex` + `gpt-5.5`), but the harness stays provider-aware so trusted CI or local runs can override the provider/model without rewriting the test contract.
+`RT-05` adds an opt-in smoke test that drives the real provider path with a deterministic write/read task. The default provider target is OpenAI Codex via pi auth (`openai-codex` + `gpt-5.5`), but the harness stays provider-aware so local runs can override the provider/model without rewriting the test contract.
 
 Local setup:
 
@@ -211,9 +211,8 @@ Safety and teardown notes:
 - The live smoke run is opt-in and returns a skipped result unless `GENERIC_AI_ENABLE_LIVE_SMOKE=1` is set.
 - The prompt is constrained to the shipped file tools only. It writes `workspace/shared/live-smoke.txt`, reads it back, and finishes with `LIVE_SMOKE_DONE`.
 - The test uses a disposable temp workspace root and removes it after the run.
-- Every live run incurs real provider cost. Keep it for trusted local runs and trusted CI only.
+- Every live run incurs real provider cost. It runs only by hand: the test lives in `src/live-smoke.live.test.ts`, which `npm test` and CI skip, and there is no workflow for it.
 
-Trusted CI can inject an auth directory by writing a secret JSON payload to `${RUNNER_TEMP}/pi-agent/auth.json` and exporting `GENERIC_AI_LIVE_AGENT_DIR=${RUNNER_TEMP}/pi-agent` before calling `npm run -w @generic-ai/example-starter-hono test:live`.
 ## Verification
 
 ```bash

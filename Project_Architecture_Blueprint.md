@@ -760,9 +760,9 @@ plugin.
     (`session/orchestrator.ts:33-47`).
   - `ManualScheduler` lets tests step through async work explicitly.
   - In-memory storage and queue plugins are the default test doubles.
-- **Live-provider smoke** — `examples/starter-hono/src/live-smoke.test.ts`
-  is gated by `GENERIC_AI_ENABLE_LIVE_SMOKE=1`, run only via the
-  manually-triggered `live-provider-smoke.yml` workflow.
+- **Live-provider smoke** — `examples/starter-hono/src/live-smoke.live.test.ts`
+  is gated by `GENERIC_AI_ENABLE_LIVE_SMOKE=1` and runs only by hand
+  (`npm run test:live`). No workflow calls a real model.
 
 ---
 
@@ -786,7 +786,6 @@ npm run docs:check  # generate-docs.mjs --check
 | `quality-gate.yml` | PR/push to main when app or packages change, dispatch | `e2e` (Playwright golden flows, crash, load) |
 | `docs.yml` | PR/push/main, dispatch | `npm run docs:check` |
 | `dependency-audit.yml` | PR/push/main, weekly cron Mon 13:22 UTC | `npm run audit:prod`: production `npm audit` at moderate with a reviewed allowlist (`security/audit-allowlist.json`) |
-| `live-provider-smoke.yml` | manual | runs `live-smoke.test.ts` against pi openai-codex |
 
 ### Releases
 

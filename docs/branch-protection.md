@@ -34,7 +34,7 @@ After changing the workflow or branch rule:
 1. Open a pull request targeting `main`.
 2. Confirm all four baseline checks start automatically.
 3. Confirm a failing baseline check blocks merge.
-4. Confirm the manual `live-provider-smoke` workflow is still opt-in and is not required for ordinary pull requests.
+4. Confirm no workflow calls a real model provider (see "No live model calls in automated tests" in `CONTRIBUTING.md`).
 
 Reference docs:
 

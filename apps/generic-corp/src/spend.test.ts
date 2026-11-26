@@ -1,7 +1,13 @@
 import { emptyUsageTotals } from "@generic-ai/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { missingProviderKeys, NOT_RUN_PREFIX, runTemplateEvals } from "./evals.js";
-import { ECONOMY_MODELS, EXIT_MISSING_KEY, main, modelOverrides } from "./evals-cli.js";
+import {
+  ECONOMY_MODELS,
+  EXIT_LIVE_IN_CI,
+  EXIT_MISSING_KEY,
+  main,
+  modelOverrides,
+} from "./evals-cli.js";
 import { createSpendCap } from "./spend.js";
 import { loadCompanyTemplate } from "./templates.js";
 
@@ -98,6 +104,13 @@ describe("eval spend cap", () => {
     ).toBe(EXIT_MISSING_KEY);
     expect(errors.join("\n")).toMatch(/openai/);
     expect(await main(["--model", "nope"])).toBe(2);
+  });
+
+  it("refuses a live run in GitHub Actions even with a key", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "set");
+    vi.stubEnv("GITHUB_ACTIONS", "true");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(await main(["--live", "--template", "generic-corp"])).toBe(EXIT_LIVE_IN_CI);
   });
 
   it("rejects caps that are not positive numbers", async () => {
