@@ -63,13 +63,24 @@ RUN if [ "$INSTALL_BROWSER" = "true" ]; then \
       fi; \
     fi
 
+# Make the node binary execute-only for everyone but root. Linux marks a
+# process that execs a binary it cannot read as non-dumpable, and the kernel
+# then refuses other processes of the same user access to its
+# /proc/<pid>/environ and memory. Agent shell commands run as the same user as
+# the server, so this is what keeps them from reading the server's provider
+# keys, DATABASE_URL and other secrets through /proc. Running node scripts
+# still works: exec only needs the execute bit.
+RUN chmod 0711 "$(command -v node)"
+
 ENV NODE_ENV=production \
     GENERIC_CORP_HOST=0.0.0.0 \
     PORT=3000 \
     GENERIC_CORP_DATA_DIR=/data
 
 WORKDIR /app
-COPY --from=build --chown=node:node /app /app
+# Owned by root and read-only for `node`: agent shell commands run as `node`,
+# and must not be able to change the server code that runs on next start.
+COPY --from=build /app /app
 COPY --chmod=0755 apps/generic-corp/docker-entrypoint.sh /usr/local/bin/generic-corp-entrypoint
 
 # Agent homes, memory files, workspaces and run artifacts. Mount a volume here.

@@ -238,6 +238,35 @@ export function getShellEnv(): NodeJS.ProcessEnv {
   };
 }
 
+/** Variables a search helper (`rg`, `fd`) needs: where to find binaries, locale, temp dir. */
+const SEARCH_HELPER_ENV_KEYS = new Set([
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "PATH",
+  "Path",
+  "PATHEXT",
+  "SystemRoot",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+]);
+
+/**
+ * Environment for the search helpers the grep and find tools spawn. Built from
+ * an allowlist so the host's secrets (provider keys, database URLs) never
+ * reach a child process the agent can influence.
+ */
+export function getSearchHelperEnv(env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined && (SEARCH_HELPER_ENV_KEYS.has(key) || key.startsWith("LC_"))) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 /**
  * Sanitize binary output for display/storage.
  * Removes characters that crash string-width or cause display issues:

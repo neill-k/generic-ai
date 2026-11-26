@@ -36,19 +36,57 @@ Docker sandbox there. Generic Corp does not use one: its agents' shell
 commands run directly in the app container, as `node`, starting in the
 agent's home under `/data`.
 
-What that means in practice:
-
 - **Works:** shell commands, git, file tools, grep and find, outbound network
   access (web search, APIs, MCP servers, the browser connector), and
   installing tools into the agent's home with user-level installs.
 - **Does not work:** anything that needs Docker (building or running
   containers), root (`apt-get install`), or a GUI.
-- **Isolation boundary is the container.** Agent commands share the uid,
-  filesystem and network with the server, so they can read the server's
-  environment through `/proc`, which includes provider keys and
-  `DATABASE_URL`. For a single-owner deployment whose agents already act for
-  the owner this is acceptable. Do not give this deployment credentials you
-  would not give the agents. Stronger isolation is roadmap item R20.
+
+**Keeping the server's secrets away from agent commands.** Provider keys,
+`DATABASE_URL`, `GENERIC_AI_SECRETS_KEY`, the setup token and auth tokens live
+in the server process. Agent commands cannot read them by either route:
+
+- **Environment.** The shell tool starts every command with an environment
+  built from an allowlist (`PATH`, `HOME`, `SHELL`, locale, temp dirs and the
+  tool's own session variables), never the server's. The grep and find tools
+  give `rg` and `fd` an allowlisted environment too.
+- **`/proc`.** The image makes the `node` binary execute-only. Linux marks a
+  process that runs a binary it cannot read as non-dumpable, and then refuses
+  other processes of the same user access to its `/proc/<pid>/environ` and
+  memory. So an agent command, which runs as `node` like the server, cannot
+  read the server's environment.
+- **Code.** `/app` is owned by root, so agent commands cannot change the
+  server code that runs on the next start.
+
+The image smoke test checks all three on every PR, with a probe that runs a
+command through the agents' shell tool and looks for the server's secret
+values in its environment and in every `/proc/<pid>/environ` it can read.
+
+**What remains** (stronger isolation is roadmap item R20):
+
+- Agent commands run as the same user as the server, so they can read and
+  write everything `node` can: every agent's home and workspace under
+  `/data`, and the SQLite database when there is no `DATABASE_URL` (on
+  Railway there is one, so the database is not on disk).
+- Child processes the server starts that are not `node` (for example an MCP
+  server launched with `uvx` or a native binary) are ordinary processes, so
+  an agent command can read their environment, including credentials
+  configured for that MCP server. MCP servers launched with `npx` or `node`
+  are protected like the server.
+- Lifecycle hook commands configured in the harness get the server's full
+  environment while they run. Generic Corp configures none.
+- Agent commands share the network with the server. They can reach the
+  Postgres host on Railway's private network, but not its password.
+- The `/proc` protection relies on standard Linux behaviour. After the first
+  deploy, confirm it on Railway with `railway ssh` into the app service and:
+
+  ```bash
+  generic-corp-entrypoint node apps/generic-corp/scripts/agent-env-probe.mjs \
+    "$ANTHROPIC_API_KEY" "$DATABASE_URL"
+  ```
+
+  It prints `None of the 2 secret values reached the agent command.` on
+  success.
 
 ## Local testing with Docker Compose
 

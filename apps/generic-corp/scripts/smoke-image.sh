@@ -56,9 +56,15 @@ docker run --rm --network "$net" -e DATABASE_URL="$url" "$image" node apps/gener
 docker run --rm --network "$net" -e DATABASE_URL="$url" "$image" node apps/generic-corp/dist/migrate.js \
   | grep -q "up to date" || fail "second migration run was not a no-op"
 
+# Stand-in secrets: the probe below checks none of them reach agent commands.
+api_key="sk-ant-smoke-$$-provider-key"
+secrets_key="smoke-$$-secrets-master-key-0123456789"
+
 step "Server, configured like Railway"
 docker run -d --name "$app" --network "$net" \
   -e DATABASE_URL="$url" \
+  -e ANTHROPIC_API_KEY="$api_key" \
+  -e GENERIC_AI_SECRETS_KEY="$secrets_key" \
   -e RAILWAY_PUBLIC_DOMAIN=smoke.example.com \
   -e PORT=8080 \
   -p 127.0.0.1::8080 \
@@ -70,6 +76,9 @@ wait_for "/ready" "[ \"\$(status_of /ready)\" = 200 ]"
 [ "$(status_of /api/agents)" = 401 ] || fail "/api/agents answered without auth"
 docker logs "$app" 2>&1 | grep -q "https://smoke.example.com/auth/login and use this one-time setup token" \
   || fail "setup token line missing from the log"
+# The one-time setup token lives only in the server's memory and log.
+setup_token="$(docker logs "$app" 2>&1 | grep -A1 "one-time setup token" | tail -n1 | tr -d ' ')"
+[ "${#setup_token}" -ge 16 ] || fail "could not read the setup token from the log"
 
 step "Runs as the node user, with the agent tools on PATH"
 docker exec "$app" sh -c '
@@ -82,6 +91,22 @@ docker exec -u node "$app" sh -c 'command -v bash && command -v git && command -
   || fail "bash, git, rg or fd missing"
 docker exec -u node "$app" sh -c 'touch /data/.write-test && rm /data/.write-test' \
   || fail "/data is not writable by node"
+if docker exec -u node "$app" sh -c 'touch /app/apps/generic-corp/dist/run.js' 2>/dev/null; then
+  fail "the server code is writable by node, so an agent could change it"
+fi
+
+step "Agent commands cannot see the server's secrets (environment or /proc)"
+# The probe holds the same secret variables as the server and is started the
+# same way (as root through the entrypoint, which drops to node), so this
+# checks both routes: inherited environment and /proc/<pid>/environ of the
+# server and of the probe itself.
+docker exec \
+  -e DATABASE_URL="$url" \
+  -e ANTHROPIC_API_KEY="$api_key" \
+  -e GENERIC_AI_SECRETS_KEY="$secrets_key" \
+  "$app" generic-corp-entrypoint node apps/generic-corp/scripts/agent-env-probe.mjs \
+  "$api_key" "$url" "smoke@$pg" "$secrets_key" "$setup_token" \
+  || fail "a secret reached an agent command"
 
 step "Recovers from a database restart"
 docker restart "$pg" >/dev/null

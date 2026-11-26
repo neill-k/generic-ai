@@ -42,10 +42,18 @@ other containers, and it mounts volumes owned by root.
   the runbook (`apps/generic-corp/DEPLOY.md`).
 - **The shell runs in the app container.** On Railway there is no Docker
   sandbox. The app binds the plain terminal tool, so shell commands run in
-  the app container as `node`, rooted at the agent's home on the volume.
+  the app container as `node`, rooted at the agent's home on the volume,
+  with an allowlisted environment and no access to the server's `/proc`
+  entries (see Consequences).
 - **CI builds and smoke-tests the image** (`generic-corp-image` workflow):
   migrate, start like Railway, readiness, auth, setup token, non-root user,
-  tool binaries, a Postgres restart, Chrome launch and clean shutdown.
+  tool binaries, read-only server code, no secrets reachable from an agent
+  command, a Postgres restart, Chrome launch and clean shutdown.
+- **The terminal tool no longer leaks the host environment.** Commands run
+  through the agent-facing bash tool received the server's whole
+  environment, because the bash tool hands its spawn hook `process.env` and
+  the terminal plugin layered that over its allowlist. The hook now keeps
+  only allowlisted keys unless `inheritProcessEnv` is set.
 - **A dropped idle Postgres connection no longer crashes the server.**
   `plugin-storage-postgres` now listens for pool errors on pools it creates.
 
@@ -56,12 +64,19 @@ other containers, and it mounts volumes owned by root.
   domain. The runbook lists them.
 - Keep the app service at one replica. The volume attaches to one replica,
   agent turns run in-process, and v1 has a single owner.
-- Agents' shell commands share the container, the uid and the network with
-  the server. They can read the server's environment through `/proc`, which
-  includes provider keys and `DATABASE_URL`. That is acceptable for a
-  single-owner v1 whose agents already act for the owner, but stronger
-  isolation (a separate uid for agent commands, or a remote sandbox
-  provider) is follow-up work before multi-tenant use.
+- Agents' shell commands share the container and the uid with the server, so
+  three measures keep the server's secrets (provider keys, `DATABASE_URL`,
+  `GENERIC_AI_SECRETS_KEY`, the setup token) from them: the shell tool and
+  the `rg`/`fd` helpers start commands with an allowlisted environment, never
+  the server's; the `node` binary is execute-only, which makes the server
+  non-dumpable so the kernel denies same-user reads of its
+  `/proc/<pid>/environ` and memory; and `/app` is owned by root so agents
+  cannot change the server code. A probe in the image smoke test checks the
+  first two on every PR. A separate uid for agent commands was not used: the
+  server would need root or a setuid helper to switch users. What remains
+  (same-user file access under `/data`, the environment of non-node child
+  processes such as some MCP servers, lifecycle hooks) is listed in
+  `apps/generic-corp/DEPLOY.md` and belongs to R20.
 - Chrome and its system libraries make up most of the image. `INSTALL_BROWSER=false`
   builds a much smaller image without the browser connector. arm64 builds (for example
   Compose on Apple silicon) skip Chrome, because Google does not publish it
