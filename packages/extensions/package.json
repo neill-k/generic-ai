@@ -1,0 +1,35 @@
+{
+  "name": "@generic-ai/extensions",
+  "version": "0.0.0",
+  "description": "Extensions for the Generic AI native runtime: event hooks on the agent loop (input, system prompt, context, tool calls and results, turns, compaction), extension tools and commands, and discovery and loading of extension modules.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "@generic-ai/agent": "0.0.0",
+    "@generic-ai/ai": "0.0.0",
+    "@generic-ai/tools": "0.0.0"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
