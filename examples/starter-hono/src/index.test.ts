@@ -89,6 +89,8 @@ afterEach(async () => {
   await Promise.all(openServers.splice(0).map((close) => close()));
 });
 
+const FAKE_STARTER_TOKEN = "fake-starter-token-for-tests-only";
+
 describe("@generic-ai/example-starter-hono", () => {
   it("creates a composed Hono app with real runtime wiring", async () => {
     const createRuntime = vi.fn(
@@ -450,11 +452,13 @@ describe("@generic-ai/example-starter-hono", () => {
   it("requires the configured bearer token for run endpoints", async () => {
     const starter = await createStarterExampleServer({
       env: {
-        GENERIC_AI_AUTH_TOKEN: "test-token",
+        GENERIC_AI_AUTH_TOKEN: FAKE_STARTER_TOKEN,
+        GENERIC_AI_AUTH_DB: ":memory:",
         GENERIC_AI_HOST: "0.0.0.0",
         GENERIC_AI_PROVIDER_API_KEY: "test-key",
       },
       createRuntime: async () => createFakeRuntime("secured result"),
+      log: () => undefined,
     });
 
     try {
@@ -475,7 +479,7 @@ describe("@generic-ai/example-starter-hono", () => {
       const authorized = await starter.app.request("/starter/run", {
         method: "POST",
         headers: {
-          authorization: "Bearer test-token",
+          authorization: `Bearer ${FAKE_STARTER_TOKEN}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ input: "hello" }),
@@ -484,5 +488,112 @@ describe("@generic-ai/example-starter-hono", () => {
     } finally {
       await starter.stop();
     }
+  });
+
+  it("enables passkey owner auth with API tokens and stamps the actor on runs", async () => {
+    const logs: string[] = [];
+    const starter = await createStarterExampleServer({
+      env: {
+        GENERIC_AI_PUBLIC_URL: "http://localhost:3000",
+        GENERIC_AI_AUTH_DB: ":memory:",
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+      },
+      createRuntime: async () => createFakeRuntime("owner result"),
+      log: (message) => logs.push(message),
+    });
+
+    try {
+      expect(starter.environment.auth.mode).toBe("owner");
+      expect(starter.environment.auth.publicOrigin).toBe("http://localhost:3000");
+      // No setup token was configured, so a one-time one is printed for the operator.
+      expect(logs.join("\n")).toContain("/auth/login");
+
+      const health = await starter.app.request("/starter/health");
+      expect(await health.json()).toMatchObject({ auth: "owner", exposure: "loopback" });
+
+      const page = await starter.fetch(
+        new Request("http://localhost:3000/", { headers: { accept: "text/html" } }),
+      );
+      expect(page.status).toBe(302);
+      expect(page.headers.get("location")).toBe("/auth/login");
+
+      const login = await starter.fetch(new Request("http://localhost:3000/auth/login"));
+      expect(login.status).toBe(200);
+
+      const anonymous = await starter.app.request("/starter/run", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ input: "hello" }),
+      });
+      expect(anonymous.status).toBe(401);
+
+      const consoleAnonymous = await starter.fetch(
+        localAppRequest("/console/api/config", { headers: { accept: "application/json" } }),
+      );
+      expect(consoleAnonymous.status).toBe(401);
+
+      const auth = starter.auth?.auth;
+      if (auth === undefined) {
+        throw new Error("Expected owner auth to be enabled.");
+      }
+      const created = await auth.createApiToken({ name: "test", scopes: ["runs:execute"] });
+
+      const run = await starter.app.request("/starter/run", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${created.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ input: "hello" }),
+      });
+      expect(run.status).toBe(200);
+      const payload = (await run.json()) as { result: { actor?: unknown } };
+      expect(payload.result.actor).toEqual({
+        subjectId: "owner",
+        actorType: "human",
+        credentialSource: "bearer",
+        displayName: "Owner",
+        credentialId: `token:${created.record.id}`,
+      });
+      expect(JSON.stringify(payload)).not.toContain(created.token);
+
+      const stream = await starter.app.request("/starter/run/stream", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${created.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ input: "hello" }),
+      });
+      expect(stream.status).toBe(200);
+      const streamText = await stream.text();
+      expect(streamText).toContain(`"credentialId": "token:${created.record.id}"`);
+      expect(streamText).not.toContain(created.token);
+    } finally {
+      await starter.stop();
+    }
+  });
+
+  it("refuses an auth database inside the agent workspace", async () => {
+    await expect(
+      createStarterExampleServer({
+        env: {
+          GENERIC_AI_OWNER_SETUP_TOKEN: "fake-setup-token-for-tests-only",
+          GENERIC_AI_AUTH_DB: "./auth.sqlite",
+          GENERIC_AI_PROVIDER_API_KEY: "test-key",
+        },
+        createRuntime: async () => createFakeRuntime("unused"),
+        log: () => undefined,
+      }),
+    ).rejects.toThrow(/inside the agent workspace/);
+  });
+
+  it("rejects short auth secrets", () => {
+    expect(() =>
+      loadStarterExampleEnvironment({
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+        GENERIC_AI_AUTH_TOKEN: "short",
+      }),
+    ).toThrow(/at least 16 characters/);
   });
 });

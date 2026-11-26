@@ -19,3 +19,16 @@ Planning baseline:
 - `docs/planning/README.md`
 - `docs/planning/02-architecture.md`
 - `docs/package-boundaries.md`
+
+## Authentication hooks
+
+Two optional hooks run before `/run` and `/run/stream` read the request body:
+
+- `authorize(context)` returns a `Response` to deny or `undefined` to allow.
+- `authenticate(context)` returns `{ ok: false, response }` to deny or
+  `{ ok: true, auth }` to allow. The `auth` value is an SDK `AuthContext` and
+  is passed to the run and stream handlers as `context.auth`.
+
+The plugin implements no credential scheme. Use
+`@generic-ai/plugin-auth-identity` (`createOwnerAuthenticate`) or your own
+handler. `/health` stays public.

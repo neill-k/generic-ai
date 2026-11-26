@@ -1,5 +1,6 @@
 export * from "./agent-lifecycle.js";
 export * from "./delegation.js";
+export * from "./identity.js";
 export * from "./config-schema.js";
 export * from "./lifecycle.js";
 export * from "./memory.js";
