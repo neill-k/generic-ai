@@ -1733,6 +1733,41 @@ export function createAgentHarness<TCapabilities = PiCapabilityBindings, TOutput
   });
 }
 
+export interface CreateAgentHarnessRunContextOptions {
+  readonly runId: string;
+  /** Directory for the run's artifacts. */
+  readonly artifactDir: string;
+  /** Actor recorded on default policy decisions. Defaults to `root`. */
+  readonly actorId?: string;
+  /** Policy evaluator. Defaults to the allow-all harness evaluator. */
+  readonly policy?: AgentHarnessPolicyEvaluator;
+  readonly signal?: AbortSignal;
+  readonly deadline?: Date;
+}
+
+/**
+ * Builds the run context `createAgentHarness().run()` uses (local artifact
+ * store, in-memory event sink, policy evaluator), for hosts that call an
+ * adapter directly, such as a durable task executor that passes each turn's
+ * abort signal through.
+ */
+export function createAgentHarnessRunContext(
+  options: CreateAgentHarnessRunContextOptions,
+): AgentHarnessAdapterRunContext {
+  return Object.freeze({
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.deadline === undefined ? {} : { deadline: options.deadline }),
+    events: createEventSink().sink,
+    artifacts: createLocalArtifactStore({
+      runId: options.runId,
+      artifactDir: resolve(options.artifactDir),
+    }),
+    policy:
+      options.policy ??
+      createPolicyEvaluator({ runId: options.runId, actorId: options.actorId ?? "root" }),
+  });
+}
+
 function createDefaultRunContext<TCapabilities>(
   input: AgentHarnessRunInput<TCapabilities>,
   options: { readonly policy?: AgentHarnessPolicyEvaluator } = {},
@@ -1869,35 +1904,47 @@ function createSessionAgentHarnessAdapter(
         actorId: rootAgentId,
         roleId: rootAgentId,
       };
+      const rootRole = roles.find((role) => role.id === rootAgentId);
+      // A primary agent declared as a non-root role (a persistent agent's single-role turn)
+      // works under its own role's policy; otherwise the primary is the coordinator.
+      const rootRolePolicy: AgentHarnessRolePolicy =
+        rootRole === undefined || rootRole.kind === "root"
+          ? "coordinator"
+          : policyForRole(rootRole, false);
+      const delegateRoles = roles.filter((role) => role.id !== rootAgentId);
       const rootPolicyResult = await applyRolePolicy({
         capabilities: {
           ...baseCapabilities,
           customTools: [
             ...(baseCapabilities.customTools ?? []),
-            createDelegateTool({
-              runId,
-              rootScopeId,
-              rootAgentId,
-              workspaceRoot: input.workspaceRoot,
-              instruction: input.instruction,
-              ...(turnMode === undefined ? {} : { turnMode }),
-              ...(maxTurns === undefined ? {} : { maxTurns }),
-              roles,
-              capabilities: baseCapabilities,
-              deniedEffects,
-              hookExecutor,
-              policy: context.policy,
-              ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
-              eventStream,
-              getRootSessionId: () => rootRuntimeSessionId,
-              recordPolicyDecisions: (decisions) => {
-                policyDecisions.push(...decisions);
-              },
-              backend,
-            }),
+            ...(delegateRoles.length === 0 && rootRolePolicy !== "coordinator"
+              ? []
+              : [
+                  createDelegateTool({
+                    runId,
+                    rootScopeId,
+                    rootAgentId,
+                    workspaceRoot: input.workspaceRoot,
+                    instruction: input.instruction,
+                    ...(turnMode === undefined ? {} : { turnMode }),
+                    ...(maxTurns === undefined ? {} : { maxTurns }),
+                    roles,
+                    capabilities: baseCapabilities,
+                    deniedEffects,
+                    hookExecutor,
+                    policy: context.policy,
+                    ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
+                    eventStream,
+                    getRootSessionId: () => rootRuntimeSessionId,
+                    recordPolicyDecisions: (decisions) => {
+                      policyDecisions.push(...decisions);
+                    },
+                    backend,
+                  }),
+                ]),
           ],
         },
-        rolePolicy: "coordinator",
+        rolePolicy: rootRolePolicy,
         runId,
         actorId: rootAgentId,
         deniedEffects,
@@ -1914,7 +1961,6 @@ function createSessionAgentHarnessAdapter(
         context: rootHookContext,
       });
 
-      const rootRole = roles.find((role) => role.id === rootAgentId);
       const result = await backend
         .run({
           cwd: input.workspaceRoot,
