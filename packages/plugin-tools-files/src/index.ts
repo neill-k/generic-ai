@@ -189,9 +189,31 @@ export class WorkspaceBoundaryError extends Error {
  * symlink between the check and the read. Closing it needs the kernel to resolve the path
  * (`openat2` with `RESOLVE_BENEATH`), which Node does not expose.
  */
+/** `<tmpdir>/generic-ai-<tool>-<16 hex>.<ext>`: where the shell tool saves output it truncated. */
+const TOOL_OUTPUT_FILE = /^generic-ai-[a-z]+-[0-9a-f]{16}\.[a-z]+$/;
+
+/**
+ * Whether `candidate` is a full-output file the server's own tools wrote, which the shell tool
+ * points the agent at when it truncates a command's output. Only a regular file (not a link) in
+ * the temp directory, named like one and owned by the server's user, qualifies; the temp
+ * directory is sticky, so no other user can swap it.
+ */
+async function isServerToolOutputFile(candidate: string): Promise<boolean> {
+  if (path.dirname(candidate) !== os.tmpdir() || !TOOL_OUTPUT_FILE.test(path.basename(candidate))) {
+    return false;
+  }
+  try {
+    const info = await lstat(candidate);
+    return info.isFile() && (typeof process.getuid !== "function" || info.uid === process.getuid());
+  } catch {
+    return false;
+  }
+}
+
 function confineToWorkspace<T extends { execute: (...args: never[]) => unknown }>(
   tool: T,
   root: string,
+  options: { readonly allowToolOutput?: boolean } = {},
 ): T {
   const execute = tool.execute as unknown as (
     id: string,
@@ -201,11 +223,15 @@ function confineToWorkspace<T extends { execute: (...args: never[]) => unknown }
   const confined = async (id: string, params: unknown, ...rest: unknown[]) => {
     const record = (params ?? {}) as Record<string, unknown>;
     const requested = typeof record["path"] === "string" ? record["path"] : ".";
+    const candidate = normalizeToolPath(requested, root);
     let resolved: string;
     try {
-      resolved = await resolveSafeWorkspacePath(root, normalizeToolPath(requested, root));
+      resolved = await resolveSafeWorkspacePath(root, candidate);
     } catch {
-      throw new WorkspaceBoundaryError(requested, root);
+      if (options.allowToolOutput !== true || !(await isServerToolOutputFile(candidate))) {
+        throw new WorkspaceBoundaryError(requested, root);
+      }
+      resolved = candidate;
     }
     return execute.call(tool, id, { ...record, path: resolved }, ...rest);
   };
@@ -216,7 +242,9 @@ export function createWorkspaceFileTools(options: WorkspaceFileToolsOptions): Wo
   const workspace = createWorkspaceFs(options.root);
   const piTools = Object.freeze([
     withAgentHarnessToolEffects(
-      confineToWorkspace(createReadTool(workspace.root), workspace.root),
+      confineToWorkspace(createReadTool(workspace.root), workspace.root, {
+        allowToolOutput: true,
+      }),
       {
         id: "files.read",
         label: "Read file",

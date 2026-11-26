@@ -186,4 +186,24 @@ describe("agent-facing file tools stay inside the workspace", () => {
       expect(text(await tool(files, "grep").execute("1", { pattern: "inside" }))).toContain("a.md");
     });
   });
+
+  it("lets read open the shell tool's own full-output files, and nothing else in the temp dir", async () => {
+    await withOutside(async (home) => {
+      const files = createWorkspaceFileTools({ root: home });
+      const saved = path.join(os.tmpdir(), "generic-ai-bash-0123456789abcdef.log");
+      const planted = path.join(os.tmpdir(), "generic-ai-bash-fedcba9876543210.log");
+      tempRoots.push(saved, planted);
+      await writeFile(saved, "full command output\n");
+      await symlink("/proc/self/environ", planted);
+      expect(text(await tool(files, "read").execute("1", { path: saved }))).toContain(
+        "full command output",
+      );
+      await expect(tool(files, "read").execute("1", { path: planted })).rejects.toThrow(
+        /outside the agent's workspace/,
+      );
+      await expect(
+        tool(files, "write").execute("1", { path: saved, content: "changed" }),
+      ).rejects.toThrow(/outside the agent's workspace/);
+    });
+  });
 });
