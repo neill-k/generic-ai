@@ -15,7 +15,7 @@ const sourceExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".mts", ".cts"])
 
 // The native runtime packages sit below the kernel: they own the model and agent loop and know
 // nothing about the framework around them.
-const runtimePackages = new Set(["@generic-ai/ai", "@generic-ai/agent", "@generic-ai/tools"]);
+const runtimePackages = new Set(["@generic-ai/ai", "@generic-ai/agent", "@generic-ai/tools", "@generic-ai/session"]);
 const runtimeRules = [
   "@generic-ai/core",
   "@generic-ai/sdk",

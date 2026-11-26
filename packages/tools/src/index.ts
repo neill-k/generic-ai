@@ -68,6 +68,8 @@ export {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   formatSize,
+  sliceHead,
+  sliceTail,
   type TruncationOptions,
   type TruncationResult,
   truncateHead,
@@ -120,3 +122,4 @@ export function createReadOnlyTools(cwd: string, options: ToolsOptions = {}): To
     createLsTool(cwd, options.ls),
   ] as Tool[];
 }
+export { normalizePath, pathsEqual, resolvePath } from "./paths.js";

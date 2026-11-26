@@ -4,6 +4,7 @@
     { "path": "packages/ai" },
     { "path": "packages/agent" },
     { "path": "packages/tools" },
+    { "path": "packages/session" },
     { "path": "packages/core" },
     { "path": "packages/sdk" },
     { "path": "packages/observability" },
@@ -32,6 +33,7 @@
     { "path": "packages/plugin-auth-identity" },
     { "path": "packages/plugin-web-ui" },
     { "path": "examples/starter-hono" },
-    { "path": "examples/terminal-bench" }
+    { "path": "examples/terminal-bench" },
+    { "path": "apps/generic-corp" }
   ]
 }

@@ -1,6 +1,6 @@
 # Native Harness Parity Plan
 
-Status: slice 1 in review (model layer, agent loop, native LLM adapter); slice 2 in review (native harness adapter, per-role models, native coding tools).
+Status: slice 1 merged (model layer, agent loop, native LLM adapter); slice 2 in review (native harness adapter, per-role models, native coding tools); slice 3 in review (sessions, compaction, retry).
 Owner: the native runtime workstream. Last updated 2026-11-26.
 
 ## Goal
@@ -19,8 +19,8 @@ Parity targets:
   durable runtime.
 - **Prime Agent** (`PrimeIntellect-ai/prime-agent`): the multi-agent and long-running features:
   real subagents, agent-to-agent messaging, daemon sessions, goals, heartbeats and schedules,
-  bounded autonomous mode, and the continual harness (`/refine`). This is the best match for
-  "prime-agents"; there is no other public project by that name with a harness.
+  bounded autonomous mode, and the continual harness (`/refine`). Neill confirmed on
+  2026-11-26 that this is the project he meant by "prime-agents".
 
 Parity is proven with tests: pi's suites are ported (TypeScript, so most port directly), and Prime
 Agent's Rust tests are used as behavioural specifications, since its runtime is Rust and Python.
@@ -38,6 +38,7 @@ Agent's Rust tests are used as behavioural specifications, since its runtime is 
 @generic-ai/ai      provider-neutral messages, streaming protocol, providers, catalog, faux provider
 @generic-ai/agent   agent loop + Agent (tools, hooks, steering/follow-up queues)
 @generic-ai/tools   coding tools: read, write, edit, bash, grep, find, ls
+@generic-ai/session JSONL session tree, compaction, branch summaries, retry helpers
 @generic-ai/core    adapter "native" (createNativeRuntime) beside "pi" and "openai-codex"
 ```
 
@@ -104,9 +105,13 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | `find` without fd: built-in search with fd's glob rules (no `.gitignore`) | ✓ | `find-fallback.test.ts` |
 | Image resize and conversion in `read`, tool binary downloads | ○ | pi `read-*`, `tools-manager` (Generic AI attaches PNG/JPEG/GIF/WebP as-is and uses `rg`/`fd` from `PATH`) |
 | `plugin-tools-files` and `plugin-tools-terminal` on `@generic-ai/tools` (no pi tools left in either plugin) | ✓ | existing plugin tests |
-| Sessions on disk: JSONL tree, branching, resume, tree navigation | ○ | `session-manager`, `agent-session-branching`, `agent-session-tree-navigation` |
-| Compaction and branch summaries, auto-compaction queue | ○ | `compaction*`, `branch-summarization`, `agent-session-compaction`, `agent-session-auto-compaction-queue` |
-| Retry on transient errors, usage totals, cache stats | ○ | `agent-session-retry`, `usage-totals`, `cache-stats` |
+| Sessions on disk: JSONL tree, branching, labels, resume, tree navigation, migration | ✓ | ported `session-manager/*` (8 suites) in `packages/session/test` |
+| Compaction and branch summaries | ✓ | ported `compaction`, `branch-summarization` (system-message case dropped) |
+| Auto-compaction before each prompt in the native harness, session files per role (`native.sessionDir`) | ✓ | `packages/session/test/agent-session.test.ts`, `native-agent-harness.test.ts` |
+| Retry on transient errors (classifier, backoff, retry loop) | ✓ | ported `@generic-ai/ai` `retry`, `uuid`; `agent-session.test.ts` and `native-agent-harness.test.ts` cover the agent-level retry (pi's `agent-session-retry` drives its `AgentSession` class, which is not ported) |
+| Usage totals | ✓ | ported `usage-totals` (provider-reported total flag dropped) |
+| Context-overflow recovery (compact then retry the turn), cache stats, auto-compaction queue | ○ | pi `agent-session-auto-compaction-queue`, `cache-stats`, `context-overflow` |
+| Session files through the durable store contract (R6) | ○ | once the store lands, `SessionManager` gains a store-backed writer |
 | Skills, prompt templates, system prompt assembly | ○ | `skills`, `sdk-skills`, `prompt-templates`, `system-prompt*` |
 | Extensions and event bus | ○ | `extensions-*` |
 | MCP client and OAuth | ○ | `mcp-*` (Generic AI already has `plugin-mcp`; port only what it lacks) |
@@ -142,8 +147,10 @@ Each slice is a reviewable PR that keeps every existing test green.
 2b. **Native coding tools** (in review with slice 2): `@generic-ai/tools` ports read, write, edit,
    bash, grep, find and ls with pi's tool tests, and `plugin-tools-files` and
    `plugin-tools-terminal` now bind them, so both adapters run the native tools.
-3. **Sessions, compaction, retry**: on-disk sessions through the durable store contract,
-   compaction and summaries, transient-error retry.
+3. **Sessions, compaction, retry** (in review): `@generic-ai/session` ports pi's JSONL session
+   manager, compaction and branch summaries; `@generic-ai/ai` gains the retry classifier and
+   backoff. The native harness records sessions (in memory, or as files under `native.sessionDir`),
+   compacts before a prompt that would overflow, and retries transient provider errors.
 4. **Skills, prompt templates, extensions**: reuse `plugin-agent-skills`; port pi's extension hooks
    that Generic AI lacks.
 5. **Subagents and messaging**: native subagent spawning and agent-to-agent messages, wired to the
@@ -157,5 +164,5 @@ Each slice is a reviewable PR that keeps every existing test green.
 ## Running the parity suites
 
 ```bash
-npx vitest run packages/ai packages/agent packages/tools packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts
+npx vitest run packages/ai packages/agent packages/tools packages/session packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts
 ```

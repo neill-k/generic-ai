@@ -27,18 +27,46 @@ Anything outside that baseline should be treated as non-authoritative for reimpl
 
 ## Core Product Decision
 
-This is a composable agents-as-code research harness, not a reimplementation of
-the full Generic Corp product.
+Generic AI is the framework for building complex multi-agent systems that
+pursue a goal, without today's complexity. Generic Corp is the flagship
+production app built on it, inside this monorepo at `apps/generic-corp`.
 
-The harness should preserve the useful architectural lessons from the old
-system, but it should not inherit the full product surface area by default. A
-developer should be able to keep a mission stable, vary the harness
-configuration around topology, runtime constraints, plugins, evaluator choices,
-and evidence requirements, then publish a bounded comparison report.
+This replaces the earlier stance that the harness was "not a reimplementation
+of the full Generic Corp product". The change and the owner's product
+decisions D1 to D6 are recorded in
+[ADR 0046](../decisions/0046-generic-corp-app-on-generic-ai.md):
 
-Architecture Lab is the flagship validation and demo application for this
-research harness. Lab concepts must not become kernel concepts unless a later
-ADR makes that boundary explicit.
+- D1: generic-ai is the framework, Generic Corp is an app on it.
+- D2: the app lives in this monorepo, so npm publishing is not a prerequisite.
+- D3: add Anthropic alongside OpenAI and choose the model per role in config.
+- D4: a single owner self-hosting for v1, with no tenants.
+- D5: Railway in production, Docker for local testing.
+- D6: agents do generic work, not only software work in git repositories.
+
+The design brief is the owner's NOVA framework (*Building Production Agents*):
+mirror how the model was trained by giving every task a defined goal and a way
+to check it ("What is the definition of done?"), "offload as much work as
+possible out of the model" to files and code, validate results at runtime, and
+"start as simply as possible and add complexity to address issues you find in
+the Evaluation process".
+
+Generic Corp should preserve the useful architectural lessons from the old
+`neill-k/generic-corp` system without inheriting the scope that made it
+unwieldy. Agent economy, federation, multi-tenant billing and voice are out of
+v1.
+
+App concepts (CEO, org chart, board, company templates) stay in
+`apps/generic-corp` unless a later ADR promotes a general form into the SDK or
+a plugin. Framework capabilities the app needs (goals and validators, durable
+delegation, approvals, cost accounting, auth) land as framework contracts and
+plugins first, with the app as their first consumer.
+
+The research-harness surface stays and becomes the evaluation layer: a
+developer can keep a mission stable, vary the harness configuration around
+topology, runtime constraints, plugins, evaluator choices, and evidence
+requirements, then publish a bounded comparison report. Architecture Lab
+remains a validation demo for that surface. Lab and app concepts must not
+become kernel concepts unless a later ADR makes that boundary explicit.
 
 ## Kernel Decision
 
@@ -68,6 +96,12 @@ helpers.
 ## `pi` Decision
 
 Use `pi` as the underlying agent/tool runtime foundation.
+
+Update (2026-11-26): the owner set a new direction. Generic AI is growing its
+own native runtime with full feature parity against `pi` and PrimeIntellect's
+Prime Agent, and `pi` becomes one optional adapter instead of the foundation.
+See [native-harness-parity.md](native-harness-parity.md). The assumptions below
+describe the `pi` adapter path until that work lands.
 
 Planning assumptions:
 

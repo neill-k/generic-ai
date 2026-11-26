@@ -5,9 +5,10 @@ an agent a goal and a way to verify it, and let it keep working until the
 verification says `COMPLETE`. This page describes the SDK contract and the
 validator runner in `@generic-ai/sdk` (`packages/sdk/src/goals/`).
 
-Status: contract and runner only. Wiring the runner into task completion (so
-`finish_task` is gated on `COMPLETE`) is separate work in the core harness and
-queue.
+Delegated tasks are gated on these goals: in `@generic-ai/plugin-delegation`,
+a task whose goal carries a `spec` only succeeds once the runner reports
+`COMPLETE`; otherwise the agent gets `report.feedback` and another turn (see
+"Goal-gated tasks" below).
 
 ## Goal spec
 
@@ -147,6 +148,26 @@ Errors carry a JSONPath and a message written for the agent to act on.
 `describeGoalForAgent(goal)` renders the objective, definition of done, every
 check with its threshold, and the protected paths. Thresholds are shown on
 purpose: the agent needs to know how it will be verified.
+
+## Goal-gated tasks
+
+The delegation cascade (`createDelegationCascade`, ADR 0044) wires goals into
+task completion:
+
+- `cascade.submit({ goal: { spec } })` seals the spec and stores it, with its
+  fingerprint, on the task record. An invalid spec is rejected at submit time.
+- A manager agent can attach a spec to delegated work with a `goal` field on a
+  `delegate_task` entry. An invalid spec goes back to the manager as feedback.
+- When the agent finishes a turn, the cascade re-seals the stored goal, checks
+  the fingerprint, and runs `runGoalValidators` with the turn's output text,
+  structured output (the last fenced JSON block), and trace (the canonical
+  events of the turn's persisted harness runs). Pass judges, checks, and extra
+  evidence (metrics, artifacts) through the cascade's `goals` option.
+- `INCOMPLETE` re-queues the task with the report's feedback, up to the goal's
+  `maxAttempts` (or the cascade's `maxValidationAttempts`); then the task fails
+  and the failure bubbles to its parent. The latest report summary is kept on
+  the task as `lastGoalReport`.
+- A goal whose stored spec no longer matches its fingerprint never validates.
 
 ## Topologies
 

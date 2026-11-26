@@ -57,10 +57,13 @@ ADR 0043 added the durable run store and queue. This decision uses them.
    delegating to an agent already waiting on the same chain is refused (it would
    deadlock), and depth, round, fan-out and validation limits apply. Refusals go
    back to the agent as feedback rather than failing the task.
-7. **Goals and validators plug in.** Every task carries an optional goal
-   (definition of done and criteria) shown to the agent. A `validate` hook gates
-   finishing; a failed check re-queues the task with the feedback, up to a
-   limit. Roadmap R24 implements validators against this hook.
+7. **Goals gate completion.** Every task carries an optional goal shown to the
+   agent. When the goal has an R24 goal spec (ADR 0050), the spec is sealed and
+   fingerprinted on the task record when the task is created, and the task only
+   succeeds once `runGoalValidators` reports `COMPLETE` for the turn's output and
+   trace; `INCOMPLETE` re-queues the task with the report's feedback, up to a
+   limit. Managers can attach specs to the work they delegate. An extra
+   `validate` hook runs after the goal passes.
 8. **Runs are persisted for any adapter.** `withRunPersistence` wraps any
    `AgentHarnessAdapter` so each harness run is stored with its envelope, event
    log and session. `createAdapterTaskExecutor` runs each turn as a single-role
