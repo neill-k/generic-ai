@@ -70,7 +70,9 @@ import {
 import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
 import {
   expandPrompt,
+  type NativeSessionAutonomous,
   type NativeSessionExtensions,
+  type NativeSessionGoal,
   type NativeSessionSubagents,
   runCapabilityNativeAgentSession,
 } from "../runtime/native-session.js";
@@ -136,6 +138,19 @@ export interface NativeAgentHarnessOptions {
    * A spawn's `model` goes through `resolveModel`; children get the session's tools.
    */
   readonly subagents?: Omit<NativeSessionSubagents, "resolveModel" | "getApiKey"> | boolean;
+  /**
+   * Give every native session the thread-goal tools (see `@generic-ai/autonomy`). A session keeps
+   * working while a goal the agent created is active. A topology run's own goal is not handed to
+   * each actor: it is the team's goal, and the topology runner checks it with the same SDK runner.
+   */
+  readonly goal?:
+    | Omit<NativeSessionGoal, "spec" | "validation" | "collectEvidence" | "objective">
+    | boolean;
+  /**
+   * Run every native session in autonomous mode: it continues until the quality gates pass or a
+   * limit is reached. Gate commands run in the clean agent-command environment.
+   */
+  readonly autonomous?: NativeSessionAutonomous | boolean;
 }
 
 export interface CreateAgentHarnessOptions<
@@ -1389,6 +1404,8 @@ function createNativeSessionBackend(
           : { usageMeter, usageAttribution: { roleId: role?.id ?? rest.rootAgentId } }),
         ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
         ...(subagents === undefined ? {} : { subagents }),
+        ...(options.goal === undefined ? {} : { goal: options.goal }),
+        ...(options.autonomous === undefined ? {} : { autonomous: options.autonomous }),
       });
       return {
         sessionId: result.sessionId,

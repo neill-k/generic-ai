@@ -183,3 +183,29 @@ before (or instead of) its critic, and every protocol only succeeds when the
 goal is `COMPLETE` on the final output. See "Goals decide when a topology is
 done" in [harness-dsl.md](harness-dsl.md).
 
+
+## Long-running native sessions
+
+A native session can pursue a goal across many turns (`goal` on
+`runCapabilityNativeAgentSession`, from `@generic-ai/autonomy`; ADR 0063). It
+uses the same goal spec and the same runner as tasks and topologies, so one
+goal behaves the same whichever of the three pursues it:
+
+- `goal: { spec, validation }` takes a sealed goal and the judges and checks
+  for its validators. The goal's id, objective, definition of done and checks
+  become the session's thread goal, and the session keeps continuing it until
+  it is complete, its token budget runs out, or turns stop making progress.
+- The agent claims completion with the `complete_goal` tool. The claim runs
+  `runGoalValidators` on the session's output and trace. `INCOMPLETE` keeps the
+  goal active and returns the report's feedback to the agent; only `COMPLETE`
+  ends it.
+- Autonomous mode (`autonomous`) keeps a session going with no human input.
+  Its gate commands become `check` validators of the same goal, so a gate and
+  a validator are one kind of thing, run by one runner. A gate command runs in
+  the clean agent-command environment.
+- Each validation emits a `native.goal_validation` event with the report's
+  status and summary.
+
+A topology run does not hand its goal to every actor as a thread goal: the
+goal belongs to the team, and the topology runner checks it once per attempt
+with the same runner.

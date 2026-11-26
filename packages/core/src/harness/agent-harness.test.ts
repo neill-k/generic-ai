@@ -17,17 +17,17 @@ import { createAgentHarness } from "./agent-harness.js";
 import { STOP_AND_RESPOND_TOOL_NAME } from "../runtime/index.js";
 
 async function callStopTool(
-  options: {
-    readonly customTools?: readonly {
-      readonly name?: string;
-      readonly execute?: unknown;
-    }[];
-  } | undefined,
+  options:
+    | {
+        readonly customTools?: readonly {
+          readonly name?: string;
+          readonly execute?: unknown;
+        }[];
+      }
+    | undefined,
   response: string,
 ) {
-  const stopTool = options?.customTools?.find(
-    (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
-  );
+  const stopTool = options?.customTools?.find((tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME);
   if (stopTool === undefined) {
     throw new Error("Expected stop_and_respond tool to be registered.");
   }
@@ -74,7 +74,10 @@ describe("createAgentHarness", () => {
                   startedAt: new Date().toISOString(),
                   completedAt: new Date().toISOString(),
                 },
-                eventStream: { kind: "event-stream-reference", streamId: input.runId ?? "run-external" },
+                eventStream: {
+                  kind: "event-stream-reference",
+                  streamId: input.runId ?? "run-external",
+                },
               },
               events: [],
               projections: [],
@@ -797,7 +800,13 @@ describe("host tools", () => {
                     ),
                   );
                   try {
-                    await tool?.execute("call-2", { tasks: [] } as never, undefined, undefined, {} as never);
+                    await tool?.execute(
+                      "call-2",
+                      { tasks: [] } as never,
+                      undefined,
+                      undefined,
+                      {} as never,
+                    );
                   } catch (error) {
                     errors.push(error instanceof Error ? error.message : String(error));
                   }

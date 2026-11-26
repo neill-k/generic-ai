@@ -21,6 +21,7 @@
     "@generic-ai/sdk": "0.0.0",
     "@generic-ai/extensions": "0.0.0",
     "@generic-ai/subagents": "0.0.0",
+    "@generic-ai/autonomy": "0.0.0",
     "@generic-ai/resources": "0.0.0",
     "@generic-ai/session": "0.0.0",
     "@mariozechner/pi-coding-agent": "0.70.6",

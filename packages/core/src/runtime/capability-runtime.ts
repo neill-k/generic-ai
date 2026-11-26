@@ -243,7 +243,9 @@ export interface RunCapabilityPiAgentSessionResult extends CreateCapabilityPiAge
   readonly failureMessage?: string;
 }
 
-function stopToolFailureMessage(status: StopAndRespondState["status"] | undefined): string | undefined {
+function stopToolFailureMessage(
+  status: StopAndRespondState["status"] | undefined,
+): string | undefined {
   if (status === "blocked" || status === "failed") {
     return `Agent stopped with terminal status "${status}".`;
   }
