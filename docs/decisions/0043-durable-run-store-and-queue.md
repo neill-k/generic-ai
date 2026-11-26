@@ -1,4 +1,4 @@
-# 0042 — Durable run store and queue
+# 0043 — Durable run store and queue
 
 - Status: accepted
 - Date: 2026-11-26
