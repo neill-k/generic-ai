@@ -35,6 +35,24 @@ architecture question.
   is the clearest existing precedent for a future shared policy vocabulary, but
   it should not become the policy engine for other capabilities.
 
+## Owner approvals (shipped)
+
+`@generic-ai/plugin-approvals` implements the "ask" half of allow / deny /
+ask for every tool, keyed on effect descriptors rather than per-capability
+rules (ADR 0061):
+
+- The SDK `ApprovalPolicy` matches effects, tool name patterns, agents, roles
+  and reversibility. The default requires the owner's approval for
+  `message.send`, `external.write`, `payment.spend` and `mcp.write`.
+- `createApprovalGate` wraps terminal, file, custom and MCP tools. Approval
+  requests are durable, record the deciding owner, expire after 72 hours, and
+  keep an `approval.*` event log. An approved action runs once.
+- The delegation cascade parks a task while the owner decides and resumes it
+  with the decision. `createApprovalRoutes` serves the approval inbox.
+
+The hardening paths below still apply to what the policy cannot see, such as
+the arguments of a shell command.
+
 ## Decision summary
 
 - Enforcement stays plugin-owned. Terminal, file, and MCP plugins each make

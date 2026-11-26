@@ -1,0 +1,34 @@
+{
+  "name": "@generic-ai/plugin-approvals",
+  "version": "0.0.0",
+  "description": "Owner approvals for Generic AI: a policy over tool effects, durable approval requests that pause agent work until the owner decides, an audit trail, and Hono routes for the approval inbox.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@generic-ai/sdk": "0.0.0",
+    "hono": "^4.12.15"
+  },
+  "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "slot": "tool-policy",
+    "method": "owner-approvals.v1"
+  },
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@generic-ai/plugin-delegation": "0.0.0",
+    "@generic-ai/plugin-storage-sqlite": "0.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
