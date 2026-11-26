@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -339,5 +339,113 @@ describe("native harness adapter", () => {
     expect(result.status).toBe("succeeded");
     expect(result.outputText).toBe("Single answer.");
     expect(tools).not.toContain(STOP_AND_RESPOND_TOOL_NAME);
+  });
+
+  it("expands prompt templates in the task", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    let userText = "";
+    provider.setResponses([
+      (context) => {
+        const first = context.messages[0];
+        userText = first?.role === "user" ? JSON.stringify(first.content) : "";
+        return fauxAssistantMessage("Reviewed.");
+      },
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "native-templates",
+        adapter: "native",
+        model: "faux/root-model",
+        execution: { turnMode: "single-turn" },
+      },
+      {
+        native: { resolveModel },
+        promptTemplates: [
+          {
+            name: "review",
+            description: "Review a file",
+            content: "Review $1 for $2.",
+            filePath: "/templates/review.md",
+            sourceInfo: {
+              path: "/templates/review.md",
+              source: "local",
+              scope: "temporary",
+              origin: "top-level",
+            },
+          },
+        ],
+      },
+    );
+    const result = await harness.run({
+      instruction: "/review src/index.ts bugs",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+    });
+    expect(result.status).toBe("succeeded");
+    expect(userText).toContain("Review src/index.ts for bugs.");
+    expect(userText).not.toContain("/review");
+  });
+
+  it("expands a skill command in the task", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const skillDir = join(workspaceRoot, "skills", "release-notes");
+    await mkdir(skillDir, { recursive: true });
+    const skillFile = join(skillDir, "SKILL.md");
+    await writeFile(
+      skillFile,
+      "---\nname: release-notes\ndescription: Write release notes\n---\nGroup changes by package.\n",
+    );
+    const { provider, resolveModel } = fauxModels();
+    let userText = "";
+    provider.setResponses([
+      (context) => {
+        const first = context.messages[0];
+        userText = first?.role === "user" ? JSON.stringify(first.content) : "";
+        return fauxAssistantMessage("Written.");
+      },
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "native-skill-command",
+        adapter: "native",
+        model: "faux/root-model",
+        execution: { turnMode: "single-turn" },
+      },
+      { native: { resolveModel } },
+    );
+    const result = await harness.run({
+      instruction: "/skill:release-notes for v2",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+      capabilities: {
+        skills: {
+          load: async () => ({
+            skills: [
+              {
+                name: "release-notes",
+                description: "Write release notes",
+                filePath: skillFile,
+                baseDir: skillDir,
+                disableModelInvocation: false,
+                sourceInfo: {
+                  path: skillFile,
+                  source: "local",
+                  scope: "temporary",
+                  origin: "top-level",
+                  baseDir: skillDir,
+                },
+              },
+            ],
+            diagnostics: [],
+            prompt: "",
+          }),
+        },
+      },
+    });
+    expect(result.status).toBe("succeeded");
+    expect(userText).toContain('<skill name=\\"release-notes\\"');
+    expect(userText).toContain("Group changes by package.");
+    expect(userText).toContain("for v2");
   });
 });

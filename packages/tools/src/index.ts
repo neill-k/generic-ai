@@ -122,4 +122,11 @@ export function createReadOnlyTools(cwd: string, options: ToolsOptions = {}): To
     createLsTool(cwd, options.ls),
   ] as Tool[];
 }
-export { normalizePath, pathsEqual, resolvePath } from "./paths.js";
+export {
+  canonicalizePath,
+  getPathComparisonKey,
+  isPathWithin,
+  normalizePath,
+  pathsEqual,
+  resolvePath,
+} from "./paths.js";

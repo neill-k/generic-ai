@@ -17,6 +17,7 @@
       "@generic-ai/ai": ["./packages/ai/src/index.ts"],
       "@generic-ai/tools": ["./packages/tools/src/index.ts"],
       "@generic-ai/session": ["./packages/session/src/index.ts"],
+      "@generic-ai/resources": ["./packages/resources/src/index.ts"],
       "@generic-ai/core": ["./packages/core/src/index.ts"],
       "@generic-ai/observability": ["./packages/observability/src/index.ts"],
       "@generic-ai/plugin-agent-skills": ["./packages/plugin-agent-skills/src/index.ts"],
@@ -37,6 +38,9 @@
       "@generic-ai/plugin-storage-memory": ["./packages/plugin-storage-memory/src/index.ts"],
       "@generic-ai/plugin-storage-postgres": ["./packages/plugin-storage-postgres/src/index.ts"],
       "@generic-ai/plugin-storage-sqlite": ["./packages/plugin-storage-sqlite/src/index.ts"],
+      "@generic-ai/plugin-tools-documents": [
+        "./packages/plugin-tools-documents/src/index.ts"
+      ],
       "@generic-ai/plugin-tools-files": ["./packages/plugin-tools-files/src/index.ts"],
       "@generic-ai/plugin-tools-terminal": ["./packages/plugin-tools-terminal/src/index.ts"],
       "@generic-ai/plugin-tools-terminal-sandbox": [
