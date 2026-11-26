@@ -1,0 +1,44 @@
+{
+  "name": "@generic-ai/plugin-storage-postgres",
+  "version": "0.0.0",
+  "description": "Postgres-backed durable storage for Generic AI: key-value storage, a run store (runs, sessions, event logs), and a durable job queue, with versioned schema migrations.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@generic-ai/sdk": "0.0.0",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
+  },
+  "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "category": "infra",
+    "method": "postgres-storage.v1"
+  },
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

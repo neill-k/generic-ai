@@ -11,6 +11,7 @@
     { "path": "packages/plugin-workspace-fs" },
     { "path": "packages/plugin-storage-memory" },
     { "path": "packages/plugin-storage-sqlite" },
+    { "path": "packages/plugin-storage-postgres" },
     { "path": "packages/plugin-queue-memory" },
     { "path": "packages/plugin-logging-otel" },
     { "path": "packages/plugin-tools-terminal" },
@@ -27,6 +28,7 @@
     { "path": "packages/plugin-memory-files" },
     { "path": "packages/plugin-output-default" },
     { "path": "packages/plugin-hono" },
+    { "path": "packages/plugin-auth-identity" },
     { "path": "packages/plugin-web-ui" },
     { "path": "examples/starter-hono" },
     { "path": "examples/terminal-bench" }

@@ -1,0 +1,50 @@
+export const name = "@generic-ai/plugin-auth-identity" as const;
+export const kind = "identity-owner" as const;
+
+export {
+  API_TOKEN_PREFIX,
+  type ApiTokenSummary,
+  type CreateApiTokenInput,
+  type CreatedApiToken,
+  type CreatedSession,
+  createOwnerAuth,
+  type OwnerAuth,
+  OwnerAuthError,
+  type OwnerAuthOptions,
+  type OwnerAuthStatus,
+  type OwnerStaticToken,
+  type PasskeyAuthenticationStart,
+  type PasskeyRegistrationStart,
+  type PasskeySummary,
+  parseApiToken,
+  type RequestOriginInfo,
+  sha256Hex,
+} from "./owner-auth.js";
+export {
+  authenticateOwnerRequest,
+  createOwnerAuthenticate,
+  createOwnerAuthRoutes,
+  forbiddenResponse,
+  type OwnerAuthenticateOptions,
+  type OwnerAuthenticateResult,
+  type OwnerAuthHttpOptions,
+  type OwnerAuthRoutes,
+  type OwnerAuthVariables,
+  requireOwnerAuth,
+  unauthorizedResponse,
+} from "./hono.js";
+export {
+  type AuthCollection,
+  type AuthKeyValueStore,
+  type AuthStore,
+  createAuthStore,
+  createMemoryAuthKeyValueStore,
+  createMemoryAuthStore,
+  createStorageContractAuthStore,
+  type StorageContractAuthStoreOptions,
+  type StoredApiToken,
+  type StoredChallenge,
+  type StoredOwnerProfile,
+  type StoredPasskey,
+  type StoredSession,
+} from "./store.js";

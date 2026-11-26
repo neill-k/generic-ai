@@ -1,0 +1,31 @@
+{
+  "name": "@generic-ai/plugin-auth-identity",
+  "version": "0.0.0",
+  "description": "Single-owner auth and identity plugin for Generic AI: passkey owner login, revocable API tokens, cookie sessions, and Hono adapters that produce a normalized AuthContext.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@generic-ai/sdk": "0.0.0",
+    "@simplewebauthn/server": "14.1.0",
+    "hono": "^4.12.15"
+  },
+  "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "category": "infra",
+    "method": "owner-auth.v1"
+  },
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@generic-ai/plugin-hono": "0.0.0"
+  }
+}

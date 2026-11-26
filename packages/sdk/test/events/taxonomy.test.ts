@@ -11,6 +11,7 @@ import {
   canonicalSessionLifecycleNames,
   canonicalTerminalCommandLifecycleNames,
   canonicalToolCallLifecycleNames,
+  canonicalUsageLifecycleNames,
   createCanonicalEvent,
   createPluginEvent,
   getCanonicalEventFamily,
@@ -36,6 +37,7 @@ describe("sdk canonical event taxonomy", () => {
     expect(canonicalPolicyLifecycleNames).toEqual(["policy.decision"]);
     expect(canonicalHookLifecycleNames).toContain("hook.execution.started");
     expect(canonicalArtifactLifecycleNames).toEqual(["artifact.created"]);
+    expect(canonicalUsageLifecycleNames).toEqual(["usage.recorded", "usage.budget.exceeded"]);
     expect(canonicalCoreEventNames).toHaveLength(
       canonicalRunLifecycleNames.length +
         canonicalSessionLifecycleNames.length +
@@ -45,7 +47,8 @@ describe("sdk canonical event taxonomy", () => {
         canonicalTerminalCommandLifecycleNames.length +
         canonicalPolicyLifecycleNames.length +
         canonicalHookLifecycleNames.length +
-        canonicalArtifactLifecycleNames.length,
+        canonicalArtifactLifecycleNames.length +
+        canonicalUsageLifecycleNames.length,
     );
   });
 
@@ -61,6 +64,7 @@ describe("sdk canonical event taxonomy", () => {
     expect(getCanonicalEventFamily("session.child.failed")).toBe("session");
     expect(getCanonicalEventFamily("terminal.command.failed")).toBe("terminal");
     expect(getCanonicalEventFamily("policy.decision")).toBe("policy");
+    expect(getCanonicalEventFamily("usage.budget.exceeded")).toBe("usage");
     expect(getCanonicalEventFamily("hook.execution.failed")).toBe("hook");
     expect(getCanonicalEventFamily("plugin.logging-otel.span.created")).toBe("plugin");
   });

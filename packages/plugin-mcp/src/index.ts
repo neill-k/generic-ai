@@ -1,152 +1,83 @@
-export const name = "@generic-ai/plugin-mcp" as const;
-export const kind = "mcp" as const;
+import {
+  type McpClientManager,
+  type McpClientManagerOptions,
+  createMcpClientManager,
+} from "./client.js";
+import { type McpPluginConfig, parseMcpPluginConfig } from "./config.js";
+import type { McpLaunchDefinition, McpServerDefinition } from "./registry.js";
+import {
+  type CreateMcpHarnessToolsOptions,
+  createMcpHarnessTools,
+  type McpHarnessTool,
+} from "./tools.js";
 
-export type McpTransport = "stdio" | "http" | "sse";
+export * from "./client.js";
+export * from "./config.js";
+export * from "./registry.js";
+export * from "./tools.js";
 
-export interface McpServerDefinition {
-  readonly id: string;
-  readonly transport: McpTransport;
-  readonly description?: string;
-  readonly command?: string;
-  readonly args?: readonly string[];
-  readonly env?: Readonly<Record<string, string>>;
-  readonly cwd?: string;
-  readonly url?: string;
-  readonly roots?: readonly string[];
-}
-
-export interface McpLaunchDefinition {
-  readonly transport: McpTransport;
-  readonly command?: string;
-  readonly args?: readonly string[];
-  readonly env?: Readonly<Record<string, string>>;
-  readonly cwd?: string;
-  readonly url?: string;
-}
-
-export interface McpRegistry {
-  readonly name: typeof name;
-  readonly kind: typeof kind;
-  register(server: McpServerDefinition): void;
-  get(id: string): McpServerDefinition | undefined;
+/**
+ * The harness `mcp` capability: the registry view used by the `mcp_registry` tool, plus
+ * `harnessTools()`, which the harness calls once per run to expose the servers' tools to agents
+ * under role effect policies.
+ */
+export interface McpHarnessCapability {
   list(): readonly McpServerDefinition[];
-  remove(id: string): boolean;
+  get(id: string): McpServerDefinition | undefined;
   resolveLaunch(id: string, envOverrides?: Readonly<Record<string, string>>): McpLaunchDefinition;
   describeForPrompt(): string;
+  harnessTools(): Promise<readonly McpHarnessTool[]>;
 }
 
-export class McpRegistryError extends Error {
-  constructor(
-    public readonly code: "INVALID_ID" | "INVALID_SERVER" | "DUPLICATE_SERVER" | "UNKNOWN_SERVER",
-    message: string,
-  ) {
-    super(message);
-    this.name = "McpRegistryError";
-  }
-}
-
-function assertNonEmpty(value: string | undefined, label: string): string {
-  if (typeof value === "string" && value.trim().length > 0) {
-    return value.trim();
-  }
-
-  throw new McpRegistryError("INVALID_SERVER", `${label} must be a non-empty string.`);
-}
-
-function normalizeServer(server: McpServerDefinition): McpServerDefinition {
-  const id = assertNonEmpty(server.id, "server.id");
-
-  if (server.transport === "stdio") {
-    assertNonEmpty(server.command, `MCP server "${id}" command`);
-  }
-
-  if (server.transport === "http" || server.transport === "sse") {
-    assertNonEmpty(server.url, `MCP server "${id}" url`);
-  }
-
+export function createMcpHarnessCapability(
+  manager: McpClientManager,
+  options: CreateMcpHarnessToolsOptions = {},
+): McpHarnessCapability {
   return Object.freeze({
-    ...server,
-    id,
-    ...(server.command === undefined ? {} : { command: server.command.trim() }),
-    ...(server.cwd === undefined ? {} : { cwd: server.cwd.trim() }),
-    ...(server.url === undefined ? {} : { url: server.url.trim() }),
-    ...(server.args === undefined ? {} : { args: [...server.args] }),
-    ...(server.roots === undefined ? {} : { roots: [...server.roots] }),
-    ...(server.env === undefined ? {} : { env: { ...server.env } }),
+    list: () => manager.list(),
+    get: (id: string) => manager.get(id),
+    resolveLaunch: (id: string, envOverrides?: Readonly<Record<string, string>>) =>
+      manager.resolveLaunch(id, envOverrides),
+    describeForPrompt: () => manager.describeForPrompt(),
+    harnessTools: () => createMcpHarnessTools(manager, options),
   });
 }
 
-export function createMcpRegistry(initialServers: readonly McpServerDefinition[] = []): McpRegistry {
-  const servers = new Map<string, McpServerDefinition>();
+export interface McpPlugin {
+  readonly config: McpPluginConfig;
+  readonly manager: McpClientManager;
+  /** Bind as `capabilities.mcp` on an agent harness run. */
+  readonly capability: McpHarnessCapability;
+  close(): Promise<void>;
+}
 
-  const registry: McpRegistry = {
-    name,
-    kind,
-    register(server: McpServerDefinition): void {
-      const normalized = normalizeServer(server);
-
-      if (servers.has(normalized.id)) {
-        throw new McpRegistryError(
-          "DUPLICATE_SERVER",
-          `MCP server "${normalized.id}" has already been registered.`,
-        );
-      }
-
-      servers.set(normalized.id, normalized);
-    },
-    get(id: string): McpServerDefinition | undefined {
-      return servers.get(id);
-    },
-    list(): readonly McpServerDefinition[] {
-      return [...servers.values()];
-    },
-    remove(id: string): boolean {
-      return servers.delete(id);
-    },
-    resolveLaunch(id: string, envOverrides?: Readonly<Record<string, string>>): McpLaunchDefinition {
-      const server = servers.get(id);
-
-      if (!server) {
-        throw new McpRegistryError("UNKNOWN_SERVER", `Unknown MCP server "${id}".`);
-      }
-
-      return Object.freeze({
-        transport: server.transport,
-        ...(server.command === undefined ? {} : { command: server.command }),
-        ...(server.args === undefined ? {} : { args: [...server.args] }),
-        ...(server.cwd === undefined ? {} : { cwd: server.cwd }),
-        ...(server.url === undefined ? {} : { url: server.url }),
-        ...(server.env === undefined && envOverrides === undefined
-          ? {}
-          : {
-              env: {
-                ...(server.env ?? {}),
-                ...(envOverrides ?? {}),
-              },
-            }),
-      });
-    },
-    describeForPrompt(): string {
-      const lines = ["Available MCP servers:"];
-
-      for (const server of servers.values()) {
-        const location =
-          server.transport === "stdio"
-            ? `${server.command}${server.args?.length ? ` ${server.args.join(" ")}` : ""}`
-            : server.url;
-
-        lines.push(
-          `- ${server.id} (${server.transport}): ${server.description ?? "No description"}${location ? ` -> ${location}` : ""}`,
-        );
-      }
-
-      return lines.join("\n");
-    },
-  };
-
-  for (const server of initialServers) {
-    registry.register(server);
-  }
-
-  return registry;
+/**
+ * Build the MCP plugin from its config (the `config:` block of `.generic-ai/plugins/plugin-mcp.yaml`).
+ * Connections open lazily when the harness first asks for tools.
+ */
+export function createMcpPlugin(
+  config: unknown,
+  options: Omit<McpClientManagerOptions, "servers"> = {},
+): McpPlugin {
+  const parsed = parseMcpPluginConfig(config);
+  const manager = createMcpClientManager({
+    ...(parsed.timeoutMs === undefined ? {} : { timeoutMs: parsed.timeoutMs }),
+    ...(parsed.connectTimeoutMs === undefined ? {} : { connectTimeoutMs: parsed.connectTimeoutMs }),
+    ...(parsed.reconnect === undefined ? {} : { reconnect: parsed.reconnect }),
+    ...(parsed.retryOnDisconnect === undefined
+      ? {}
+      : { retryOnDisconnect: parsed.retryOnDisconnect }),
+    ...options,
+    servers: parsed.servers,
+  });
+  const capability = createMcpHarnessCapability(
+    manager,
+    parsed.maxOutputChars === undefined ? {} : { maxOutputChars: parsed.maxOutputChars },
+  );
+  return Object.freeze({
+    config: parsed,
+    manager,
+    capability,
+    close: () => manager.close(),
+  });
 }

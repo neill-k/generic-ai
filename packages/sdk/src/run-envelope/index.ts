@@ -1,4 +1,5 @@
 import type { Awaitable, JsonObject } from "../contracts/shared.js";
+import type { RunActor } from "../contracts/identity.js";
 import type { OutputEnvelope, OutputPluginContract } from "../contracts/output.js";
 
 export type RunEnvelopeMode = "sync" | "async";
@@ -25,6 +26,8 @@ export interface RunEnvelope<TOutput = unknown> {
   readonly runId: string;
   readonly rootScopeId: string;
   readonly rootAgentId?: string;
+  /** Redaction-safe identity of whoever started the run, when known. */
+  readonly actor?: RunActor;
   readonly mode: RunEnvelopeMode;
   readonly status: RunEnvelopeStatus;
   readonly timestamps: Readonly<RunEnvelopeTimestamps>;
@@ -37,6 +40,7 @@ export interface RunEnvelopeInput<TOutput = unknown> {
   readonly runId: string;
   readonly rootScopeId: string;
   readonly rootAgentId?: string;
+  readonly actor?: RunActor;
   readonly mode: RunEnvelopeMode;
   readonly status?: RunEnvelopeStatus;
   readonly timestamps?: Partial<RunEnvelopeTimestamps>;
