@@ -195,6 +195,30 @@ reliability gate runs), `--template <id>` to pick one, `--trials <n>` and
 `--out <dir>` for reports. A replay that drifts from the recorded path (an
 agent asks for a turn the recording does not have) fails the attempt.
 
+Reliability gate (R19). `.github/workflows/template-evals-live.yml` runs the
+same suites with `--live` and fails when any gate fails; the job summary shows
+each suite's pass rate, pass^k, and tokens and dollars per completed goal, and
+the reports are uploaded as an artifact. Because every run spends money:
+
+- it runs only when started by hand (Actions, "Reliability gate", Run
+  workflow), or weekly once the repository variable `TEMPLATE_EVALS_SCHEDULE`
+  is `on` (it is off by default);
+- it needs the `ANTHROPIC_API_KEY` Actions secret, and without it skips with a
+  notice and spends nothing. `BRAVE_API_KEY` or `TAVILY_API_KEY` is optional
+  but the research goals fail their search check without one;
+- the whole run stops at `--max-usd` (default 50) and `--max-tokens` (default
+  40,000,000, cache reads included). Each agent turn starts with what is left
+  of the cap as its harness budget, so the turn in flight stops with
+  `budget_exceeded`; rubric judgments count against the cap too; attempts that
+  would start after it are not run and count as failures. Locally the CLI
+  applies the same defaults to `--live`, exits 3 when the provider key is
+  missing, and with `--out` writes `summary.json` with the verdict and spend.
+
+A full run is 5 goals with 5 attempts each. At list prices a single attempt is
+expected to cost roughly $1 to $2 (mostly Sonnet 5.5 turns, with prompt caching),
+so about $25 to $50 for a full run. Start with `trials: 1` (about $5 to $10) to
+calibrate before a full run.
+
 To add a template, copy a folder, change `company.yaml`, and record a replay
 for each goal. `templates.test.ts` checks that every goal has a case, a replay,
 and numeric, rubric and trace validators.

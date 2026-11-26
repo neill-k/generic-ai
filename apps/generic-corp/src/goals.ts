@@ -201,6 +201,8 @@ export interface ModelJudgeOptions {
   /** Model reference for grading, `provider/model-id`. */
   readonly model: string;
   readonly resolveModel?: (ref: string) => Model;
+  /** Called with each grading call's usage, so an eval can count the judge against its cap. */
+  readonly onUsage?: (usage: AssistantMessage["usage"]) => void;
 }
 
 function textOf(message: AssistantMessage): string {
@@ -235,6 +237,7 @@ export function createModelJudge(options: ModelJudgeOptions): GoalJudge {
       },
       { signal: request.signal },
     );
+    options.onUsage?.(reply.usage);
     if (reply.stopReason === "error" || reply.stopReason === "aborted") {
       throw new Error(`The rubric judge failed: ${reply.errorMessage ?? reply.stopReason}`);
     }

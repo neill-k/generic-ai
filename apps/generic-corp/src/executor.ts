@@ -9,12 +9,15 @@ import {
 import { createAdapterTaskExecutor, withRunPersistence } from "@generic-ai/plugin-delegation";
 import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
 import { createTerminalToolPlugin } from "@generic-ai/plugin-tools-terminal";
-import type {
-  AgentHarnessConfig,
-  AgentHarnessPolicyEvaluator,
-  AgentTaskExecutionInput,
-  AgentTaskExecutor,
-  RunStoreContract,
+import {
+  type AgentHarnessBudget,
+  type AgentHarnessConfig,
+  type AgentHarnessPolicyEvaluator,
+  type AgentTaskExecutionInput,
+  type AgentTaskExecutor,
+  type RunStoreContract,
+  summarizeUsageEvents,
+  type UsageTotals,
 } from "@generic-ai/sdk";
 
 import { DEFAULT_TIER_MODELS } from "./company.js";
@@ -40,6 +43,13 @@ export interface CompanyExecutorOptions {
   readonly harness?: Partial<AgentHarnessConfig>;
   /** Secrets each agent may use as `{{secret:NAME}}`. */
   readonly secretGrants?: (agentId: string) => readonly string[] | undefined;
+  /**
+   * Token and dollar caps for a turn, read as it starts. The harness stops the turn with
+   * `budget_exceeded` once its spend reaches them. The eval spend cap plugs in here.
+   */
+  readonly budget?: (input: AgentTaskExecutionInput) => AgentHarnessBudget | undefined;
+  /** Called with what a turn spent once it ends, read from the run store. */
+  readonly onTurnUsage?: (input: AgentTaskExecutionInput, totals: UsageTotals) => void;
 }
 
 /** Default tools for an agent turn: its home directory's files and a shell there. */
@@ -73,7 +83,7 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
     options.runStore,
   );
   const capabilities = options.capabilities ?? defaultAgentCapabilities;
-  return createAdapterTaskExecutor<PiCapabilityBindings, unknown>({
+  const execute = createAdapterTaskExecutor<PiCapabilityBindings, unknown>({
     adapter,
     harness,
     capabilities,
@@ -84,12 +94,27 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
     },
     context: (input) => {
       const policy = options.policy?.(input);
-      return createAgentHarnessRunContext({
+      const budget = options.budget?.(input);
+      const context = createAgentHarnessRunContext({
         runId: input.attemptRunId,
         artifactDir: path.join(options.artifactsRoot, input.attemptRunId),
         actorId: input.agentId,
         ...(policy === undefined ? {} : { policy }),
       });
+      return budget === undefined ? context : { ...context, budget };
     },
   });
+  const onTurnUsage = options.onTurnUsage;
+  if (onTurnUsage === undefined) {
+    return execute;
+  }
+  return async (input) => {
+    const result = await execute(input);
+    const runIds = result.runIds ?? [];
+    const events = (
+      await Promise.all(runIds.map((runId) => options.runStore.readEvents(runId)))
+    ).flat();
+    onTurnUsage(input, summarizeUsageEvents(events).totals);
+    return result;
+  };
 }
