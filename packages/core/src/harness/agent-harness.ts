@@ -43,7 +43,11 @@ import {
 } from "@generic-ai/sdk/pi";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import type { StreamFn } from "@generic-ai/agent";
-import { type Model, resolveApiKey, type ThinkingLevel } from "@generic-ai/ai";
+import { type Model, type RetryPolicy, resolveApiKey, type ThinkingLevel } from "@generic-ai/ai";
+import {
+  type CompactionSettings,
+  SessionManager as NativeSessionManager,
+} from "@generic-ai/session";
 import { Type } from "@sinclair/typebox";
 
 import { createCanonicalEventStream, type CanonicalEventStream } from "../events/index.js";
@@ -83,9 +87,21 @@ export interface NativeAgentHarnessOptions {
   readonly streamFn?: StreamFn;
   /** Base system prompt for every session. Tool guidance, skills, and the working directory are appended. */
   readonly systemPrompt?: string;
+  /**
+   * Directory for session files. When set, every role session is recorded as a JSONL file there
+   * (one per session, named by session id) so it can be inspected or resumed. Default: in memory.
+   */
+  readonly sessionDir?: string;
+  /** Auto-compaction settings for every session; `false` turns compaction off. */
+  readonly compaction?: Partial<CompactionSettings> | false;
+  /** Retry policy for transient provider errors; `false` turns retry off. */
+  readonly retry?: RetryPolicy | false;
 }
 
-export interface CreateAgentHarnessOptions<TCapabilities = PiCapabilityBindings, TOutput = unknown> {
+export interface CreateAgentHarnessOptions<
+  TCapabilities = PiCapabilityBindings,
+  TOutput = unknown,
+> {
   readonly factories?: PiRuntimeFactories;
   readonly sessionInputs?: PiSessionInputs;
   readonly native?: NativeAgentHarnessOptions;
@@ -1218,6 +1234,11 @@ function createNativeSessionBackend(
         ...(options.thinkingLevel === undefined ? {} : { thinkingLevel: options.thinkingLevel }),
         ...(options.streamFn === undefined ? {} : { streamFn: options.streamFn }),
         ...(options.systemPrompt === undefined ? {} : { systemPrompt: options.systemPrompt }),
+        ...(options.sessionDir === undefined
+          ? {}
+          : { sessionManager: NativeSessionManager.create(rest.cwd, options.sessionDir) }),
+        ...(options.compaction === undefined ? {} : { compaction: options.compaction }),
+        ...(options.retry === undefined ? {} : { retry: options.retry }),
       });
       return {
         sessionId: result.sessionId,
@@ -1278,7 +1299,9 @@ function createDelegateTool(input: {
         const delegationId = `${input.runId}:delegation:${randomUUID()}`;
         const rootSessionId = input.getRootSessionId();
         if (rootSessionId === undefined) {
-          throw new Error(`Cannot delegate before the root ${input.backend.label} session is ready.`);
+          throw new Error(
+            `Cannot delegate before the root ${input.backend.label} session is ready.`,
+          );
         }
         const eventContext = {
           runId: input.runId,
@@ -1582,10 +1605,7 @@ export function createAgentHarness(
   config: AgentHarnessConfig,
   options?: CreateAgentHarnessOptions,
 ): AgentHarness<PiCapabilityBindings, unknown>;
-export function createAgentHarness<
-  TCapabilities = PiCapabilityBindings,
-  TOutput = unknown,
->(
+export function createAgentHarness<TCapabilities = PiCapabilityBindings, TOutput = unknown>(
   config: AgentHarnessConfig,
   options: CreateAgentHarnessOptions<TCapabilities, TOutput> = {},
 ): AgentHarness<TCapabilities, TOutput> {

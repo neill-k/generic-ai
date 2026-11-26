@@ -4,6 +4,7 @@
     { "path": "packages/ai" },
     { "path": "packages/agent" },
     { "path": "packages/tools" },
+    { "path": "packages/session" },
     { "path": "packages/core" },
     { "path": "packages/sdk" },
     { "path": "packages/observability" },

@@ -7,6 +7,7 @@ const packageAliases = [
   "ai",
   "agent",
   "tools",
+  "session",
   "core",
   "sdk",
   "observability",
