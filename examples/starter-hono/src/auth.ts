@@ -9,9 +9,11 @@ import {
   createMemoryAuthStore,
   createOwnerAuth,
   createOwnerAuthRoutes,
+  createStorageContractAuthStore,
   type OwnerAuth,
   type OwnerAuthRoutes,
 } from "@generic-ai/plugin-auth-identity";
+import { openPostgresStorage } from "@generic-ai/plugin-storage-postgres";
 import { createSqliteStorage } from "@generic-ai/plugin-storage-sqlite";
 
 export const AUTH_TOKEN_ENV = "GENERIC_AI_AUTH_TOKEN";
@@ -20,6 +22,8 @@ export const OWNER_SETUP_TOKEN_ENV = "GENERIC_AI_OWNER_SETUP_TOKEN";
 export const PUBLIC_URL_ENV = "GENERIC_AI_PUBLIC_URL";
 export const RAILWAY_PUBLIC_DOMAIN_ENV = "RAILWAY_PUBLIC_DOMAIN";
 export const AUTH_DB_ENV = "GENERIC_AI_AUTH_DB";
+export const DATABASE_URL_ENV = "DATABASE_URL";
+export const TRUST_PROXY_ENV = "GENERIC_AI_TRUST_PROXY";
 export const AUTH_ROUTE_PREFIX = "/auth" as const;
 
 export interface StarterAuthEnvironment {
@@ -27,8 +31,17 @@ export interface StarterAuthEnvironment {
   readonly mode: "none" | "owner";
   readonly publicOrigin?: string;
   readonly setupToken?: string;
-  /** SQLite file for owner auth records, or `:memory:`. */
+  /**
+   * Where owner auth records live: Postgres when `DATABASE_URL` is set and
+   * `GENERIC_AI_AUTH_DB` is not, otherwise a SQLite file (or `:memory:`).
+   */
+  readonly store: "postgres" | "sqlite";
+  /** SQLite file for owner auth records, or `:memory:`. Used when `store` is `sqlite`. */
   readonly databasePath: string;
+  /** Postgres connection string. Used when `store` is `postgres`. */
+  readonly databaseUrl?: string;
+  /** Trust the last `X-Forwarded-For` hop for sign-in rate limiting. */
+  readonly trustProxyHeaders: boolean;
 }
 
 export class StarterAuthConfigError extends Error {
@@ -91,6 +104,12 @@ export function loadStarterAuthEnvironment(
         ? dbValue
         : resolve(startDir, dbValue);
 
+  const databaseUrl = readTrimmed(env, DATABASE_URL_ENV);
+  const store = dbValue === undefined && databaseUrl !== undefined ? "postgres" : "sqlite";
+  const trustProxyHeaders =
+    isTruthy(readTrimmed(env, TRUST_PROXY_ENV)) ||
+    readTrimmed(env, RAILWAY_PUBLIC_DOMAIN_ENV) !== undefined;
+
   if (setupToken !== undefined && setupToken.length < 16) {
     throw new StarterAuthConfigError(`${OWNER_SETUP_TOKEN_ENV} must be at least 16 characters.`);
   }
@@ -102,7 +121,10 @@ export function loadStarterAuthEnvironment(
     mode: enabled ? "owner" : "none",
     ...(publicOrigin === undefined ? {} : { publicOrigin }),
     ...(setupToken === undefined ? {} : { setupToken }),
+    store,
     databasePath,
+    ...(store === "postgres" && databaseUrl !== undefined ? { databaseUrl } : {}),
+    trustProxyHeaders,
   });
 }
 
@@ -111,17 +133,31 @@ function isInside(root: string, target: string): boolean {
   return fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot));
 }
 
+interface OpenedAuthStore {
+  readonly store: AuthStore;
+  readonly close: () => Promise<void>;
+}
+
 /**
- * Opens the SQLite-backed auth store. The file must live outside the agent
- * workspace: agents can write there, and a writable auth store would let an
- * agent mint its own credentials.
+ * Opens the auth store chosen by the environment. A SQLite file must live
+ * outside the agent workspace: agents can write there, and a writable auth
+ * store would let an agent mint its own credentials.
  */
-export function openStarterAuthStore(
-  databasePath: string,
+export async function openStarterAuthStore(
+  environment: StarterAuthEnvironment,
   workspaceRoot: string,
-): { readonly store: AuthStore; readonly close: () => void } {
+): Promise<OpenedAuthStore> {
+  if (environment.store === "postgres" && environment.databaseUrl !== undefined) {
+    const postgres = await openPostgresStorage({ connectionString: environment.databaseUrl });
+    return {
+      store: createStorageContractAuthStore(postgres.storage),
+      close: () => postgres.close(),
+    };
+  }
+
+  const databasePath = environment.databasePath;
   if (databasePath === ":memory:") {
-    return { store: createMemoryAuthStore(), close: () => undefined };
+    return { store: createMemoryAuthStore(), close: async () => undefined };
   }
   if (isInside(resolve(workspaceRoot), resolve(databasePath))) {
     throw new StarterAuthConfigError(
@@ -145,7 +181,7 @@ export function openStarterAuthStore(
         .filter((record) => record.key.startsWith(`${collection}/`))
         .map((record) => record.value),
   };
-  return { store: createAuthStore(kv), close: () => storage.close() };
+  return { store: createAuthStore(kv), close: async () => storage.close() };
 }
 
 export interface StarterAuth {
@@ -153,7 +189,7 @@ export interface StarterAuth {
   readonly routes: OwnerAuthRoutes;
   /** Resolves to `true` when the request carries a valid owner credential. */
   readonly isAuthenticated: (request: Request) => Promise<boolean>;
-  readonly close: () => void;
+  readonly close: () => Promise<void>;
 }
 
 export async function createStarterAuth(input: {
@@ -165,8 +201,8 @@ export async function createStarterAuth(input: {
 }): Promise<StarterAuth> {
   const opened =
     input.store === undefined
-      ? openStarterAuthStore(input.environment.databasePath, input.workspaceRoot)
-      : { store: input.store, close: () => undefined };
+      ? await openStarterAuthStore(input.environment, input.workspaceRoot)
+      : { store: input.store, close: async () => undefined };
 
   let setupToken = input.environment.setupToken;
   const probe = createOwnerAuth({ store: opened.store });
@@ -198,6 +234,7 @@ export async function createStarterAuth(input: {
     routePrefix: AUTH_ROUTE_PREFIX,
     appName: "Generic AI",
     afterLoginPath: "/",
+    trustProxyHeaders: input.environment.trustProxyHeaders,
   });
 
   return Object.freeze({

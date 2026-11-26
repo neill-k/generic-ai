@@ -61,6 +61,7 @@ export function withRunPersistence<TCapabilities, TOutput>(
         runId,
         rootScopeId: input.rootScopeId ?? `harness/${input.harness.id}`,
         ...(input.rootAgentId === undefined ? {} : { rootAgentId: input.rootAgentId }),
+        ...(input.actor === undefined ? {} : { actor: input.actor }),
         mode: "async",
         status: "running",
         timestamps: { createdAt: startedAt, startedAt },

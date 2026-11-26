@@ -12,6 +12,7 @@ import type {
   JsonObject,
   JsonValue,
   QueueWorker,
+  RunActor,
   QueueWorkerJobContext,
   QueueWorkerOptions,
   RunStoreContract,
@@ -169,6 +170,8 @@ export interface SubmitAgentTaskInput {
   readonly goal?: AgentTaskGoal;
   /** Stable id makes submission idempotent. Generated when omitted. */
   readonly taskId?: string;
+  /** Who is asking, usually `toRunActor(authContext)`. Inherited by delegated work. */
+  readonly actor?: RunActor;
   readonly metadata?: JsonObject;
 }
 
@@ -339,7 +342,7 @@ export function createDelegationCascade(
   }
 
   async function logEvent(
-    task: Pick<AgentTaskRecord, "taskId" | "rootTaskId" | "parentTaskId">,
+    task: Pick<AgentTaskRecord, "taskId" | "rootTaskId" | "parentTaskId" | "actor">,
     name: CanonicalEventName,
     data: Record<string, unknown>,
     sessionId = `${task.taskId}:task`,
@@ -359,6 +362,7 @@ export function createDelegationCascade(
         ...(task.parentTaskId === undefined
           ? {}
           : { parentSessionId: `${task.parentTaskId}:task` }),
+        ...(task.actor === undefined ? {} : { actor: task.actor }),
         data,
       };
       try {
@@ -610,6 +614,7 @@ export function createDelegationCascade(
         depth: task.depth + 1,
         agentId: directive.to,
         delegatedBy: agent.id,
+        ...(task.actor === undefined ? {} : { actor: task.actor }),
         instruction: directive.task,
         ...(directive.goal === undefined ? {} : { goal: directive.goal }),
         status: "queued",
@@ -791,6 +796,7 @@ export function createDelegationCascade(
         ...(agent.instructions === undefined ? {} : { instructions: agent.instructions }),
         prompt,
         workspaceRoot: agent.homePath,
+        ...(task.actor === undefined ? {} : { actor: task.actor }),
         signal,
         metadata: { round, attempt: attemptNumber, depth: task.depth },
       });
@@ -1059,6 +1065,7 @@ export function createDelegationCascade(
         rootTaskId: taskId,
         depth: 0,
         agentId: agent.id,
+        ...(input.actor === undefined ? {} : { actor: input.actor }),
         instruction: input.instruction,
         ...(input.goal === undefined ? {} : { goal: input.goal }),
         status: "queued",

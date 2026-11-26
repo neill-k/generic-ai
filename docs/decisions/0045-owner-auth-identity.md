@@ -73,8 +73,17 @@ fits the same `AuthContext` shape; it is deferred, not rejected.
 - Browser state-changing requests that rely on the cookie must carry a
   same-origin `Origin` (or `Sec-Fetch-Site: same-origin`); bearer callers are
   unaffected.
-- Durable auth needs a persistent volume (or, later, the Postgres store from
-  R6). `GENERIC_AI_AUTH_DB=:memory:` is for tests only.
-- Not yet done: rate limiting of login attempts, session rotation on privilege
-  change, threading the actor through web console harness runs and the
-  durable run store, and an OIDC adapter.
+- Durable auth lives in Postgres when `DATABASE_URL` is set (the same
+  `kv_records` table as the R6 store), otherwise in a SQLite file that needs a
+  persistent volume. `GENERIC_AI_AUTH_DB=:memory:` is for tests only.
+- Failed sign-in and setup attempts are rate limited in memory, per client and
+  globally, and open challenges are capped.
+- Web console chat runs record the actor on the user message, the
+  `run.started` console event, and every harness run event
+  (`AgentHarnessRunInput.actor`, `CanonicalEventStreamOptions.actor`).
+- Sessions rotate around sensitive changes: sign-in revokes any session the
+  browser already held, adding or removing a passkey rotates the caller's
+  cookie, and `POST /auth/sessions/revoke-others` signs out every other
+  session.
+- Not yet done: the actor on durable run store records (lands with R8/R9).
+  OIDC stays out of scope while v1 has a single owner.

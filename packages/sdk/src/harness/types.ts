@@ -1,6 +1,7 @@
 import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
 import type { CanonicalEvent } from "../events/index.js";
 import type { RunEnvelope } from "../run-envelope/index.js";
+import type { RunActor } from "../contracts/identity.js";
 import type {
   AgentLifecycleHookDecisionRecord,
   AgentLifecycleHooksConfig,
@@ -9,7 +10,7 @@ import type {
 export const HARNESS_SCHEMA_VERSION = "0.1" as const;
 
 export type HarnessSchemaVersion = typeof HARNESS_SCHEMA_VERSION;
-export const AGENT_HARNESS_ADAPTER_KINDS = ["pi", "external"] as const;
+export const AGENT_HARNESS_ADAPTER_KINDS = ["pi", "native", "external"] as const;
 export const AGENT_HARNESS_ROLE_KINDS = [
   "root",
   "planner",
@@ -37,6 +38,9 @@ export const AGENT_HARNESS_CAPABILITY_EFFECTS = [
   "lsp.read",
   "secret.read",
   "sandbox.create",
+  "message.send",
+  "external.write",
+  "payment.spend",
 ] as const;
 
 export const AGENT_HARNESS_EVENT_TYPES = [
@@ -269,6 +273,8 @@ export interface AgentHarnessRunInput<TCapabilities = unknown> {
   readonly budget?: AgentHarnessBudget;
   readonly capabilities?: TCapabilities;
   readonly metadata?: JsonObject;
+  /** Redaction-safe identity of whoever started the run; stamped on every run event. */
+  readonly actor?: RunActor;
 }
 
 export interface AgentHarnessToolDescriptor {

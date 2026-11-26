@@ -93,6 +93,7 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
         rootAgentId: input.agentId,
         ...(deadline === undefined ? {} : { deadline }),
         ...(capabilities === undefined ? {} : { capabilities }),
+        ...(input.actor === undefined ? {} : { actor: input.actor }),
         metadata: {
           taskId: input.taskId,
           rootTaskId: input.rootTaskId,

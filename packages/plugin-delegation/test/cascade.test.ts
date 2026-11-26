@@ -656,3 +656,35 @@ describe.skipIf(!postgresUrl)("delegation cascade on Postgres", () => {
     ]);
   });
 });
+
+describe("cascade actor", () => {
+  it("records who started a cascade on every task, event and turn", async () => {
+    const actor = {
+      subjectId: "owner",
+      actorType: "human",
+      credentialSource: "passkey",
+      displayName: "Owner",
+    } as const;
+    const { executor, calls } = scriptedExecutor({
+      ceo: (_input, turn) =>
+        turn === 1
+          ? {
+              status: "succeeded",
+              outputText: json({ delegate_task: [{ to: "vp-ops", task: "x" }] }),
+            }
+          : { status: "succeeded", outputText: "done" },
+    });
+    const { cascade, runStore } = await openHarness(executor);
+    await cascade.submit({ agentId: "ceo", instruction: "x", taskId: "who", actor });
+    await cascade.drain();
+
+    for (const taskId of ["who", "who.0.1"]) {
+      expect((await cascade.get(taskId))?.actor).toEqual(actor);
+      expect((await runStore.getRun(taskId))?.envelope.actor).toEqual(actor);
+      const events = await runStore.readEvents(taskId);
+      expect(events.length).toBeGreaterThan(0);
+      expect(events.every((event) => event.actor?.subjectId === "owner")).toBe(true);
+    }
+    expect(calls.every((call) => call.actor?.subjectId === "owner")).toBe(true);
+  });
+});

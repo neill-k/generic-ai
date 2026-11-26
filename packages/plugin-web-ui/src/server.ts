@@ -9,7 +9,13 @@ import {
   resolveCanonicalConfig,
 } from "@generic-ai/plugin-config-yaml";
 import { createHonoSseResponse, type HonoStreamChunk } from "@generic-ai/plugin-hono";
-import type { ResolvedConfig, StorageContract, StorageKey, StorageRecord } from "@generic-ai/sdk";
+import type {
+  ResolvedConfig,
+  RunActor,
+  StorageContract,
+  StorageKey,
+  StorageRecord,
+} from "@generic-ai/sdk";
 import { Hono } from "hono";
 
 import { createBuiltInTemplateRegistry } from "./templates.js";
@@ -29,6 +35,7 @@ import {
   type WebUiPlugin,
   type WebUiPluginOptions,
   type WebUiPostMessageInput,
+  type WebUiPostMessageOptions,
   type WebUiTemplateApplyInput,
   type WebUiTemplateDefinition,
   type WebUiTemplateSummary,
@@ -336,6 +343,7 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
     threadId: string,
     role: WebUiChatMessage["role"],
     content: string,
+    actor?: RunActor,
   ): Promise<WebUiChatMessage> {
     const message: WebUiChatMessage = {
       id: idFactory(),
@@ -343,6 +351,7 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
       role,
       content,
       createdAt: now(),
+      ...(actor === undefined ? {} : { actor }),
     };
     await store(MESSAGES_COLLECTION, message.id, message);
     await emitEvent(threadId, "message.created", { message });
@@ -525,7 +534,9 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
       threadId: string,
       input: WebUiPostMessageInput,
       signal: AbortSignal,
+      postOptions: WebUiPostMessageOptions = {},
     ): Promise<WebUiChatThreadDetail> {
+      const actor = postOptions.actor;
       let thread = await ensureThread(threadId, input);
       if (thread.title === "New thread") {
         thread = await saveThread({
@@ -535,12 +546,15 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
         });
       }
 
-      const message = await addMessage(thread.id, "user", input.content);
+      const message = await addMessage(thread.id, "user", input.content, actor);
       const runAbort = new AbortController();
       const runSignal = combineAbortSignals(signal, runAbort.signal);
       activeRuns.set(thread.id, runAbort);
       thread = await setThreadStatus(thread, "running");
-      await emitEvent(thread.id, "run.started", { messageId: message.id });
+      await emitEvent(thread.id, "run.started", {
+        messageId: message.id,
+        ...(actor === undefined ? {} : { actor }),
+      });
 
       try {
         const config = await getConfig();
@@ -568,6 +582,7 @@ export function createWebUiPlugin(options: WebUiPluginOptions): WebUiPlugin {
                   ? {}
                   : { harness: config.config.harnesses[harnessId] }),
                 signal: runSignal,
+                ...(actor === undefined ? {} : { actor }),
               });
 
         await addMessage(thread.id, "assistant", runnerResult.content);
@@ -726,8 +741,14 @@ export function createHonoWebUiTransport(
     if (input instanceof Response) {
       return input;
     }
+    const actor = await options.security?.resolveActor?.(context.req.raw);
     return context.json(
-      await plugin.postMessage(context.req.param("id"), input, context.req.raw.signal),
+      await plugin.postMessage(
+        context.req.param("id"),
+        input,
+        context.req.raw.signal,
+        actor === undefined ? {} : { actor },
+      ),
     );
   });
   app.post(`${routePrefix}/chat/threads/:id/interrupt`, async (context) => {

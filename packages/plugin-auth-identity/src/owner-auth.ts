@@ -31,6 +31,8 @@ const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const LAST_USED_WRITE_INTERVAL_MS = 60 * 1000;
 const MAX_TOKEN_NAME_LENGTH = 100;
+/** Cap on unexpired, unused sign-in challenges, so option requests cannot fill the store. */
+const MAX_OPEN_CHALLENGES = 100;
 
 export class OwnerAuthError extends Error {
   constructor(
@@ -43,6 +45,7 @@ export class OwnerAuthError extends Error {
       | "PASSKEY_VERIFICATION_FAILED"
       | "LAST_PASSKEY"
       | "NOT_FOUND"
+      | "RATE_LIMITED"
       | "INVALID_INPUT",
     message: string,
   ) {
@@ -192,6 +195,14 @@ export interface OwnerAuth {
   }): Promise<CreatedSession>;
 
   revokeSession(secret: string): Promise<void>;
+  /**
+   * Replaces a live session with a fresh one bound to the same passkey and
+   * revokes the old one. Returns `undefined` when the secret is not a live
+   * session.
+   */
+  rotateSession(secret: string): Promise<CreatedSession | undefined>;
+  /** Revokes every session except the one whose secret is given. Returns how many were revoked. */
+  revokeOtherSessions(keepSecret?: string): Promise<number>;
 }
 
 export function sha256Hex(value: string): string {
@@ -392,12 +403,22 @@ export function createOwnerAuth(options: OwnerAuthOptions): OwnerAuth {
     return record;
   }
 
+  /** Drops expired challenges and refuses new ones while too many are open. */
   async function pruneExpiredChallenges(): Promise<void> {
     const at = now().getTime();
+    let open = 0;
     for (const challenge of await store.list("challenges")) {
       if (Date.parse(challenge.expiresAt) <= at) {
         await store.delete("challenges", challenge.id);
+      } else {
+        open += 1;
       }
+    }
+    if (open >= MAX_OPEN_CHALLENGES) {
+      throw new OwnerAuthError(
+        "RATE_LIMITED",
+        "Too many sign-in attempts are in progress. Try again in a few minutes.",
+      );
     }
   }
 
@@ -724,6 +745,28 @@ export function createOwnerAuth(options: OwnerAuthOptions): OwnerAuth {
 
     async revokeSession(secret) {
       await store.delete("sessions", sha256Hex(secret));
+    },
+
+    async rotateSession(secret) {
+      const id = sha256Hex(secret);
+      const record = await store.get("sessions", id);
+      if (record === undefined || Date.parse(record.expiresAt) <= now().getTime()) {
+        return undefined;
+      }
+      await store.delete("sessions", id);
+      return createSession(record.passkeyId);
+    },
+
+    async revokeOtherSessions(keepSecret) {
+      const keep = keepSecret === undefined ? undefined : sha256Hex(keepSecret);
+      let revoked = 0;
+      for (const session of await store.list("sessions")) {
+        if (session.id !== keep) {
+          await store.delete("sessions", session.id);
+          revoked += 1;
+        }
+      }
+      return revoked;
     },
   };
 

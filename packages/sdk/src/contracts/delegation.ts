@@ -1,3 +1,4 @@
+import type { RunActor } from "./identity.js";
 import type { Awaitable, JsonValue } from "./shared.js";
 
 export type DelegationTerminalStatus = "succeeded" | "failed" | "cancelled";
@@ -64,6 +65,8 @@ export interface AgentTaskExecutionInput {
   readonly prompt: string;
   /** The agent's persistent home: its memory file and workspace live here. */
   readonly workspaceRoot: string;
+  /** Who started the work this turn belongs to (the owner, a service, ...). */
+  readonly actor?: RunActor;
   readonly signal?: AbortSignal;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
 }

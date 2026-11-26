@@ -210,6 +210,108 @@ describe("owner auth over Hono", () => {
     expect(browser.cookie).toMatch(/^gai_session=/);
   });
 
+  it("rotates sessions on sign-in and after sensitive changes", async () => {
+    const { app } = createServer();
+    const laptop = client(app);
+    const device = await registerOwner(laptop);
+    const firstCookie = laptop.cookie;
+    expect(firstCookie).toBeDefined();
+
+    // Signing in again replaces the session the browser already had.
+    const options = (await (
+      await laptop("/auth/passkeys/login/options", { method: "POST" })
+    ).json()) as { challengeId: string; options: { challenge: string } };
+    await laptop("/auth/passkeys/login/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        challengeId: options.challengeId,
+        response: device.authenticate(options.options),
+      }),
+    });
+    const secondCookie = laptop.cookie;
+    expect(secondCookie).not.toBe(firstCookie);
+    const stale = await app.request(`${ORIGIN}/auth/session`, {
+      headers: { cookie: firstCookie ?? "" },
+    });
+    expect(((await stale.json()) as { authenticated: boolean }).authenticated).toBe(false);
+
+    // Adding a passkey while signed in also rotates the session.
+    const phone = createSoftAuthenticator({ origin: ORIGIN });
+    const addStart = (await (
+      await laptop("/auth/passkeys/register/options", { method: "POST" })
+    ).json()) as { challengeId: string; options: { challenge: string; user: { id: string } } };
+    const added = await laptop("/auth/passkeys/register/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        challengeId: addStart.challengeId,
+        name: "Phone",
+        response: phone.register(addStart.options),
+      }),
+    });
+    expect(added.status).toBe(200);
+    const thirdCookie = laptop.cookie;
+    expect(thirdCookie).not.toBe(secondCookie);
+    const afterAdd = await app.request(`${ORIGIN}/auth/session`, {
+      headers: { cookie: secondCookie ?? "" },
+    });
+    expect(((await afterAdd.json()) as { authenticated: boolean }).authenticated).toBe(false);
+
+    // A second browser signs in with the phone passkey.
+    const tablet = client(app);
+    const tabletOptions = (await (
+      await tablet("/auth/passkeys/login/options", { method: "POST" })
+    ).json()) as { challengeId: string; options: { challenge: string } };
+    await tablet("/auth/passkeys/login/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        challengeId: tabletOptions.challengeId,
+        response: phone.authenticate(tabletOptions.options),
+      }),
+    });
+    expect(
+      ((await (await tablet("/auth/session")).json()) as { authenticated: boolean }).authenticated,
+    ).toBe(true);
+
+    // "Sign out other sessions" from the laptop ends the tablet's session and
+    // rotates the laptop's own.
+    const revoke = await laptop("/auth/sessions/revoke-others", { method: "POST" });
+    expect(revoke.status).toBe(200);
+    expect(((await revoke.json()) as { revoked: number }).revoked).toBe(1);
+    expect(laptop.cookie).not.toBe(thirdCookie);
+    expect(
+      ((await (await tablet("/auth/session")).json()) as { authenticated: boolean }).authenticated,
+    ).toBe(false);
+    expect(
+      ((await (await laptop("/auth/session")).json()) as { authenticated: boolean }).authenticated,
+    ).toBe(true);
+
+    // Removing a passkey rotates the caller's session too.
+    const beforeRemove = laptop.cookie;
+    const removed = await laptop(`/auth/passkeys/${encodeURIComponent(phone.credentialId)}`, {
+      method: "DELETE",
+    });
+    expect(removed.status).toBe(200);
+    expect(laptop.cookie).not.toBe(beforeRemove);
+    expect(
+      ((await (await laptop("/auth/session")).json()) as { authenticated: boolean }).authenticated,
+    ).toBe(true);
+  });
+
+  it("lets a token holder sign out every browser session", async () => {
+    const { app, auth } = createServer();
+    const browser = client(app);
+    await registerOwner(browser);
+    const admin = await auth.createApiToken({ name: "admin" });
+    const response = await app.request(`${ORIGIN}/auth/sessions/revoke-others`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${admin.token}` },
+    });
+    expect(((await response.json()) as { revoked: number }).revoked).toBe(1);
+    expect(
+      ((await (await browser("/auth/session")).json()) as { authenticated: boolean }).authenticated,
+    ).toBe(false);
+  });
+
   it("refuses a second passkey from an anonymous caller and cross-origin auth calls", async () => {
     const { app } = createServer();
     const owner = client(app);

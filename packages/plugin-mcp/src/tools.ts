@@ -16,6 +16,7 @@ import {
   type McpClientManager,
   type McpToolInfo,
 } from "./client.js";
+import { classifyConnectorTool, OUTWARD_EFFECTS } from "./connectors.js";
 import type { McpServerDefinition } from "./registry.js";
 
 /** Effect for MCP tools that change state on the server. Only write-capable roles may call them. */
@@ -87,25 +88,87 @@ export function mcpHarnessToolName(server: McpServerDefinition, toolName: string
   return `${full.slice(0, MAX_TOOL_NAME_LENGTH - hash.length - 1)}_${hash}`;
 }
 
-export function isMcpToolReadOnly(server: McpServerDefinition, tool: McpToolInfo): boolean {
-  if (server.readOnly === true || server.readOnlyTools?.includes(tool.name) === true) {
-    return true;
-  }
-  return server.trustAnnotations !== false && tool.annotations?.readOnlyHint === true;
+function globToRegExp(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`);
 }
 
+/** The `toolEffects` entry for a tool: an exact name first, then the first matching `*` pattern. */
+export function matchToolEffectsOverride(
+  server: McpServerDefinition,
+  toolName: string,
+): readonly AgentHarnessCapabilityEffect[] | undefined {
+  const overrides = server.toolEffects;
+  if (overrides === undefined) {
+    return undefined;
+  }
+  if (Object.hasOwn(overrides, toolName)) {
+    return overrides[toolName];
+  }
+  for (const [pattern, effects] of Object.entries(overrides)) {
+    if (pattern.includes("*") && globToRegExp(pattern).test(toolName)) {
+      return effects;
+    }
+  }
+  return undefined;
+}
+
+const NON_MUTATING_EFFECTS: ReadonlySet<AgentHarnessCapabilityEffect> = new Set([
+  "mcp.read",
+  "fs.read",
+  "repo.inspect",
+  "lsp.read",
+  "memory.read",
+  "handoff.read",
+  "network.egress",
+]);
+
+function effectsAreReadOnly(effects: readonly AgentHarnessCapabilityEffect[]): boolean {
+  return effects.every((effect) => NON_MUTATING_EFFECTS.has(effect));
+}
+
+function explicitlyReadOnly(server: McpServerDefinition, tool: McpToolInfo): boolean {
+  return server.readOnly === true || server.readOnlyTools?.includes(tool.name) === true;
+}
+
+/**
+ * Effects for one tool. Precedence: a `toolEffects` override, then `readOnly` / `readOnlyTools`,
+ * then the server's `connector` classification, then the server's `readOnlyHint` annotation.
+ * Server-wide `effects` are added to everything except an override.
+ */
 export function mcpToolEffects(
   server: McpServerDefinition,
   tool: McpToolInfo,
 ): readonly AgentHarnessCapabilityEffect[] {
-  const override = server.toolEffects?.[tool.name];
+  const override = matchToolEffectsOverride(server, tool.name);
   if (override !== undefined) {
     return Object.freeze([...new Set(override)]);
   }
-  const base: AgentHarnessCapabilityEffect[] = isMcpToolReadOnly(server, tool)
-    ? [MCP_READ_EFFECT]
-    : [MCP_READ_EFFECT, MCP_WRITE_EFFECT];
+  let base: readonly AgentHarnessCapabilityEffect[];
+  if (explicitlyReadOnly(server, tool)) {
+    base = [MCP_READ_EFFECT];
+  } else if (server.connector !== undefined) {
+    base = classifyConnectorTool(server.connector, tool, {
+      ...(server.trustAnnotations === undefined
+        ? {}
+        : { trustAnnotations: server.trustAnnotations }),
+    }).effects;
+  } else if (server.trustAnnotations !== false && tool.annotations?.readOnlyHint === true) {
+    base = [MCP_READ_EFFECT];
+  } else {
+    base = [MCP_READ_EFFECT, MCP_WRITE_EFFECT];
+  }
   return Object.freeze([...new Set([...base, ...(server.effects ?? [])])]);
+}
+
+/** A tool is read-only when none of its effects change anything. */
+export function isMcpToolReadOnly(server: McpServerDefinition, tool: McpToolInfo): boolean {
+  return effectsAreReadOnly(mcpToolEffects(server, tool));
+}
+
+/** True when the tool sends messages, writes to an external system or spends money. */
+export function isMcpToolOutward(server: McpServerDefinition, tool: McpToolInfo): boolean {
+  return mcpToolEffects(server, tool).some((effect) => OUTWARD_EFFECTS.includes(effect));
 }
 
 function isToolIncluded(server: McpServerDefinition, toolName: string): boolean {
@@ -230,13 +293,16 @@ function createMcpHarnessTool(
   tool: McpToolInfo,
   options: CreateMcpHarnessToolsOptions,
 ): McpHarnessTool {
-  const readOnly = isMcpToolReadOnly(server, tool);
   const effects = mcpToolEffects(server, tool);
+  const readOnly = effectsAreReadOnly(effects);
+  const outward = effects.some((effect) => OUTWARD_EFFECTS.includes(effect));
   const name = mcpHarnessToolName(server, tool.name);
   const label = tool.title ?? tool.annotations?.title ?? `${server.id}: ${tool.name}`;
   const description = [
     tool.description?.trim() || `MCP tool "${tool.name}".`,
-    `(MCP server "${server.id}"${readOnly ? ", read-only" : ""})`,
+    `(MCP server "${server.id}"${
+      readOnly ? ", read-only" : outward ? ", outward action: may need owner approval" : ""
+    })`,
   ].join(" ");
   const context = { serverId: server.id, toolName: tool.name, readOnly };
 
@@ -303,6 +369,8 @@ function createMcpHarnessTool(
       mcpServer: server.id,
       mcpTool: tool.name,
       transport: server.transport,
+      ...(server.connector === undefined ? {} : { connector: server.connector }),
+      outward,
       ...(tool.annotations?.destructiveHint === undefined
         ? {}
         : { destructiveHint: tool.annotations.destructiveHint }),

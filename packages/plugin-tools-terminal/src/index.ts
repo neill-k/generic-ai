@@ -9,7 +9,7 @@ import {
   createLocalBashOperations,
   type BashOperations,
   type BashSpawnHook,
-} from "@generic-ai/sdk/pi";
+} from "@generic-ai/tools";
 import {
   createWorkspaceLayout,
   resolveSafeWorkspacePath,

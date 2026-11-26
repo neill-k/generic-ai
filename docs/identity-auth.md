@@ -156,8 +156,10 @@ Expected integration points:
 Slices 1, 2, and the owner-auth part of 5 shipped with ADR 0045. Slice 3 is
 covered by the starter example's environment wiring rather than a preset slot,
 and slice 4 covers run envelopes and bootstrap run events so far. Remaining
-work: an OIDC adapter, login rate limiting, session rotation, and threading the
-actor through web console harness runs and the durable run store.
+work: carrying the actor into the durable run store, and an OIDC adapter if
+Generic AI ever needs more than one user. Session rotation shipped after the
+first slice. Login rate limiting, the Postgres auth store, and the actor
+on web console harness runs followed in the next change.
 
 1. **SDK and ADR foundation**
    - Add the auth contracts to `@generic-ai/sdk`.
