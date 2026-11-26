@@ -115,6 +115,8 @@ more) and send it as a bearer token.
 | `GENERIC_CORP_COMPANY_FILE` | none | YAML company file; wins over the template |
 | `GENERIC_CORP_TEMPLATE` | `generic-corp` | Company template: `generic-corp`, `research-desk` or `back-office` |
 | `GENERIC_CORP_WORKERS` | `true` | Run agent turns in this process |
+| `GENERIC_CORP_WORKER_CONCURRENCY` | `4` | Agent turns this process runs at once (1 to 64), across different agents |
+| `GENERIC_CORP_TURN_LEASE_MS` | `30000` | How long a turn's lease lasts before another worker may take over after a crash (at least 1000) |
 | `GENERIC_AI_PUBLIC_URL` / `RAILWAY_PUBLIC_DOMAIN` | none | Public origin for passkeys |
 | `GENERIC_AI_OWNER_SETUP_TOKEN` | printed at start | Pins the first-passkey setup token |
 | `GENERIC_AI_AUTH_TOKEN` | none | Break-glass static owner token |
@@ -222,6 +224,33 @@ calibrate before a full run.
 To add a template, copy a folder, change `company.yaml`, and record a replay
 for each goal. `templates.test.ts` checks that every goal has a case, a replay,
 and numeric, rubric and trace validators.
+
+## End-to-end, crash and load tests
+
+`e2e/` holds Playwright tests that start a real server (dashboard, API, cascade,
+approvals gate, durable queue) on a scripted model, so no key is needed and
+nothing is spent. CI runs them in the `e2e` job of the quality gate.
+
+```bash
+npm run build
+npm exec -w @generic-ai/app-generic-corp -- playwright install chromium  # once
+npm run e2e -w @generic-ai/app-generic-corp
+```
+
+- `golden-flows.spec.ts`: chat with the CEO, delegation to a VP (board and org
+  chart), and an outward action that waits for the owner's approval and then
+  runs exactly once.
+- `crash-resume.spec.ts`: the process is killed (SIGKILL) mid-turn; a new
+  process over the same data picks the cascade up once the lease lapses and
+  answers the owner, with the work done once.
+- `load.spec.ts`: many requests at once while a dashboard polls every read
+  endpoint. Every request must be answered correctly with no HTTP errors.
+
+An agent never runs two turns at once (each agent has one home and one memory
+file), while different agents' turns run side by side. Every owner request goes
+through the CEO, so one process handles about one CEO turn at a time; the load
+test prints its numbers. For a heavier local run:
+`LOAD_THREADS=200 LOAD_MODEL_DELAY_MS=250 npm run e2e -w @generic-ai/app-generic-corp -- e2e/load.spec.ts`.
 
 ## Layering
 

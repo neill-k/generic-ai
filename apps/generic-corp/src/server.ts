@@ -68,7 +68,12 @@ export const ENV = Object.freeze({
   trustProxy: "GENERIC_AI_TRUST_PROXY",
   insecureNoAuth: "GENERIC_CORP_INSECURE_NO_AUTH",
   workers: "GENERIC_CORP_WORKERS",
+  turnLeaseMs: "GENERIC_CORP_TURN_LEASE_MS",
+  workerConcurrency: "GENERIC_CORP_WORKER_CONCURRENCY",
 });
+
+/** Agent turns one process runs at the same time when nothing else is configured. */
+export const DEFAULT_WORKER_CONCURRENCY = 4;
 
 export const AUTH_ROUTE_PREFIX = "/auth" as const;
 
@@ -95,6 +100,13 @@ export interface GenericCorpEnvironment {
   readonly insecureNoAuth: boolean;
   /** Run agent turns in this process. */
   readonly workers: boolean;
+  /**
+   * How long a worker holds an agent turn between heartbeats. If the process dies mid-turn,
+   * another process picks the turn up once this lapses. Defaults to 30 seconds.
+   */
+  readonly turnLeaseMs?: number;
+  /** Agent turns this process runs at the same time. Defaults to 4. */
+  readonly workerConcurrency?: number;
 }
 
 function read(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -156,6 +168,21 @@ export function loadGenericCorpEnvironment(env: NodeJS.ProcessEnv): GenericCorpE
   const companyFile = read(env, ENV.companyFile);
   const template = read(env, ENV.template);
   const databaseUrl = read(env, ENV.databaseUrl);
+  const leaseRaw = read(env, ENV.turnLeaseMs);
+  const turnLeaseMs = leaseRaw === undefined ? undefined : Number(leaseRaw);
+  if (turnLeaseMs !== undefined && (!Number.isInteger(turnLeaseMs) || turnLeaseMs < 1_000)) {
+    throw new GenericCorpConfigError(`${ENV.turnLeaseMs} must be a whole number of at least 1000.`);
+  }
+  const concurrencyRaw = read(env, ENV.workerConcurrency);
+  const workerConcurrency = concurrencyRaw === undefined ? undefined : Number(concurrencyRaw);
+  if (
+    workerConcurrency !== undefined &&
+    (!Number.isInteger(workerConcurrency) || workerConcurrency < 1 || workerConcurrency > 64)
+  ) {
+    throw new GenericCorpConfigError(
+      `${ENV.workerConcurrency} must be a whole number from 1 to 64.`,
+    );
+  }
   return {
     host,
     port,
@@ -169,6 +196,8 @@ export function loadGenericCorpEnvironment(env: NodeJS.ProcessEnv): GenericCorpE
     trustProxyHeaders: flag(env, ENV.trustProxy, railway !== undefined),
     insecureNoAuth,
     workers: flag(env, ENV.workers, true),
+    ...(turnLeaseMs === undefined ? {} : { turnLeaseMs }),
+    ...(workerConcurrency === undefined ? {} : { workerConcurrency }),
   };
 }
 
@@ -310,6 +339,10 @@ export async function createGenericCorpServer(
       executor,
       cascade: {
         approvals,
+        worker: {
+          concurrency: environment.workerConcurrency ?? DEFAULT_WORKER_CONCURRENCY,
+          ...(environment.turnLeaseMs === undefined ? {} : { leaseMs: environment.turnLeaseMs }),
+        },
         goals: {
           judges:
             options.goals?.judges ??
