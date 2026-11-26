@@ -11,9 +11,9 @@ The decision to build it here, and the product decisions behind it, are in
 
 ## Status
 
-The app server (roadmap R13) is in. It runs the company and serves a JSON API
-with live events. The dashboard, approvals view, secrets screen and Docker
-image come next.
+The app server (roadmap R13) is in. It runs the company, gives its agents the
+generic-work toolkit, and serves a JSON API with live events. The dashboard,
+approvals view and secrets screen come next.
 
 - **Company.** `company.ts` defines the org chart as plain data (YAML via
   `GENERIC_CORP_COMPANY_FILE`, or the built-in default: a CEO, VPs for
@@ -25,8 +25,21 @@ image come next.
   the CEO, and publishes live events. An owner message starts one root task for
   the CEO; the reply is that task's result once its goal checks pass.
 - **Executor.** `executor.ts` runs every agent turn on the native runtime with
-  the agent's own model, file and shell tools rooted at the agent's home, and
+  the agent's own model and the toolkit below, rooted at the agent's home, and
   persists each harness run so traces and costs are kept.
+- **Toolkit.** `toolkit.ts` gives every agent tools for generic work (D6), not
+  only code: files and a shell, `web_fetch` and `web_search`, `document_read`,
+  `document_extract` and `document_write` (PDF, Word, Excel, CSV, HTML in;
+  Markdown, HTML, Word, Excel, CSV out), and the company's MCP connectors for
+  email, calendar, chat, documents, a headless browser and payments. Connector
+  tools that send, write to an outside system or spend money carry outward
+  effect tags for the approvals gate.
+- **Secrets.** Credentials come from the secrets vault
+  (`@generic-ai/plugin-secrets`): `GENERIC_AI_SECRET_<NAME>` variables, files in
+  `GENERIC_AI_SECRETS_DIR`, or the encrypted store when `GENERIC_AI_SECRETS_KEY`
+  is set. Search keys and MCP `${NAME}` placeholders resolve host-side, so
+  agents never see them. An agent's `secrets:` list lets it use named secrets
+  in its own tool calls as `{{secret:NAME}}`.
 - **Storage.** Postgres when `DATABASE_URL` is set, otherwise SQLite under the
   data directory. Agents, threads and owner auth records share the backend.
 - **Auth.** Owner passkeys and API tokens (`@generic-ai/plugin-auth-identity`)
@@ -52,6 +65,7 @@ All routes are under `/api` and need an owner credential: reads need
 | `POST /api/tasks/:id/cancel` | Cancel a task and everything it delegated |
 | `GET /api/board` | Tasks in columns by status |
 | `GET /api/costs` | Tokens and dollars by agent, model and owner request, and cost per completed request |
+| `GET /api/tools` | The agents' tools, the web search backend and each MCP connector's state |
 | `GET /api/events` | Server-sent events: `task.*`, `thread.updated`, `runtime.error`. Supports `Last-Event-ID` |
 
 `GET /health` and `GET /ready` are public; `/ready` checks the database.
@@ -79,6 +93,36 @@ more) and send it as a bearer token.
 | `GENERIC_AI_PUBLIC_URL` / `RAILWAY_PUBLIC_DOMAIN` | none | Public origin for passkeys |
 | `GENERIC_AI_OWNER_SETUP_TOKEN` | printed at start | Pins the first-passkey setup token |
 | `GENERIC_AI_AUTH_TOKEN` | none | Break-glass static owner token |
+| `GENERIC_AI_SECRET_<NAME>` | none | A secret named `<NAME>`, for example `GENERIC_AI_SECRET_BRAVE_API_KEY` |
+| `GENERIC_AI_SECRETS_KEY` | none | Master key (`openssl rand -hex 32`) for secrets stored in the database |
+
+### Tools in the company file
+
+```yaml
+name: Generic Corp
+tools:
+  # Optional. Without it, a BRAVE_API_KEY or TAVILY_API_KEY secret turns search on.
+  webSearch: { provider: brave, apiKey: "${BRAVE_API_KEY}" }
+  mcp:
+    servers:
+      - id: mail
+        connector: email
+        transport: http
+        url: "${MAIL_MCP_URL}"
+        headers: { Authorization: "Bearer ${MAIL_MCP_TOKEN}" }
+      - id: web
+        connector: browser   # headless Playwright MCP; the image needs npx and Chromium
+agents:
+  - id: ceo
+    role: ceo
+  - id: researcher
+    role: researcher
+    reportsTo: ceo
+    secrets: [CRM_API_KEY]
+```
+
+See `@generic-ai/plugin-mcp` for every server field and how connector tools
+are classified.
 
 Known limits: live events are per process, so with several worker processes
 each streams the turns it runs and the dashboard refetches on reconnect. The

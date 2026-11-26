@@ -11,9 +11,8 @@ import {
   registerFauxProvider,
 } from "@generic-ai/ai";
 import { afterEach, describe, expect, it } from "vitest";
-
-import { createCompanyRuntime } from "./runtime.js";
 import { createCompanyTaskExecutor } from "./executor.js";
+import { createCompanyRuntime } from "./runtime.js";
 import { openCompanyStorage } from "./storage.js";
 
 const cleanups: Array<() => unknown> = [];
