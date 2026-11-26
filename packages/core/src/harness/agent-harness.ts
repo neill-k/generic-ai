@@ -140,9 +140,12 @@ export interface NativeAgentHarnessOptions {
   readonly subagents?: Omit<NativeSessionSubagents, "resolveModel" | "getApiKey"> | boolean;
   /**
    * Give every native session the thread-goal tools (see `@generic-ai/autonomy`). A session keeps
-   * working while a goal the agent created is active, and `verify` checks completion claims.
+   * working while a goal the agent created is active. A topology run's own goal is not handed to
+   * each actor: it is the team's goal, and the topology runner checks it with the same SDK runner.
    */
-  readonly goal?: Omit<NativeSessionGoal, "objective" | "tokenBudget"> | boolean;
+  readonly goal?:
+    | Omit<NativeSessionGoal, "spec" | "validation" | "collectEvidence" | "objective">
+    | boolean;
   /**
    * Run every native session in autonomous mode: it continues until the quality gates pass or a
    * limit is reached. Gate commands run in the clean agent-command environment.

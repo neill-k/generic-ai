@@ -45,7 +45,12 @@ function result<T>(value: T): AgentToolResult<T> {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }], details: value };
 }
 
-export function createGoal(driver: GoalDriver, objective: string, tokenBudget?: number): GoalState {
+export function createGoal(
+  driver: GoalDriver,
+  objective: string,
+  tokenBudget?: number,
+  goalId?: string,
+): GoalState {
   switch (driver.state.status) {
     case "active":
       throw new Error(
@@ -60,7 +65,7 @@ export function createGoal(driver: GoalDriver, objective: string, tokenBudget?: 
         "cannot create a new goal because a budget-limited goal exists; ask the user to resume or clear it",
       );
     default:
-      return driver.start(objective, tokenBudget);
+      return driver.start(objective, tokenBudget, goalId);
   }
 }
 

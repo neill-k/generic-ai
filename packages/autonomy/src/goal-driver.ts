@@ -125,8 +125,11 @@ export class GoalDriver {
     return this.#state.status === "active" ? this.#state.objective : undefined;
   }
 
-  /** Start a new active goal, replacing whatever was there. */
-  start(objectiveText: string, tokenBudget?: number): GoalState {
+  /**
+   * Start a new active goal, replacing whatever was there. `goalId` ties it to a goal defined
+   * elsewhere (for example an SDK goal spec); a random id is used otherwise.
+   */
+  start(objectiveText: string, tokenBudget?: number, goalId?: string): GoalState {
     const objective = validateGoalObjective(objectiveText);
     const budget = validateGoalBudget(tokenBudget);
     const now = this.#now();
@@ -139,7 +142,7 @@ export class GoalDriver {
     this.#setState({
       active: true,
       status: "active",
-      goalId: randomUUID(),
+      goalId: goalId ?? randomUUID(),
       objective,
       ...(budget === undefined ? {} : { tokenBudget: budget }),
       tokensUsed: 0,

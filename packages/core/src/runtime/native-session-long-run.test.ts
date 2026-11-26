@@ -6,6 +6,7 @@ import {
   registerFauxProvider,
 } from "@generic-ai/ai";
 import type { GateCommandResult } from "@generic-ai/autonomy";
+import { sealGoal } from "@generic-ai/sdk";
 import { SessionManager } from "@generic-ai/session";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -90,18 +91,31 @@ describe("native session goals and autonomous mode", () => {
     expect(saved.length).toBeGreaterThan(1);
   });
 
-  it("refuses a completion claim that fails the host's check", async () => {
+  it("decides completion with the SDK goal's validators and keeps the goal on INCOMPLETE", async () => {
     const faux = provider();
     let checks = 0;
+    const prompts: string[] = [];
     faux.setResponses([
-      fauxAssistantMessage(fauxToolCall("complete_goal", {}), { stopReason: "toolUse" }),
       (context) => {
-        expect(JSON.stringify(context.messages.at(-1))).toContain("report.md is missing");
+        prompts.push(lastUserText(context));
+        return fauxAssistantMessage(fauxToolCall("complete_goal", {}), { stopReason: "toolUse" });
+      },
+      (context) => {
+        const last = JSON.stringify(context.messages.at(-1));
+        expect(last).toContain("GOAL INCOMPLETE: write-report");
+        expect(last).toContain("report.md is missing");
         return fauxAssistantMessage("Writing the report.");
       },
       fauxAssistantMessage(fauxToolCall("complete_goal", {}), { stopReason: "toolUse" }),
       fauxAssistantMessage("Done."),
     ]);
+    const spec = sealGoal({
+      id: "write-report",
+      objective: "Write report.md",
+      definitionOfDone: ["report.md exists"],
+      validators: [{ kind: "check", id: "report-exists", checkRef: "report" }],
+    });
+    const validations: string[] = [];
 
     const result = await runCapabilityNativeAgentSession({
       cwd: "/tmp/work",
@@ -112,18 +126,30 @@ describe("native session goals and autonomous mode", () => {
       compaction: false,
       retry: false,
       goal: {
-        objective: "Write report.md",
-        verify: () => {
-          checks += 1;
-          return checks === 1
-            ? { passed: false, feedback: "report.md is missing" }
-            : { passed: true };
+        spec,
+        validation: {
+          checks: {
+            report: () => {
+              checks += 1;
+              return checks === 1
+                ? { passed: false, message: "report.md is missing" }
+                : { passed: true };
+            },
+          },
         },
       },
     });
 
     expect(checks).toBe(2);
-    expect(result.goal?.status).toBe("complete");
+    expect(prompts[0]).toBe("Write the report.");
+    expect(result.goal).toMatchObject({ status: "complete", goalId: "write-report" });
+    expect(result.goal?.objective).toContain("Goal write-report");
+    for (const event of result.events) {
+      if (event.name.endsWith("native.goal_validation")) {
+        validations.push(String((event.data as { status?: string }).status));
+      }
+    }
+    expect(validations).toEqual(["INCOMPLETE", "COMPLETE"]);
   });
 
   it("sends a completed stop back while the quality gates fail", async () => {
@@ -161,7 +187,7 @@ describe("native session goals and autonomous mode", () => {
     expect(result.outputText).toBe("Fixed and done.");
     expect(result.autonomous).toMatchObject({
       continuationsUsed: 1,
-      gateAttempts: { "npm test": 0 },
+      gateAttempts: { "validate goal session-quality-gates": 0 },
     });
   });
 

@@ -24,7 +24,11 @@ import {
   SessionManager,
 } from "@generic-ai/session";
 import { type AutonomousStatus, autonomousStatus, type GoalState } from "@generic-ai/autonomy";
-import type { RunEnvelope, RunEnvelopeMode } from "@generic-ai/sdk";
+import {
+  goalTraceFromCanonicalEvents,
+  type RunEnvelope,
+  type RunEnvelopeMode,
+} from "@generic-ai/sdk";
 import {
   type AgentNode,
   createAgentChildSessionFactory,
@@ -416,6 +420,21 @@ export async function runCapabilityNativeAgentSession(
     sessionManager,
     goal: options.goal,
     autonomous: options.autonomous,
+    evidence: () => {
+      const outputText = stopState.response ?? assistantText(latestAssistant(agent.state.messages));
+      return {
+        ...(outputText === undefined ? {} : { outputText }),
+        trace: goalTraceFromCanonicalEvents(eventStream.snapshot()),
+      };
+    },
+    signal: options.signal,
+    onValidation: async (report) => {
+      await emitRuntimeEvent("goal_validation", {
+        goalId: report.goalId,
+        status: report.status,
+        summary: report.summary,
+      });
+    },
   });
   const tools = [
     ...capabilityTools,
