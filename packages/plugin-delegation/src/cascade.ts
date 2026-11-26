@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  AgentHarnessHostTool,
   AgentTaskExecutionResult,
   AgentTaskExecutor,
   CanonicalEvent,
@@ -14,6 +15,7 @@ import type {
   QueueWorkerJobContext,
   QueueWorkerOptions,
   RunStoreContract,
+  ToolEffectRecord,
 } from "@generic-ai/sdk";
 import {
   createQueueWorker,
@@ -24,6 +26,7 @@ import {
 } from "@generic-ai/sdk";
 
 import type { AgentDirectory, PersistentAgentRecord } from "./agents.js";
+import { createRunStoreToolEffectJournal } from "./effect-journal.js";
 import {
   collectGoalEvidence,
   prepareTaskGoal,
@@ -119,7 +122,71 @@ export type DelegationCascadeEvent =
   | { readonly type: "task.succeeded"; readonly task: AgentTaskRecord }
   | { readonly type: "task.failed"; readonly task: AgentTaskRecord }
   | { readonly type: "task.cancelled"; readonly task: AgentTaskRecord }
+  | {
+      /** A retried turn returned a recorded outward call's result instead of running it again. */
+      readonly type: "tool.effect.replayed";
+      readonly taskId: string;
+      readonly record: ToolEffectRecord;
+    }
+  | {
+      /** A retried turn refused to repeat an outward call whose outcome was never recorded. */
+      readonly type: "tool.effect.uncertain";
+      readonly taskId: string;
+      readonly record: ToolEffectRecord;
+    }
   | { readonly type: "error"; readonly error: unknown; readonly taskId?: string };
+
+interface TurnCheckpoint {
+  readonly outputText: string;
+  readonly attemptRunId: string;
+  readonly runIds: readonly string[];
+  readonly directives?: JsonObject;
+}
+
+export const DELEGATE_TASK_TOOL_NAME = "delegate_task";
+export const FINISH_TASK_TOOL_NAME = "finish_task";
+
+const DELEGATE_TASK_PARAMETERS: JsonObject = {
+  type: "object",
+  properties: {
+    tasks: {
+      type: "array",
+      minItems: 1,
+      description: "One entry per agent and task.",
+      items: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "Id of the agent to hand the work to." },
+          task: { type: "string", description: "What to do and why." },
+          definitionOfDone: {
+            type: "string",
+            description: "How they will know the task is done.",
+          },
+          goal: {
+            type: "object",
+            description:
+              "Optional goal spec (objective, definitionOfDone, validators) checked automatically before the task can finish.",
+          },
+        },
+        required: ["to", "task"],
+      },
+    },
+  },
+  required: ["tasks"],
+};
+
+const FINISH_TASK_PARAMETERS: JsonObject = {
+  type: "object",
+  properties: {
+    reason: { type: "string", description: "Why the task cannot be done." },
+  },
+  required: ["reason"],
+};
+
+/** Session id of the saved answer for one round of a task. */
+export function turnCheckpointSessionId(taskId: string, round: number): string {
+  return `${taskId}:turn-${round}:outcome`;
+}
 
 export interface CreateDelegationCascadeOptions {
   readonly runStore: RunStoreContract;
@@ -643,8 +710,39 @@ export function createDelegationCascade(
     await directory.ensureWorkspace(agent.id);
 
     const resuming = initial.status === "waiting";
+    const turnScopeId = `${taskId}:turn-${round}`;
+    const checkpoint = await readTurnCheckpoint(taskId, round);
+    if (checkpoint !== undefined) {
+      // The model already answered this round and its answer was saved, but the worker stopped
+      // before acting on it. Act on the saved answer instead of running the model again.
+      const task = await update(taskId, () => ({ status: "running" }));
+      await logEvent(
+        task,
+        "session.completed",
+        { round, fromCheckpoint: true, attemptRunId: checkpoint.attemptRunId },
+        checkpoint.attemptRunId,
+      );
+      emit({ type: "task.resumed", task });
+      return finishTurn(
+        job,
+        task,
+        agent,
+        round,
+        checkpoint.attemptRunId,
+        resuming,
+        {
+          status: "succeeded",
+          outputText: checkpoint.outputText,
+          ...(checkpoint.runIds.length === 0 ? {} : { runIds: checkpoint.runIds }),
+        },
+        signal,
+        undefined,
+        checkpoint.directives,
+      );
+    }
+
     const attemptNumber = initial.attempts + 1;
-    const attemptRunId = `${taskId}:turn-${round}:attempt-${attemptNumber}`;
+    const attemptRunId = `${turnScopeId}:attempt-${attemptNumber}`;
     const task = await update(taskId, (current) => ({
       status: "running",
       attempts: current.attempts + 1,
@@ -659,7 +757,39 @@ export function createDelegationCascade(
     );
     emit({ type: resuming ? "task.resumed" : "task.started", task });
 
+    const effectJournal = createRunStoreToolEffectJournal(store, {
+      runId: taskId,
+      scopeId: turnScopeId,
+      agentId: agent.id,
+      onEvent: async (event) => {
+        if (event.type === "recorded") {
+          return;
+        }
+        await logEvent(
+          task,
+          event.type === "replayed"
+            ? "plugin.delegation.tool-effect-replayed"
+            : "plugin.delegation.tool-effect-uncertain",
+          {
+            round,
+            attempt: attemptNumber,
+            toolName: event.record.toolName,
+            callKey: event.record.callKey,
+            recordedStatus: event.record.status,
+            startedAt: event.record.startedAt,
+          },
+          attemptRunId,
+        );
+        emit({
+          type: event.type === "replayed" ? "tool.effect.replayed" : "tool.effect.uncertain",
+          taskId,
+          record: event.record,
+        });
+      },
+    });
+
     const prompt = await buildPrompt(task, agent);
+    const turnTools = await createTurnTools(task, agent);
     let result: AgentTaskExecutionResult;
     try {
       result = await options.executor({
@@ -675,6 +805,8 @@ export function createDelegationCascade(
         prompt,
         workspaceRoot: agent.homePath,
         ...(task.actor === undefined ? {} : { actor: task.actor }),
+        effectJournal,
+        tools: turnTools.tools,
         signal,
         metadata: { round, attempt: attemptNumber, depth: task.depth },
       });
@@ -686,6 +818,38 @@ export function createDelegationCascade(
       };
     }
 
+    const toolDirectives = turnTools.collected();
+    if (result.status === "succeeded" && !signal.aborted) {
+      // Save the answer before acting on it, so a crash from here on resumes from it.
+      await saveTurnCheckpoint(taskId, agent.id, round, attemptRunId, result, toolDirectives);
+    }
+    return finishTurn(
+      job,
+      task,
+      agent,
+      round,
+      attemptRunId,
+      resuming,
+      result,
+      signal,
+      attemptNumber,
+      toolDirectives,
+    );
+  }
+
+  async function finishTurn(
+    job: DurableQueueLease<AgentTaskJobPayload>,
+    task: AgentTaskRecord,
+    agent: PersistentAgentRecord,
+    round: number,
+    attemptRunId: string,
+    resuming: boolean,
+    result: AgentTaskExecutionResult,
+    signal: AbortSignal,
+    attemptNumber?: number,
+    toolDirectives?: JsonObject,
+  ): Promise<AgentTaskJobResult> {
+    const { taskId } = task;
     const afterTurn = await load(taskId);
     if (afterTurn === undefined || isTerminalTaskStatus(afterTurn.status)) {
       return { taskId, round, outcome: "cancelled" };
@@ -695,17 +859,19 @@ export function createDelegationCascade(
         runIds: [...new Set([...current.runIds, ...(result.runIds ?? [])])],
       }));
     }
-    await logEvent(
-      task,
-      result.status === "succeeded" ? "session.completed" : "session.failed",
-      {
-        round,
-        attempt: attemptNumber,
-        ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
-        ...(result.costUsd === undefined ? {} : { costUsd: result.costUsd }),
-      },
-      attemptRunId,
-    );
+    if (attemptNumber !== undefined) {
+      await logEvent(
+        task,
+        result.status === "succeeded" ? "session.completed" : "session.failed",
+        {
+          round,
+          attempt: attemptNumber,
+          ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
+          ...(result.costUsd === undefined ? {} : { costUsd: result.costUsd }),
+        },
+        attemptRunId,
+      );
+    }
 
     if (signal.aborted) {
       throw new Error("Turn was interrupted before it finished.");
@@ -728,7 +894,11 @@ export function createDelegationCascade(
       return { taskId, round, outcome: "failed" };
     }
 
-    const directives = readDirectives(result.outputText);
+    // Directives given through the delegate_task / finish_task tools win over a fenced-JSON reply.
+    const directives =
+      toolDirectives !== undefined && Object.keys(toolDirectives).length > 0
+        ? readDirectiveData(toolDirectives)
+        : readDirectives(result.outputText);
     if (directives.failure !== undefined) {
       await settle(taskId, "failed", {
         failureMessage: directives.failure,
@@ -784,6 +954,195 @@ export function createDelegationCascade(
   }
 
   // ---------------------------------------------------------------------------
+  // Turn tools
+  // ---------------------------------------------------------------------------
+
+  async function delegatableAgents(agent: PersistentAgentRecord): Promise<PersistentAgentRecord[]> {
+    const candidates =
+      scope === "direct-reports"
+        ? await directory.directReports(agent.id)
+        : (await directory.list()).filter((candidate) => candidate.id !== agent.id);
+    return candidates.filter((candidate) => candidate.status === "active");
+  }
+
+  /**
+   * The `delegate_task` and `finish_task` tools for one turn (ADR 0060). They check what they can
+   * right away so the agent can fix a bad delegation in the same turn, and record the rest; the
+   * cascade acts on what was recorded once the turn ends, exactly as it would on a fenced-JSON
+   * reply.
+   */
+  async function createTurnTools(
+    task: AgentTaskRecord,
+    agent: PersistentAgentRecord,
+  ): Promise<{ readonly tools: AgentHarnessHostTool[]; collected(): JsonObject }> {
+    const delegations: JsonObject[] = [];
+    let failure: string | undefined;
+    const tools: AgentHarnessHostTool[] = [];
+
+    const canHandOff = task.depth < limits.maxDepth && (await delegatableAgents(agent)).length > 0;
+    if (canHandOff) {
+      tools.push({
+        name: DELEGATE_TASK_TOOL_NAME,
+        label: "Delegate Task",
+        description:
+          "Hand work to other agents in your organization. Each entry becomes their own task; " +
+          "you get a new turn with all of their results once every one of them finishes.",
+        promptSnippet: "delegate_task: hand work to agents who report to you",
+        promptGuidelines: [
+          "Call delegate_task with every hand-off for this turn, then end your turn with a short note.",
+          "Give each agent a concrete task and how they will know it is done.",
+        ],
+        parameters: DELEGATE_TASK_PARAMETERS,
+        effects: ["handoff.write"],
+        async execute(params) {
+          if (failure !== undefined) {
+            return {
+              text: "You already gave up on this task with finish_task; it cannot delegate now.",
+              isError: true,
+            };
+          }
+          const entries = params["tasks"];
+          if (!Array.isArray(entries) || entries.length === 0) {
+            return { text: 'Pass "tasks": a non-empty list of { to, task }.', isError: true };
+          }
+          const parsed = parseDelegationEntries(entries);
+          if (parsed.invalid !== undefined) {
+            return { text: parsed.invalid, isError: true };
+          }
+          const problems: string[] = [];
+          if (task.depth + 1 > limits.maxDepth) {
+            problems.push(
+              `Delegation is limited to ${limits.maxDepth} levels; do this task yourself.`,
+            );
+          }
+          if (delegations.length + parsed.delegations.length > limits.maxChildren) {
+            problems.push(`You can delegate at most ${limits.maxChildren} tasks at once.`);
+          }
+          for (const directive of parsed.delegations) {
+            const target = await directory.get(directive.to);
+            if (target === undefined) {
+              problems.push(`There is no agent "${directive.to}".`);
+              continue;
+            }
+            const problem = await canDelegate(agent, target, task);
+            if (problem !== undefined) {
+              problems.push(problem);
+            }
+          }
+          if (problems.length > 0) {
+            return {
+              text: `Nothing was delegated:\n- ${problems.join("\n- ")}`,
+              isError: true,
+            };
+          }
+          delegations.push(...(entries as JsonObject[]));
+          const names = parsed.delegations.map((directive) => `"${directive.to}"`).join(", ");
+          return {
+            text:
+              `Recorded ${parsed.delegations.length === 1 ? "a task" : `${parsed.delegations.length} tasks`} for ${names}. ` +
+              "They start when you end this turn. Add more with delegate_task, or end your turn " +
+              "now; you will get a new turn with their results.",
+            details: { delegated: parsed.delegations.map((directive) => directive.to) },
+          };
+        },
+      });
+    }
+
+    tools.push({
+      name: FINISH_TASK_TOOL_NAME,
+      label: "Give Up On Task",
+      description:
+        "Give up on this task when it cannot be done, with the reason. Do not call it when you " +
+        "finished the task: reply with the result instead.",
+      promptSnippet: "finish_task: give up on a task that cannot be done, with the reason",
+      parameters: FINISH_TASK_PARAMETERS,
+      effects: ["handoff.write"],
+      execute(params) {
+        const reason = params["reason"];
+        if (typeof reason !== "string" || reason.trim().length === 0) {
+          return { text: 'Pass a "reason" saying why the task cannot be done.', isError: true };
+        }
+        failure = reason.trim();
+        return { text: "Recorded. End your turn now; the task will be marked as failed." };
+      },
+    });
+
+    return {
+      tools,
+      collected(): JsonObject {
+        if (failure !== undefined) {
+          return { finish_task: { status: "failed", reason: failure } };
+        }
+        return delegations.length === 0 ? {} : { delegate_task: [...delegations] };
+      },
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Turn checkpoints
+  // ---------------------------------------------------------------------------
+
+  async function readTurnCheckpoint(
+    taskId: string,
+    round: number,
+  ): Promise<TurnCheckpoint | undefined> {
+    const session = await store.getSession(turnCheckpointSessionId(taskId, round));
+    const state = session?.state as
+      | {
+          readonly outputText?: unknown;
+          readonly attemptRunId?: unknown;
+          readonly runIds?: unknown;
+          readonly directives?: JsonValue;
+        }
+      | null
+      | undefined;
+    if (
+      session?.status !== "succeeded" ||
+      typeof state !== "object" ||
+      state === null ||
+      typeof state.outputText !== "string" ||
+      typeof state.attemptRunId !== "string"
+    ) {
+      return undefined;
+    }
+    const runIds = Array.isArray(state.runIds) ? (state.runIds as unknown[]) : [];
+    return {
+      outputText: state.outputText,
+      attemptRunId: state.attemptRunId,
+      runIds: runIds.filter((value): value is string => typeof value === "string"),
+      ...(isObject(state.directives) ? { directives: state.directives } : {}),
+    };
+  }
+
+  async function saveTurnCheckpoint(
+    taskId: string,
+    agentId: string,
+    round: number,
+    attemptRunId: string,
+    result: AgentTaskExecutionResult,
+    directives: JsonObject,
+  ): Promise<void> {
+    try {
+      await store.saveSession({
+        sessionId: turnCheckpointSessionId(taskId, round),
+        runId: taskId,
+        agentId,
+        status: "succeeded",
+        state: {
+          outputText: result.outputText,
+          attemptRunId,
+          runIds: [...(result.runIds ?? [])],
+          ...(Object.keys(directives).length === 0 ? {} : { directives }),
+        },
+        metadata: { kind: "turn-checkpoint", round },
+      });
+    } catch (error) {
+      // Without the checkpoint a crash re-runs the turn; the effect journal still guards it.
+      emit({ type: "error", error, taskId });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Validation
   // ---------------------------------------------------------------------------
 
@@ -799,7 +1158,17 @@ export function createDelegationCascade(
       sealed = sealStoredGoal(task.goal);
     } catch (error) {
       // A tampered or unreadable goal can never be satisfied; fail closed.
-      return { passed: false, feedback: error instanceof Error ? error.message : String(error) };
+      const feedback = error instanceof Error ? error.message : String(error);
+      await logEvent(task, "plugin.delegation.goal.failed", {
+        round: task.round,
+        ...(task.goal?.spec?.id === undefined ? {} : { goalId: task.goal.spec.id }),
+        ...(task.goal?.fingerprint === undefined ? {} : { goalFingerprint: task.goal.fingerprint }),
+        status: "INCOMPLETE",
+        complete: false,
+        reason: "goal_integrity",
+        feedback,
+      });
+      return { passed: false, feedback };
     }
     if (sealed !== undefined) {
       const evidence = await collectGoalEvidence(
@@ -812,7 +1181,22 @@ export function createDelegationCascade(
         signal,
         ...(task.goal?.fingerprint === undefined ? {} : { fingerprint: task.goal.fingerprint }),
       });
-      await update(task.taskId, () => ({ lastGoalReport: summarizeGoalReport(report) }));
+      const summary = summarizeGoalReport(report);
+      await update(task.taskId, () => ({ lastGoalReport: summary }));
+      // The in-run verdict, for goal evals (ADR 0058) to cross-check against a re-run.
+      await logEvent(task, "plugin.delegation.goal.validated", {
+        round: task.round,
+        goalId: report.goalId,
+        goalFingerprint: report.goalFingerprint,
+        status: report.status,
+        complete: report.complete,
+        required: summary.required,
+        passed: summary.passed,
+        failed: summary.failed,
+        errored: summary.errored,
+        turnRunIds: [...turnRunIds],
+        evaluatedAt: report.evaluatedAt,
+      });
       if (!report.complete) {
         return { passed: false, feedback: report.feedback };
       }
@@ -927,7 +1311,8 @@ export function createDelegationCascade(
     );
     if (delegatable.length > 0 && task.depth < limits.maxDepth) {
       lines.push(
-        "To hand work to others instead, end your reply with one fenced JSON block like this:",
+        "To hand work to others instead, call the delegate_task tool with every hand-off, then end your turn.",
+        "If you have no delegate_task tool, end your reply with one fenced JSON block like this:",
         "```json",
         '{"delegate_task": [{"to": "<agent id>", "task": "<what to do and why>", "definitionOfDone": "<how they know it is done>"}]}',
         "```",
@@ -936,7 +1321,7 @@ export function createDelegationCascade(
       );
     }
     lines.push(
-      "If the task cannot be done, end with:",
+      "If the task cannot be done, call the finish_task tool with the reason, or end with:",
       "```json",
       '{"finish_task": {"status": "failed", "reason": "<why>"}}',
       "```",
@@ -1181,6 +1566,11 @@ export function readDirectives(outputText: string): ParsedDirectives {
   if (data === undefined) {
     return { delegations: [] };
   }
+  return readDirectiveData(data);
+}
+
+/** Reads directives from parsed data: `{ delegate_task?: [...], finish_task?: {...} }`. */
+export function readDirectiveData(data: JsonObject): ParsedDirectives {
   const finish = data["finish_task"];
   if (isObject(finish) && finish["status"] === "failed") {
     const reason = finish["reason"];
@@ -1193,6 +1583,14 @@ export function readDirectives(outputText: string): ParsedDirectives {
   if (raw === undefined) {
     return { delegations: [] };
   }
+  return parseDelegationEntries(raw);
+}
+
+/**
+ * Validates `delegate_task` entries, from a fenced-JSON reply or the `delegate_task` tool:
+ * `{ to, task, definitionOfDone?, criteria?, goal? }` each.
+ */
+export function parseDelegationEntries(raw: JsonValue): ParsedDirectives {
   const entries = Array.isArray(raw) ? raw : [raw];
   const delegations: DelegationDirective[] = [];
   for (const entry of entries) {

@@ -62,13 +62,26 @@ Give a task a checkable goal with `goal: { spec }` (an SDK goal spec, see
 `COMPLETE`; otherwise the agent gets the validators' feedback and another turn.
 Register rubric judges and host checks with the cascade's `goals` option.
 
-An agent turn either replies with its result, gives up with
-`{"finish_task": {"status": "failed", "reason": "..."}}`, or delegates by ending
-with a fenced JSON block:
+An agent turn either replies with its result, gives up, or delegates. Each turn
+gets two tools (`AgentTaskExecutionInput.tools`, passed to the harness as
+`hostTools` by `createAdapterTaskExecutor`, so they work on pi and the native
+runtime):
+
+- `delegate_task({ tasks: [{ to, task, definitionOfDone?, goal? }] })` records
+  hand-offs. It checks the target, the org chart and the limits right away, so
+  the agent can fix a bad hand-off in the same turn. It is only offered when the
+  agent has someone to delegate to.
+- `finish_task({ reason })` gives up on a task that cannot be done.
+
+Executors that cannot add tools can ignore them; the agent can instead end its
+reply with a fenced JSON block, which the cascade still reads:
 
 ```json
 {"delegate_task": [{"to": "vp-research", "task": "Size the market", "definitionOfDone": "Three sources"}]}
 ```
+
+or `{"finish_task": {"status": "failed", "reason": "..."}}`. Directives recorded
+by the tools win over the reply text, and are saved with the turn's checkpoint.
 
 Children run as their own queued turns (one at a time per agent). The parent
 waits in the store, then gets a new turn with every child's result. Delegation
@@ -83,3 +96,16 @@ See `docs/decisions/0044-persistent-agents-and-delegation-cascade.md`.
 
 Boundaries: this package depends on `@generic-ai/sdk` only and must not import
 `@generic-ai/core`.
+
+## Safe resume
+
+Each turn gets a durable journal (`AgentTaskExecutionInput.effectJournal`) that
+`createAdapterTaskExecutor` hands to the harness. Tools with an outward effect
+(`message.send`, `external.write`, `payment.spend`) are journaled: if a worker
+dies and the turn runs again, finished calls return their recorded result, and a
+call that started but never reported back is refused with a message telling the
+agent to check first. The model's answer is also saved as soon as the turn
+succeeds, so a crash before the cascade acts on it does not call the model
+again. Goal validations are logged as `plugin.delegation.goal.validated` events
+for goal evals. See ADR 0059.
+

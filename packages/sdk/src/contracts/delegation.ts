@@ -1,3 +1,5 @@
+import type { ToolEffectJournal } from "../harness/effect-journal.js";
+import type { AgentHarnessHostTool } from "../harness/host-tools.js";
 import type { RunActor } from "./identity.js";
 import type { Awaitable, JsonValue } from "./shared.js";
 
@@ -67,6 +69,18 @@ export interface AgentTaskExecutionInput {
   readonly workspaceRoot: string;
   /** Who started the work this turn belongs to (the owner, a service, ...). */
   readonly actor?: RunActor;
+  /**
+   * Journal of outward tool calls for this turn, shared by every attempt of it. Pass it to the
+   * harness (`AgentHarnessRunInput.effectJournal`) so a retried attempt never repeats a send,
+   * write or payment without detecting it.
+   */
+  readonly effectJournal?: ToolEffectJournal;
+  /**
+   * Tools the cascade offers for this turn (`delegate_task`, `finish_task`). Pass them to the
+   * harness as `AgentHarnessRunInput.hostTools`. Executors that cannot add tools can ignore them;
+   * the prompt also describes the fenced-JSON fallback.
+   */
+  readonly tools?: readonly AgentHarnessHostTool[];
   readonly signal?: AbortSignal;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
 }

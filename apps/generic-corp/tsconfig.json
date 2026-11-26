@@ -5,5 +5,15 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/preset-starter-hono" }]
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/plugin-auth-identity" },
+    { "path": "../../packages/plugin-delegation" },
+    { "path": "../../packages/plugin-storage-postgres" },
+    { "path": "../../packages/plugin-storage-sqlite" },
+    { "path": "../../packages/plugin-tools-files" },
+    { "path": "../../packages/plugin-tools-terminal" },
+    { "path": "../../packages/preset-starter-hono" },
+    { "path": "../../packages/sdk" }
+  ]
 }

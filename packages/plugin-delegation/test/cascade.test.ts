@@ -8,11 +8,14 @@ import {
   createSqliteRunStore,
   type SqliteQueue,
 } from "@generic-ai/plugin-storage-sqlite";
-import type {
-  AgentTaskExecutionInput,
-  AgentTaskExecutionResult,
-  AgentTaskExecutor,
-  RunStoreContract,
+import {
+  type AgentTaskExecutionInput,
+  type AgentTaskExecutionResult,
+  type AgentTaskExecutor,
+  createToolEffectGuard,
+  type RunStoreContract,
+  type ToolEffectJournal,
+  withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import { createManualClock, type ManualClock } from "@generic-ai/sdk/testing";
 import { afterEach, describe, expect, it } from "vitest";
@@ -26,8 +29,11 @@ import {
   createMemoryAgentStore,
   type CreateDelegationCascadeOptions,
   type DelegationCascade,
+  type DelegationCascadeEvent,
+  listToolEffectRecords,
   type PersistentAgentSeed,
   readDirectives,
+  turnCheckpointSessionId,
 } from "../src/index.js";
 
 const ORG: readonly PersistentAgentSeed[] = [
@@ -721,7 +727,7 @@ describe("goal-gated tasks (R24)", () => {
         outputText: turn === 1 ? "About eight people." : json({ headcount: 12 }),
       }),
     });
-    const { cascade } = await openHarness(executor);
+    const { cascade, runStore } = await openHarness(executor);
     const submitted = await cascade.submit({
       agentId: "analyst",
       instruction: "Count the team",
@@ -738,6 +744,14 @@ describe("goal-gated tasks (R24)", () => {
     expect(calls[0]?.prompt).toContain("Report the headcount as JSON.");
     expect(calls[1]?.prompt).toContain("Your last result did not pass validation");
     expect(calls[1]?.prompt).toContain("shape");
+
+    // Each in-run verdict is logged for goal evals to cross-check.
+    const verdicts = (await runStore.readEvents("count")).filter(
+      (event) => event.name === "plugin.delegation.goal.validated",
+    );
+    expect(verdicts.map((event) => event.data["status"])).toEqual(["INCOMPLETE", "COMPLETE"]);
+    expect(verdicts.every((event) => event.data["goalId"] === reportGoal.id)).toBe(true);
+    expect(verdicts[1]?.data["goalFingerprint"]).toBe(submitted.goal?.fingerprint);
   });
 
   it("checks the turn's trace and host-registered checks", async () => {
@@ -909,5 +923,220 @@ describe("goal-gated tasks (R24)", () => {
     await cascade.drain();
     expect((await cascade.get("badgoal"))?.childTaskIds).toEqual([]);
     expect(calls[1]?.prompt).toContain("is not a valid goal spec");
+  });
+});
+
+describe("safe resume of interrupted turns", () => {
+  function sendTool(outbox: string[]) {
+    return withAgentHarnessToolEffects(
+      {
+        name: "send_email",
+        async execute(_id: string, params: { to: string; body: string }) {
+          outbox.push(`${params.to}: ${params.body}`);
+          return { content: [{ type: "text", text: `sent to ${params.to}` }] };
+        },
+      },
+      ["message.send"],
+    );
+  }
+
+  it("replays sends from a crashed attempt instead of sending them again", async () => {
+    const outbox: string[] = [];
+    const events: DelegationCascadeEvent[] = [];
+    const { executor, calls } = scriptedExecutor({});
+    const wrapped: AgentTaskExecutor = async (input) => {
+      await executor(input);
+      const send = createToolEffectGuard(input.effectJournal as ToolEffectJournal).wrap(
+        sendTool(outbox),
+      );
+      await send.execute("1", { to: "ann", body: "quote" });
+      await send.execute("2", { to: "bob", body: "quote" });
+      if (calls.length === 1) {
+        return { status: "failed", outputText: "", failureMessage: "worker lost the model" };
+      }
+      return { status: "succeeded", outputText: "Quotes sent." };
+    };
+    const { cascade, runStore } = await openHarness(wrapped, {
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+    await cascade.submit({ agentId: "analyst", instruction: "Send quotes", taskId: "quotes" });
+    await cascade.drain();
+
+    expect((await cascade.get("quotes"))?.status).toBe("succeeded");
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.effectJournal?.scopeId).toBe("quotes:turn-0");
+    expect(calls[1]?.effectJournal?.scopeId).toBe("quotes:turn-0");
+    expect(outbox).toEqual(["ann: quote", "bob: quote"]);
+    expect(events.filter((event) => event.type === "tool.effect.replayed")).toHaveLength(2);
+    const records = await listToolEffectRecords(runStore, "quotes", "quotes:turn-0");
+    expect(records.map((record) => record.status)).toEqual(["completed", "completed"]);
+    const log = await runStore.readEvents("quotes");
+    expect(
+      log.filter((event) => event.name === "plugin.delegation.tool-effect-replayed"),
+    ).toHaveLength(2);
+  });
+
+  it("refuses to repeat a send whose outcome was never recorded", async () => {
+    const outbox: string[] = [];
+    const events: DelegationCascadeEvent[] = [];
+    const refusals: string[] = [];
+    let attempt = 0;
+    const executor: AgentTaskExecutor = async (input) => {
+      attempt += 1;
+      const journal = input.effectJournal as ToolEffectJournal;
+      // The first worker dies right after the send starts, before it can record the outcome.
+      const visible: ToolEffectJournal =
+        attempt === 1
+          ? {
+              scopeId: journal.scopeId,
+              read: (key) => journal.read(key),
+              write: (record) => (record.status === "started" ? journal.write(record) : undefined),
+            }
+          : journal;
+      const send = createToolEffectGuard(visible).wrap(sendTool(outbox));
+      try {
+        await send.execute("1", { to: "ann", body: "invoice" });
+      } catch (error) {
+        refusals.push(error instanceof Error ? error.message : String(error));
+      }
+      return attempt === 1
+        ? { status: "failed", outputText: "", failureMessage: "worker died" }
+        : { status: "succeeded", outputText: "Checked the sent folder; the invoice went out." };
+    };
+    const { cascade } = await openHarness(executor, {
+      onEvent: (event) => {
+        events.push(event);
+      },
+    });
+    await cascade.submit({ agentId: "analyst", instruction: "Invoice", taskId: "invoice" });
+    await cascade.drain();
+
+    expect((await cascade.get("invoice"))?.status).toBe("succeeded");
+    expect(outbox).toEqual(["ann: invoice"]);
+    expect(refusals).toHaveLength(1);
+    expect(refusals[0]).toContain("may already have happened");
+    expect(events.filter((event) => event.type === "tool.effect.uncertain")).toHaveLength(1);
+  });
+
+  it("acts on a saved answer instead of running the model again", async () => {
+    const { executor, calls } = scriptedExecutor({});
+    let validations = 0;
+    const { cascade, runStore } = await openHarness(executor, {
+      validate: () => {
+        validations += 1;
+        if (validations === 1) {
+          throw new Error("worker crashed after the model answered");
+        }
+        return { passed: true };
+      },
+    });
+    await cascade.submit({ agentId: "analyst", instruction: "Summarize", taskId: "sum" });
+    await cascade.drain();
+
+    const task = await cascade.get("sum");
+    expect(task?.status).toBe("succeeded");
+    expect(task?.outputText).toBe("analyst did: sum");
+    expect(calls).toHaveLength(1);
+    expect(validations).toBe(2);
+    expect((await runStore.getSession(turnCheckpointSessionId("sum", 0)))?.status).toBe(
+      "succeeded",
+    );
+    const log = await runStore.readEvents("sum");
+    expect(log.some((event) => event.data?.["fromCheckpoint"] === true)).toBe(true);
+  });
+});
+
+describe("delegate_task and finish_task tools", () => {
+  async function call(
+    input: AgentTaskExecutionInput,
+    name: string,
+    params: Record<string, unknown>,
+  ): Promise<{ text: string; isError?: boolean }> {
+    const tool = input.tools?.find((candidate) => candidate.name === name);
+    if (tool === undefined) {
+      throw new Error(`no ${name} tool`);
+    }
+    return tool.execute(params as never, { toolCallId: `${name}-call` });
+  }
+
+  it("delegates through the tool and checks hand-offs during the turn", async () => {
+    const replies: Array<{ text: string; isError?: boolean }> = [];
+    const { executor, calls } = scriptedExecutor({});
+    const wrapped: AgentTaskExecutor = async (input) => {
+      const scripted = await executor(input);
+      if (input.agentId !== "ceo" || calls.filter((c) => c.agentId === "ceo").length > 1) {
+        return scripted;
+      }
+      replies.push(await call(input, "delegate_task", { tasks: [{ to: "nobody", task: "x" }] }));
+      replies.push(await call(input, "delegate_task", { tasks: [{ to: "analyst", task: "x" }] }));
+      replies.push(
+        await call(input, "delegate_task", {
+          tasks: [{ to: "vp-ops", task: "Book a venue", definitionOfDone: "A signed contract" }],
+        }),
+      );
+      // The prose reply is ignored once the tool recorded a delegation.
+      return { status: "succeeded", outputText: "Handed the venue to operations." };
+    };
+    const { cascade } = await openHarness(wrapped);
+    await cascade.submit({ agentId: "ceo", instruction: "Plan the offsite", taskId: "offsite" });
+    await cascade.drain();
+
+    expect(replies[0]?.isError).toBe(true);
+    expect(replies[0]?.text).toContain('no agent "nobody"');
+    expect(replies[1]?.isError).toBe(true);
+    expect(replies[1]?.text).toContain("does not report to you");
+    expect(replies[2]?.isError).toBeUndefined();
+    const root = await cascade.get("offsite");
+    expect(root?.status).toBe("succeeded");
+    expect(root?.childTaskIds).toEqual(["offsite.0.1"]);
+    const child = await cascade.get("offsite.0.1");
+    expect(child?.agentId).toBe("vp-ops");
+    expect(child?.goal?.definitionOfDone).toBe("A signed contract");
+    expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual(["delegate_task", "finish_task"]);
+    expect(calls[0]?.prompt).toContain("call the delegate_task tool");
+  });
+
+  it("offers only finish_task to agents with nobody to delegate to", async () => {
+    const { executor, calls } = scriptedExecutor({});
+    const wrapped: AgentTaskExecutor = async (input) => {
+      await executor(input);
+      await call(input, "finish_task", { reason: "The data source is gone." });
+      return { status: "succeeded", outputText: "Sorry." };
+    };
+    const { cascade } = await openHarness(wrapped);
+    await cascade.submit({ agentId: "analyst", instruction: "Pull data", taskId: "pull" });
+    await cascade.drain();
+
+    expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual(["finish_task"]);
+    const task = await cascade.get("pull");
+    expect(task?.status).toBe("failed");
+    expect(task?.failureMessage).toBe("The data source is gone.");
+  });
+
+  it("saves tool directives in the turn checkpoint", async () => {
+    let turns = 0;
+    const executor: AgentTaskExecutor = async (input) => {
+      if (input.agentId !== "ceo") {
+        return { status: "succeeded", outputText: "Venue booked." };
+      }
+      turns += 1;
+      if (turns === 1) {
+        await call(input, "delegate_task", { tasks: [{ to: "vp-ops", task: "Book a venue" }] });
+        return { status: "succeeded", outputText: "Delegated." };
+      }
+      return { status: "succeeded", outputText: "Offsite planned." };
+    };
+    const { cascade, runStore } = await openHarness(executor);
+    await cascade.submit({ agentId: "ceo", instruction: "Plan the offsite", taskId: "offsite" });
+    await cascade.drain();
+
+    const checkpoint = await runStore.getSession(turnCheckpointSessionId("offsite", 0));
+    expect((checkpoint?.state as { directives?: unknown } | undefined)?.directives).toEqual({
+      delegate_task: [{ to: "vp-ops", task: "Book a venue" }],
+    });
+    expect((await cascade.get("offsite"))?.status).toBe("succeeded");
+    expect(turns).toBe(2);
   });
 });
