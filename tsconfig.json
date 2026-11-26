@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/ai" },
     { "path": "packages/agent" },
+    { "path": "packages/tools" },
     { "path": "packages/core" },
     { "path": "packages/sdk" },
     { "path": "packages/observability" },
