@@ -6,7 +6,7 @@ Owner: the native runtime workstream. Last updated 2026-11-26.
 ## Goal
 
 Generic AI becomes a complete harness of its own. Today the agent loop, tools, sessions, and most
-provider plumbing come from `pi` (`@mariozechner/pi-coding-agent` 0.70.6), with OpenAI Codex as the
+provider plumbing come from `pi` (`@mariozechner/pi-coding-agent` 0.73.1), with OpenAI Codex as the
 only other path. The native runtime replaces that dependency with packages Generic AI owns, behind
 the adapter boundary that already exists (`GenericAILlmRuntimeAdapter` in core and
 `AgentHarnessAdapter` in the SDK), so the topology scheduler, durable store, and queue work in other
