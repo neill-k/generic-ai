@@ -15,6 +15,7 @@ SDK tool metadata includes declared capability effects such as:
 - `process.spawn`
 - `network.egress`
 - `mcp.read`
+- `mcp.write`
 - `mcp.launch`
 - `memory.read`
 - `memory.write`
@@ -35,6 +36,11 @@ authority claims: a tool can be allowed while still being unsafe to retry or
 hard to roll back.
 
 Role policies may grant a different allowed effect subset for a capability class. P1 uses this for the verifier role: file write/edit tools remain denied, while the terminal capability is allowed as an explicit verification execution surface because real benchmark verification usually requires process execution.
+
+MCP server tools carry `mcp.read` when they only read and `mcp.read` plus
+`mcp.write` otherwise. `mcp.read` is part of the read effect set, so planners,
+verifiers and coordinators can call read-only MCP tools, while `mcp.write` is a
+mutating effect only builder roles hold.
 
 `benchmark-container` also denies selected effects at binding time, including network egress, MCP launch, secret reads, and nested sandbox creation.
 

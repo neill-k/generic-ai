@@ -23,6 +23,8 @@
     { "path": "../../packages/plugin-messaging" },
     { "path": "../../packages/plugin-memory-files" },
     { "path": "../../packages/plugin-hono" },
+    { "path": "../../packages/plugin-auth-identity" },
+    { "path": "../../packages/plugin-storage-sqlite" },
     { "path": "../../packages/plugin-web-ui" }
   ]
 }

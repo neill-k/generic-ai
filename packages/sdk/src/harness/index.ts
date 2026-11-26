@@ -4,3 +4,4 @@ export * from "./protocols.js";
 export * from "./report.js";
 export * from "./tool-errors.js";
 export * from "./types.js";
+export * from "./usage-report.js";

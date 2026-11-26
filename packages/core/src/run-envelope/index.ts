@@ -46,6 +46,7 @@ export function createRunEnvelope<TOutput = unknown>(
     runId: input.runId,
     rootScopeId: input.rootScopeId,
     ...(input.rootAgentId === undefined ? {} : { rootAgentId: input.rootAgentId }),
+    ...(input.actor === undefined ? {} : { actor: Object.freeze({ ...input.actor }) }),
     mode: input.mode,
     status: input.status ?? "created",
     timestamps: freezeTimestamps({

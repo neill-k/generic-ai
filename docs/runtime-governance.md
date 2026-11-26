@@ -9,8 +9,9 @@ preset could be used immediately:
   posture via `unrestrictedLocal`.
 - `@generic-ai/plugin-tools-files` keeps callers inside the workspace root, but
   otherwise exposes broad read/write/edit/list behavior.
-- `@generic-ai/plugin-mcp` validates launch metadata, but it does not yet model
-  server trust, approval flows, or per-tool restrictions.
+- `@generic-ai/plugin-mcp` connects to configured stdio and HTTP servers and
+  classifies each server tool by effect (`mcp.read` or `mcp.write`), but it
+  does not yet model server trust tiers or approval flows.
 
 That posture is acceptable for local development, but not for hosted,
 multi-tenant, or policy-sensitive deployments. `DEF-04` exists to make the
@@ -25,9 +26,11 @@ architecture question.
 - File tools already enforce workspace-root containment and skip symlink
   traversal during recursive walks, but they do not yet model per-operation
   scopes, protected paths, write quotas, or user approval.
-- MCP already has a registry, launch resolution, roots metadata, and server
-  descriptions, but it does not yet model trust tiers, token-handling policy,
-  or per-server/per-tool approvals.
+- MCP has a real client (stdio, Streamable HTTP, SSE) with reconnects, tool
+  include/exclude lists, `${VAR}` secret placeholders, and per-tool effect
+  classification. Role policies keep `mcp.write` tools to builder roles. It
+  does not yet model trust tiers, token rotation, or per-server/per-tool
+  approvals.
 - `@generic-ai/plugin-tools-web` already enforces host allow/block rules. That
   is the clearest existing precedent for a future shared policy vocabulary, but
   it should not become the policy engine for other capabilities.

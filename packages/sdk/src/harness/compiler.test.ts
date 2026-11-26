@@ -627,6 +627,68 @@ describe("structured tool errors", () => {
   });
 });
 
+describe("Benchmark usage reports", () => {
+  it("leads with tokens per completed goal and charges failed trials", () => {
+    const base = trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1);
+    const report = createBenchmarkReport({
+      benchmark: { ...benchmark, trials: { count: 3, pairing: "paired" } },
+      mission,
+      generatedAt: "2026-11-26T00:00:00.000Z",
+      results: [
+        {
+          ...base,
+          trialId: "t1",
+          outcome: { status: "passed" },
+          usage: { totalTokens: 1000, costUsd: 0.1 },
+        },
+        {
+          ...base,
+          trialId: "t2",
+          outcome: { status: "failed" },
+          usage: { totalTokens: 3000, costUsd: 0.3, budgetStopped: true },
+        },
+        {
+          ...base,
+          trialId: "t3",
+          usage: { totalTokens: 2000, goalsAttempted: 2, goalsCompleted: 2 },
+        },
+      ],
+    });
+
+    const usage = report.candidates[0]?.usage;
+    expect(usage).toMatchObject({
+      observedTrialCount: 3,
+      trialCount: 3,
+      totalTokens: 6000,
+      goalsAttempted: 4,
+      goalsCompleted: 3,
+      tokensPerCompletedGoal: 2000,
+      budgetStops: 1,
+    });
+    expect(usage?.totalCostUsd).toBeCloseTo(0.4);
+    expect(usage?.warnings).toContain("Dollar cost missing for 1 trial(s) with usage.");
+    expect(report.usage?.tokensPerCompletedGoal).toBe(2000);
+    expect(report.observations.join("\n")).toContain("tokens_per_completed_goal=2000");
+    expect(report.candidates[0]?.rationale.join("\n")).toContain("goals=3/4");
+
+    const markdown = renderBenchmarkReportMarkdown(report);
+    expect(markdown).toContain("## Usage and Cost");
+    expect(markdown).toContain("| verifier-loop | 2000 | 0.1333 | 3/4 | 6000 | 0.4000 | 1 | 3/3 |");
+  });
+
+  it("leaves reports without usage evidence unchanged", () => {
+    const report = createBenchmarkReport({
+      benchmark,
+      mission,
+      generatedAt: "2026-11-26T00:00:00.000Z",
+      results: [trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1)],
+    });
+    expect(report.usage).toBeUndefined();
+    expect(report.candidates[0]?.usage).toBeUndefined();
+    expect(renderBenchmarkReportMarkdown(report)).not.toContain("## Usage and Cost");
+  });
+});
+
 describe("Benchmark reports", () => {
   it("separates observations, inferences, recommendations, and insufficient evidence", () => {
     const report = createBenchmarkReport({
@@ -699,10 +761,7 @@ describe("Benchmark reports", () => {
     });
     const markdown = renderBenchmarkReportMarkdown(report);
 
-    expect(report.capabilityBOMs.map((bom) => bom.harnessId)).toEqual([
-      alternate.id,
-      compiled.id,
-    ]);
+    expect(report.capabilityBOMs.map((bom) => bom.harnessId)).toEqual([alternate.id, compiled.id]);
     expect(report.candidates[0]?.capabilityBOM?.fingerprint.value).toBe(
       compiled.capabilityBOM.fingerprint.value,
     );

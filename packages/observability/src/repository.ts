@@ -3,10 +3,13 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
   getCanonicalEventFamily,
+  readUsageRecordedEventData,
+  usageTotalsFromModelUsage,
   type AgentHarnessRunResult,
   type CanonicalEvent,
+  type JsonObject,
 } from "@generic-ai/sdk";
-import { deriveEventCountMetric, deriveRunMetrics, metricPoint } from "./metrics.js";
+import { deriveEventMetrics, deriveRunMetrics, metricPoint } from "./metrics.js";
 import { byteSize, summarizePayload } from "./redaction.js";
 import type {
   ObservabilityAppendEventInput,
@@ -23,6 +26,7 @@ import type {
   ObservabilityRunStatus,
   ObservabilitySweepResult,
   ObservabilityTraceRecord,
+  ObservabilityUsageMetadata,
 } from "./types.js";
 
 type TraceExtras = Pick<
@@ -78,7 +82,9 @@ export abstract class BaseObservabilityRepository implements ObservabilityReposi
     this.now = options.now ?? (() => new Date().toISOString());
   }
 
-  abstract appendEvent(input: ObservabilityAppendEventInput): Promise<ObservabilityAppendEventResult>;
+  abstract appendEvent(
+    input: ObservabilityAppendEventInput,
+  ): Promise<ObservabilityAppendEventResult>;
   abstract listRuns(filter: ObservabilityRunListFilter): Promise<readonly ObservabilityRunRecord[]>;
   abstract getRun(workspaceId: string, runId: string): Promise<ObservabilityRunRecord | undefined>;
   abstract listEvents(
@@ -98,7 +104,9 @@ export abstract class BaseObservabilityRepository implements ObservabilityReposi
     runId: string,
     exportId: string,
   ): Promise<ObservabilityRunRecord>;
-  abstract queryMetrics(query: ObservabilityMetricQuery): Promise<readonly ObservabilityMetricPoint[]>;
+  abstract queryMetrics(
+    query: ObservabilityMetricQuery,
+  ): Promise<readonly ObservabilityMetricPoint[]>;
   abstract sweepRetention(policy: ObservabilityRetentionPolicy): Promise<ObservabilitySweepResult>;
 
   protected abstract replaceRun(run: ObservabilityRunRecord): Promise<ObservabilityRunRecord>;
@@ -165,7 +173,8 @@ export abstract class BaseObservabilityRepository implements ObservabilityReposi
         errorCategory: input.result.errorCategory ?? "",
         output: summarizePayload(input.result.outputText).metadata,
       },
-      byteSize: run.byteSize + byteSize(input.result.artifacts) + byteSize(input.result.policyDecisions),
+      byteSize:
+        run.byteSize + byteSize(input.result.artifacts) + byteSize(input.result.policyDecisions),
       ...(input.result.envelope.timestamps.startedAt === undefined
         ? {}
         : { startedAt: input.result.envelope.timestamps.startedAt }),
@@ -226,7 +235,9 @@ export class MemoryObservabilityRepository extends BaseObservabilityRepository {
       }
 
       state.events.set(input.event.id, input.event);
-      state.metrics.set(deriveEventCountMetric(input.event).id, deriveEventCountMetric(input.event));
+      for (const metric of deriveEventMetrics(input.event)) {
+        state.metrics.set(metric.id, metric);
+      }
       state.run = updateRunForEvent(state.run, input.event, state.events.size, state.metrics.size);
       for (const metric of deriveRunMetrics(state.run)) {
         state.metrics.set(metric.id, metric);
@@ -324,7 +335,9 @@ export class MemoryObservabilityRepository extends BaseObservabilityRepository {
     });
   }
 
-  async queryMetrics(query: ObservabilityMetricQuery): Promise<readonly ObservabilityMetricPoint[]> {
+  async queryMetrics(
+    query: ObservabilityMetricQuery,
+  ): Promise<readonly ObservabilityMetricPoint[]> {
     return this.#exclusive(() => {
       const metrics = [...this.#states.values()]
         .filter((state) => state.run.workspaceId === query.workspaceId)
@@ -486,7 +499,8 @@ export class SqliteObservabilityRepository
 
   async appendEvent(input: ObservabilityAppendEventInput): Promise<ObservabilityAppendEventResult> {
     return this.#transaction(() => {
-      const run = this.#readRun(input.workspaceId, input.event.runId) ??
+      const run =
+        this.#readRun(input.workspaceId, input.event.runId) ??
         createInitialRun(input.workspaceId, input.event.runId, this.now());
       const existing = this.#readEvent(input.workspaceId, input.event.runId, input.event.id);
       if (existing) {
@@ -495,7 +509,9 @@ export class SqliteObservabilityRepository
 
       this.#writeRun(run);
       this.#writeEvent(input.event);
-      this.#upsertMetricSync(deriveEventCountMetric(input.event));
+      for (const metric of deriveEventMetrics(input.event)) {
+        this.#upsertMetricSync(metric);
+      }
       const eventCount = this.#eventCount(input.workspaceId, input.event.runId);
       const metricCount = this.#metricCount(input.workspaceId, input.event.runId);
       let next = updateRunForEvent(run, input.event, eventCount, metricCount);
@@ -503,7 +519,9 @@ export class SqliteObservabilityRepository
       for (const metric of deriveRunMetrics(next)) {
         this.#upsertMetricSync(metric);
       }
-      next = mergeRun(next, { metricCount: this.#metricCount(input.workspaceId, input.event.runId) });
+      next = mergeRun(next, {
+        metricCount: this.#metricCount(input.workspaceId, input.event.runId),
+      });
       this.#writeRun(next);
       return { event: input.event, run: next, inserted: true };
     });
@@ -535,8 +553,12 @@ export class SqliteObservabilityRepository
       .prepare(
         "SELECT value, sequence, occurred_at FROM observability_events WHERE workspace_id = ? AND run_id = ? AND sequence >= ? ORDER BY sequence, occurred_at LIMIT ?",
       )
-      .all(filter.workspaceId, filter.runId, filter.fromSequence ?? 0, filter.limit ?? 10_000) as
-      SqliteEventRow[];
+      .all(
+        filter.workspaceId,
+        filter.runId,
+        filter.fromSequence ?? 0,
+        filter.limit ?? 10_000,
+      ) as SqliteEventRow[];
     return Object.freeze(rows.map((row) => parseJson<ObservabilityEventRecord>(row.value)));
   }
 
@@ -590,13 +612,19 @@ export class SqliteObservabilityRepository
     });
   }
 
-  async queryMetrics(query: ObservabilityMetricQuery): Promise<readonly ObservabilityMetricPoint[]> {
+  async queryMetrics(
+    query: ObservabilityMetricQuery,
+  ): Promise<readonly ObservabilityMetricPoint[]> {
     const rows = this.#db
       .prepare(
         "SELECT value FROM observability_metrics WHERE workspace_id = ? AND occurred_at >= ? AND occurred_at <= ? ORDER BY occurred_at LIMIT ?",
       )
-      .all(query.workspaceId, query.from ?? "", query.to ?? "9999", query.limit ?? 10_000) as
-      SqliteValueRow[];
+      .all(
+        query.workspaceId,
+        query.from ?? "",
+        query.to ?? "9999",
+        query.limit ?? 10_000,
+      ) as SqliteValueRow[];
     const metrics = rows
       .map((row) => parseJson<ObservabilityMetricPoint>(row.value))
       .filter((point) => (query.names ? query.names.includes(point.name) : true))
@@ -676,7 +704,8 @@ export class SqliteObservabilityRepository
     extras: TraceExtras,
   ): Promise<ObservabilityRunRecord> {
     return this.#transaction(() => {
-      const run = this.#readRun(workspaceId, runId) ?? createInitialRun(workspaceId, runId, this.now());
+      const run =
+        this.#readRun(workspaceId, runId) ?? createInitialRun(workspaceId, runId, this.now());
       const merged = mergeExtras(this.#readExtras(workspaceId, runId), extras);
       this.#writeExtras(workspaceId, runId, merged);
       const next = mergeRun(run, {
@@ -695,7 +724,9 @@ export class SqliteObservabilityRepository
       this.#upsertMetricSync(point);
       const run = this.#readRun(point.workspaceId, point.runId);
       if (run) {
-        this.#writeRun(mergeRun(run, { metricCount: this.#metricCount(point.workspaceId, point.runId) }));
+        this.#writeRun(
+          mergeRun(run, { metricCount: this.#metricCount(point.workspaceId, point.runId) }),
+        );
       }
     });
   }
@@ -796,7 +827,14 @@ export class SqliteObservabilityRepository
       .prepare(
         "INSERT INTO observability_metrics (workspace_id, run_id, metric_id, name, occurred_at, value) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(workspace_id, run_id, metric_id) DO UPDATE SET name = excluded.name, occurred_at = excluded.occurred_at, value = excluded.value",
       )
-      .run(point.workspaceId, point.runId, point.id, point.name, point.occurredAt, JSON.stringify(point));
+      .run(
+        point.workspaceId,
+        point.runId,
+        point.id,
+        point.name,
+        point.occurredAt,
+        JSON.stringify(point),
+      );
   }
 
   #readExtras(workspaceId: string, runId: string): TraceExtras {
@@ -820,6 +858,9 @@ export function canonicalEventToObservabilityEvent(
   event: CanonicalEvent,
 ): ObservabilityEventRecord {
   const family = getCanonicalEventFamily(event.name);
+  const usage = usageMetadataFor(event);
+  const payload = summarizePayload(event.data);
+  const budgetLimits = budgetLimitKinds(event);
   return Object.freeze({
     id: event.eventId,
     workspaceId,
@@ -829,16 +870,85 @@ export function canonicalEventToObservabilityEvent(
     name: event.name,
     source: "canonical_event",
     summary: event.name,
-    payload: summarizePayload(event.data),
+    payload:
+      budgetLimits === undefined
+        ? payload
+        : Object.freeze({
+            ...payload,
+            metadata: Object.freeze({ ...payload.metadata, budgetLimits }) as JsonObject,
+          }),
     ...(family === undefined ? {} : { family }),
+    ...(usage === undefined ? {} : { usage }),
   });
 }
 
-function createInitialRun(
-  workspaceId: string,
-  runId: string,
-  now: string,
-): ObservabilityRunRecord {
+function usageMetadataFor(event: CanonicalEvent): ObservabilityUsageMetadata | undefined {
+  const data = readUsageRecordedEventData(event);
+  if (data === undefined) {
+    return undefined;
+  }
+  const totals = usageTotalsFromModelUsage(data.usage);
+  return Object.freeze({
+    provider: data.provider,
+    model: data.model,
+    responses: totals.responses,
+    inputTokens: totals.inputTokens,
+    outputTokens: totals.outputTokens,
+    cacheReadTokens: totals.cacheReadTokens,
+    cacheWriteTokens: totals.cacheWriteTokens,
+    totalTokens: totals.totalTokens,
+    costUsd: totals.costUsd,
+  });
+}
+
+function budgetLimitKinds(event: CanonicalEvent): readonly string[] | undefined {
+  if (event.name !== "usage.budget.exceeded") {
+    return undefined;
+  }
+  const breaches = event.data["breaches"];
+  if (!Array.isArray(breaches)) {
+    return Object.freeze([]);
+  }
+  return Object.freeze(
+    breaches
+      .map((breach) => (breach as { limit?: unknown } | null)?.limit)
+      .filter((limit): limit is string => limit === "tokens" || limit === "cost_usd"),
+  );
+}
+
+/** Per-run usage rollup kept in `run.metadata.usage`. */
+function runUsagePatch(
+  run: ObservabilityRunRecord,
+  event: ObservabilityEventRecord,
+): Pick<ObservabilityRunRecord, "metadata"> | undefined {
+  if (event.usage === undefined && event.name !== "usage.budget.exceeded") {
+    return undefined;
+  }
+  const previous = (run.metadata["usage"] ?? {}) as Partial<Record<string, unknown>>;
+  const number = (key: string): number => {
+    const value = previous[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  };
+  const usage = event.usage;
+  return {
+    metadata: Object.freeze({
+      ...run.metadata,
+      usage: Object.freeze({
+        responses: number("responses") + (usage?.responses ?? 0),
+        inputTokens: number("inputTokens") + (usage?.inputTokens ?? 0),
+        outputTokens: number("outputTokens") + (usage?.outputTokens ?? 0),
+        cacheReadTokens: number("cacheReadTokens") + (usage?.cacheReadTokens ?? 0),
+        cacheWriteTokens: number("cacheWriteTokens") + (usage?.cacheWriteTokens ?? 0),
+        totalTokens: number("totalTokens") + (usage?.totalTokens ?? 0),
+        costUsd: number("costUsd") + (usage?.costUsd ?? 0),
+        budgetExceeded:
+          previous["budgetExceeded"] === true || event.name === "usage.budget.exceeded",
+      }),
+    }) as JsonObject,
+  };
+}
+
+function createInitialRun(workspaceId: string, runId: string, now: string): ObservabilityRunRecord {
   return Object.freeze({
     workspaceId: normalizeId(workspaceId, "workspaceId"),
     runId: normalizeId(runId, "runId"),
@@ -867,6 +977,7 @@ function updateRunForEvent(
 ): ObservabilityRunRecord {
   const status = statusFromEventName(event.name) ?? run.status;
   return mergeRun(run, {
+    ...runUsagePatch(run, event),
     status,
     eventCount,
     metricCount,
@@ -949,7 +1060,9 @@ function mergeExtras(current: TraceExtras, incoming: TraceExtras): TraceExtras {
   return Object.freeze({
     projections: Object.freeze(dedupeById([...current.projections, ...incoming.projections])),
     artifacts: Object.freeze(dedupeById([...current.artifacts, ...incoming.artifacts])),
-    policyDecisions: Object.freeze(dedupeById([...current.policyDecisions, ...incoming.policyDecisions])),
+    policyDecisions: Object.freeze(
+      dedupeById([...current.policyDecisions, ...incoming.policyDecisions]),
+    ),
     traceEvents: Object.freeze(dedupeById([...current.traceEvents, ...incoming.traceEvents])),
   });
 }
