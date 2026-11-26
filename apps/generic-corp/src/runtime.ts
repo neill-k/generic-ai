@@ -213,6 +213,15 @@ function cascadeEventData(event: DelegationCascadeEvent): Readonly<Record<string
     task: summarizeTask(event.task),
     ...(event.type === "task.delegated" ? { children: event.children.map(summarizeTask) } : {}),
     ...(event.type === "task.requeued" ? { reason: event.reason } : {}),
+    ...(event.type === "task.awaiting_approval"
+      ? {
+          approvals: event.approvals.map((approval) => ({
+            approvalId: approval.approvalId,
+            action: approval.action.name,
+            summary: approval.action.summary,
+          })),
+        }
+      : {}),
   };
 }
 
