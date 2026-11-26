@@ -96,5 +96,26 @@ describe("core canonical event stream", () => {
     const plain = await createCanonicalEventStream().emit({ ...base, name: "run.started" });
     expect(plain).not.toHaveProperty("actor");
   });
-});
 
+  it("redacts event data before it is stored or delivered", async () => {
+    const stream = createCanonicalEventStream({
+      redactData: (data) =>
+        JSON.parse(JSON.stringify(data).split("fake-secret-value").join("[REDACTED:X]")),
+    });
+    const delivered: unknown[] = [];
+    await stream.subscribe((event) => {
+      delivered.push(event.data);
+    });
+    await stream.emit(
+      createRunLifecycleEvent("run.created", {
+        scopeId: "scope-1",
+        runId: "run-1",
+        rootSessionId: "session-root",
+        sessionId: "session-root",
+        data: { output: "token fake-secret-value" },
+      }),
+    );
+    expect(JSON.stringify(stream.snapshot())).not.toContain("fake-secret-value");
+    expect(delivered).toEqual([{ output: "token [REDACTED:X]" }]);
+  });
+});

@@ -34,6 +34,11 @@ export interface CanonicalEventStreamOptions {
   readonly actor?: RunActor;
   readonly createEventId?: () => string;
   readonly now?: () => string;
+  /**
+   * Rewrite each event's data before it is stored or delivered. The harness passes the secrets
+   * binding's `redact` here so no listener, snapshot or artifact ever sees a secret value.
+   */
+  readonly redactData?: (data: CanonicalEventData) => CanonicalEventData;
   readonly onSubscriberError?: (
     error: unknown,
     event: CanonicalEvent,
@@ -149,15 +154,18 @@ export function createCanonicalEventStream(
         event.sequence !== undefined && event.sequence > 0
           ? Math.max(event.sequence, nextSequence)
           : nextSequence;
-      const sealedEvent = createCanonicalEvent(
+      const stamped =
         options.actor !== undefined && event.actor === undefined
           ? { ...event, actor: options.actor }
-          : event,
-        {
-          ...options,
-          sequence,
-        },
-      );
+          : event;
+      const redacted =
+        options.redactData === undefined || stamped.data === undefined
+          ? stamped
+          : { ...stamped, data: options.redactData(stamped.data) as TData };
+      const sealedEvent = createCanonicalEvent(redacted, {
+        ...options,
+        sequence,
+      });
       nextSequence = sealedEvent.sequence + 1;
       store(sealedEvent);
       await notify(sealedEvent);

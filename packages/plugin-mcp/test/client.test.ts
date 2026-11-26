@@ -277,6 +277,34 @@ describe("MCP client over Streamable HTTP", () => {
     expect(whoami.instance).toBe(fixture.instanceId);
   });
 
+  it("resolves header placeholders from the secrets store before the environment", async () => {
+    const fixture = track(await startHttp());
+    const asked: string[] = [];
+    const manager = track(
+      createMcpClientManager({
+        servers: [
+          {
+            id: "remote",
+            transport: "http",
+            url: fixture.url,
+            headers: { Authorization: `Bearer ${placeholder("TOKEN")}` },
+          },
+        ],
+        env: { TOKEN: "from-env" },
+        secrets: {
+          get: async (name) => {
+            asked.push(name);
+            return name === "TOKEN" ? "fake-vault-token" : undefined;
+          },
+        },
+      }),
+    );
+    const tools = await createMcpHarnessTools(manager);
+    const whoami = JSON.parse(textOf(await toolNamed(tools, "whoami").execute("c1", {})));
+    expect(whoami.authorization).toBe("Bearer fake-vault-token");
+    expect(asked).toEqual(["TOKEN"]);
+  });
+
   it("reconnects to a restarted server and retries read-only calls", async () => {
     let fixture = await startHttp();
     cleanups.push(() => fixture.close());

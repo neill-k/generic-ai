@@ -413,12 +413,61 @@ function verifierLoopActors(
   };
 }
 
+type VerifierLoopAcceptance = "critic" | "goal" | "goal-then-critic";
+
+const VERIFIER_LOOP_ACCEPTANCE: readonly VerifierLoopAcceptance[] = [
+  "critic",
+  "goal",
+  "goal-then-critic",
+];
+
+function configuredAcceptance(
+  binding: ProtocolBindingSpec | undefined,
+): VerifierLoopAcceptance | undefined {
+  const value = configString(binding?.config, "acceptance");
+  return VERIFIER_LOOP_ACCEPTANCE.find((candidate) => candidate === value);
+}
+
+/**
+ * How a verifier loop decides a candidate is done. Explicit `config.acceptance`
+ * wins. Otherwise a run with a sealed goal checks the goal's validators first
+ * and then asks the critic (or only the validators when there is no critic),
+ * and a run without a goal relies on the critic's verdict.
+ */
+function resolveAcceptance(
+  binding: ProtocolBindingSpec | undefined,
+  hasGoal: boolean,
+  hasCritic: boolean,
+): VerifierLoopAcceptance {
+  const configured = configuredAcceptance(binding);
+  if (configured !== undefined) {
+    return configured;
+  }
+  if (!hasGoal) {
+    return "critic";
+  }
+  return hasCritic ? "goal-then-critic" : "goal";
+}
+
+type VerifierCheck = "goal" | "critic";
+
+function checksFor(acceptance: VerifierLoopAcceptance): readonly VerifierCheck[] {
+  switch (acceptance) {
+    case "critic":
+      return ["critic"];
+    case "goal":
+      return ["goal"];
+    case "goal-then-critic":
+      return ["goal", "critic"];
+  }
+}
+
 export function createVerifierLoopProtocol(): ProtocolPlugin {
   const plugin: ProtocolPlugin = {
     manifest: {
       id: "@generic-ai/protocol-verifier-loop",
       name: "Verifier Loop Protocol",
-      version: "0.2.0",
+      version: "0.3.0",
       protocol: "verifier-loop",
     },
     initialize: async () => state("ready"),
@@ -426,7 +475,8 @@ export function createVerifierLoopProtocol(): ProtocolPlugin {
       const binding = resolveBinding(compiled, "verifier-loop", undefined);
       const actors = verifierLoopActors(compiled, binding);
       const diagnostics: CompileDiagnostic[] = [];
-      for (const role of ["solver", "critic"] as const) {
+      const needsCritic = configuredAcceptance(binding) !== "goal";
+      for (const role of needsCritic ? (["solver", "critic"] as const) : (["solver"] as const)) {
         const actorRef = actors[role];
         if (actorRef === undefined) {
           diagnostics.push(...requireActors(compiled, [role]));
@@ -444,9 +494,22 @@ export function createVerifierLoopProtocol(): ProtocolPlugin {
 
       const binding = resolveBinding(compiled, "verifier-loop", input.binding);
       const { solver, critic, repairer } = verifierLoopActors(compiled, binding);
-      if (!actorExists(compiled, solver) || !actorExists(compiled, critic)) {
+      const hasCritic = actorExists(compiled, critic);
+      const acceptance = resolveAcceptance(binding, input.goal !== undefined, hasCritic);
+      const checks = checksFor(acceptance);
+      if (!actorExists(compiled, solver)) {
+        return result("blocked", [], { notes: ["Verifier loop requires a solver actor."] });
+      }
+      if (checks.includes("critic") && !hasCritic) {
         return result("blocked", [], {
-          notes: ["Verifier loop requires solver and critic actors."],
+          notes: [`Verifier loop acceptance "${acceptance}" requires a critic actor.`],
+        });
+      }
+      if (checks.includes("goal") && input.goal === undefined) {
+        return result("blocked", [], {
+          notes: [
+            `Verifier loop acceptance "${acceptance}" requires a sealed goal; pass one to the topology runner.`,
+          ],
         });
       }
       const repairActor = actorExists(compiled, repairer) ? repairer : solver;
@@ -459,9 +522,19 @@ export function createVerifierLoopProtocol(): ProtocolPlugin {
       const maxChars = maxContextChars(binding);
       const outcomes = input.outcomes ?? [];
       const prefix = `${compiled.id}:verifier-loop`;
+      const checkKey = (check: VerifierCheck, iteration: number): string =>
+        check === "goal"
+          ? `${prefix}:validate-${iteration}:goal`
+          : `${prefix}:review-${iteration}:${critic}`;
+      const reviewerText = checks.includes("goal")
+        ? checks.includes("critic")
+          ? "the goal's validators and then a critic"
+          : "the goal's validators"
+        : "a critic";
 
       let candidate: ProtocolActionOutcome | undefined;
       let candidateLabel = "Candidate";
+      let rejection: { readonly label: string; readonly text: string | undefined } | undefined;
       for (let iteration = 1; iteration <= maxIterations; iteration += 1) {
         const produceKey =
           iteration === 1
@@ -470,10 +543,6 @@ export function createVerifierLoopProtocol(): ProtocolPlugin {
         const producer = iteration === 1 ? solver : repairActor;
         const produced = latestOutcome(outcomes, produceKey);
         if (produced === undefined) {
-          const previousReview =
-            iteration === 1
-              ? undefined
-              : latestOutcome(outcomes, `${prefix}:review-${iteration - 1}:${critic}`);
           return result("ready", [
             action({
               id: produceKey,
@@ -486,15 +555,15 @@ export function createVerifierLoopProtocol(): ProtocolPlugin {
                 phase: iteration === 1 ? "solve" : "repair",
                 task:
                   iteration === 1
-                    ? "Solve the task below. Your result will be reviewed by a critic."
-                    : "The critic rejected the previous candidate. Fix every problem the critique lists and return the complete corrected result.",
+                    ? `Solve the task below. Your result will be checked by ${reviewerText}.`
+                    : `The previous candidate was rejected. Fix every problem listed under "${rejection?.label ?? "Critique"}" and return the complete corrected result.`,
                 context:
                   iteration === 1
                     ? ""
                     : contextBlock(
                         [
                           { label: candidateLabel, text: candidate?.outputText },
-                          { label: "Critique", text: previousReview?.outputText },
+                          ...(rejection === undefined ? [] : [rejection]),
                         ],
                         maxChars,
                       ),
@@ -511,46 +580,79 @@ export function createVerifierLoopProtocol(): ProtocolPlugin {
         }
         candidate = produced;
         candidateLabel = iteration === 1 ? "Candidate" : `Candidate (repair ${iteration - 1})`;
+        rejection = undefined;
 
-        const reviewKey = `${prefix}:review-${iteration}:${critic}`;
-        const review = latestOutcome(outcomes, reviewKey);
-        if (review === undefined) {
-          return result("ready", [
-            action({
-              id: reviewKey,
-              kind: "review_artifact",
-              actorRef: critic,
-              payload: {
-                protocol: "verifier-loop",
-                loopRole: "critic",
-                iteration,
-                phase: "review",
-                task: `Review the candidate result below against the task. Check it independently instead of trusting the author's claims. ${VERDICT_INSTRUCTION}`,
-                context: contextBlock(
-                  [{ label: candidateLabel, text: candidate.outputText }],
-                  maxChars,
-                ),
-              },
-            }),
-          ]);
+        for (const check of checks) {
+          const key = checkKey(check, iteration);
+          const checked = latestOutcome(outcomes, key);
+          if (checked === undefined) {
+            return result("ready", [
+              check === "goal"
+                ? action({
+                    id: key,
+                    kind: "validate_goal",
+                    payload: {
+                      protocol: "verifier-loop",
+                      loopRole: "validator",
+                      iteration,
+                      phase: "validate",
+                      candidateActionId: candidate.actionId,
+                      goalId: input.goal?.id ?? "",
+                    },
+                  })
+                : action({
+                    id: key,
+                    kind: "review_artifact",
+                    actorRef: critic ?? "",
+                    payload: {
+                      protocol: "verifier-loop",
+                      loopRole: "critic",
+                      iteration,
+                      phase: "review",
+                      task: `Review the candidate result below against the task. Check it independently instead of trusting the author's claims. ${VERDICT_INSTRUCTION}`,
+                      context: contextBlock(
+                        [{ label: candidateLabel, text: candidate.outputText }],
+                        maxChars,
+                      ),
+                    },
+                  }),
+            ]);
+          }
+          if (checked.status !== "succeeded") {
+            return result("failed", [], {
+              notes: [
+                `Verifier loop ${check === "goal" ? "goal validation" : "critic"} ${failureText(checked)} in iteration ${iteration}.`,
+              ],
+            });
+          }
+          if (checked.verdict !== "pass") {
+            rejection = {
+              label: check === "goal" ? "Goal check feedback" : "Critique",
+              text: checked.outputText,
+            };
+            break;
+          }
         }
-        if (review.status !== "succeeded") {
-          return result("failed", [], {
-            notes: [`Verifier loop critic ${failureText(review)} in iteration ${iteration}.`],
-          });
-        }
-        if (review.verdict === "pass") {
+        if (rejection === undefined) {
           return result("done", [], {
             output: candidate.outputText ?? "",
-            data: { iterations: iteration },
+            data: {
+              iterations: iteration,
+              acceptance,
+              ...(checks.includes("goal") ? { goalComplete: true } : {}),
+            },
           });
         }
       }
 
       return result("failed", [], {
         output: candidate?.outputText ?? "",
-        notes: [`Critic did not accept a candidate within ${maxIterations} iteration(s).`],
-        data: { iterations: maxIterations },
+        notes: [
+          checks.includes("goal")
+            ? `Goal checks did not accept a candidate within ${maxIterations} iteration(s).`
+            : `Critic did not accept a candidate within ${maxIterations} iteration(s).`,
+        ],
+        data: { iterations: maxIterations, acceptance },
       });
     },
   };
