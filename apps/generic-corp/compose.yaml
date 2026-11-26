@@ -1,0 +1,77 @@
+# Local testing for the production image: Generic Corp plus Postgres, wired
+# the same way as on Railway (DATABASE_URL, migrations before the server
+# starts, a volume for agent data).
+#
+#   docker compose -f apps/generic-corp/compose.yaml up --build
+#
+# Then open http://localhost:3000/auth/login and use the one-time setup token
+# the app prints in its log (docker compose ... logs app). Provider keys come
+# from your shell or an .env file next to this one, for example
+# ANTHROPIC_API_KEY. See apps/generic-corp/DEPLOY.md.
+name: generic-corp
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:-postgres:17-alpine}
+    environment:
+      POSTGRES_USER: generic_corp
+      POSTGRES_PASSWORD: generic_corp
+      POSTGRES_DB: generic_corp
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U generic_corp -d generic_corp"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  # Same step as Railway's pre-deploy command: apply schema migrations, then exit.
+  migrate:
+    image: generic-corp:local
+    build:
+      context: ../..
+      dockerfile: apps/generic-corp/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24-bookworm-slim}
+        INSTALL_BROWSER: ${INSTALL_BROWSER:-true}
+    command: ["node", "apps/generic-corp/dist/migrate.js"]
+    environment:
+      DATABASE_URL: postgres://generic_corp:generic_corp@postgres:5432/generic_corp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: generic-corp:local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${GENERIC_CORP_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgres://generic_corp:generic_corp@postgres:5432/generic_corp
+      # Passkeys are bound to this origin. localhost counts as a secure context.
+      GENERIC_AI_PUBLIC_URL: http://localhost:${GENERIC_CORP_PORT:-3000}
+      GENERIC_AI_OWNER_SETUP_TOKEN: ${GENERIC_AI_OWNER_SETUP_TOKEN:-}
+      GENERIC_AI_AUTH_TOKEN: ${GENERIC_AI_AUTH_TOKEN:-}
+      GENERIC_AI_SECRETS_KEY: ${GENERIC_AI_SECRETS_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    volumes:
+      - generic-corp-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  generic-corp-data:
