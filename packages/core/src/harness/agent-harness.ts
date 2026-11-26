@@ -30,6 +30,7 @@ import {
   type JsonObject,
   type PolicyDecisionRecord,
   type ResourceSelector,
+  type RunEnvelope,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
@@ -41,15 +42,20 @@ import {
   type ToolDefinition,
 } from "@generic-ai/sdk/pi";
 import { getAgentDir } from "@mariozechner/pi-coding-agent";
+import type { StreamFn } from "@generic-ai/agent";
+import { type Model, resolveApiKey, type ThinkingLevel } from "@generic-ai/ai";
 import { Type } from "@sinclair/typebox";
 
 import { createCanonicalEventStream, type CanonicalEventStream } from "../events/index.js";
 import {
   type CapabilityPiSessionEventContext,
   type PiCapabilityBindings,
+  type PiCapabilitySessionLifecycleHooks,
   runCapabilityPiAgentSession,
 } from "../runtime/capability-runtime.js";
 import type { PiRuntimeFactories } from "../runtime/pi.js";
+import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
+import { runCapabilityNativeAgentSession } from "../runtime/native-session.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 import {
   appendHookContext,
@@ -62,9 +68,27 @@ type AgentHarnessAdapterRegistry<TCapabilities, TOutput> = Readonly<
   Partial<Record<AgentHarnessAdapterKind, AgentHarnessAdapter<TCapabilities, TOutput>>>
 >;
 
+/** Options for the native runtime adapter (`adapter: "native"`). */
+export interface NativeAgentHarnessOptions {
+  /**
+   * Resolve a model reference (`provider/model-id`, or a bare id) to a model. Defaults to the
+   * native catalog. Role models (`role.model`) and the harness model (`harness.model`) both go
+   * through it, so each role can run on its own provider and model.
+   */
+  readonly resolveModel?: (ref: string) => Model;
+  /** API key for every provider. Defaults to the provider's own environment variable, then `GENERIC_AI_PROVIDER_API_KEY`. */
+  readonly apiKey?: string;
+  readonly thinkingLevel?: ThinkingLevel;
+  /** Replace the provider stream (tests, recording, proxies). */
+  readonly streamFn?: StreamFn;
+  /** Base system prompt for every session. Tool guidance, skills, and the working directory are appended. */
+  readonly systemPrompt?: string;
+}
+
 export interface CreateAgentHarnessOptions<TCapabilities = PiCapabilityBindings, TOutput = unknown> {
   readonly factories?: PiRuntimeFactories;
   readonly sessionInputs?: PiSessionInputs;
+  readonly native?: NativeAgentHarnessOptions;
   readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
   readonly policy?: AgentHarnessPolicyEvaluator;
   readonly adapters?: AgentHarnessAdapterRegistry<TCapabilities, TOutput>;
@@ -1073,6 +1097,139 @@ function summarizeEvent(event: CanonicalEvent): string {
   return event.name;
 }
 
+/**
+ * One capability-bound agent session, independent of the runtime that executes it. The harness
+ * applies role policy, lifecycle hooks, delegation, and artifact writing around a backend, so the
+ * pi runtime and the native runtime share all of that plumbing.
+ */
+export interface HarnessSessionRunOptions {
+  readonly cwd: string;
+  readonly capabilities: PiCapabilityBindings;
+  readonly prompt: string;
+  /** The role this session runs as. Its `model` overrides the harness model. */
+  readonly role?: AgentHarnessRole;
+  readonly turnMode?: AgentHarnessTurnMode;
+  readonly maxTurns?: number;
+  readonly runId: string;
+  readonly rootScopeId: string;
+  readonly rootAgentId: string;
+  readonly rootSessionId?: string;
+  readonly parentSessionId?: string;
+  readonly signal?: AbortSignal;
+  readonly eventStream: CanonicalEventStream;
+  readonly lifecycleHooks?: PiCapabilitySessionLifecycleHooks;
+  readonly onSessionReady?: (context: CapabilityPiSessionEventContext) => Promise<void> | void;
+}
+
+export interface HarnessSessionRunResult {
+  readonly sessionId: string;
+  readonly outputText: string;
+  readonly failureMessage?: string;
+  readonly events: readonly CanonicalEvent[];
+  readonly envelope: RunEnvelope;
+}
+
+export interface HarnessSessionBackend {
+  readonly kind: AgentHarnessAdapterKind;
+  /** Human-readable runtime name for messages. */
+  readonly label: string;
+  run(options: HarnessSessionRunOptions): Promise<HarnessSessionRunResult>;
+}
+
+function createPiSessionBackend(
+  config: AgentHarnessConfig,
+  options: Pick<CreateAgentHarnessOptions, "factories" | "sessionInputs">,
+): HarnessSessionBackend {
+  const sessionInputsByModel = new Map<string, PiSessionInputs>();
+  const sessionInputsFor = (role: AgentHarnessRole | undefined): PiSessionInputs => {
+    if (options.sessionInputs !== undefined) {
+      return options.sessionInputs;
+    }
+    const modelId = role?.model ?? config.model ?? DEFAULT_OPENAI_CODEX_MODEL;
+    let inputs = sessionInputsByModel.get(modelId);
+    if (inputs === undefined) {
+      inputs = resolvePiSessionInputs(modelId);
+      sessionInputsByModel.set(modelId, inputs);
+    }
+    return inputs;
+  };
+
+  return Object.freeze({
+    kind: "pi" as const,
+    label: "Pi",
+    async run(runOptions: HarnessSessionRunOptions): Promise<HarnessSessionRunResult> {
+      const { role, cwd, ...rest } = runOptions;
+      const sessionInputs = sessionInputsFor(role);
+      const piOptions = {
+        ...rest,
+        cwd,
+        agentDir: sessionInputs.agentDir,
+        authStorage: sessionInputs.authStorage as never,
+        modelRegistry: sessionInputs.modelRegistry as never,
+        model: sessionInputs.model as never,
+        sessionManager: sessionInputs.sessionManager as never,
+        settingsManager: sessionInputs.settingsManager as never,
+      };
+      const result =
+        options.factories === undefined
+          ? await runCapabilityPiAgentSession(piOptions)
+          : await runCapabilityPiAgentSession(piOptions, options.factories);
+      return {
+        sessionId: result.session.sessionId,
+        outputText: result.outputText ?? extractLatestAssistantText(result.session.messages),
+        ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
+        events: result.events,
+        envelope: result.envelope,
+      };
+    },
+  });
+}
+
+function createNativeSessionBackend(
+  config: AgentHarnessConfig,
+  options: NativeAgentHarnessOptions,
+): HarnessSessionBackend {
+  const modelsByRef = new Map<string, Model>();
+  const modelFor = (role: AgentHarnessRole | undefined): Model => {
+    const ref = role?.model ?? config.model ?? DEFAULT_NATIVE_MODEL;
+    let model = modelsByRef.get(ref);
+    if (model === undefined) {
+      model = (options.resolveModel ?? resolveNativeModel)(ref);
+      modelsByRef.set(ref, model);
+    }
+    return model;
+  };
+  const apiKeyFor = (model: Model): string | undefined =>
+    options.apiKey ??
+    resolveApiKey(model.provider) ??
+    readTrimmedEnv("GENERIC_AI_PROVIDER_API_KEY");
+
+  return Object.freeze({
+    kind: "native" as const,
+    label: "native",
+    async run(runOptions: HarnessSessionRunOptions): Promise<HarnessSessionRunResult> {
+      const { role, ...rest } = runOptions;
+      const model = modelFor(role);
+      const apiKey = apiKeyFor(model);
+      const result = await runCapabilityNativeAgentSession({
+        ...rest,
+        model,
+        ...(apiKey === undefined ? {} : { apiKey }),
+        ...(options.thinkingLevel === undefined ? {} : { thinkingLevel: options.thinkingLevel }),
+        ...(options.streamFn === undefined ? {} : { streamFn: options.streamFn }),
+        ...(options.systemPrompt === undefined ? {} : { systemPrompt: options.systemPrompt }),
+      });
+      return {
+        sessionId: result.sessionId,
+        outputText: result.outputText ?? "",
+        ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
+        events: result.events,
+        envelope: result.envelope,
+      };
+    },
+  });
+}
+
 function createDelegateTool(input: {
   readonly runId: string;
   readonly rootScopeId: string;
@@ -1081,7 +1238,6 @@ function createDelegateTool(input: {
   readonly instruction: string;
   readonly turnMode?: NonNullable<AgentHarnessConfig["execution"]>["turnMode"];
   readonly maxTurns?: NonNullable<AgentHarnessConfig["execution"]>["maxTurns"];
-  readonly sessionInputs: PiSessionInputs;
   readonly roles: readonly AgentHarnessRole[];
   readonly capabilities: PiCapabilityBindings;
   readonly deniedEffects: ReadonlySet<AgentHarnessCapabilityEffect>;
@@ -1091,7 +1247,7 @@ function createDelegateTool(input: {
   readonly eventStream: CanonicalEventStream;
   readonly getRootSessionId: () => string | undefined;
   readonly recordPolicyDecisions: (decisions: readonly PolicyDecisionRecord[]) => void;
-  readonly factories?: PiRuntimeFactories;
+  readonly backend: HarnessSessionBackend;
 }): ToolDefinition {
   const rolesById = new Map(input.roles.map((role) => [role.id, role]));
 
@@ -1122,7 +1278,7 @@ function createDelegateTool(input: {
         const delegationId = `${input.runId}:delegation:${randomUUID()}`;
         const rootSessionId = input.getRootSessionId();
         if (rootSessionId === undefined) {
-          throw new Error("Cannot delegate before the root Pi session is ready.");
+          throw new Error(`Cannot delegate before the root ${input.backend.label} session is ready.`);
         }
         const eventContext = {
           runId: input.runId,
@@ -1175,14 +1331,9 @@ function createDelegateTool(input: {
           executor: input.hookExecutor,
           context: roleHookContext,
         });
-        const roleRunOptions = {
+        const roleResult = await input.backend.run({
           cwd: input.workspaceRoot,
-          agentDir: input.sessionInputs.agentDir,
-          authStorage: input.sessionInputs.authStorage as never,
-          modelRegistry: input.sessionInputs.modelRegistry as never,
-          model: input.sessionInputs.model as never,
-          sessionManager: input.sessionInputs.sessionManager as never,
-          settingsManager: input.sessionInputs.settingsManager as never,
+          role,
           capabilities: roleCapabilities,
           prompt: buildRolePrompt({
             role,
@@ -1217,13 +1368,8 @@ function createDelegateTool(input: {
               });
             }
           },
-        };
-        const roleResult =
-          input.factories === undefined
-            ? await runCapabilityPiAgentSession(roleRunOptions)
-            : await runCapabilityPiAgentSession(roleRunOptions, input.factories);
-        const outputText =
-          roleResult.outputText ?? extractLatestAssistantText(roleResult.session.messages);
+        });
+        const outputText = roleResult.outputText;
 
         await input.eventStream.emit({
           ...eventContext,
@@ -1443,15 +1589,23 @@ export function createAgentHarness<
   config: AgentHarnessConfig,
   options: CreateAgentHarnessOptions<TCapabilities, TOutput> = {},
 ): AgentHarness<TCapabilities, TOutput> {
-  const piAdapterOptions: CreateAgentHarnessOptions = {
-    ...(options.factories === undefined ? {} : { factories: options.factories }),
-    ...(options.sessionInputs === undefined ? {} : { sessionInputs: options.sessionInputs }),
+  const sessionAdapterOptions: CreateAgentHarnessOptions = {
+    ...(options.hookHandlers === undefined ? {} : { hookHandlers: options.hookHandlers }),
   };
   const adapters = {
-    pi: createPiAgentHarnessAdapter(config, piAdapterOptions) as unknown as AgentHarnessAdapter<
-      TCapabilities,
-      TOutput
-    >,
+    pi: createSessionAgentHarnessAdapter(
+      config,
+      sessionAdapterOptions,
+      createPiSessionBackend(config, {
+        ...(options.factories === undefined ? {} : { factories: options.factories }),
+        ...(options.sessionInputs === undefined ? {} : { sessionInputs: options.sessionInputs }),
+      }),
+    ) as unknown as AgentHarnessAdapter<TCapabilities, TOutput>,
+    native: createSessionAgentHarnessAdapter(
+      config,
+      sessionAdapterOptions,
+      createNativeSessionBackend(config, options.native ?? {}),
+    ) as unknown as AgentHarnessAdapter<TCapabilities, TOutput>,
     ...options.adapters,
   } as const;
   const adapterKind = config.adapter ?? "pi";
@@ -1539,21 +1693,22 @@ function failedHarnessResult(input: {
   });
 }
 
-function createPiAgentHarnessAdapter(
+function createSessionAgentHarnessAdapter(
   config: AgentHarnessConfig,
-  options: CreateAgentHarnessOptions,
+  options: Pick<CreateAgentHarnessOptions, "hookHandlers">,
+  backend: HarnessSessionBackend,
 ): AgentHarnessAdapter<PiCapabilityBindings, unknown> {
   return Object.freeze({
-    id: `${config.id}:pi`,
-    kind: "pi",
+    id: `${config.id}:${backend.kind}`,
+    kind: backend.kind,
     async run(
       input: AgentHarnessRunInput<PiCapabilityBindings>,
       context: AgentHarnessAdapterRunContext,
     ): Promise<AgentHarnessRunResult<unknown>> {
       const adapterKind = input.harness.adapter ?? "pi";
-      if (adapterKind !== "pi") {
+      if (adapterKind !== backend.kind) {
         throw new Error(
-          `Harness adapter "${adapterKind}" is configured, but only the pi adapter is implemented in P1.`,
+          `Harness adapter "${adapterKind}" is configured, but this adapter runs "${backend.kind}".`,
         );
       }
 
@@ -1569,7 +1724,7 @@ function createPiAgentHarnessAdapter(
         return failedHarnessResult({
           input,
           runId,
-          statusMessage: "Harness run was cancelled before the Pi adapter started.",
+          statusMessage: `Harness run was cancelled before the ${backend.label} adapter started.`,
           errorCategory: "cancelled",
         });
       }
@@ -1577,7 +1732,7 @@ function createPiAgentHarnessAdapter(
         return failedHarnessResult({
           input,
           runId,
-          statusMessage: "Harness run deadline elapsed before the Pi adapter started.",
+          statusMessage: `Harness run deadline elapsed before the ${backend.label} adapter started.`,
           errorCategory: "deadline_exceeded",
         });
       }
@@ -1588,8 +1743,6 @@ function createPiAgentHarnessAdapter(
         ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
       });
       const roles = resolveRoles(input.harness);
-      const modelId = input.harness.model ?? DEFAULT_OPENAI_CODEX_MODEL;
-      const piSessionInputs = options.sessionInputs ?? resolvePiSessionInputs(modelId);
       const baseCapabilities = applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp);
       const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp });
       const profilePolicyDecisions = createPolicyDecisions({
@@ -1620,7 +1773,6 @@ function createPiAgentHarnessAdapter(
               instruction: input.instruction,
               ...(turnMode === undefined ? {} : { turnMode }),
               ...(maxTurns === undefined ? {} : { maxTurns }),
-              sessionInputs: piSessionInputs,
               roles,
               capabilities: baseCapabilities,
               deniedEffects,
@@ -1632,7 +1784,7 @@ function createPiAgentHarnessAdapter(
               recordPolicyDecisions: (decisions) => {
                 policyDecisions.push(...decisions);
               },
-              ...(options.factories === undefined ? {} : { factories: options.factories }),
+              backend,
             }),
           ],
         },
@@ -1653,15 +1805,11 @@ function createPiAgentHarnessAdapter(
         context: rootHookContext,
       });
 
-      const result = await runCapabilityPiAgentSession(
-        {
+      const rootRole = roles.find((role) => role.id === rootAgentId);
+      const result = await backend
+        .run({
           cwd: input.workspaceRoot,
-          agentDir: piSessionInputs.agentDir,
-          authStorage: piSessionInputs.authStorage as never,
-          modelRegistry: piSessionInputs.modelRegistry as never,
-          model: piSessionInputs.model as never,
-          sessionManager: piSessionInputs.sessionManager as never,
-          settingsManager: piSessionInputs.settingsManager as never,
+          ...(rootRole === undefined ? {} : { role: rootRole }),
           capabilities: rootCapabilities,
           prompt: buildRootPrompt({
             instruction: input.instruction,
@@ -1695,12 +1843,11 @@ function createPiAgentHarnessAdapter(
               });
             }
           },
-        },
-        options.factories,
-      ).finally(() => {
-        runSignal.cleanup();
-      });
-      const outputText = result.outputText ?? extractLatestAssistantText(result.session.messages);
+        })
+        .finally(() => {
+          runSignal.cleanup();
+        });
+      const outputText = result.outputText;
       const events = result.events;
       const projections = Object.freeze(events.map(projectEvent));
       const status = result.failureMessage === undefined ? "succeeded" : "failed";
@@ -1708,7 +1855,7 @@ function createPiAgentHarnessAdapter(
       const hookDecisions = hookExecutor.snapshot();
       const summary = jsonObject({
         harnessId: input.harness.id,
-        adapter: "pi",
+        adapter: backend.kind,
         status,
         outputText,
         eventCount: events.length,
@@ -1722,8 +1869,8 @@ function createPiAgentHarnessAdapter(
         runId,
         scopeId: rootScopeId,
         rootAgentId,
-        rootSessionId: result.session.sessionId,
-        sessionId: result.session.sessionId,
+        rootSessionId: result.sessionId,
+        sessionId: result.sessionId,
         events,
         projections,
         policyDecisions: finalPolicyDecisions,
@@ -1738,7 +1885,7 @@ function createPiAgentHarnessAdapter(
 
       return Object.freeze({
         harnessId: input.harness.id,
-        adapter: "pi",
+        adapter: backend.kind,
         status,
         outputText,
         envelope: result.envelope,
