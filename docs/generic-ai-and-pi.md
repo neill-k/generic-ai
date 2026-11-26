@@ -43,8 +43,9 @@ Use Generic AI when you want:
 Generic AI is building its own runtime so it no longer depends on `pi` underneath. The model layer
 (`@generic-ai/ai`) and the agent loop (`@generic-ai/agent`) are native packages adapted from `pi`
 under its MIT license, and core exposes them as the `native` runtime adapter beside `pi` and
-`openai-codex`. Until the native adapter reaches parity, `pi` stays the default harness runtime and
-the rules below still apply. The plan, feature inventory, and test coverage live in
+`openai-codex`. The native adapter is now the default for harnesses and the LLM runtime (ADR 0068);
+`pi` and `openai-codex` stay available by name until they are removed, and the rules below apply to
+them until then. The plan, feature inventory, and test coverage live in
 [`docs/planning/native-harness-parity.md`](planning/native-harness-parity.md).
 
 ## Why Build Generic AI If `pi` Exists?

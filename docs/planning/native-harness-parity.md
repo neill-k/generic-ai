@@ -189,10 +189,12 @@ Each slice is a reviewable PR that keeps every existing test green.
    agent refines from evidence, with history and rollback, shown in the system prompt ranked by
    relevance (`native.continual`, ADR 0067).
 8. **More providers and auth**: 8a adds Google Gemini, Vertex AI and Azure OpenAI, and
-   context-overflow detection with compact-and-retry; 8b Bedrock and native Mistral; 8c (in review)
+   context-overflow detection with compact-and-retry; 8b Bedrock and native Mistral; 8c
    `@generic-ai/auth`: credential stores, locked token refresh, the OAuth building blocks and
    OpenRouter's sign-in. Sign-ins that reuse another product's OAuth client wait on a decision.
-9. **Make native the default and remove pi**: once the harness suite passes on the native adapter.
+9. **Make native the default and remove pi**: 9a (in review) makes `native` the default harness
+   and LLM runtime adapter (ADR 0068); 9b moves the plugin tool API off `@generic-ai/sdk/pi`; 9c
+   removes the `pi` and `openai-codex` adapters and the `pi` dependencies.
 
 ## Running the parity suites
 

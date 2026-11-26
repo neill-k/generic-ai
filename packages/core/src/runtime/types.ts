@@ -1,6 +1,6 @@
 import type { UsageBudgetLimits, UsageTotals } from "@generic-ai/sdk";
 
-export const DEFAULT_GENERIC_AI_RUNTIME_ADAPTER = "openai-codex" as const;
+export const DEFAULT_GENERIC_AI_RUNTIME_ADAPTER = "native" as const;
 export const DEFAULT_OPENAI_CODEX_MODEL = "gpt-5.5" as const;
 
 export type GenericAILlmRuntimeAdapter = "openai-codex" | "pi" | "native";
