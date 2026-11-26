@@ -677,3 +677,59 @@ pre,
   color: var(--failed);
   margin: 8px 0 0;
 }
+
+/* Approvals */
+.badge {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+.badge[hidden] {
+  display: none;
+}
+.approval-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.approval-head h2 {
+  margin: 0;
+}
+.effects {
+  color: var(--waiting);
+  font-weight: 500;
+}
+.approval-input {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+}
+.approval-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+@media (max-width: 640px) {
+  .approval-actions {
+    grid-template-columns: 1fr 1fr;
+  }
+  .approval-actions input {
+    grid-column: 1 / -1;
+  }
+}
+.section-title {
+  margin: 8px 0 0;
+}

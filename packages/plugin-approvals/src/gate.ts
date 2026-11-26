@@ -364,7 +364,11 @@ export function createApprovalGate(options: CreateApprovalGateOptions): Approval
     }
     const original = tool.execute.bind(tool);
     const wrapped = Object.create(Object.getPrototypeOf(tool)) as ExecutableTool;
-    Object.defineProperties(wrapped, Object.getOwnPropertyDescriptors(tool));
+    // Copy everything but `execute`: a frozen tool's descriptors are not configurable, so
+    // copying `execute` first would make the replacement below throw.
+    const descriptors: Record<string, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool);
+    Reflect.deleteProperty(descriptors, "execute");
+    Object.defineProperties(wrapped, descriptors);
     Object.defineProperty(wrapped, "execute", {
       enumerable: true,
       configurable: true,

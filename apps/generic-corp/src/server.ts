@@ -2,7 +2,12 @@ import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-
+import {
+  approvalRequesterForTask,
+  createApprovalGate,
+  createApprovalRoutes,
+  createApprovalService,
+} from "@generic-ai/plugin-approvals";
 import {
   type AuthStore,
   authenticateOwnerRequest,
@@ -17,7 +22,13 @@ import {
   SECRETS_KEY_ENV,
   type SecretsBroker,
 } from "@generic-ai/plugin-secrets";
-import { type AgentTaskExecutor, ALL_AUTH_SCOPES, type AuthContext } from "@generic-ai/sdk";
+import {
+  type AgentTaskExecutor,
+  ALL_AUTH_SCOPES,
+  type ApprovalServiceContract,
+  type AuthContext,
+  DEFAULT_APPROVAL_POLICY,
+} from "@generic-ai/sdk";
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
@@ -174,6 +185,8 @@ export interface GenericCorpServer {
   readonly storage: CompanyStorage;
   readonly environment: GenericCorpEnvironment;
   readonly auth?: OwnerAuth;
+  /** Owner approvals for outward agent actions. */
+  readonly approvals: ApprovalServiceContract;
   stop(): Promise<void>;
 }
 
@@ -220,10 +233,20 @@ export async function createGenericCorpServer(
       options.toolkit ??
       createCompanyToolkit({ company, secrets, env: options.env ?? process.env });
     const companyToolkit = toolkit;
+    // Outward actions (messages, external writes, payments, writing MCP tools) wait for the
+    // owner. A gated call ends the agent's turn; the cascade parks the task as `waiting` and
+    // resumes it once every request is decided.
+    const approvals = createApprovalService({ runStore: storage.runStore });
+    const approvalPolicy = company.approvals ?? DEFAULT_APPROVAL_POLICY;
     const executor =
       options.executor ??
       createCompanyTaskExecutor({
-        capabilities: (input) => companyToolkit.capabilities(input),
+        capabilities: (input) =>
+          createApprovalGate({
+            service: approvals,
+            requester: approvalRequesterForTask(input, input.actor),
+            policy: approvalPolicy,
+          }).wrapBindings(companyToolkit.capabilities(input)),
         secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
         ...options.executorOptions,
         runStore: storage.runStore,
@@ -234,6 +257,7 @@ export async function createGenericCorpServer(
       storage,
       agentsRoot: path.join(environment.dataDir, "agents"),
       executor,
+      cascade: { approvals },
       log,
     });
     await runtime.initialize();
@@ -290,6 +314,19 @@ export async function createGenericCorpServer(
     }
 
     const ownerAuth = auth;
+    // The approvals inbox comes before the company API, whose not-found handler covers /api.
+    app.route(
+      API_ROUTE_PREFIX,
+      createApprovalRoutes(approvals, {
+        authenticate: async (request) =>
+          ownerAuth === undefined
+            ? LOCAL_OWNER
+            : await authenticateOwnerRequest(ownerAuth, request),
+        onDecided: async (approval) => {
+          await runtime.cascade.approvalDecided(approval.approvalId);
+        },
+      }),
+    );
     app.route(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
@@ -323,6 +360,7 @@ export async function createGenericCorpServer(
       storage,
       environment,
       ...(auth === undefined ? {} : { auth }),
+      approvals,
       async stop() {
         await runtime.stop();
         await companyToolkit.close();

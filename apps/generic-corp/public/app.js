@@ -146,6 +146,7 @@ const VIEWS = {
   costs: renderCosts,
   tools: renderTools,
   secrets: renderSecrets,
+  approvals: renderApprovals,
 };
 
 function route() {
@@ -173,7 +174,7 @@ async function render() {
 /** Coalesces bursts of live events into one refresh of the current view. */
 function scheduleRefresh() {
   // Task events don't change these views, and a refresh would clear a half-typed secret.
-  if (state.view === "secrets" || state.view === "tools") {
+  if (state.view === "secrets" || state.view === "tools" || state.view === "approvals") {
     return;
   }
   if (state.refreshTimer !== undefined) {
@@ -1078,6 +1079,185 @@ async function renderSecrets(message) {
 }
 
 // ---------------------------------------------------------------------------
+// Approvals
+// ---------------------------------------------------------------------------
+
+const APPROVAL_STATUS = {
+  pending: "waiting",
+  approved: "succeeded",
+  rejected: "failed",
+  denied: "failed",
+  expired: "cancelled",
+  cancelled: "cancelled",
+};
+
+const EFFECT_LABELS = {
+  "message.send": "Sends a message",
+  "external.write": "Changes an outside system",
+  "payment.spend": "Spends money",
+  "mcp.write": "Writes through a connector",
+};
+
+async function updateApprovalBadge() {
+  const badge = document.getElementById("approvals-badge");
+  if (!badge) {
+    return;
+  }
+  try {
+    const { approvals } = await api("/approvals?status=pending&limit=100");
+    badge.textContent = String(approvals.length);
+    badge.hidden = approvals.length === 0;
+  } catch {
+    badge.hidden = true;
+  }
+}
+
+function connectApprovalEvents() {
+  const source = new EventSource("/api/approvals/stream");
+  const refresh = () => {
+    updateApprovalBadge();
+    if (state.view === "approvals" && document.getElementById("drawer").hidden) {
+      render();
+    }
+  };
+  for (const type of [
+    "approval.requested",
+    "approval.approved",
+    "approval.rejected",
+    "approval.denied",
+    "approval.expired",
+    "approval.cancelled",
+    "approval.executed",
+    "approval.execution.failed",
+  ]) {
+    source.addEventListener(type, refresh);
+  }
+  source.addEventListener("ready", () => updateApprovalBadge());
+}
+
+function approvalCard(approval, onDecided) {
+  const comment = h("input", {
+    type: "text",
+    placeholder: "Note for the agent (optional)",
+    "aria-label": "Note for the agent",
+    maxlength: "2000",
+  });
+  const error = h("p", { class: "form-error", role: "alert", hidden: true });
+  const decide = (verdict) => async (event) => {
+    const buttons = event.target.parentElement.querySelectorAll("button");
+    for (const button of buttons) {
+      button.disabled = true;
+    }
+    try {
+      await api(`/approvals/${encodeURIComponent(approval.approvalId)}/${verdict}`, {
+        method: "POST",
+        body: JSON.stringify(comment.value.trim() ? { comment: comment.value.trim() } : {}),
+      });
+      await onDecided();
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+      for (const button of buttons) {
+        button.disabled = false;
+      }
+    }
+  };
+  const effects = approval.action.effects.map((effect) => EFFECT_LABELS[effect]).filter(Boolean);
+  const pending = approval.status === "pending";
+  return h(
+    "article",
+    { class: "panel approval" },
+    h(
+      "header",
+      { class: "approval-head" },
+      h("h2", {}, approval.action.summary || approval.action.name),
+      h(
+        "span",
+        { class: `status status-${APPROVAL_STATUS[approval.status] ?? "queued"}` },
+        approval.status,
+      ),
+    ),
+    h(
+      "p",
+      { class: "muted" },
+      `${approval.requester.agentId} wants to run `,
+      h("code", {}, approval.action.name),
+      ` · ${formatTime(approval.createdAt)}`,
+      approval.expiresAt && pending ? ` · expires ${formatTime(approval.expiresAt)}` : "",
+    ),
+    effects.length > 0 ? h("p", { class: "effects" }, effects.join(" · ")) : null,
+    approval.action.inputOmitted
+      ? h("p", { class: "muted" }, "The input is too large to show here.")
+      : h("pre", { class: "approval-input" }, JSON.stringify(approval.action.input ?? {}, null, 2)),
+    approval.requester.taskId
+      ? h(
+          "p",
+          {},
+          h(
+            "button",
+            {
+              type: "button",
+              class: "ghost",
+              onClick: () => showTask(approval.requester.taskId),
+            },
+            "Open the task",
+          ),
+        )
+      : null,
+    approval.decision
+      ? h(
+          "p",
+          { class: "muted" },
+          `${approval.decision.decision === "approved" ? "Approved" : "Rejected"} by ${approval.decision.decidedBy.subjectId} · ${formatTime(approval.decision.decidedAt)}`,
+          approval.decision.comment ? ` · "${approval.decision.comment}"` : "",
+        )
+      : null,
+    pending
+      ? h(
+          "div",
+          { class: "approval-actions" },
+          comment,
+          h("button", { type: "button", onClick: decide("approve") }, "Approve"),
+          h("button", { type: "button", class: "ghost", onClick: decide("reject") }, "Reject"),
+        )
+      : null,
+    error,
+  );
+}
+
+async function renderApprovals() {
+  const [{ approvals: pending }, { approvals: recent }] = await Promise.all([
+    api("/approvals?status=pending&limit=100"),
+    api("/approvals?status=approved,rejected,denied,expired,cancelled&limit=20"),
+  ]);
+  const reload = async () => {
+    await renderApprovals();
+    await updateApprovalBadge();
+  };
+  setView(
+    h(
+      "div",
+      {},
+      h("h1", {}, "Approvals"),
+      h(
+        "p",
+        { class: "subtitle" },
+        "Agents ask before they send messages, change outside systems or spend money. An approved action runs once, exactly as shown. Its task picks up where it left off.",
+      ),
+      h(
+        "div",
+        { style: "display: grid; gap: 16px" },
+        pending.length === 0
+          ? h("div", { class: "panel" }, h("p", { class: "muted" }, "Nothing is waiting for you."))
+          : pending.map((approval) => approvalCard(approval, reload)),
+        recent.length > 0 ? h("h2", { class: "section-title" }, "Recently decided") : null,
+        recent.map((approval) => approvalCard(approval, reload)),
+      ),
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
 
@@ -1104,6 +1284,7 @@ async function start() {
     }
   }
   connectLiveEvents();
+  connectApprovalEvents();
   route();
 }
 

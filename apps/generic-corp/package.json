@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@generic-ai/core": "0.0.0",
+    "@generic-ai/plugin-approvals": "0.0.0",
     "@generic-ai/plugin-auth-identity": "0.0.0",
     "@generic-ai/plugin-delegation": "0.0.0",
     "@generic-ai/plugin-mcp": "0.0.0",
@@ -38,7 +39,8 @@
   "license": "MIT",
   "private": true,
   "devDependencies": {
-    "@generic-ai/ai": "0.0.0"
+    "@generic-ai/ai": "0.0.0",
+    "@sinclair/typebox": "0.34.49"
   },
   "files": [
     "dist",

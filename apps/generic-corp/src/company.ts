@@ -1,6 +1,7 @@
 import type { PersistentAgentSeed } from "@generic-ai/plugin-delegation";
 import { McpRegistryError, parseMcpPluginConfig } from "@generic-ai/plugin-mcp";
 import type { WebSearchProviderConfig } from "@generic-ai/plugin-tools-web";
+import { type ApprovalPolicy, parseApprovalPolicy } from "@generic-ai/sdk";
 import { parse as parseYaml } from "yaml";
 
 /**
@@ -59,6 +60,11 @@ export interface CompanyConfig {
   /** Default model per org tier. */
   readonly models?: Partial<Readonly<Record<OrgTier, string>>>;
   readonly tools?: CompanyToolsConfig;
+  /**
+   * Which agent actions wait for the owner. Defaults to the SDK's policy: sending messages,
+   * writing to outside systems, spending money and writing MCP tools all need approval.
+   */
+  readonly approvals?: ApprovalPolicy;
   readonly agents: readonly CompanyAgentConfig[];
 }
 
@@ -301,12 +307,23 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
     };
   });
   const tools = readTools(input["tools"]);
+  let approvals: ApprovalPolicy | undefined;
+  if (input["approvals"] !== undefined) {
+    try {
+      approvals = parseApprovalPolicy(input["approvals"]);
+    } catch (error) {
+      throw new CompanyConfigError(
+        `company.approvals: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 
   const company: CompanyConfig = {
     name,
     ...(mission === undefined ? {} : { mission }),
     ...(models === undefined ? {} : { models }),
     ...(tools === undefined ? {} : { tools }),
+    ...(approvals === undefined ? {} : { approvals }),
     agents,
   };
   validateOrgChart(company);
