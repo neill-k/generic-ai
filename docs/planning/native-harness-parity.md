@@ -62,7 +62,8 @@ Deliberate differences from pi:
   `plugin-tools-terminal` passes its own `inheritProcessEnv` through. Subagents reuse the
   session's tools, so they get the same environment. Extensions run in the server process and are
   trusted code, not agent commands. Any later process the runtime starts for an agent (slice 6
-  daemon sessions included) must use `getAgentCommandEnv`.
+  daemon sessions included) must use `getAgentCommandEnv`. Autonomous quality gates already do:
+  `createShellGateRunner` runs them in that environment, where Prime Agent passes its own.
 
 ## Feature inventory
 
@@ -146,8 +147,9 @@ tests are used as behavioural specs for that thread.
 | Progress notes and the inbox | ✓ | `progress_note_throttles_and_stores` ported; inbox kinds `agent-message`, `child-exited`, `child-failed` |
 | Agent observation (`agent_observe`: live activity, recent message previews), messaging pause and resume | ○ | `pa-core` agent_observe tests |
 | Daemon-backed sessions that survive disconnects and can be reattached | ○ | `pa-daemon` |
-| Persistent goals (`/goal`), heartbeats, schedules | ○ | `pa-core` goal/schedule tests |
-| Bounded autonomous mode | ○ | `pa-core` autonomy tests |
+| Persistent goals: objective, token budget, continuation, no-progress cap and backoff, pause, resume, complete | ✓ | `@generic-ai/autonomy`: `goals.rs` and `goal_driver/tests.rs` cases ported; `complete_goal` tool instead of `goal.complete()`; in native sessions the goal is an SDK goal spec and `complete_goal` runs `runGoalValidators` (ADR 0063, NOVA: the agent cannot mark its own work done); `native.goal` harness option |
+| Heartbeats and schedules | ○ | `pa-core` heartbeat/schedule tests; slice 6b |
+| Bounded autonomous mode: limits, quality gates, gate-failure continuation, no rerun on an unchanged worktree | ✓ | `@generic-ai/autonomy`: `autonomous/mod.rs`, `driver.rs` and `gates.rs` tests ported; `native.autonomous` harness option; gate commands become `check` validators of the session's SDK goal; in stop-tool mode a completed stop is checked against them |
 | Continual harness: supplemental prompts, memories, skill descriptions, subagent specs updated by `/refine` from evidence, base prompt immutable | ○ | `pa-core` refine tests, Continual Harness paper |
 | Persistent Python REPL as the primary tool (RLM) | ○ | evaluate later; Generic AI agents do generic work (D6), so this is a plugin, not the core loop |
 
@@ -173,8 +175,9 @@ Each slice is a reviewable PR that keeps every existing test green.
 5. **Subagents and messaging** (in review): `@generic-ai/subagents` with Prime Agent's spawn,
    collect, delete and rename rules, family messaging, inbox and progress notes, turned on in
    native harness sessions with `native.subagents`.
-6. **Long-running agents**: daemon sessions, goals, heartbeats and schedules, autonomous mode, on
-   the durable queue.
+6. **Long-running agents**: 6a (in review) adds `@generic-ai/autonomy` with Prime Agent's thread
+   goals and autonomous mode and turns them on in native sessions (`native.goal`,
+   `native.autonomous`). 6b adds daemon sessions, heartbeats and schedules on the durable queue.
 7. **Continual harness**: evidence-backed refinement of supplemental harness state.
 8. **More providers and auth**: Gemini, Bedrock, Azure, OAuth logins.
 9. **Make native the default and remove pi**: once the harness suite passes on the native adapter.
@@ -182,5 +185,5 @@ Each slice is a reviewable PR that keeps every existing test green.
 ## Running the parity suites
 
 ```bash
-npx vitest run packages/ai packages/agent packages/tools packages/session packages/resources packages/extensions packages/subagents packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts
+npx vitest run packages/ai packages/agent packages/tools packages/session packages/resources packages/extensions packages/subagents packages/autonomy packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts packages/core/src/runtime/native-session-long-run.test.ts
 ```
