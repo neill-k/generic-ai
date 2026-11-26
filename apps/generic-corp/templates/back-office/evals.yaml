@@ -1,0 +1,42 @@
+title: Back Office goal evals
+description: >-
+  Replays the back office's goals end to end. Month-end close has exact answers, so its numeric
+  checks are true outcomes; support replies are graded against the owner's refund policy.
+# Live runs: five attempts per case, and three in a row must pass at least half the time.
+# The offline replay is deterministic, so CI runs it once per case.
+trials:
+  count: 5
+  passK: 3
+gate:
+  minPassRate: 0.8
+  minPassK: 0.5
+  maxIntegrityViolations: 0
+cases:
+  - id: month-end-close
+    goal: month-end-close
+    replay: replays/month-end-close.yaml
+    holdoutValidators:
+      - id: meals
+        kind: numeric
+        description: The meals total is right too.
+        source: { outputPath: byCategory.Meals }
+        operator: eq
+        value: 58.3
+        tolerance: 0.005
+      - id: one-flag
+        kind: output_schema
+        description: Only the real duplicate is flagged, not the second Northwind order.
+        schema:
+          type: object
+          required: [flagged]
+          properties:
+            flagged: { type: array, maxItems: 1 }
+  - id: support-replies
+    goal: support-replies
+    replay: replays/support-replies.yaml
+    holdoutValidators:
+      - id: manager-delegated
+        kind: trace
+        description: The manager delegated the drafts instead of writing them.
+        forbid:
+          - { tool: write, role: manager }

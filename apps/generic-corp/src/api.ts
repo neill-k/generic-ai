@@ -9,6 +9,7 @@ import {
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
+import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import type { CompanyEvent } from "./events.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
@@ -124,8 +125,8 @@ async function readJsonObject(c: Context): Promise<Record<string, unknown>> {
   return parsed as Record<string, unknown>;
 }
 
-function readMessageText(body: Record<string, unknown>): string {
-  const text = body["text"];
+function readMessageText(body: Record<string, unknown>, fallback?: string): string {
+  const text = body["text"] ?? fallback;
   if (typeof text !== "string" || text.trim().length === 0) {
     throw new ApiError(400, 'Send the message as {"text": "..."}.');
   }
@@ -133,6 +134,42 @@ function readMessageText(body: Record<string, unknown>): string {
     throw new ApiError(413, `Messages are limited to ${MAX_MESSAGE_CHARS} characters.`);
   }
   return text;
+}
+
+/** The company goal a message starts from (`{"goalId": "..."}`), if it names one. */
+function readGoalTemplate(
+  runtime: CompanyRuntime,
+  body: Record<string, unknown>,
+): CompanyGoalTemplate | undefined {
+  const goalId = body["goalId"];
+  if (goalId === undefined || goalId === null) {
+    return undefined;
+  }
+  if (typeof goalId !== "string") {
+    throw new ApiError(400, "goalId must be the id of one of the company's goals.");
+  }
+  const goal = companyGoal(runtime.company, goalId);
+  if (goal === undefined) {
+    throw new ApiError(404, `The company has no goal "${goalId}". See GET /api/goals.`);
+  }
+  return goal;
+}
+
+/** A company goal for the dashboard: what it asks, what done means, and how it is checked. */
+export function describeCompanyGoal(goal: CompanyGoalTemplate) {
+  return {
+    id: goal.id,
+    title: goal.title,
+    ...(goal.description === undefined ? {} : { description: goal.description }),
+    request: goal.request,
+    objective: goal.spec.objective,
+    definitionOfDone: goal.spec.definitionOfDone,
+    checks: goal.spec.validators.map((validator) => ({
+      id: validator.id,
+      kind: validator.kind,
+      ...(validator.description === undefined ? {} : { description: validator.description }),
+    })),
+  };
 }
 
 function readLimit(raw: string | undefined, fallback: number, max: number): number {
@@ -215,7 +252,18 @@ export function createCompanyApi(
   );
 
   app.get("/tools", (c) =>
-    c.json(options.toolkit?.describe() ?? { tools: [], webSearch: null, connectors: [] }),
+    c.json(
+      options.toolkit?.describe() ?? { tools: [], webSearch: null, connectors: [], skills: [] },
+    ),
+  );
+
+  // --- Goals the company knows how to pursue ------------------------------
+
+  app.get("/goals", (c) =>
+    c.json({
+      template: runtime.company.template ?? null,
+      goals: (runtime.company.goals ?? []).map(describeCompanyGoal),
+    }),
   );
 
   // --- Secrets -------------------------------------------------------------
@@ -325,10 +373,13 @@ export function createCompanyApi(
   app.get("/threads", async (c) => c.json({ threads: await runtime.listThreads() }));
 
   app.post("/threads", async (c) => {
-    const text = readMessageText(await readJsonObject(c));
+    const body = await readJsonObject(c);
+    const goal = readGoalTemplate(runtime, body);
+    const text = readMessageText(body, goal?.request);
     const { thread, task } = await runtime.sendMessage({
       text,
       actor: toRunActor(c.get("auth")),
+      ...(goal === undefined ? {} : { goal: { spec: goal.spec } }),
     });
     return c.json({ thread, taskId: task.taskId }, 201);
   });
@@ -342,11 +393,14 @@ export function createCompanyApi(
   });
 
   app.post("/threads/:threadId/messages", async (c) => {
-    const text = readMessageText(await readJsonObject(c));
+    const body = await readJsonObject(c);
+    const goal = readGoalTemplate(runtime, body);
+    const text = readMessageText(body, goal?.request);
     const { thread, task } = await runtime.sendMessage({
       text,
       threadId: c.req.param("threadId"),
       actor: toRunActor(c.get("auth")),
+      ...(goal === undefined ? {} : { goal: { spec: goal.spec } }),
     });
     return c.json({ thread, taskId: task.taskId }, 201);
   });

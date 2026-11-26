@@ -1,0 +1,90 @@
+# Recorded turns for the launch-plan case. Dates are relative to a fictional launch on
+# Monday 1 June; a live run plans against the real calendar.
+judgments:
+  plan-quality:
+    summary: A dated, owned plan in order, with fallbacks for each risk.
+    criteria:
+      - { criterionId: dated-and-owned, score: 1, rationale: Every task has a date and one owner. }
+      - { criterionId: ordered, score: 1, rationale: Tasks run in date order to launch day. }
+      - { criterionId: risks, score: 0.9, rationale: Each risk has a fallback. }
+      - { criterionId: runnable, score: 0.8, rationale: Clear enough to run; pricing decision needs the owner., improvement: Say who signs off the price. }
+
+agents:
+  ceo:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: vp-operations
+            task: >-
+              Write a launch plan for a paid newsletter launching Monday 1 June: every task from
+              now to launch day with a date and one owner, plus the risks and a fallback for each.
+            definitionOfDone: A Markdown plan with at least eight dated, owned tasks and three risks.
+    - call: stop_and_respond
+      args: { response: Operations is writing the launch plan. }
+    - call: stop_and_respond
+      args:
+        response: |-
+          The launch plan is ready: ten dated tasks from today to launch day on 1 June, each
+          with one owner, and four risks with a fallback for each. The one decision I need from
+          you is the price, by 12 May.
+
+          ```json
+          {"deliverable": {"agent": "operations-associate", "path": "workspace/newsletter-launch-plan.md"}, "tasks": 10, "risks": 4}
+          ```
+
+  vp-operations:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: operations-associate
+            task: >-
+              Draft workspace/newsletter-launch-plan.md for a paid newsletter launching Monday
+              1 June: a table of tasks in date order with one owner each, then risks with
+              fallbacks.
+            definitionOfDone: At least eight dated, owned tasks ending on launch day, and three risks.
+    - call: stop_and_respond
+      args: { response: The associate is drafting the plan. }
+    - call: stop_and_respond
+      args:
+        response: >-
+          Reviewed operations-associate:workspace/newsletter-launch-plan.md. Ten tasks in date
+          order, one owner each, four risks with fallbacks. Review: pass.
+
+  operations-associate:
+    - call: write
+      args:
+        path: workspace/newsletter-launch-plan.md
+        content: |-
+          # Paid newsletter launch plan
+
+          Launch day: Monday 1 June.
+
+          ## Tasks
+
+          | Date | Task | Owner |
+          | --- | --- | --- |
+          | 4 May | Agree the newsletter's topic, name and promise in one paragraph | Owner |
+          | 6 May | Choose the newsletter platform and open the account | VP of Operations |
+          | 8 May | Draft the welcome email and the first two issues | Research Analyst |
+          | 12 May | Decide the price and the free trial length | Owner |
+          | 14 May | Set up payments and test a purchase end to end | Software Engineer |
+          | 18 May | Build the sign-up page and connect it to the platform | Software Engineer |
+          | 20 May | Write the launch announcement and three social posts | Operations Associate |
+          | 25 May | Send the first two issues to five test readers and collect fixes | Operations Associate |
+          | 28 May | Final check: payments, sign-up page, welcome email, issue one | VP of Operations |
+          | 1 June | Publish issue one and send the announcement | Owner |
+
+          ## Risks
+
+          1. **Payments fail on launch day.** Fallback: keep sign-ups free for 48 hours and
+             charge from the next issue.
+          2. **The first issue is late.** Fallback: issue two is drafted by 8 May and can go first.
+          3. **Few sign-ups in week one.** Fallback: offer a 30-day free trial to the test readers'
+             contacts.
+          4. **The platform rejects the account.** Fallback: a second platform is shortlisted on
+             6 May and can be set up in a day.
+    - call: stop_and_respond
+      args:
+        response: >-
+          The plan is at workspace/newsletter-launch-plan.md: ten tasks with dates and owners,
+          and four risks with fallbacks.

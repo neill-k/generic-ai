@@ -1,0 +1,266 @@
+# Back office: a company that runs the routine work of a small business. Bookkeeping,
+# scheduling and customer support, with the owner approving anything that leaves the company.
+# Start it with GENERIC_CORP_TEMPLATE=back-office.
+name: Back Office
+mission: >-
+  Keep the business running: books closed on time, calendars and suppliers handled, and every
+  customer answered. Nothing is sent, booked or paid without the owner's approval.
+
+models:
+  ceo: anthropic/claude-opus-5-5
+  vp: anthropic/claude-sonnet-5-5
+  ic: anthropic/claude-haiku-5-5
+
+tools:
+  # Connectors for mailbox, calendar and shared documents. Each is off until its secrets are on
+  # the secrets screen; set enabled to true once they are. The approvals gate holds every send,
+  # booking and external write for the owner.
+  mcp:
+    servers:
+      - id: email
+        connector: email
+        transport: http
+        url: "${EMAIL_MCP_URL}"
+        headers: { Authorization: "Bearer ${EMAIL_MCP_TOKEN}" }
+        enabled: false
+      - id: calendar
+        connector: calendar
+        transport: http
+        url: "${CALENDAR_MCP_URL}"
+        headers: { Authorization: "Bearer ${CALENDAR_MCP_TOKEN}" }
+        enabled: false
+      - id: documents
+        connector: documents
+        transport: http
+        url: "${DOCUMENTS_MCP_URL}"
+        headers: { Authorization: "Bearer ${DOCUMENTS_MCP_TOKEN}" }
+        enabled: false
+
+# Payments are refused outright; sending, booking and writing to outside systems wait for the
+# owner.
+approvals:
+  rules:
+    - id: no-payments
+      decision: deny
+      effects: [payment.spend]
+      reason: The back office never moves money. Prepare the payment and ask the owner to make it.
+    - id: outward-actions
+      decision: require_approval
+      effects: [message.send, external.write, mcp.write]
+      reason: This reaches outside the company, so the owner signs off first.
+  defaultDecision: allow
+
+agents:
+  - id: manager
+    role: manager
+    title: General Manager
+    instructions: >-
+      You run the back office for its owner. Send finance work to the Head of Finance, scheduling
+      and suppliers to the Head of Operations, and customer messages to the Head of Support.
+      Answer the owner with the result and the decisions only they can make. When the answer
+      includes figures or a document, end your reply with a fenced JSON block with the figures
+      and the deliverable, for example
+      {"deliverable": {"agent": "bookkeeper", "path": "workspace/close.md"}, "total": 0}.
+
+  - id: head-finance
+    role: head-finance
+    title: Head of Finance
+    reportsTo: manager
+    secrets: ["ACCOUNTING_*"]
+    instructions: >-
+      You own the books. Check the bookkeeper's totals before they go up, and flag anything
+      unusual: duplicates, missing receipts, amounts out of line with past months.
+
+  - id: bookkeeper
+    role: bookkeeper
+    title: Bookkeeper
+    reportsTo: head-finance
+    instructions: >-
+      You keep the books. Compute totals with a script, never by hand: save the data as CSV in
+      your workspace, write a small script in workspace/scripts that reads it and prints the
+      totals, run it, and report exactly what it printed. Keep the script for next month.
+
+  - id: head-operations
+    role: head-operations
+    title: Head of Operations
+    reportsTo: manager
+    instructions: >-
+      You own schedules, suppliers and orders. Draft bookings and orders for the owner to
+      approve; never confirm one yourself.
+
+  - id: coordinator
+    role: coordinator
+    title: Operations Coordinator
+    reportsTo: head-operations
+    instructions: >-
+      You keep calendars, supplier lists and order sheets up to date in your workspace, and
+      draft the messages that go with them.
+
+  - id: head-support
+    role: head-support
+    title: Head of Support
+    reportsTo: manager
+    instructions: >-
+      You own customer support. Every customer gets a reply that answers their question, follows
+      the policies the owner set, and never promises what the policy does not allow.
+
+  - id: support-agent
+    role: support-agent
+    title: Support Agent
+    reportsTo: head-support
+    secrets: ["HELPDESK_*"]
+    instructions: >-
+      You draft replies to customers in a warm, plain voice. Drafts go in your workspace for
+      review; sending waits for the owner's approval.
+
+goals:
+  - id: month-end-close
+    title: Month-end close
+    description: Totals by category for a month's expenses, with anything unusual flagged.
+    request: |-
+      Close March's expenses. Total them, total by category, and flag anything that looks wrong.
+      CloudCo bills us once a month, on the 4th.
+
+      | Date | Vendor | Category | Amount (EUR) |
+      | --- | --- | --- | --- |
+      | 2 Mar | Northwind Office Supply | Office | 184.20 |
+      | 4 Mar | CloudCo | Software | 420.00 |
+      | 9 Mar | Rail Europe | Travel | 236.50 |
+      | 11 Mar | CloudCo | Software | 420.00 |
+      | 15 Mar | Cafe Lumen | Meals | 58.30 |
+      | 18 Mar | Hotel Brightwater | Travel | 612.00 |
+      | 22 Mar | Northwind Office Supply | Office | 96.75 |
+      | 27 Mar | PrintHub | Marketing | 310.00 |
+    goal:
+      objective: March's expenses totalled and checked, with problems flagged for the owner.
+      definitionOfDone:
+        - The total and the total for each category are correct to the cent.
+        - Every likely duplicate or error is flagged with the reason.
+        - The totals come from a script the bookkeeper ran, kept for next month.
+        - A close note in the bookkeeper's workspace shows the totals and the flags.
+      maxAttempts: 3
+      validators:
+        - id: figures-reported
+          kind: output_schema
+          description: The final reply gives the total, the totals by category and the flags.
+          schema:
+            type: object
+            required: [deliverable, total, byCategory, flagged]
+            properties:
+              deliverable:
+                type: object
+                required: [agent, path]
+              total: { type: number }
+              byCategory:
+                type: object
+                required: [Office, Software, Travel, Meals, Marketing]
+                additionalProperties: { type: number }
+              flagged:
+                type: array
+                items:
+                  type: object
+                  required: [vendor, amount, reason]
+        - id: total
+          kind: numeric
+          description: The month's total is right.
+          source: { outputPath: total }
+          operator: eq
+          value: 2337.75
+          tolerance: 0.005
+          unit: EUR
+        - id: travel
+          kind: numeric
+          description: The travel total is right.
+          source: { outputPath: byCategory.Travel }
+          operator: eq
+          value: 848.5
+          tolerance: 0.005
+          unit: EUR
+        - id: office
+          kind: numeric
+          description: The office total is right.
+          source: { outputPath: byCategory.Office }
+          operator: eq
+          value: 280.95
+          tolerance: 0.005
+          unit: EUR
+        - id: duplicate-flagged
+          kind: numeric
+          description: The second CloudCo charge is flagged.
+          source: { outputPath: flagged.0.amount }
+          operator: eq
+          value: 420
+          tolerance: 0.005
+        - id: note-quality
+          kind: rubric
+          target: "artifact:deliverable"
+          passThreshold: 0.75
+          criteria:
+            - id: figures
+              description: The note shows the total and each category total.
+              required: true
+            - id: flags
+              description: Each flag says what looks wrong and what the owner should do about it.
+              required: true
+            - id: method
+              description: The note says how the totals were computed and where the script is.
+        - id: scripted
+          kind: trace
+          description: The bookkeeper ran a script for the totals.
+          require:
+            - { tool: bash, role: bookkeeper }
+
+  - id: support-replies
+    title: Support replies
+    description: Draft replies to customer messages, following the refund policy, for the owner to approve.
+    request: |-
+      Draft replies to these three customers. Our policy: refunds within 30 days of purchase,
+      exchanges within 60, and we never refund shipping. Don't send anything yet.
+
+      1. Ana (bought 12 days ago): "The lamp arrived with a cracked base. Can I get my money back?"
+      2. Ben (bought 45 days ago): "The jacket is too small. Can I return it for a refund?"
+      3. Chloe (bought 5 days ago): "Where is my order? It says shipped a week ago."
+    goal:
+      objective: Three ready-to-send replies that follow the refund policy, waiting for the owner.
+      definitionOfDone:
+        - One reply per customer, each answering their actual question.
+        - Ana is offered a refund, Ben an exchange instead of a refund, and Chloe a tracking update.
+        - No reply promises a shipping refund or anything else outside the policy.
+        - Nothing is sent; the drafts are in the support agent's workspace.
+      maxAttempts: 3
+      validators:
+        - id: drafts-reported
+          kind: output_schema
+          schema:
+            type: object
+            required: [deliverable, drafts]
+            properties:
+              deliverable:
+                type: object
+                required: [agent, path]
+              drafts: { type: integer }
+        - id: three-drafts
+          kind: numeric
+          description: Exactly three drafts.
+          source: { outputPath: drafts }
+          operator: eq
+          value: 3
+        - id: replies-quality
+          kind: rubric
+          target: "artifact:deliverable"
+          passThreshold: 0.8
+          criteria:
+            - id: policy
+              description: "Ana gets a refund, Ben an exchange (his 45 days are past the refund window), and no shipping refund is promised."
+              required: true
+              weight: 2
+            - id: answers
+              description: Each reply answers that customer's question directly.
+              required: true
+            - id: tone
+              description: Warm, plain and short; no jargon.
+        - id: drafted-not-sent
+          kind: trace
+          description: The support agent wrote the drafts in its workspace.
+          require:
+            - { tool: write, role: support-agent }

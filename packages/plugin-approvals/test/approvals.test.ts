@@ -430,6 +430,23 @@ describe("approval gate", () => {
       "write done",
     );
   });
+
+  it("wraps a frozen MCP capability, as plugin-mcp returns it", async () => {
+    const { service } = openService();
+    const mcpTool = fakeTool("email_send", ["message.send"]);
+    const mcp = Object.freeze({
+      list: () => ["email"],
+      harnessTools: async () => [mcpTool],
+    });
+    const bindings = createApprovalGate({ service, requester: { agentId: "ceo" } }).wrapBindings({
+      mcp,
+    });
+    expect(bindings.mcp.list()).toEqual(["email"]);
+    expect({ ...bindings.mcp }.list()).toEqual(["email"]);
+    const [wrapped] = (await bindings.mcp.harnessTools()) as FakeTool[];
+    expect(text(await wrapped?.execute("c1", { to: "x" }))).toContain("approval");
+    expect(mcpTool.calls).toHaveLength(0);
+  });
 });
 
 describe("approval routes", () => {

@@ -1,0 +1,31 @@
+title: Research Desk goal evals
+description: >-
+  Replays the research desk's goals end to end through the org chart and scores NOVA's three
+  checks from the team's trace, plus held-out checks the agents never see.
+# Live runs: five attempts per case, and three in a row must pass at least half the time.
+# The offline replay is deterministic, so CI runs it once per case.
+trials:
+  count: 5
+  passK: 3
+gate:
+  minPassRate: 0.8
+  minPassK: 0.5
+  maxIntegrityViolations: 0
+cases:
+  - id: market-brief
+    goal: market-brief
+    replay: replays/market-brief.yaml
+    holdoutValidators:
+      - id: not-padded
+        kind: numeric
+        description: The brief is mostly content, not headings.
+        source: { metric: deliverableLines }
+        operator: gte
+        value: 10
+      - id: wrote-brief
+        kind: trace
+        description: An analyst wrote the brief rather than the director.
+        require:
+          - { tool: write, role: analyst, status: completed }
+        forbid:
+          - { tool: write, role: director }

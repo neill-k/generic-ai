@@ -1,0 +1,99 @@
+# Recorded turns for the tool-comparison case. The three tools and their pages are fictional
+# fixtures for the offline replay; a live run searches the real web.
+search:
+  - { title: Taskboard pricing, url: "https://taskboard.example/pricing", snippet: Plans for small teams. }
+  - { title: Planly features, url: "https://planly.example/features", snippet: Works offline on desktop and mobile. }
+  - { title: Trackwise for teams, url: "https://trackwise.example/teams", snippet: Simple boards for small teams. }
+
+pages:
+  https://taskboard.example/pricing: >-
+    <html><body><h1>Taskboard pricing</h1><p>Team plan: USD 8 per user per month. Offline mode
+    is not available.</p></body></html>
+  https://planly.example/features: >-
+    <html><body><h1>Planly</h1><p>USD 10 per user per month. Full offline mode on desktop and
+    mobile apps; changes sync when you reconnect.</p></body></html>
+  https://trackwise.example/teams: >-
+    <html><body><h1>Trackwise for teams</h1><p>Free for up to five users. Read-only offline
+    access on mobile.</p></body></html>
+
+judgments:
+  comparison-quality:
+    summary: Covers all three criteria for each tool, sourced, with one clear recommendation.
+    criteria:
+      - { criterionId: criteria-covered, score: 1, rationale: "Price, ease of use and offline use are covered for all three." }
+      - { criterionId: sourced, score: 1, rationale: Each tool's claims link to its page. }
+      - { criterionId: recommendation, score: 0.9, rationale: Recommends Planly because of offline use. }
+
+agents:
+  ceo:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: vp-research
+            task: >-
+              Compare three project management tools for a team of five on price, ease of use
+              and offline use, with sources, and recommend one.
+            definitionOfDone: A Markdown comparison of three tools with a link per claim and one recommendation.
+    - call: stop_and_respond
+      args: { response: Research is comparing the tools. }
+    - call: stop_and_respond
+      args:
+        response: |-
+          I recommend Planly. It costs USD 10 per person a month, the most of the three, but it
+          is the only one that works fully offline, which you said matters. Trackwise is free
+          for five people but is read-only offline.
+
+          ```json
+          {"deliverable": {"agent": "researcher", "path": "workspace/pm-tools.md"}, "recommendation": "Planly", "toolsCompared": 3}
+          ```
+
+  vp-research:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: researcher
+            task: >-
+              Find three project management tools that suit a team of five. Compare price, ease
+              of use and offline use in workspace/pm-tools.md, link the page behind each claim,
+              and recommend one.
+            definitionOfDone: Three tools, every claim linked, one recommendation with a reason.
+    - call: stop_and_respond
+      args: { response: The researcher is on it. }
+    - call: stop_and_respond
+      args:
+        response: >-
+          Reviewed researcher:workspace/pm-tools.md. Three tools, each claim linked, one
+          recommendation (Planly). Review: pass.
+
+  researcher:
+    - call: web_search
+      args: { query: project management tool small team offline mode pricing }
+    - call: web_fetch
+      args: { url: "https://taskboard.example/pricing" }
+    - call: web_fetch
+      args: { url: "https://planly.example/features" }
+    - call: web_fetch
+      args: { url: "https://trackwise.example/teams" }
+    - call: write
+      args:
+        path: workspace/pm-tools.md
+        content: |-
+          # Project management tools for a team of five
+
+          | Tool | Price for five | Ease of use | Offline |
+          | --- | --- | --- | --- |
+          | Taskboard | USD 40 a month ([pricing](https://taskboard.example/pricing)) | Familiar boards and lists | None ([pricing](https://taskboard.example/pricing)) |
+          | Planly | USD 50 a month ([features](https://planly.example/features)) | Boards plus a simple timeline | Full, on desktop and mobile ([features](https://planly.example/features)) |
+          | Trackwise | Free up to five users ([teams](https://trackwise.example/teams)) | The simplest of the three | Read-only on mobile ([teams](https://trackwise.example/teams)) |
+
+          ## Recommendation
+
+          **Planly.** It costs the most, USD 10 more a month than Taskboard for the team, but it
+          is the only tool that keeps working offline and syncs when you reconnect, which the
+          owner named as a requirement. If offline use turns out not to matter, Trackwise is the
+          cheapest good choice.
+    - call: stop_and_respond
+      args:
+        response: >-
+          Done: workspace/pm-tools.md compares Taskboard, Planly and Trackwise with a link for
+          each claim and recommends Planly.
