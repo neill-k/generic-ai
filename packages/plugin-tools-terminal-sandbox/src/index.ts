@@ -826,6 +826,11 @@ function truncateOutput(text: string, maxOutputBytes: number | undefined): Trunc
 
 interface RunProcessOptions {
   readonly signal?: AbortSignal;
+  /**
+   * Extra environment for the Docker CLI process. Container env values travel this way, named with
+   * a bare `--env KEY`, so secrets never appear in the Docker command line (visible in `ps`).
+   */
+  readonly env?: Readonly<Record<string, string>>;
   readonly timeoutMs?: number;
   readonly timeoutKillGraceMs?: number;
 }
@@ -852,6 +857,7 @@ async function runProcess(
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
         ...(signal === undefined ? {} : { signal }),
+        ...(options.env === undefined ? {} : { env: { ...process.env, ...options.env } }),
       });
     } catch (spawnError) {
       resolve({
@@ -2087,13 +2093,17 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       for (const mount of request.mounts) {
         args.push("--mount", buildMountArg(mount));
       }
-      for (const [key, value] of Object.entries(request.env ?? {})) {
-        args.push("--env", `${key}=${value}`);
+      for (const key of Object.keys(request.env ?? {})) {
+        args.push("--env", key);
       }
 
       args.push(request.image, ...(request.command ?? SANDBOX_KEEPALIVE_COMMAND));
 
-      const result = await runProcess(binary, args);
+      const result = await runProcess(
+        binary,
+        args,
+        request.env === undefined ? undefined : { env: request.env },
+      );
       if (result.exitCode !== 0) {
         const message = result.stderr.trim() || result.error?.message || "unknown Docker error";
         throw new SandboxUnavailableError(`Failed to create sandbox container: ${message}`);
@@ -2115,12 +2125,15 @@ export function createDockerCliSandboxOperations(binary = "docker"): SandboxDock
       if (request.cwd !== undefined) {
         args.push("--workdir", request.cwd);
       }
-      for (const [key, value] of Object.entries(request.env ?? {})) {
-        args.push("--env", `${key}=${value}`);
+      for (const key of Object.keys(request.env ?? {})) {
+        args.push("--env", key);
       }
       args.push(request.containerId, "sh", "-lc", request.command);
 
-      const result = await runProcess(binary, args, request.signal);
+      const result = await runProcess(binary, args, {
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+        ...(request.env === undefined ? {} : { env: request.env }),
+      });
       if (isDockerUnavailable(result)) {
         const message = result.stderr.trim() || result.error?.message || "Docker is unavailable.";
         throw new SandboxUnavailableError(`Failed to execute sandbox command: ${message}`);
