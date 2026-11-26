@@ -1,0 +1,35 @@
+{
+  "name": "@generic-ai/continual",
+  "version": "0.0.0",
+  "description": "The continual harness for the Generic AI native runtime: evidence-backed refinement of supplemental prompt notes, memories, skills and subagent specs, with history and rollback.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "@generic-ai/agent": "0.0.0",
+    "@generic-ai/ai": "0.0.0",
+    "@sinclair/typebox": "0.34.49"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
