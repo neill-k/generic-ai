@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue, RunEnvelope, RunRecord } from "@generic-ai/sdk";
+import type { JsonObject, JsonValue, RunActor, RunEnvelope, RunRecord } from "@generic-ai/sdk";
 
 /**
  * Durable agent tasks.
@@ -45,6 +45,11 @@ export interface AgentTaskRecord {
   readonly agentId: string;
   /** Agent that delegated this task, if any. */
   readonly delegatedBy?: string;
+  /**
+   * Who started the cascade this task belongs to. Delegated tasks inherit the
+   * root task's actor, so every record in a cascade says who asked for it.
+   */
+  readonly actor?: RunActor;
   readonly instruction: string;
   readonly goal?: AgentTaskGoal;
   readonly status: AgentTaskStatus;
@@ -105,6 +110,7 @@ export function taskToRun(task: StoredTask): {
     runId: task.taskId,
     rootScopeId: taskScopeId(task.rootTaskId),
     rootAgentId: task.agentId,
+    ...(task.actor === undefined ? {} : { actor: task.actor }),
     mode: "async",
     status: envelopeStatus(task.status),
     timestamps: {
