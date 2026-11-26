@@ -53,7 +53,14 @@ export interface AgentLifecycleHookCommandHandler {
   readonly command: string;
   readonly args?: readonly string[];
   readonly cwd?: string;
+  /** Variables set for the command, on top of the allowlisted base environment. */
   readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Names of server environment variables the command may see. Command hooks start from the same
+   * allowlisted environment as agent commands (`PATH`, `HOME`, locale and the like), so provider
+   * keys, database URLs and tokens in the server's environment reach a hook only when named here.
+   */
+  readonly passEnv?: readonly string[];
   readonly shell?: boolean;
   readonly timeoutMs?: number;
   readonly failureMode?: AgentLifecycleHookFailureMode;
