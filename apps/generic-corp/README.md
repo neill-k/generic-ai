@@ -13,7 +13,7 @@ The decision to build it here, and the product decisions behind it, are in
 
 The app server (roadmap R13) is in. It runs the company, gives its agents the
 generic-work toolkit, serves a JSON API with live events, and serves the owner
-dashboard at `/`. The approvals view comes next.
+dashboard at `/` with an approvals inbox.
 
 - **Company.** `company.ts` defines the org chart as plain data (YAML via
   `GENERIC_CORP_COMPANY_FILE`, or the built-in default: a CEO, VPs for
@@ -45,6 +45,11 @@ dashboard at `/`. The approvals view comes next.
   memory and tasks, the board, costs, the agents' tools and connectors, and a
   secrets screen that shows which secrets are missing and saves new ones. It
   refreshes from `/api/events`, and a signed-out browser goes to `/auth/login`.
+- **Approvals.** Outward actions wait for the owner (`@generic-ai/plugin-approvals`):
+  sending messages, writing to outside systems, spending money and writing MCP
+  tools, or whatever `approvals:` in the company file says. A gated call ends
+  the agent's turn and its task waits without holding a worker. Approving runs
+  the exact call once when the agent repeats it; the task resumes on its own.
 - **Storage.** Postgres when `DATABASE_URL` is set, otherwise SQLite under the
   data directory. Agents, threads and owner auth records share the backend.
 - **Auth.** Owner passkeys and API tokens (`@generic-ai/plugin-auth-identity`)
@@ -70,6 +75,9 @@ All routes are under `/api` and need an owner credential: reads need
 | `POST /api/tasks/:id/cancel` | Cancel a task and everything it delegated |
 | `GET /api/board` | Tasks in columns by status |
 | `GET /api/costs` | Tokens and dollars by agent, model and owner request, and cost per completed request |
+| `GET /api/approvals?status=pending`, `GET /api/approvals/:id` | Approval requests, with each one's audit events |
+| `POST /api/approvals/:id/approve`, `/reject` | Decide a request (`{"comment": "..."}` optional). Needs `approvals:decide` |
+| `GET /api/approvals/stream` | Server-sent approval events |
 | `GET /api/secrets` | Secret names the company uses or holds, where each is set, and who uses it. Never values |
 | `PUT /api/secrets/:name`, `DELETE /api/secrets/:name` | Save or remove a secret in the encrypted store (`{"value": "..."}`). Needs `tokens:manage` and `GENERIC_AI_SECRETS_KEY` |
 | `GET /api/tools` | The agents' tools, the web search backend and each MCP connector's state |

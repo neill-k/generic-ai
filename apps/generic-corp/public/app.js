@@ -208,6 +208,7 @@ function connectLiveEvents() {
     "task.succeeded",
     "task.failed",
     "task.cancelled",
+    "task.awaiting_approval",
     "thread.updated",
   ];
   for (const type of types) {
