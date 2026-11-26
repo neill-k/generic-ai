@@ -1,5 +1,5 @@
 displayName: Hierarchical Multi-Agent Harness
-adapter: pi
+adapter: native
 controller: model-directed
 model: gpt-5.5
 primaryAgent: hierarchical-planner

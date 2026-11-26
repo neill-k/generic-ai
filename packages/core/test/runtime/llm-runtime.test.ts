@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, type Mock } from "vitest";
+import { describe, expect, it, type Mock, vi } from "vitest";
 import {
   createGenericAILlmRuntime,
   createOpenAICodexRuntime,
@@ -20,9 +20,7 @@ type PromptFn = (text: string, options?: PromptOptions) => Promise<void>;
 type PromptMock = Mock<PromptFn>;
 
 async function callStopTool(options: FakeSessionOptions, response: string) {
-  const stopTool = options.customTools?.find(
-    (tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME,
-  );
+  const stopTool = options.customTools?.find((tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME);
   if (stopTool === undefined) {
     throw new Error("Expected stop_and_respond tool to be registered.");
   }
@@ -31,12 +29,19 @@ async function callStopTool(options: FakeSessionOptions, response: string) {
 }
 
 describe("@generic-ai/core llm runtime adapter", () => {
-  it("uses Pi's OpenAI Codex provider path by default", async () => {
+  it("uses the native runtime by default", async () => {
+    const runtime = await createGenericAILlmRuntime({ model: "gpt-5.5" });
+    expect(runtime.adapter).toBe("native");
+    expect(runtime.model).toBe("openai/gpt-5.5");
+  });
+
+  it("runs the OpenAI Codex adapter through Pi's provider path", async () => {
     const setRuntimeApiKey = vi.fn();
     const prompt: PromptMock = vi.fn(async () => undefined);
 
     const runtime = await createGenericAILlmRuntime(
       {
+        adapter: "openai-codex",
         apiKey: "test-key",
         instructions: "Be terse.",
       },
@@ -107,7 +112,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
     );
 
     const runtime = await createGenericAILlmRuntime(
-      {},
+      { adapter: "openai-codex" },
       {
         openai: {
           authStorageFactory,
@@ -118,7 +123,10 @@ describe("@generic-ai/core llm runtime adapter", () => {
               session: {
                 messages: [],
                 prompt: vi.fn(async () => {
-                  await callStopTool(options as unknown as FakeSessionOptions, "stored auth result");
+                  await callStopTool(
+                    options as unknown as FakeSessionOptions,
+                    "stored auth result",
+                  );
                 }),
               },
             }) as never,
@@ -139,7 +147,7 @@ describe("@generic-ai/core llm runtime adapter", () => {
   it("lets the Pi OpenAI Codex provider attempt OAuth auth even when auth preflight is conservative", async () => {
     const prompt: PromptMock = vi.fn(async () => undefined);
     const runtime = await createGenericAILlmRuntime(
-      {},
+      { adapter: "openai-codex" },
       {
         openai: {
           authStorageFactory: () => ({
@@ -225,13 +233,11 @@ describe("@generic-ai/core llm runtime adapter", () => {
     const controller = new AbortController();
     const dispose = vi.fn();
     let promptOptions: PromptOptions | undefined;
-    const prompt = vi.fn(
-      async (_text: string, options?: PromptOptions) => {
-        promptOptions = options;
-        queueMicrotask(() => controller.abort());
-        await new Promise(() => undefined);
-      },
-    );
+    const prompt = vi.fn(async (_text: string, options?: PromptOptions) => {
+      promptOptions = options;
+      queueMicrotask(() => controller.abort());
+      await new Promise(() => undefined);
+    });
     const runtime = createOpenAICodexRuntime(
       {
         apiKey: "test-key",

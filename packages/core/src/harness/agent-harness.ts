@@ -31,6 +31,7 @@ import {
   type AgentLifecycleInProcessHookHandler,
   type CanonicalEvent,
   createToolEffectGuard,
+  DEFAULT_AGENT_HARNESS_ADAPTER,
   getAgentHarnessToolEffects,
   goalTraceFromCanonicalEvents,
   type JsonObject,
@@ -68,6 +69,7 @@ import {
   runCapabilityPiAgentSession,
 } from "../runtime/capability-runtime.js";
 import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
+import type { NativeSessionSchedules } from "../runtime/native-schedules.js";
 import {
   expandPrompt,
   type NativeSessionAutonomous,
@@ -77,7 +79,6 @@ import {
   type RunCapabilityNativeAgentSessionOptions,
   runCapabilityNativeAgentSession,
 } from "../runtime/native-session.js";
-import type { NativeSessionSchedules } from "../runtime/native-schedules.js";
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 import { createUsageMeter, type UsageMeter } from "../usage/index.js";
@@ -1905,7 +1906,7 @@ export function createAgentHarness<TCapabilities = PiCapabilityBindings, TOutput
     ) as unknown as AgentHarnessAdapter<TCapabilities, TOutput>,
     ...options.adapters,
   } as const;
-  const adapterKind = config.adapter ?? "pi";
+  const adapterKind = config.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER;
   const adapter = adapters[adapterKind];
   if (!adapter) {
     throw new Error(`Harness adapter "${adapterKind}" is not registered.`);
@@ -1995,7 +1996,7 @@ function failedHarnessResult(input: {
   const now = new Date().toISOString();
   return Object.freeze({
     harnessId: input.input.harness.id,
-    adapter: input.input.harness.adapter ?? "pi",
+    adapter: input.input.harness.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER,
     status: "failed" as const,
     outputText: "",
     envelope: {
@@ -2055,7 +2056,7 @@ function createSessionAgentHarnessAdapter(
       input: AgentHarnessRunInput<PiCapabilityBindings>,
       context: AgentHarnessAdapterRunContext,
     ): Promise<AgentHarnessRunResult<unknown>> {
-      const adapterKind = input.harness.adapter ?? "pi";
+      const adapterKind = input.harness.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER;
       if (adapterKind !== backend.kind) {
         throw new Error(
           `Harness adapter "${adapterKind}" is configured, but this adapter runs "${backend.kind}".`,
@@ -2455,12 +2456,12 @@ export async function runAgentHarnessTopology(
     ...(options.deadline === undefined ? {} : { deadline: new Date(options.deadline) }),
   });
   const backend =
-    harness.adapter === "native"
-      ? createNativeSessionBackend(harness, options.native ?? {})
-      : createPiSessionBackend(harness, {
+    (harness.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER) === "pi"
+      ? createPiSessionBackend(harness, {
           ...(options.factories === undefined ? {} : { factories: options.factories }),
           ...(options.sessionInputs === undefined ? {} : { sessionInputs: options.sessionInputs }),
-        });
+        })
+      : createNativeSessionBackend(harness, options.native ?? {});
   const eventContext = {
     runId,
     scopeId: rootScopeId,
@@ -2666,7 +2667,7 @@ export async function runAgentHarnessTopology(
     summary: jsonObject({
       harnessId: harness.id,
       compiledHarnessId: topology.harnessId,
-      adapter: "pi",
+      adapter: harness.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER,
       mode: "topology",
       protocol: topology.protocol,
       bindingId: topology.bindingId ?? null,

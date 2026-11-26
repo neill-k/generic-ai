@@ -93,7 +93,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
         key: "hierarchical",
         value: {
           displayName: "Hierarchical Multi-Agent Harness",
-          adapter: "pi",
+          adapter: "native",
           controller: "model-directed",
           model: "gpt-5.5",
           primaryAgent: "hierarchical-planner",
@@ -163,7 +163,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
         key: "pipeline",
         value: {
           displayName: "Pipeline Harness",
-          adapter: "pi",
+          adapter: "native",
           controller: "model-directed",
           model: "gpt-5.5",
           primaryAgent: "pipeline-intake",
@@ -232,7 +232,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
         key: "critic-verifier",
         value: {
           displayName: "Critic Verifier Harness",
-          adapter: "pi",
+          adapter: "native",
           controller: "model-directed",
           model: "gpt-5.5",
           primaryAgent: "critic-verifier-builder",
@@ -304,7 +304,7 @@ export const builtInWebUiTemplates: readonly WebUiTemplateDefinition[] = Object.
         key: "hub-spoke",
         value: {
           displayName: "Hub And Spoke Harness",
-          adapter: "pi",
+          adapter: "native",
           controller: "model-directed",
           model: "gpt-5.5",
           primaryAgent: "hub-spoke-coordinator",

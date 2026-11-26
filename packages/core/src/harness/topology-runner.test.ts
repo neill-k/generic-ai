@@ -4,10 +4,10 @@ import { join } from "node:path";
 
 import {
   type AgentHarnessRunInput,
+  type CompiledHarness,
   compileHarnessDsl,
   createMockRuntimeAdapter,
   HARNESS_SCHEMA_VERSION,
-  type CompiledHarness,
   type HarnessDsl,
   type JsonObject,
   type ProtocolPlugin,
@@ -531,7 +531,12 @@ describe("runAgentHarnessTopology", () => {
     let sessionIndex = 0;
 
     const result = await runAgentHarnessTopology({
-      harness: { id: "pi-topology", model: "fake-model", policyProfile: "benchmark-container" },
+      harness: {
+        id: "pi-topology",
+        adapter: "pi",
+        model: "fake-model",
+        policyProfile: "benchmark-container",
+      },
       compiled,
       instruction: "Fix the failing test.",
       workspaceRoot: root,

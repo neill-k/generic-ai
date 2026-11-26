@@ -82,6 +82,7 @@ ADRs must be written when:
 - [`0065-background-sessions-on-the-durable-queue.md`](0065-background-sessions-on-the-durable-queue.md) - schedules and heartbeats saved in the session, live delivery while it runs, and stored sessions resumed for due jobs from the SDK durable queue.
 - [`0066-offloading.md`](0066-offloading.md) - long tool results saved to output files with a preview, `tool_batch` through each tool's own hooks, and scripts harvested from runs that pass their validators and promoted to skills by the host.
 - [`0067-continual-harness.md`](0067-continual-harness.md) - the continual harness: global and session-local refinement stores, refinements planned from the conversation after a turn and applied with a stale check, base prompt immutable, Prime's factory kind left out.
+- [`0068-native-runtime-default.md`](0068-native-runtime-default.md) - the native runtime is the default harness and LLM runtime adapter; `pi` and `openai-codex` stay available by name until they are removed.
 
 ## Planning Baseline
 

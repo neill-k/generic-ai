@@ -1,18 +1,18 @@
 import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
-  createAgentHarness,
   CreateGenericAILlmRuntimeOptions,
-  GenericAILlmRuntime,
+  createAgentHarness,
   GenericAILlmRunResult,
+  GenericAILlmRuntime,
 } from "@generic-ai/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  STARTER_DEFAULT_START_DIR,
   createStarterExampleFetch,
   createStarterExampleServer,
   loadStarterExampleEnvironment,
+  STARTER_DEFAULT_START_DIR,
 } from "./index.ts";
 import { startFetchServer } from "./node-server.ts";
 import { runStarterExampleCli } from "./run.ts";
@@ -32,11 +32,11 @@ function localAppRequest(pathname: string, init?: RequestInit): Request {
 
 function createFakeRuntime(outputText: string): GenericAILlmRuntime {
   return {
-    adapter: "openai-codex",
+    adapter: "native",
     model: "gpt-5.5",
     run: async (input) =>
       ({
-        adapter: "openai-codex",
+        adapter: "native",
         model: "gpt-5.5",
         outputText: `${outputText}: ${input}`,
       }) satisfies GenericAILlmRunResult,
@@ -76,7 +76,7 @@ function createFakeRuntime(outputText: string): GenericAILlmRuntime {
       yield {
         type: "response",
         response: {
-          adapter: "openai-codex",
+          adapter: "native",
           model: "gpt-5.5",
           outputText: `${outputText}: ${input}`,
         },
@@ -95,7 +95,7 @@ describe("@generic-ai/example-starter-hono", () => {
   it("creates a composed Hono app with real runtime wiring", async () => {
     const createRuntime = vi.fn(
       async (options: CreateGenericAILlmRuntimeOptions): Promise<GenericAILlmRuntime> => {
-        expect(options.adapter).toBe("openai-codex");
+        expect(options.adapter).toBe("native");
         expect(options.apiKey).toBe("test-key");
         expect(options.model).toBe("gpt-5.5");
         expect(options.cwd).toContain(path.join("examples", "starter-hono"));
@@ -116,7 +116,7 @@ describe("@generic-ai/example-starter-hono", () => {
       const health = await starter.app.request("/starter/health");
       const healthPayload = (await health.json()) as Record<string, unknown>;
       expect(healthPayload).toMatchObject({
-        adapter: "openai-codex",
+        adapter: "native",
         exposure: "loopback",
         model: "gpt-5.5",
         streaming: true,
@@ -317,7 +317,7 @@ describe("@generic-ai/example-starter-hono", () => {
       `http://${started.server.host}:${started.server.port}/starter/health`,
     );
     expect(await health.json()).toMatchObject({
-      adapter: "openai-codex",
+      adapter: "native",
       model: "gpt-5.5",
       streaming: true,
     });
@@ -397,11 +397,17 @@ describe("@generic-ai/example-starter-hono", () => {
     }
   });
 
-  it("allows missing provider keys so Pi-managed OpenAI Codex auth can be used", () => {
+  it("defaults to the native runtime and allows a missing provider key", () => {
     expect(loadStarterExampleEnvironment({})).toMatchObject({
-      adapter: "openai-codex",
+      adapter: "native",
       exposure: "loopback",
     });
+  });
+
+  it("still accepts the OpenAI Codex adapter by name", () => {
+    expect(
+      loadStarterExampleEnvironment({ GENERIC_AI_RUNTIME_ADAPTER: "openai-codex" }),
+    ).toMatchObject({ adapter: "openai-codex" });
   });
 
   it("fails fast when configured for unauthenticated non-loopback exposure", () => {
@@ -683,7 +689,9 @@ describe("@generic-ai/example-starter-hono", () => {
         readonly events: readonly { readonly type: string; readonly data: { actor?: unknown } }[];
       };
       expect(detail.messages.find((message) => message.role === "user")?.actor).toEqual(actor);
-      expect(detail.events.find((event) => event.type === "run.started")?.data.actor).toEqual(actor);
+      expect(detail.events.find((event) => event.type === "run.started")?.data.actor).toEqual(
+        actor,
+      );
       expect(JSON.stringify(detail)).not.toContain(created.token);
     } finally {
       await starter.stop();
@@ -737,4 +745,3 @@ describe("@generic-ai/example-starter-hono", () => {
     }
   });
 });
-

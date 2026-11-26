@@ -90,8 +90,9 @@ serves the local web UI from the same Hono process.
 ### Prerequisites
 
 - Node 24 LTS and npm 11. The repo checks this at install and script time.
-- Provider credentials. The default adapter is Pi's `openai-codex` provider path
-  for `gpt-5.5`; use existing Pi auth or set `GENERIC_AI_PROVIDER_API_KEY`.
+- Provider credentials. The default adapter is the native runtime, which calls the provider
+  directly (`gpt-5.5` on OpenAI by default); set `GENERIC_AI_PROVIDER_API_KEY` or the provider's
+  own variable such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
 - Optional Docker, only if you want to exercise the sandbox terminal plugin.
 
 ### Run The Starter
@@ -227,9 +228,10 @@ Generic AI is not a replacement for `pi`; it is a framework layer built on top o
 
 Generic AI adds the reusable multi-agent application shell around those primitives: Harness DSL, Generic Agent IR, a small kernel, plugin host, package-level SDK contracts, canonical config, starter presets, sync and async run orchestration, child-session lifecycle, durable messaging, persistent memory, MCP and Agent Skills plugins, Hono transport, output finalization, trace/eval/report contracts, and operational boundaries such as docs, CI, package ownership, and sandboxed execution.
 
-OpenAI Codex inference goes through Pi's `openai-codex` provider path. The
-default `openai-codex` adapter uses Pi auth/model resolution and `AgentSession`
-execution rather than a parallel direct OpenAI client.
+The default runtime is Generic AI's own native runtime (`@generic-ai/ai`, `@generic-ai/agent` and
+the packages around them), adapted from `pi` under its MIT license. The `pi` and `openai-codex`
+adapters remain available by name while they are phased out (see
+[`docs/decisions/0068-native-runtime-default.md`](docs/decisions/0068-native-runtime-default.md)).
 
 Use `pi` directly when you want a lean coding agent, provider/runtime toolkit, or terminal UI foundation. Use Generic AI when you want a plugin-first framework for embedding a composed multi-agent runtime in an app, service, or product surface.
 
