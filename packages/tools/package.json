@@ -1,0 +1,38 @@
+{
+  "name": "@generic-ai/tools",
+  "version": "0.0.0",
+  "description": "Native coding tools for the Generic AI runtime: read, write, edit, bash, grep, find, and ls, with output truncation, a per-file mutation queue, and pluggable operations for remote workspaces.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "@generic-ai/agent": "0.0.0",
+    "@generic-ai/ai": "0.0.0",
+    "@sinclair/typebox": "0.34.49",
+    "cross-spawn": "7.0.6",
+    "diff": "8.0.4",
+    "minimatch": "10.2.5"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

@@ -1,7 +1,7 @@
 # Native Harness Parity Plan
 
-Status: slice 1 landed for review (model layer, agent loop, native adapter). Owner: the native
-runtime workstream. Last updated 2026-11-26.
+Status: slice 1 in review (model layer, agent loop, native LLM adapter); slice 2 in review (native harness adapter, per-role models, native coding tools).
+Owner: the native runtime workstream. Last updated 2026-11-26.
 
 ## Goal
 
@@ -37,6 +37,7 @@ Agent's Rust tests are used as behavioural specifications, since its runtime is 
 ```
 @generic-ai/ai      provider-neutral messages, streaming protocol, providers, catalog, faux provider
 @generic-ai/agent   agent loop + Agent (tools, hooks, steering/follow-up queues)
+@generic-ai/tools   coding tools: read, write, edit, bash, grep, find, ls
 @generic-ai/core    adapter "native" (createNativeRuntime) beside "pi" and "openai-codex"
 ```
 
@@ -91,14 +92,18 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | --- | --- | --- |
 | `adapter: "native"` in `createGenericAILlmRuntime`, stop-tool loop and single-turn modes, streaming | ✓ | `core/test/runtime/native-runtime.test.ts` |
 | Starter example accepts `GENERIC_AI_RUNTIME_ADAPTER=native` | ✓ | existing starter tests |
-| Native `AgentHarness` adapter (capability tools, skills, effects policy) replacing the pi session | ○ | `core/src/harness/agent-harness.test.ts` run against both adapters |
-| Per-role model selection in config (D3) | ○ | config schema tests |
+| Native `AgentHarness` adapter (`harness.adapter: native`): capability tools, skills prompt, role effect policy, lifecycle hooks, `delegate_agent`, canonical events, artifacts | ✓ | `core/src/harness/native-agent-harness.test.ts` |
+| Per-role model selection (D3): `role.model` (any `provider/model` ref) overrides `harness.model` per role, on both backends | ✓ | `native-agent-harness.test.ts` |
+| Topology runner (PR 107) on the native backend | ○ | once PR 107 lands, its `runRoleSession` calls `HarnessSessionBackend.run` |
 
 ### Coding agent (pi `coding-agent`, 379 test files)
 
 | Feature | Status | Tests to port |
 | --- | --- | --- |
-| Tools: read, write, edit (diff), bash, grep, find, ls, file-mutation queue, output truncation | ○ | `tools`, `edit-*`, `bash-*`, `grep-operations`, `find-*`, `file-mutation-queue`, `truncate-*` |
+| Tools: read, write, edit (diff), bash, grep, find, ls, file-mutation queue, output truncation | ✓ | ported `tools`, `edit-tool-legacy-input`, `edit-diff-window`, `grep-operations`, `find-abort-before-spawn`, `file-mutation-queue`, `path-utils`, `truncate-surrogates` in `packages/tools/test` (renderer and bash-executor cases dropped; BMP case adapted) |
+| `find` without fd: built-in search with fd's glob rules (no `.gitignore`) | ✓ | `find-fallback.test.ts` |
+| Image resize and conversion in `read`, tool binary downloads | ○ | pi `read-*`, `tools-manager` (Generic AI attaches PNG/JPEG/GIF/WebP as-is and uses `rg`/`fd` from `PATH`) |
+| `plugin-tools-files` and `plugin-tools-terminal` on `@generic-ai/tools` (no pi tools left in either plugin) | ✓ | existing plugin tests |
 | Sessions on disk: JSONL tree, branching, resume, tree navigation | ○ | `session-manager`, `agent-session-branching`, `agent-session-tree-navigation` |
 | Compaction and branch summaries, auto-compaction queue | ○ | `compaction*`, `branch-summarization`, `agent-session-compaction`, `agent-session-auto-compaction-queue` |
 | Retry on transient errors, usage totals, cache stats | ○ | `agent-session-retry`, `usage-totals`, `cache-stats` |
@@ -131,8 +136,12 @@ tests are used as behavioural specs for that thread.
 Each slice is a reviewable PR that keeps every existing test green.
 
 1. **Model layer and agent loop** (this PR): `@generic-ai/ai`, `@generic-ai/agent`, native adapter.
-2. **Native tools and harness adapter**: port the coding tools, run core's `AgentHarness` on the
-   native loop with capability tools and effect policy, add per-role models to config.
+2. **Native harness adapter and per-role models** (in review): core's `AgentHarness` runs on the
+   native loop through a `HarnessSessionBackend`, sharing policy, hooks, delegation, events and
+   artifacts with the pi backend.
+2b. **Native coding tools** (in review with slice 2): `@generic-ai/tools` ports read, write, edit,
+   bash, grep, find and ls with pi's tool tests, and `plugin-tools-files` and
+   `plugin-tools-terminal` now bind them, so both adapters run the native tools.
 3. **Sessions, compaction, retry**: on-disk sessions through the durable store contract,
    compaction and summaries, transient-error retry.
 4. **Skills, prompt templates, extensions**: reuse `plugin-agent-skills`; port pi's extension hooks
@@ -148,5 +157,5 @@ Each slice is a reviewable PR that keeps every existing test green.
 ## Running the parity suites
 
 ```bash
-npx vitest run packages/ai packages/agent packages/core/test/runtime/native-runtime.test.ts
+npx vitest run packages/ai packages/agent packages/tools packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts
 ```

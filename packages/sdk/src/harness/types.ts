@@ -10,7 +10,7 @@ import type {
 export const HARNESS_SCHEMA_VERSION = "0.1" as const;
 
 export type HarnessSchemaVersion = typeof HARNESS_SCHEMA_VERSION;
-export const AGENT_HARNESS_ADAPTER_KINDS = ["pi", "external"] as const;
+export const AGENT_HARNESS_ADAPTER_KINDS = ["pi", "native", "external"] as const;
 export const AGENT_HARNESS_ROLE_KINDS = [
   "root",
   "planner",

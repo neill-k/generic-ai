@@ -48,7 +48,8 @@ export function resolveNativeModel(ref: string, overrides: ModelOverrides = {}):
   return resolveModel({ provider, id: ref }, overrides);
 }
 
-function createNativeStopTool(state: StopAndRespondState): AgentTool {
+/** The `stop_and_respond` tool as a native agent tool. */
+export function createNativeStopTool(state: StopAndRespondState): AgentTool {
   return {
     name: STOP_AND_RESPOND_TOOL_NAME,
     label: "Stop And Respond",

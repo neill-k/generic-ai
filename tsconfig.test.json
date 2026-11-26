@@ -15,6 +15,7 @@
     "paths": {
       "@generic-ai/agent": ["./packages/agent/src/index.ts"],
       "@generic-ai/ai": ["./packages/ai/src/index.ts"],
+      "@generic-ai/tools": ["./packages/tools/src/index.ts"],
       "@generic-ai/core": ["./packages/core/src/index.ts"],
       "@generic-ai/observability": ["./packages/observability/src/index.ts"],
       "@generic-ai/plugin-agent-skills": ["./packages/plugin-agent-skills/src/index.ts"],

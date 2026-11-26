@@ -12,7 +12,7 @@ import {
   createLsTool,
   createReadTool,
   createWriteTool,
-} from "@generic-ai/sdk/pi";
+} from "@generic-ai/tools";
 import {
   createWorkspaceFs,
   resolveSafeWorkspacePath,
