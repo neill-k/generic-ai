@@ -51,9 +51,9 @@
     "changeset:publish": "npm run build && changeset publish"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.13",
+    "@biomejs/biome": "2.6.8",
     "@changesets/cli": "2.31.0",
-    "@types/node": "24.12.2",
+    "@types/node": "24.19.2",
     "rimraf": "6.1.4",
     "typescript": "6.0.3",
     "vitest": "4.1.12"
