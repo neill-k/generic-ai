@@ -7,6 +7,7 @@ import {
   SessionManager,
   SettingsManager,
 } from "@mariozechner/pi-coding-agent";
+import { createNativeRuntime, type NativeRuntimeDependencies } from "./native.js";
 import { createPiAgentSession } from "./pi.js";
 import { createOpenAICodexRuntime } from "./openai-codex.js";
 import {
@@ -45,6 +46,7 @@ type PiSession = {
 };
 
 export interface GenericAILlmRuntimeDependencies {
+  readonly native?: NativeRuntimeDependencies;
   readonly openai?: Parameters<typeof createOpenAICodexRuntime>[1];
   readonly pi?: {
     readonly createAgentSession?: typeof createPiAgentSession;
@@ -247,6 +249,8 @@ export async function createGenericAILlmRuntime(
       return createOpenAICodexRuntime(input, dependencies.openai);
     case "pi":
       return createPiCompatibilityRuntime(input, dependencies.pi);
+    case "native":
+      return createNativeRuntime(input, dependencies.native);
     default: {
       const exhaustive: never = adapter;
       throw new Error(`Unsupported runtime adapter "${exhaustive}".`);

@@ -1,6 +1,8 @@
 {
   "files": [],
   "references": [
+    { "path": "packages/ai" },
+    { "path": "packages/agent" },
     { "path": "packages/core" },
     { "path": "packages/sdk" },
     { "path": "packages/observability" },
