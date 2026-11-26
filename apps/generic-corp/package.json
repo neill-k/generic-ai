@@ -1,7 +1,7 @@
 {
   "name": "@generic-ai/app-generic-corp",
   "version": "0.0.0",
-  "description": "Generic Corp, the flagship app on Generic AI: one owner runs a company of goal-driven agents. Scaffold only; wired to the starter preset.",
+  "description": "Generic Corp, the flagship app on Generic AI: one owner runs a company of goal-driven agents through a CEO, an org chart and a durable delegation cascade.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -11,14 +11,29 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty",
     "test": "vitest run --root ../.. --config vitest.config.ts apps/generic-corp/src",
-    "lint": "biome lint ."
+    "lint": "biome lint .",
+    "prestart": "node ../../scripts/check-node-version.mjs",
+    "start": "node dist/run.js"
   },
   "dependencies": {
-    "@generic-ai/preset-starter-hono": "0.0.0"
+    "@generic-ai/core": "0.0.0",
+    "@generic-ai/plugin-auth-identity": "0.0.0",
+    "@generic-ai/plugin-delegation": "0.0.0",
+    "@generic-ai/plugin-storage-postgres": "0.0.0",
+    "@generic-ai/plugin-storage-sqlite": "0.0.0",
+    "@generic-ai/plugin-tools-files": "0.0.0",
+    "@generic-ai/plugin-tools-terminal": "0.0.0",
+    "@generic-ai/preset-starter-hono": "0.0.0",
+    "@generic-ai/sdk": "0.0.0",
+    "hono": "^4.12.15",
+    "yaml": "^2.8.3"
   },
   "engines": {
     "node": ">=24.0.0"
   },
   "license": "MIT",
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "@generic-ai/ai": "0.0.0"
+  }
 }
