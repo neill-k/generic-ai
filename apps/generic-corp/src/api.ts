@@ -5,6 +5,7 @@ import { bodyLimit } from "hono/body-limit";
 
 import type { CompanyEvent } from "./events.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
+import type { CompanyToolkitDescription } from "./toolkit.js";
 
 /**
  * The Generic Corp HTTP API (roadmap R13). JSON over Hono, mounted at
@@ -23,6 +24,8 @@ export interface CompanyApiOptions {
   readonly maxBodyBytes?: number;
   /** SSE keep-alive interval. Defaults to 15 seconds. */
   readonly keepAliveMs?: number;
+  /** The agents' toolkit, listed at `/api/tools`. */
+  readonly toolkit?: { describe(): CompanyToolkitDescription };
 }
 
 export const API_ROUTE_PREFIX = "/api" as const;
@@ -147,6 +150,10 @@ export function createCompanyApi(
       ceoId: runtime.ceoId,
       storage: runtime.storage.driver,
     }),
+  );
+
+  app.get("/tools", (c) =>
+    c.json(options.toolkit?.describe() ?? { tools: [], webSearch: null, connectors: [] }),
   );
 
   // --- Agents and the org chart -------------------------------------------
