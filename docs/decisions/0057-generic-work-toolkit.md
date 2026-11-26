@@ -31,6 +31,12 @@ servers, and `@generic-ai/plugin-mcp` is a real MCP client (PR #115). What was m
    existing `${VAR}` placeholders until the secrets work (R12) replaces them.
 4. `@generic-ai/plugin-tools-web` ships Brave, Tavily and SearXNG search providers and a
    config factory that resolves `${VAR}` keys.
+5. A new `@generic-ai/plugin-tools-documents` package reads PDF, Word, Excel, CSV and HTML as
+   Markdown (`document_read`, `fs.read`, so read-only roles can use it), converts long documents to
+   a workspace file and returns a preview (`document_extract`, NOVA's "results go to disk, not the
+   context window"), and writes Markdown, HTML, Word, Excel, CSV and JSON (`document_write`,
+   `fs.write`). Its `.xlsx` reader and writer are its own on `fflate`, to avoid a spreadsheet
+   library with a large, partly unmaintained dependency tree.
 
 ## Consequences
 
@@ -42,4 +48,5 @@ servers, and `@generic-ai/plugin-mcp` is a real MCP client (PR #115). What was m
   positives such as `list_send_as_aliases`.
 - Tests use fixture MCP servers that mimic mail, calendar, chat, documents and payments services
   with an in-memory outbox; no real account is touched.
-- Document reading and writing (PDF, Word, spreadsheets) is a separate follow-up in this item.
+- Local documents are files in the workspace; documents in a cloud drive come through a
+  `documents` connector.

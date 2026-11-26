@@ -73,6 +73,7 @@ them yet:
 | Category | Package | Method family | Canonical harness usage |
 | --- | --- | --- | --- |
 | `infra` | `@generic-ai/plugin-auth-identity` | `owner-auth.v1` | Single-owner auth for hosted deployments: passkey login, revocable API tokens, cookie sessions, and Hono adapters that yield an SDK `AuthContext`. Wired by the starter example; not part of the starter preset slots. |
+| `infra` | `@generic-ai/plugin-secrets` | `secrets-vault.v1` | Secret sources, role grants, `{{secret:NAME}}` placeholders resolved at tool-call time, and redaction from tool output and events. Bound by hosts as the harness `capabilities.secrets`; not part of the starter preset slots. |
 | `infra` | `@generic-ai/plugin-config-yaml` | `yaml-config.v1` | Starter preset `config` slot for canonical config discovery and validation. |
 | `infra` | `@generic-ai/plugin-queue-memory` | `in-process-queue.v1` | Starter preset `queue` slot for local async execution. |
 | `infra` | `@generic-ai/plugin-storage-memory` | `in-memory-storage.v1` | Fast local/test storage implementation for harnesses that do not need durable state. |

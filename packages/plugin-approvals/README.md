@@ -6,7 +6,7 @@ the call waits for the owner instead of running. The owner approves or rejects
 it from an inbox, the decision records who made it, and the agent's work
 continues on its own.
 
-Decision record: `docs/decisions/0055-owner-approvals-for-outward-actions.md`.
+Decision record: `docs/decisions/0061-owner-approvals-for-outward-actions.md`.
 
 ## Pieces
 

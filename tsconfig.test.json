@@ -17,11 +17,13 @@
       "@generic-ai/ai": ["./packages/ai/src/index.ts"],
       "@generic-ai/tools": ["./packages/tools/src/index.ts"],
       "@generic-ai/session": ["./packages/session/src/index.ts"],
+      "@generic-ai/resources": ["./packages/resources/src/index.ts"],
       "@generic-ai/core": ["./packages/core/src/index.ts"],
       "@generic-ai/observability": ["./packages/observability/src/index.ts"],
       "@generic-ai/plugin-agent-skills": ["./packages/plugin-agent-skills/src/index.ts"],
       "@generic-ai/plugin-approvals": ["./packages/plugin-approvals/src/index.ts"],
       "@generic-ai/plugin-auth-identity": ["./packages/plugin-auth-identity/src/index.ts"],
+      "@generic-ai/plugin-secrets": ["./packages/plugin-secrets/src/index.ts"],
       "@generic-ai/plugin-config-yaml": ["./packages/plugin-config-yaml/src/index.ts"],
       "@generic-ai/plugin-delegation": ["./packages/plugin-delegation/src/index.ts"],
       "@generic-ai/plugin-hono": ["./packages/plugin-hono/src/index.ts"],
@@ -37,6 +39,9 @@
       "@generic-ai/plugin-storage-memory": ["./packages/plugin-storage-memory/src/index.ts"],
       "@generic-ai/plugin-storage-postgres": ["./packages/plugin-storage-postgres/src/index.ts"],
       "@generic-ai/plugin-storage-sqlite": ["./packages/plugin-storage-sqlite/src/index.ts"],
+      "@generic-ai/plugin-tools-documents": [
+        "./packages/plugin-tools-documents/src/index.ts"
+      ],
       "@generic-ai/plugin-tools-files": ["./packages/plugin-tools-files/src/index.ts"],
       "@generic-ai/plugin-tools-terminal": ["./packages/plugin-tools-terminal/src/index.ts"],
       "@generic-ai/plugin-tools-terminal-sandbox": [

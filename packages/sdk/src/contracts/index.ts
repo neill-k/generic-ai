@@ -9,6 +9,7 @@ export * from "./plugin.js";
 export * from "./queue.js";
 export * from "./registry.js";
 export * from "./sandbox.js";
+export * from "./secrets.js";
 export * from "./shared.js";
 export * from "./storage.js";
 export * from "./workspace.js";

@@ -107,6 +107,7 @@ The complete public list:
 | `@generic-ai/plugin-tools-terminal`   | local terminal tool                         |
 | `@generic-ai/plugin-tools-terminal-sandbox` | sandboxed terminal tool                     |
 | `@generic-ai/plugin-tools-files`      | local file tools                            |
+| `@generic-ai/plugin-tools-documents`  | document read and write tools               |
 | `@generic-ai/plugin-tools-web`        | web fetch and search tools                  |
 | `@generic-ai/plugin-repo-map`         | repository map and orientation tools        |
 | `@generic-ai/plugin-lsp`              | stdio LSP client tools                      |

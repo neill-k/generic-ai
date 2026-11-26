@@ -20,12 +20,22 @@ import type {
 import {
   canonicalJson,
   createQueueWorker,
+  describeGoalForAgent,
   isRunStoreError,
   NonRetryableJobError,
   parseActorDirectives,
 } from "@generic-ai/sdk";
 
 import type { AgentDirectory, PersistentAgentRecord } from "./agents.js";
+import {
+  collectGoalEvidence,
+  prepareTaskGoal,
+  readDelegatedGoalSpec,
+  sealStoredGoal,
+  summarizeGoalReport,
+  type TaskGoalOptions,
+  validateTaskGoal,
+} from "./goals.js";
 import {
   type AgentTaskGoal,
   type AgentTaskRecord,
@@ -87,6 +97,9 @@ export interface TaskValidationInput {
   readonly task: AgentTaskRecord;
   readonly agent: PersistentAgentRecord;
   readonly outputText: string;
+  /** Harness runs that executed this turn; their event logs are the turn's trace. */
+  readonly turnRunIds: readonly string[];
+  readonly signal?: AbortSignal;
 }
 
 export interface TaskValidationResult {
@@ -95,7 +108,10 @@ export interface TaskValidationResult {
   readonly feedback?: string;
 }
 
-/** Gate on finishing a task. Roadmap R24 plugs goal validators in here. */
+/**
+ * Extra gate on finishing a task, run after the task's goal validators (when
+ * it has a goal spec) report `COMPLETE`.
+ */
 export type TaskValidator = (
   input: TaskValidationInput,
 ) => TaskValidationResult | Promise<TaskValidationResult>;
@@ -138,6 +154,12 @@ export interface CreateDelegationCascadeOptions {
    * decisions made by another process. Defaults to 5 seconds; 0 turns it off.
    */
   readonly approvalPollIntervalMs?: number;
+  /**
+   * Judges, checks, and extra evidence for goal validation. Tasks with a goal
+   * spec are always gated on `COMPLETE`; without judges or checks, rubric and
+   * check validators report errors and block completion.
+   */
+  readonly goals?: TaskGoalOptions;
   /** Who an agent may delegate to. Defaults to `direct-reports`. */
   readonly delegationScope?: DelegationScope;
   /** Deepest delegation allowed (root task is depth 0). Defaults to 6. */
@@ -607,6 +629,7 @@ export function createDelegationCascade(
     const children: AgentTaskRecord[] = [];
     for (const [index, directive] of directives.entries()) {
       // Deterministic ids: replaying this step after a crash reuses the children.
+      const childGoal = prepareTaskGoal(directive.goal);
       const child = await create({
         taskId: `${task.taskId}.${task.round}.${index + 1}`,
         rootTaskId: task.rootTaskId,
@@ -616,7 +639,7 @@ export function createDelegationCascade(
         delegatedBy: agent.id,
         ...(task.actor === undefined ? {} : { actor: task.actor }),
         instruction: directive.task,
-        ...(directive.goal === undefined ? {} : { goal: directive.goal }),
+        ...(childGoal === undefined ? {} : { goal: childGoal }),
         status: "queued",
         round: 0,
         attempts: 0,
@@ -874,38 +897,82 @@ export function createDelegationCascade(
       return delegate(current, agent, directives.delegations);
     }
 
-    if (options.validate !== undefined) {
+    const verdict = await validateTurn(
+      (await load(taskId)) as AgentTaskRecord,
+      agent,
+      result.outputText,
+      result.runIds !== undefined && result.runIds.length > 0 ? result.runIds : [attemptRunId],
+      signal,
+    );
+    if (!verdict.passed) {
       const current = (await load(taskId)) as AgentTaskRecord;
-      const verdict = await options.validate({
-        task: current,
-        agent,
+      const failures = current.validationFailures + 1;
+      const feedback = verdict.feedback ?? "The result did not pass validation.";
+      const maxAttempts = current.goal?.spec?.maxAttempts ?? limits.maxValidationAttempts;
+      await logEvent(current, "session.failed", {
+        round,
+        validation: "failed",
+        feedback,
+        ...(current.lastGoalReport === undefined
+          ? {}
+          : { goalStatus: current.lastGoalReport.status, goalId: current.lastGoalReport.goalId }),
+      });
+      if (failures >= maxAttempts) {
+        await settle(taskId, "failed", {
+          outputText: result.outputText,
+          failureMessage: `Result failed validation ${failures} times. Last feedback: ${feedback}`,
+        });
+        return { taskId, round, outcome: "failed" };
+      }
+      await requeue(taskId, `Your last result did not pass validation:\n${feedback}`, {
+        validationFailures: failures,
         outputText: result.outputText,
       });
-      if (!verdict.passed) {
-        const failures = current.validationFailures + 1;
-        const feedback = verdict.feedback ?? "The result did not pass validation.";
-        await logEvent(current, "session.failed", {
-          round,
-          validation: "failed",
-          feedback,
-        });
-        if (failures >= limits.maxValidationAttempts) {
-          await settle(taskId, "failed", {
-            outputText: result.outputText,
-            failureMessage: `Result failed validation ${failures} times. Last feedback: ${feedback}`,
-          });
-          return { taskId, round, outcome: "failed" };
-        }
-        await requeue(taskId, `Your last result did not pass validation:\n${feedback}`, {
-          validationFailures: failures,
-          outputText: result.outputText,
-        });
-        return { taskId, round, outcome: "requeued" };
-      }
+      return { taskId, round, outcome: "requeued" };
     }
 
     await settle(taskId, "succeeded", { outputText: result.outputText });
     return { taskId, round, outcome: "finished" };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Validation
+  // ---------------------------------------------------------------------------
+
+  async function validateTurn(
+    task: AgentTaskRecord,
+    agent: PersistentAgentRecord,
+    outputText: string,
+    turnRunIds: readonly string[],
+    signal: AbortSignal,
+  ): Promise<TaskValidationResult> {
+    let sealed: ReturnType<typeof sealStoredGoal>;
+    try {
+      sealed = sealStoredGoal(task.goal);
+    } catch (error) {
+      // A tampered or unreadable goal can never be satisfied; fail closed.
+      return { passed: false, feedback: error instanceof Error ? error.message : String(error) };
+    }
+    if (sealed !== undefined) {
+      const evidence = await collectGoalEvidence(
+        store,
+        { task, agent, outputText, turnRunIds },
+        options.goals?.evidence,
+      );
+      const report = await validateTaskGoal(sealed, evidence, {
+        ...(options.goals ?? {}),
+        signal,
+        ...(task.goal?.fingerprint === undefined ? {} : { fingerprint: task.goal.fingerprint }),
+      });
+      await update(task.taskId, () => ({ lastGoalReport: summarizeGoalReport(report) }));
+      if (!report.complete) {
+        return { passed: false, feedback: report.feedback };
+      }
+    }
+    if (options.validate !== undefined) {
+      return options.validate({ task, agent, outputText, turnRunIds, signal });
+    }
+    return { passed: true };
   }
 
   // ---------------------------------------------------------------------------
@@ -962,7 +1029,16 @@ export function createDelegationCascade(
       lines.push(`Assigned by "${task.delegatedBy}".`);
     }
     lines.push("", task.instruction);
-    if (task.goal !== undefined) {
+    const sealedGoal = sealStoredGoal(task.goal);
+    if (sealedGoal !== undefined) {
+      lines.push(
+        "",
+        "## Goal",
+        "This task is checked automatically. It is only accepted when every required check passes.",
+        "",
+        describeGoalForAgent(sealedGoal),
+      );
+    } else if (task.goal !== undefined) {
       lines.push("", "## Definition of done");
       if (task.goal.definitionOfDone !== undefined) {
         lines.push(task.goal.definitionOfDone);
@@ -1022,6 +1098,7 @@ export function createDelegationCascade(
         '{"delegate_task": [{"to": "<agent id>", "task": "<what to do and why>", "definitionOfDone": "<how they know it is done>"}]}',
         "```",
         "You will get a new turn with their results once all of them finish; then finish the task or delegate again.",
+        'To have their result checked automatically, add a "goal" goal spec (objective, definitionOfDone, validators) to an entry.',
       );
     }
     lines.push(
@@ -1060,6 +1137,8 @@ export function createDelegationCascade(
       }
       const taskId = input.taskId ?? createId();
       const timestamp = now().toISOString();
+      // Seal the goal up front: an invalid spec is the caller's error.
+      const goal = prepareTaskGoal(input.goal);
       const task = await create({
         taskId,
         rootTaskId: taskId,
@@ -1067,7 +1146,7 @@ export function createDelegationCascade(
         agentId: agent.id,
         ...(input.actor === undefined ? {} : { actor: input.actor }),
         instruction: input.instruction,
-        ...(input.goal === undefined ? {} : { goal: input.goal }),
+        ...(goal === undefined ? {} : { goal }),
         status: "queued",
         round: 0,
         attempts: 0,
@@ -1382,7 +1461,20 @@ export function readDirectives(outputText: string): ParsedDirectives {
               : {}),
           }
         : undefined;
-    delegations.push({ to, task, ...(goal === undefined ? {} : { goal }) });
+    let spec: AgentTaskGoal["spec"];
+    if (entry["goal"] !== undefined) {
+      const parsed = readDelegatedGoalSpec(entry["goal"]);
+      if ("error" in parsed) {
+        return {
+          delegations: [],
+          invalid: `The goal for "${to}" is not a valid goal spec. ${parsed.error}`,
+        };
+      }
+      spec = parsed.spec;
+    }
+    const fullGoal: AgentTaskGoal | undefined =
+      spec === undefined ? goal : { ...(goal ?? {}), spec };
+    delegations.push({ to, task, ...(fullGoal === undefined ? {} : { goal: fullGoal }) });
   }
   return { delegations };
 }

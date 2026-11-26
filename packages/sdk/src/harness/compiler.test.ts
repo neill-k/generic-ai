@@ -795,7 +795,9 @@ describe("Benchmark reports", () => {
     expect(report.confidence.level).toBe("confident_recommendation");
     expect(report.candidates[0]?.passK?.k).toBe(5);
     expect(report.candidates[0]?.passK?.passCount).toBe(2);
-    expect(report.candidates[0]?.passK?.value).toBeCloseTo(0.92224);
+    // pass^k is "all k attempts pass", not pass@k ("any of k passes"): with 2 of 5 passing,
+    // five passes in a row never happened.
+    expect(report.candidates[0]?.passK?.value).toBe(0);
     expect(renderBenchmarkReportMarkdown(report)).toContain("Confidence: confident_recommendation");
   });
 

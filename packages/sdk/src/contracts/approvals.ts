@@ -12,7 +12,7 @@ import type { Awaitable, JsonObject, JsonValue } from "./shared.js";
  * tool call, whether the action runs, is refused, or waits for the owner. A
  * waiting action becomes a durable {@link ApprovalRequest} that the owner
  * approves or rejects; the decision records who made it. An approved action
- * runs at most once. See `docs/decisions/0055-owner-approvals-for-outward-actions.md`.
+ * runs at most once. See `docs/decisions/0061-owner-approvals-for-outward-actions.md`.
  */
 
 // ---------------------------------------------------------------------------

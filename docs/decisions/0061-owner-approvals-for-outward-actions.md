@@ -1,4 +1,4 @@
-# 0055 — Owner approvals for outward actions
+# 0061 — Owner approvals for outward actions
 
 - Status: accepted
 - Date: 2026-11-26

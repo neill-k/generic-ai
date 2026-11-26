@@ -39,7 +39,7 @@ architecture question.
 
 `@generic-ai/plugin-approvals` implements the "ask" half of allow / deny /
 ask for every tool, keyed on effect descriptors rather than per-capability
-rules (ADR 0055):
+rules (ADR 0061):
 
 - The SDK `ApprovalPolicy` matches effects, tool name patterns, agents, roles
   and reversibility. The default requires the owner's approval for

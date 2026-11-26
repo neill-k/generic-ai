@@ -111,7 +111,7 @@ export type CanonicalUsageLifecycleName = (typeof canonicalUsageLifecycleNames)[
  * Owner approvals for outward or costly actions. A request is created when policy says an action
  * needs sign-off, decided by the owner (or denied outright by policy), may expire or be cancelled,
  * and records whether the approved action then ran. See
- * `docs/decisions/0055-owner-approvals-for-outward-actions.md`.
+ * `docs/decisions/0061-owner-approvals-for-outward-actions.md`.
  */
 export const canonicalApprovalLifecycleNames = [
   "approval.requested",

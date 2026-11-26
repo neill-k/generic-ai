@@ -98,12 +98,24 @@ export interface McpClientManagerOptions {
   readonly retryOnDisconnect?: McpRetryOnDisconnect;
   /** Environment used to resolve `${VAR}` placeholders. Defaults to `process.env`. */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Secret store consulted first for `${VAR}` placeholders, so MCP credentials can live in the
+   * secrets vault instead of the process environment. Values are fetched on every (re)connect, so a
+   * rotated secret is picked up on the next reconnect. `redactText` scrubs server stderr lines.
+   */
+  readonly secrets?: McpSecretResolver;
   /** Test seam: replace transport construction. */
   readonly createTransport?: (input: McpTransportFactoryInput) => Transport;
   /** Test seam: replace client construction. */
   readonly createClient?: (server: McpServerDefinition) => McpClientLike;
   /** Receives connection lifecycle and server stderr lines. */
   readonly onEvent?: (event: McpClientEvent) => void;
+}
+
+/** Structural subset of `@generic-ai/plugin-secrets`' broker that the MCP client needs. */
+export interface McpSecretResolver {
+  get(name: string, purpose?: "mcp-launch"): Promise<string | undefined>;
+  redactText?(text: string): string;
 }
 
 export type McpClientEvent =
@@ -299,6 +311,7 @@ interface ConnectionOptions {
   readonly server: McpServerDefinition;
   readonly registry: McpRegistry;
   readonly env: Readonly<Record<string, string | undefined>>;
+  readonly secrets?: McpSecretResolver;
   readonly clientInfo: { readonly name: string; readonly version: string };
   readonly timeoutMs: number;
   readonly connectTimeoutMs: number;
@@ -446,8 +459,9 @@ class McpServerConnection {
     const { server } = this.options;
     let client: McpClientLike | undefined;
     try {
-      const launch = this.resolveLaunch();
-      const headers = resolveRecord(server.headers, this.options.env, server.id, "headers");
+      const env = await this.resolveEnvironment();
+      const launch = this.resolveLaunch(env);
+      const headers = resolveRecord(server.headers, env, server.id, "headers");
       const transport = this.options.createTransport({
         server,
         launch,
@@ -513,8 +527,40 @@ class McpServerConnection {
     }
   }
 
-  private resolveLaunch(): McpLaunchDefinition {
-    const { server, env } = this.options;
+  /** The placeholder environment for one connect: secrets first, then the configured env. */
+  private async resolveEnvironment(): Promise<Readonly<Record<string, string | undefined>>> {
+    const { secrets, env, server } = this.options;
+    if (secrets === undefined) {
+      return env;
+    }
+    const launch = this.options.registry.resolveLaunch(server.id);
+    const templates = [
+      launch.command,
+      launch.url,
+      ...(launch.args ?? []),
+      ...Object.values(launch.env ?? {}),
+      ...Object.values(server.headers ?? {}),
+    ].filter((value): value is string => typeof value === "string");
+    const names = new Set<string>();
+    for (const template of templates) {
+      for (const match of template.matchAll(PLACEHOLDER_PATTERN)) {
+        if (match[1] !== undefined) {
+          names.add(match[1]);
+        }
+      }
+    }
+    const resolved: Record<string, string | undefined> = { ...env };
+    for (const name of names) {
+      const value = await secrets.get(name, "mcp-launch");
+      if (value !== undefined) {
+        resolved[name] = value;
+      }
+    }
+    return resolved;
+  }
+
+  private resolveLaunch(env: Readonly<Record<string, string | undefined>>): McpLaunchDefinition {
+    const { server } = this.options;
     const launch = this.options.registry.resolveLaunch(server.id);
     const resolvedEnv = resolveRecord(launch.env, env, server.id, "env");
     return Object.freeze({
@@ -555,7 +601,12 @@ class McpServerConnection {
         const line = buffer.slice(0, newline).trimEnd();
         buffer = buffer.slice(newline + 1);
         if (line.length > 0) {
-          this.options.emit({ type: "stderr", serverId: this.id, line });
+          const redactText = this.options.secrets?.redactText;
+          this.options.emit({
+            type: "stderr",
+            serverId: this.id,
+            line: redactText === undefined ? line : redactText(line),
+          });
         }
         newline = buffer.indexOf("\n");
       }
@@ -655,6 +706,7 @@ export function createMcpClientManager(options: McpClientManagerOptions): McpCli
         server,
         registry,
         env,
+        ...(options.secrets === undefined ? {} : { secrets: options.secrets }),
         clientInfo,
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         connectTimeoutMs: options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
