@@ -84,9 +84,10 @@ ADR 0043 added the durable run store and queue. This decision uses them.
   turns are in the queue, and `recover()` re-queues anything whose job went
   missing. Tests cover a crash with an abandoned lease and a restart on a new
   process, plus two workers sharing one Postgres database.
-- Turns are at-least-once. A turn interrupted after the model answered but
-  before the result was saved runs again. Agents with external side effects
-  rely on governance (R11) and idempotent tools.
+- Turns are at-least-once, but safe to repeat (ADR 0059): the model's answer is
+  checkpointed before the cascade acts on it, and outward tool calls are
+  journaled so a retried turn replays finished calls instead of repeating them
+  and refuses ones whose outcome was never recorded.
 - Waiting parents hold no worker, lease or memory, so deep org charts do not
   deadlock the worker pool.
 - Inter-agent messages outside the task tree (a board, direct messages) are not
