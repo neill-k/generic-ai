@@ -1,0 +1,21 @@
+# Build context for apps/generic-corp/Dockerfile (built from the repo root).
+# Dependencies and build output are recreated inside the image.
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/coverage
+**/.vite
+**/.turbo
+**/.cache
+
+# Never send secrets or local state to a build.
+**/.env
+**/.env.*
+**/*.sqlite
+**/*.sqlite-*
+
+# Not needed to build or run the app.
+.git
+.github
+/starter-hono-craft-pattern-after.png
+/walkthrough-generic-ai-architecture.html
