@@ -39,6 +39,11 @@ import type {
   WebResearchProfile,
   WebResearchReportSummary,
 } from "./types.js";
+import {
+  benchmarkUsageSummary,
+  formatBenchmarkUsage,
+  renderBenchmarkUsageMarkdown,
+} from "./usage-report.js";
 
 type ComparableMetricDirection = Exclude<MetricDefinition["direction"], "informational">;
 
@@ -1408,6 +1413,7 @@ function candidateReport(input: {
   });
   const passK = passKSummary({ benchmark: input.benchmark, results: input.results });
   const reversibility = reversibilitySummary(input.results);
+  const usage = benchmarkUsageSummary(input.results);
   const rationale = [
     primaryMetric === undefined
       ? `${input.benchmark.primaryMetric} average: missing`
@@ -1469,6 +1475,7 @@ function candidateReport(input: {
           `web-research citation coverage: ${webResearch.citationCoverageRate}`,
           `web-research stale-source uses: ${webResearch.staleSourceUseCount}`,
         ]),
+    ...(usage === undefined ? [] : [`usage: ${formatBenchmarkUsage(usage)}`]),
   ];
 
   return Object.freeze({
@@ -1492,6 +1499,7 @@ function candidateReport(input: {
     ...(toolRecovery === undefined ? {} : { toolRecovery }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
     ...(webResearch === undefined ? {} : { webResearch }),
+    ...(usage === undefined ? {} : { usage }),
   });
 }
 
@@ -1547,7 +1555,9 @@ function compareCapabilityBOM(left: CapabilityBOM, right: CapabilityBOM): number
   );
 }
 
-function normalizeCapabilityBOMs(values: readonly CapabilityBOM[] | undefined): readonly CapabilityBOM[] {
+function normalizeCapabilityBOMs(
+  values: readonly CapabilityBOM[] | undefined,
+): readonly CapabilityBOM[] {
   const seen = new Set<string>();
   const normalized: CapabilityBOM[] = [];
   for (const bom of [...(values ?? [])].sort(compareCapabilityBOM)) {
@@ -1635,6 +1645,7 @@ export function createBenchmarkReport(input: {
     observations: webResearchObservations(input.results),
   });
   const reversibility = reversibilitySummary(input.results);
+  const usage = benchmarkUsageSummary(input.results);
   const faultInjectionEvidenceGap =
     (input.benchmark.faultInjections ?? []).length > 0 &&
     (faultInjection?.observedCaseCount ?? 0) === 0
@@ -1714,6 +1725,11 @@ export function createBenchmarkReport(input: {
     primaryMetric: input.benchmark.primaryMetric,
     observations: Object.freeze([
       `Collected ${traceEventCount} trace events across ${input.results.length} trial runs.`,
+      ...(usage === undefined
+        ? []
+        : [
+            `Usage recorded for ${usage.observedTrialCount}/${usage.trialCount} trials: ${formatBenchmarkUsage(usage)}.`,
+          ]),
       ...(capabilityBOMs.length === 0
         ? []
         : [`Attached ${capabilityBOMs.length} deterministic capability BOM(s) to the report.`]),
@@ -1888,6 +1904,7 @@ export function createBenchmarkReport(input: {
     ...(toolRecovery === undefined ? {} : { toolRecovery }),
     ...(contextualIntegrity === undefined ? {} : { contextualIntegrity }),
     ...(webResearch === undefined ? {} : { webResearch }),
+    ...(usage === undefined ? {} : { usage }),
   });
 }
 
@@ -1961,6 +1978,7 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
         } |`,
     ),
     "",
+    ...renderBenchmarkUsageMarkdown(report.candidates),
   ];
 
   if (report.capabilityBOMs.length > 0) {
@@ -2053,9 +2071,7 @@ export function renderBenchmarkReportMarkdown(report: BenchmarkReport): string {
         const errorKinds =
           toolRecovery.byErrorKind.length === 0
             ? "none"
-            : toolRecovery.byErrorKind
-                .map((entry) => `${entry.kind}=${entry.count}`)
-                .join(", ");
+            : toolRecovery.byErrorKind.map((entry) => `${entry.kind}=${entry.count}`).join(", ");
         return `| ${candidate.candidateId} | ${formatToolRecoveryCaseCoverage(toolRecovery)} | ${toolRecovery.attemptCount} | ${toolRecovery.failedAttemptCount} | ${toolRecovery.skippedAttemptCount} | ${toolRecovery.retriedAttemptCount} | ${toolRecovery.policyBlockedAttemptCount} | ${toolRecovery.retryableErrorCount} | ${toolRecovery.timeoutBudgetExhaustionCount} | ${errorKinds} |`;
       }),
       "",

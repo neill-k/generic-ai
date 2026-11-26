@@ -35,6 +35,22 @@ export interface ObservabilityPayloadSummary {
   readonly metadata: JsonObject;
 }
 
+/**
+ * Usage figures kept on a `usage.recorded` event record. Token counts and dollar cost are
+ * metadata, not content, so they survive the metadata-only payload posture.
+ */
+export interface ObservabilityUsageMetadata {
+  readonly provider: string;
+  readonly model: string;
+  readonly responses: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly cacheWriteTokens: number;
+  readonly totalTokens: number;
+  readonly costUsd: number;
+}
+
 export interface ObservabilityEventRecord {
   readonly id: string;
   readonly workspaceId: string;
@@ -46,6 +62,8 @@ export interface ObservabilityEventRecord {
   readonly source: ObservabilityEventSource;
   readonly summary: string;
   readonly payload: ObservabilityPayloadSummary;
+  /** Present on `usage.recorded` events. */
+  readonly usage?: ObservabilityUsageMetadata;
 }
 
 export interface ObservabilityRunRecord {
@@ -78,7 +96,7 @@ export interface ObservabilityMetricAttributeSpec {
 
 export interface ObservabilityMetricDefinition {
   readonly name: string;
-  readonly unit: "count" | "milliseconds" | "ratio" | "bytes";
+  readonly unit: "count" | "milliseconds" | "ratio" | "bytes" | "tokens" | "usd";
   readonly description: string;
   readonly sourceEvents: readonly string[];
   readonly allowedAttributes: readonly ObservabilityMetricAttributeSpec[];

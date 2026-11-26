@@ -11,6 +11,7 @@ export const canonicalEventFamilies = [
   "policy",
   "hook",
   "artifact",
+  "usage",
   "plugin",
 ] as const;
 
@@ -96,6 +97,15 @@ export const canonicalArtifactLifecycleNames = ["artifact.created"] as const;
 
 export type CanonicalArtifactLifecycleName = (typeof canonicalArtifactLifecycleNames)[number];
 
+/**
+ * Model usage and spend. `usage.recorded` is emitted once per model response with the tokens and
+ * dollar cost the provider reported; `usage.budget.exceeded` is emitted once when a run reaches a
+ * token or dollar cap and is being stopped. See `docs/decisions/0053-usage-and-cost-accounting.md`.
+ */
+export const canonicalUsageLifecycleNames = ["usage.recorded", "usage.budget.exceeded"] as const;
+
+export type CanonicalUsageLifecycleName = (typeof canonicalUsageLifecycleNames)[number];
+
 export const canonicalCoreEventNames = [
   ...canonicalRunLifecycleNames,
   ...canonicalSessionLifecycleNames,
@@ -106,6 +116,7 @@ export const canonicalCoreEventNames = [
   ...canonicalPolicyLifecycleNames,
   ...canonicalHookLifecycleNames,
   ...canonicalArtifactLifecycleNames,
+  ...canonicalUsageLifecycleNames,
 ] as const;
 
 export type CanonicalCoreEventName = (typeof canonicalCoreEventNames)[number];
@@ -214,6 +225,10 @@ export function getCanonicalEventFamily(name: string): CanonicalEventFamily | un
 
   if (name.startsWith("artifact.")) {
     return "artifact";
+  }
+
+  if (name.startsWith("usage.")) {
+    return "usage";
   }
 
   if (isCanonicalPluginEventName(name)) {

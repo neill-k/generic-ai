@@ -1438,6 +1438,42 @@ export interface BenchmarkTrialResult {
   readonly toolRecovery?: readonly ToolRecoveryObservation[];
   readonly contextualIntegrity?: readonly ContextualIntegrityObservation[];
   readonly webResearch?: readonly WebResearchObservation[];
+  /** Tokens and dollars the trial spent, and the goals it attempted and completed. */
+  readonly usage?: BenchmarkUsageObservation;
+}
+
+/**
+ * Spend for one trial. A trial counts as one goal unless `goalsAttempted` says otherwise; when
+ * `goalsCompleted` is omitted, a trial whose outcome is `passed` counts as one completed goal.
+ */
+export interface BenchmarkUsageObservation {
+  readonly totalTokens: number;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly costUsd?: number;
+  readonly responses?: number;
+  readonly goalsAttempted?: number;
+  readonly goalsCompleted?: number;
+  /** The trial was stopped by a token or dollar cap. */
+  readonly budgetStopped?: boolean;
+  readonly evidenceRefs?: readonly string[];
+}
+
+/** Usage for one candidate (or a whole report). `tokensPerCompletedGoal` is the headline. */
+export interface BenchmarkUsageReportSummary {
+  readonly observedTrialCount: number;
+  readonly trialCount: number;
+  readonly totalTokens: number;
+  readonly totalCostUsd: number | null;
+  readonly goalsAttempted: number;
+  readonly goalsCompleted: number;
+  /** All tokens spent (including on failed goals) divided by completed goals. */
+  readonly tokensPerCompletedGoal: number | null;
+  readonly costPerCompletedGoalUsd: number | null;
+  readonly budgetStops: number;
+  readonly warnings: readonly string[];
 }
 
 export interface BenchmarkTrialOutcome {
@@ -1521,6 +1557,7 @@ export interface BenchmarkReportCandidate {
   readonly toolRecovery?: ToolRecoveryReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
   readonly webResearch?: WebResearchReportSummary;
+  readonly usage?: BenchmarkUsageReportSummary;
 }
 
 export interface BenchmarkReport {
@@ -1549,6 +1586,7 @@ export interface BenchmarkReport {
   readonly toolRecovery?: ToolRecoveryReportSummary;
   readonly contextualIntegrity?: ContextualIntegrityReportSummary;
   readonly webResearch?: WebResearchReportSummary;
+  readonly usage?: BenchmarkUsageReportSummary;
 }
 
 export interface HarnessPatchOperation {
