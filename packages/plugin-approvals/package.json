@@ -30,5 +30,26 @@
   },
   "engines": {
     "node": ">=24.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neill-k/generic-ai.git",
+    "directory": "packages/plugin-approvals"
+  },
+  "homepage": "https://github.com/neill-k/generic-ai/tree/main/packages/plugin-approvals#readme",
+  "bugs": {
+    "url": "https://github.com/neill-k/generic-ai/issues"
+  },
+  "keywords": [
+    "generic-ai",
+    "ai-agents",
+    "multi-agent"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   }
 }

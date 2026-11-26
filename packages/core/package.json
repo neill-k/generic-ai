@@ -27,5 +27,29 @@
     "@generic-ai/tools": "0.0.0",
     "@mariozechner/pi-coding-agent": "0.73.1",
     "@sinclair/typebox": "0.34.49"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neill-k/generic-ai.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/neill-k/generic-ai/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/neill-k/generic-ai/issues"
+  },
+  "keywords": [
+    "generic-ai",
+    "ai-agents",
+    "multi-agent"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
   }
 }

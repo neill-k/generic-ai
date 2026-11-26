@@ -1,0 +1,190 @@
+name: release
+
+# Publishing to npm is public and cannot be undone, so this workflow never runs on its own.
+# Start it from the Actions tab ("Run workflow") and pick a mode:
+#
+#   check    build, verify the packed tarballs in a clean project, and dry-run the publish
+#   version  open (or update) the "Version packages" pull request from pending changesets
+#   publish  publish every package whose version is not on npm yet, then push the git tags.
+#            Runs only from main, only when the confirm box says "publish", and only when
+#            npm credentials are configured. Without credentials it does the dry run and stops.
+#
+# npm credentials, either of:
+#   - repository secret NPM_TOKEN: an npm granular access token with read and write access to
+#     the @generic-ai scope (needed for the very first publish, before the packages exist), or
+#   - repository variable NPM_TRUSTED_PUBLISHING=true once every package has this repository and
+#     workflow file (release.yml) set as its trusted publisher on npmjs.com. No secret needed then.
+#
+# See RELEASING.md for the full procedure.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "check, version or publish"
+        type: choice
+        options:
+          - check
+          - version
+          - publish
+        default: check
+      confirm:
+        description: 'For mode "publish": type publish to publish for real. Anything else is a dry run.'
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CI: true
+
+jobs:
+  verify:
+    name: release-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Use pinned npm
+        run: npm install --global npm@11.12.1
+
+      - name: Install ripgrep (needed by the native grep tool)
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Quality gate
+        run: |
+          npm run typecheck
+          npm run lint
+          npm run test
+          npm run build
+          npm run docs:check
+
+      - name: Packed tarballs install and work in a clean project
+        run: npm run release:check
+
+      - name: Pending changesets
+        run: npm run changeset:status
+
+      - name: Publish dry run (nothing is published)
+        run: npm run release:dry-run
+
+  version:
+    name: release-version-pr
+    needs: verify
+    if: inputs.mode == 'version'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Use pinned npm
+        run: npm install --global npm@11.12.1
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Open or update the Version packages pull request
+        uses: changesets/action@v1
+        with:
+          version: npm run changeset:version
+          commit: "chore(release): version packages"
+          title: "Version packages"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: release-publish
+    needs: verify
+    if: inputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # The environment lets the owner add a required reviewer as a last gate before publishing
+    # (Settings > Environments > npm-publish).
+    environment: npm-publish
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Decide whether this run may publish
+        id: gate
+        env:
+          HAS_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+          TRUSTED: ${{ vars.NPM_TRUSTED_PUBLISHING == 'true' }}
+          CONFIRM: ${{ inputs.confirm }}
+          REF: ${{ github.ref }}
+        run: |
+          ready=true
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::notice title=Publish skipped::Releases publish only from main (this run is on $REF)."
+            ready=false
+          elif [ "$CONFIRM" != "publish" ]; then
+            echo "::notice title=Publish skipped::The confirm box did not say publish, so this was a dry run only."
+            ready=false
+          elif [ "$HAS_TOKEN" != "true" ] && [ "$TRUSTED" != "true" ]; then
+            echo "::notice title=Publish skipped::No npm credentials. Add the NPM_TOKEN secret or set NPM_TRUSTED_PUBLISHING=true (see RELEASING.md)."
+            ready=false
+          fi
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          if [ "$ready" = "true" ]; then
+            echo "Publishing for real from main." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Nothing was published. See the notice above for why." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.gate.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v7
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+          registry-url: https://registry.npmjs.org
+
+      - name: Use pinned npm
+        if: steps.gate.outputs.ready == 'true'
+        run: npm install --global npm@11.12.1
+
+      - name: Install workspace dependencies
+        if: steps.gate.outputs.ready == 'true'
+        run: npm ci
+
+      - name: Publish to npm with provenance
+        if: steps.gate.outputs.ready == 'true'
+        # With trusted publishing, npm exchanges the GitHub OIDC token itself and NODE_AUTH_TOKEN
+        # stays empty. With NPM_TOKEN, the token authenticates and OIDC still signs provenance.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+        run: |
+          npm run release:list
+          npm run changeset:publish
+
+      - name: Push release tags
+        if: steps.gate.outputs.ready == 'true'
+        run: git push origin --tags
