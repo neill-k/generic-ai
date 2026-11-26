@@ -1,0 +1,45 @@
+# @generic-ai/subagents
+
+Subagents and agent messaging for the Generic AI native runtime, following Prime Agent's
+(`PrimeIntellect-ai/prime-agent`) RLM child and agent-message rules.
+
+An agent tree has one node per agent. The root is the top-level session; each node has:
+
+- a **supervisor** for its children: `spawn`, `list`, `collect` (with an optional timeout that
+  returns snapshots instead of failing), `rename`, and `delete` (stops the child and its own
+  children; deleting again repeats the receipt);
+- **messaging** to its parent, siblings, and children (`sendMessage`, `broadcast`). A running agent
+  gets a message steered into its run; a finished child starts work on it; an idle root keeps it in
+  its inbox. Messages render as `[agent-message from child:worker]\n\n<text>`;
+- an **inbox** of messages that arrived while idle and notices of children that finished or failed;
+- **progress notes** (at most 512 characters, one per 10 seconds) shown on the parent's roster.
+
+```ts
+import { Agent } from "@generic-ai/agent";
+import {
+  createAgentChildSessionFactory,
+  createSubagentRoot,
+  createSubagentTools,
+} from "@generic-ai/subagents";
+
+const root = createSubagentRoot({ factory: createAgentChildSessionFactory({ model }) });
+const agent = new Agent({
+  initialState: { model, systemPrompt: "You lead.", tools: createSubagentTools(root) },
+});
+const unbind = root.bindAgent(agent); // deliver child messages into the running agent
+await agent.prompt("Split the research across two subagents and merge their answers.");
+await root.children.shutdown();
+unbind();
+```
+
+The agent tools are `spawn_agent`, `collect_agents`, `list_agents`, `delete_agent`,
+`rename_agent`, `send_agent_message`, `read_inbox`, and (for subagents) `progress_note`.
+
+Limits (defaults): depth 3, 8 running children per agent, 16,384-character messages, 20 pending
+messages per agent, names of at most 64 characters, unique among one parent's live children.
+
+In `@generic-ai/core`, native harness sessions turn this on with `native.subagents`.
+
+Differences from Prime Agent: children run in-process (no daemon, so they do not outlive the
+session); `send_agent_message` takes `receiver_role: "all"` for broadcast instead of a positional
+`target`; there is no Python kernel surface, decision child, model search, or factory tagging.
