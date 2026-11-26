@@ -1,6 +1,6 @@
 # Native Harness Parity Plan
 
-Status: slice 1 merged (model layer, agent loop, native LLM adapter); slice 2 in review (native harness adapter, per-role models, native coding tools); slice 3 in review (sessions, compaction, retry).
+Status: slices 1 to 9 merged; `pi` is no longer a dependency. Parity is **not complete**: see "Gap audit" below for what pi and Prime Agent still do that the native harness does not.
 Owner: the native runtime workstream. Last updated 2026-11-26.
 
 ## Goal
@@ -111,7 +111,7 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Starter example accepts `GENERIC_AI_RUNTIME_ADAPTER=native` | ✓ | existing starter tests |
 | Native `AgentHarness` adapter (`harness.adapter: native`): capability tools, skills prompt, role effect policy, lifecycle hooks, `delegate_agent`, canonical events, artifacts | ✓ | `core/src/harness/native-agent-harness.test.ts` |
 | Per-role model selection (D3): `role.model` (any `provider/model` ref) overrides `harness.model` per role, on both backends | ✓ | `native-agent-harness.test.ts` |
-| Topology runner (PR 107) on the native backend | ○ | once PR 107 lands, its `runRoleSession` calls `HarnessSessionBackend.run` |
+| Topology runner on the native backend | ✓ | `topology-runner.test.ts` (role sessions on the faux provider) |
 
 ### Coding agent (pi `coding-agent`, 379 test files)
 
@@ -126,11 +126,13 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Auto-compaction before each prompt in the native harness, session files per role (`native.sessionDir`) | ✓ | `packages/session/test/agent-session.test.ts`, `native-agent-harness.test.ts` |
 | Retry on transient errors (classifier, backoff, retry loop) | ✓ | ported `@generic-ai/ai` `retry`, `uuid`; `agent-session.test.ts` and `native-agent-harness.test.ts` cover the agent-level retry (pi's `agent-session-retry` drives its `AgentSession` class, which is not ported) |
 | Usage totals | ✓ | ported `usage-totals` (provider-reported total flag dropped) |
-| Context-overflow recovery (compact then retry the turn), cache stats, auto-compaction queue | ○ | pi `agent-session-auto-compaction-queue`, `cache-stats`, `context-overflow` |
+| Context-overflow recovery (compact then retry the turn) | ✓ | `runWithRetry` `onContextOverflow` (slice 8a) |
+| Cache stats, auto-compaction queue, cache warming | ○ | pi `agent-session-auto-compaction-queue`, `cache-stats`, `cache-warmer` |
 | Session files through the durable store contract (R6) | ○ | once the store lands, `SessionManager` gains a store-backed writer |
 | Skills: discovery, validation, collisions, prompt block, `/skill:name` commands | ✓ | ported `skills` into `@generic-ai/resources`; `plugin-agent-skills` now uses it; `native-agent-harness.test.ts` covers `/skill:` runs |
 | Prompt templates: loading, `argument-hint`, `$1` / `$@` / `${@:N}` / defaults, `/name` commands | ✓ | ported `prompt-templates`; `promptTemplates` harness option |
-| System prompt assembly (pi's full builder, context files such as `AGENTS.md`) | ○ | `system-prompt*` |
+| Project context files (`AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`, ancestor layering, worktree dedup) | ✓ | `@generic-ai/resources` `context-files.test.ts` (pi `resource-loader` context and worktree cases); `native.contextFiles` harness option, off by default with `stopAt` for servers |
+| Rest of pi's system prompt builder (stable XML sections, `SYSTEM.md` override, tool rule de-duplication, hidden tools) | ◐ | Generic AI's builder shows tool snippets, guidelines, skills, continual notes and context files; pi `system-prompt*` section layout not ported |
 | Extensions: events (`input`, `before_agent_start`, `context`, `tool_call`, `tool_result`, turn/message/agent/session events, `session_before_compact`), tools, commands, discovery and loading | ✓ | `@generic-ai/extensions`: discovery cases adapted from `extensions-discovery`, runner cases from `extensions-runner` and `extensions-input-event`; `native.extensions` harness option |
 | Extension UI: widgets, dialogs, keybindings, renderers, flags, editor and autocomplete hooks | — | out of scope: no TUI |
 | Extension provider hooks (`before_provider_request`, headers, stream events), model/thinking selection events, user bash | ○ | `extensions-runner` provider cases |
@@ -158,6 +160,39 @@ tests are used as behavioural specs for that thread.
 | Bounded autonomous mode: limits, quality gates, gate-failure continuation, no rerun on an unchanged worktree | ✓ | `@generic-ai/autonomy`: `autonomous/mod.rs`, `driver.rs` and `gates.rs` tests ported; `native.autonomous` harness option; gate commands become `check` validators of the session's SDK goal; in stop-tool mode a completed stop is checked against them |
 | Continual harness: supplemental prompts, memories, skill descriptions, subagent specs updated by `/refine` from evidence, base prompt immutable | ✓ | `@generic-ai/continual`: `refinement/{mod,planner,ranking,executor}.rs` tests ported (state merge, history, proposal parsing and validation, apply and rollback, relevance ranking, prompt digest, planner and review requests); `refine`, `harness_read`, `harness_search` tools and `/refine [--global]`, `/refine rollback <id>`; automatic review after a compaction and every 25 turns; `native.continual` harness option; see `docs/continual-harness.md`. Prime's `factory` kind (state-machine workflows run by its Python kernel) is not ported; skill entries name a shell command or an installed skill instead of a Python callable |
 | Persistent Python REPL as the primary tool (RLM) | ○ | evaluate later; Generic AI agents do generic work (D6), so this is a plugin, not the core loop |
+
+## Gap audit (2026-11-26, after pi was removed)
+
+Checked against pi-mono at `e73029b` (2026-11-26) and Prime Agent `main`. Everything not listed
+here, and not marked ✓ above, is either out of scope (terminal UI and its themes, keybindings,
+clipboard and HTML export; Windows PowerShell configuration; pi's package manager and self-update)
+or covered by Generic AI's own packages. Borrowed subscription sign-ins wait on Neill's decision.
+
+pi (`badlogic/pi-mono`):
+
+| Gap | Where in pi | Notes |
+| --- | --- | --- |
+| Most built-in providers (Cerebras, Fireworks, Together, Hugging Face, NVIDIA, Baseten, Moonshot, MiniMax, Z.ai, Qwen, Xiaomi, Vercel and Cloudflare AI gateways, Cloudflare Workers AI and more) | `ai/src/providers/*` | Generic AI ships 12 providers; any OpenAI-compatible endpoint works with a custom base URL, but there are no defaults or per-provider compat quirks for the rest |
+| Image generation API, classifiers, deferred (batch) responses | `ai/src/images*`, `model-runtime-classifiers` | |
+| Code mode: model-written JavaScript in a QuickJS sandbox that calls tools, so nested tool results never enter the context | `codemode`, `coding-agent` `codemode-*`, `nested-tool-calls` | Closest to NOVA's "move work out of the model"; also Prime Agent's programmatic tool calling |
+| Tool search over deferred tools (large MCP tool sets loaded on demand) | `coding-agent/src/extensions/tool-search` | |
+| Extension provider hooks (`before_provider_request`, headers, stream events), model and thinking selection events, user bash | `extensions-runner` provider cases | |
+| Plan mode, project trust decisions for repository resources, virtual models and model fallback | `plan-mode-extension`, `trust-manager`, `virtual-models`, `model-fallback-diagnostic` | |
+| RPC and print modes (a JSONL protocol to drive an agent from another process) | `rpc*`, `print-mode` | Generic AI's surfaces are the Hono transport and the web UI |
+| Durable harness: every turn and tool call committed before it is shown, resumed after a crash mid-turn; remote execution environments over SSH | `durable` (107 test files), `env` | Generic AI has a durable run store, queue and effect journal, but not pi's turn-level commit-and-resume |
+| Standalone MCP client with OAuth refresh and the MCP conformance suite | `mcp`, `mcp-conformance`, `mcp-oauth-*` | `plugin-mcp` uses the official SDK; OAuth for remote servers is not covered |
+| Image resize and conversion in `read`, tool binary downloads | `image-*`, `tools-manager` | |
+| Telemetry contracts (spans, metrics, propagation) | `telemetry` | Generic AI has `@generic-ai/observability` with its own shape |
+| Chord (reloadable multi-process object runtime) and the evals harness | `chord`, `evals` | Application framework and pi's own evals, not harness features |
+
+Prime Agent:
+
+| Gap | Where | Notes |
+| --- | --- | --- |
+| Persistent Python REPL as the main tool, prompt-as-a-variable, programmatic subagent calls, executable Python skills | `pa-core` RLM, `pa-agent` | Code mode would cover the programmatic tool calling in JavaScript |
+| `agent_observe` (live activity and recent messages of another agent), messaging pause and resume | `pa-daemon` `agent_messaging/observe.rs` | |
+| Live reattach to a running turn after a disconnect | `pa-daemon` | Background sessions resume from the durable queue instead |
+| Factory workflows (state-machine skills run by the Python kernel) | `pa-factory` | |
 
 ## Slices
 

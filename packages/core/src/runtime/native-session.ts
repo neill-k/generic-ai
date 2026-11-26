@@ -8,8 +8,11 @@ import {
   type ExtensionRunner,
 } from "@generic-ai/extensions";
 import {
+  type ContextFile,
   expandPromptTemplate,
   expandSkillCommand,
+  formatContextFilesForPrompt,
+  loadProjectContextFiles,
   type PromptTemplate,
   type Skill,
 } from "@generic-ai/resources";
@@ -191,6 +194,42 @@ export interface RunCapabilityNativeAgentSessionOptions {
    * `/refine` prompt, and they are shown in its system prompt from then on.
    */
   readonly continual?: NativeSessionContinual;
+  /**
+   * Project instruction files (`AGENTS.md`, `AGENTS.override.md`, `CLAUDE.md`) shown in the system
+   * prompt, as pi does: the global agent directory's first, then one per directory from the
+   * outermost ancestor of `cwd` down to `cwd`. Off by default, because a server's own
+   * instructions may sit above an agent's workspace; `true` climbs to the filesystem root, and
+   * `stopAt` limits the walk (set it to the workspace root on a server).
+   */
+  readonly contextFiles?: NativeSessionContextFiles | boolean;
+}
+
+export interface NativeSessionContextFiles {
+  /** Global agent directory whose context file comes first. */
+  readonly agentDir?: string;
+  /** Stop climbing at this directory (inclusive). */
+  readonly stopAt?: string;
+  /** Use these files instead of discovering them. */
+  readonly files?: readonly ContextFile[];
+}
+
+/** Resolve a session's `contextFiles` option to the files it shows. */
+export function resolveSessionContextFiles(
+  cwd: string,
+  option: NativeSessionContextFiles | boolean | undefined,
+): readonly ContextFile[] {
+  if (option === undefined || option === false) {
+    return [];
+  }
+  const settings = option === true ? {} : option;
+  if (settings.files !== undefined) {
+    return settings.files;
+  }
+  return loadProjectContextFiles({
+    cwd,
+    ...(settings.agentDir === undefined ? {} : { agentDir: settings.agentDir }),
+    ...(settings.stopAt === undefined ? {} : { stopAt: settings.stopAt }),
+  });
 }
 
 export type { NativeSessionContinual } from "./native-continual.js";
@@ -365,6 +404,7 @@ export function buildNativeSystemPrompt(input: {
   readonly tools: readonly PromptedTool[];
   readonly skillsPrompt?: string;
   readonly continualPrompt?: string;
+  readonly contextFiles?: readonly ContextFile[];
 }): string {
   const sections = [input.base?.trim() || DEFAULT_NATIVE_SYSTEM_PROMPT];
   const snippets = input.tools
@@ -382,6 +422,10 @@ export function buildNativeSystemPrompt(input: {
   }
   if (input.continualPrompt !== undefined && input.continualPrompt.trim().length > 0) {
     sections.push(input.continualPrompt.trim());
+  }
+  const projectContext = formatContextFilesForPrompt(input.contextFiles ?? []);
+  if (projectContext.length > 0) {
+    sections.push(projectContext);
   }
   sections.push(`Current working directory: ${input.cwd}`);
   return sections.join("\n\n");
@@ -587,8 +631,10 @@ export async function runCapabilityNativeAgentSession(
     options.harvest === undefined
       ? undefined
       : createScriptHarvest({ cwd: options.cwd, options: options.harvest });
+  const contextFiles = resolveSessionContextFiles(options.cwd, options.contextFiles);
   const composeSystemPrompt = () =>
     buildNativeSystemPrompt({
+      ...(contextFiles.length === 0 ? {} : { contextFiles }),
       ...(options.systemPrompt === undefined ? {} : { base: options.systemPrompt }),
       cwd: options.cwd,
       tools: tools as unknown as PromptedTool[],
