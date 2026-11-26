@@ -1,7 +1,7 @@
 {
   "name": "@generic-ai/plugin-delegation",
   "version": "0.0.0",
-  "description": "Delegation capability contract markers for Generic AI. The kernel owns child-session lifecycle and result collection.",
+  "description": "Durable delegation for Generic AI: persistent agents with memory and workspaces, and a cross-run delegation cascade over the durable run store and queue.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,5 +22,12 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "devDependencies": {
+    "@generic-ai/plugin-storage-postgres": "0.0.0",
+    "@generic-ai/plugin-storage-sqlite": "0.0.0"
+  },
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

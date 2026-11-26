@@ -54,7 +54,7 @@ Anything outside these rules needs an entry in `docs/decisions/` explaining the 
 
 Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and the repo root itself are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
-- **Public (26 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
+- **Public (27 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
 - **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. Any new workspace under `examples/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
@@ -219,7 +219,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: embedded MCP support exposed as a plugin so MCP is never a kernel hard requirement.
 - Allowed deps: `@generic-ai/sdk`, `pi`, MCP client libraries.
 - Not responsible for: replacing MCP as a protocol. The kernel and SDK must remain MCP-agnostic.
-- Notes: server trust, approval flow, and transport-specific governance are deferred to the roadmap in `docs/runtime-governance.md`.
+- Notes: connects to configured stdio/HTTP/SSE servers and hands their tools to the harness through the `mcp` capability's `harnessTools()`, tagged with `mcp.read`/`mcp.write` effects so core role policies filter them. Server trust tiers and approval flow are deferred to the roadmap in `docs/runtime-governance.md`.
 
 ### `@generic-ai/plugin-agent-skills`
 
@@ -229,10 +229,10 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/plugin-delegation`
 
-- Role: simple delegation capability that defines the delegation business model.
-- Allowed deps: `@generic-ai/sdk`, `pi`.
-- Not responsible for: child-session lifecycle or result collection. Those belong to the kernel.
-- Notes: the package exports delegation capability markers and shared contract types. Kernel session helpers own child-session lifecycle plumbing.
+- Role: the delegation business model. Owns persistent agents (durable org-chart records with a memory file and a workspace or git worktree each), the cross-run delegation cascade (durable agent tasks, `delegate_task` and `finish_task` directives, parents waiting in the store while children run on the durable queue, results bubbling up), and run persistence for any `AgentHarnessAdapter`.
+- Allowed deps: `@generic-ai/sdk`, `pi`. Tests may use the SQLite and Postgres storage plugins as dev dependencies to exercise real durable backends.
+- Not responsible for: in-run child-session lifecycle (kernel), storage or queue implementations (storage plugins), or running agent turns (any SDK `AgentHarnessAdapter` or `AgentTaskExecutor`, such as core's `createTopologyTaskExecutor`).
+- Notes: the cascade talks to storage only through `RunStoreContract` and `DurableQueueContract`, and to runtimes only through `AgentTaskExecutor`, so it runs on Pi or the native runtime and on SQLite or Postgres. See `docs/decisions/0044-persistent-agents-and-delegation-cascade.md`.
 
 ### `@generic-ai/plugin-interaction`
 
@@ -263,6 +263,14 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: official-but-optional Hono integration plugin.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `hono`.
 - Not responsible for: being part of the kernel or making Hono mandatory at the core layer.
+- Notes: exposes `authorize` (allow/deny) and `authenticate` (allow with a normalized SDK `AuthContext`) hooks that run before the request body is read. It does not implement any credential scheme itself.
+
+### `@generic-ai/plugin-auth-identity`
+
+- Role: single-owner auth and identity plugin. Owns passkey (WebAuthn) owner login, revocable hashed API tokens, cookie sessions, the `/auth` HTTP surface and login page, and adapters that turn requests into an SDK `AuthContext`.
+- Allowed deps: `@generic-ai/sdk`, `hono`, `@simplewebauthn/server`. `@generic-ai/plugin-hono` only as a dev dependency for tests; the transport adapter is structurally typed.
+- Not responsible for: tenants, signup, roles beyond scopes, billing, or provider-specific OIDC (a later adapter). Persistence goes through its small `AuthKeyValueStore` port; it does not pick a database.
+- Notes: see `docs/identity-auth.md` and `docs/decisions/0045-owner-auth-identity.md`.
 
 ### `@generic-ai/plugin-web-ui`
 

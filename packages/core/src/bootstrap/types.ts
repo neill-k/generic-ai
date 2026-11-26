@@ -1,4 +1,10 @@
-import type { AgentConfig, PluginConfig, ResolvedConfig, RunEnvelope } from "@generic-ai/sdk";
+import type {
+  AgentConfig,
+  PluginConfig,
+  ResolvedConfig,
+  RunActor,
+  RunEnvelope,
+} from "@generic-ai/sdk";
 import type { CanonicalEvent } from "../events/index.js";
 import type { PluginDefinition, PluginHost, PluginLifecyclePhase } from "../plugin-host/index.js";
 import type { Scope } from "../scope/index.js";
@@ -137,9 +143,19 @@ export interface GenericAIComposedSurfaces {
 
 export interface GenericAIRunContext {
   readonly runId: string;
+  /** Redaction-safe identity of whoever started the run, when known. */
+  readonly actor?: RunActor;
   readonly scope: Scope;
   readonly runtime: GenericAIBootstrap;
   readonly surfaces: GenericAIComposedSurfaces;
+}
+
+export interface GenericAIRunOptions {
+  /**
+   * Redaction-safe identity of whoever started the run. It is copied onto the
+   * run envelope, every bootstrap run event, and the task context.
+   */
+  readonly actor?: RunActor;
 }
 
 export type GenericAIRunTask<TOutput = unknown> =
@@ -160,9 +176,11 @@ export interface GenericAIBootstrap extends GenericAIComposition {
   readonly describe: () => string;
   readonly run: <TOutput = unknown>(
     task: GenericAIRunTask<TOutput>,
+    options?: GenericAIRunOptions,
   ) => Promise<RunEnvelope<TOutput>>;
   readonly stream: <TOutput = unknown>(
     task: GenericAIRunTask<TOutput>,
+    options?: GenericAIRunOptions,
   ) => AsyncIterable<GenericAIStreamChunk<TOutput>>;
   readonly stop: () => Promise<void>;
 }

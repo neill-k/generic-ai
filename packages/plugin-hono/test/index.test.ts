@@ -181,4 +181,68 @@ describe("@generic-ai/plugin-hono", () => {
       error: "Request body exceeds the 16 byte limit.",
     });
   });
+
+  it("authenticates before reading the body and passes the auth context to handlers", async () => {
+    const seen: unknown[] = [];
+    let bodyRead = false;
+    const transport = createHonoPlugin({
+      authenticate: ({ request, mode }) => {
+        if (request.headers.get("authorization") !== "Bearer fake-test-credential") {
+          return {
+            ok: false,
+            response: new Response(JSON.stringify({ error: "nope" }), { status: 401 }),
+          };
+        }
+        return {
+          ok: true,
+          auth: {
+            subject: {
+              subjectId: "owner",
+              actorType: "human",
+              scopes: [mode],
+              claims: {},
+            },
+            credentialSource: "bearer",
+            audit: {},
+          },
+        };
+      },
+      run: (payload, context) => {
+        bodyRead = true;
+        seen.push(context.auth?.subject.scopes);
+        return payload.input;
+      },
+      stream: async function* (_payload, context) {
+        seen.push(context.auth?.subject.scopes);
+        yield { data: "ok" };
+      },
+    });
+
+    const denied = await transport.app.request("/run", { method: "POST", body: "{}" });
+    expect(denied.status).toBe(401);
+    expect(bodyRead).toBe(false);
+
+    const headers = { authorization: "Bearer fake-test-credential" };
+    expect((await transport.app.request("/run", { method: "POST", headers, body: "1" })).status).toBe(
+      200,
+    );
+    const stream = await transport.app.request("/run/stream", { method: "POST", headers, body: "1" });
+    await stream.text();
+    expect(seen).toEqual([["sync"], ["stream"]]);
+  });
+
+  it("runs authorize before authenticate", async () => {
+    let authenticated = false;
+    const transport = createHonoPlugin({
+      authorize: () => new Response("blocked", { status: 403 }),
+      authenticate: () => {
+        authenticated = true;
+        return { ok: true };
+      },
+      run: () => "unreachable",
+    });
+    const response = await transport.app.request("/run", { method: "POST", body: "{}" });
+    expect(response.status).toBe(403);
+    expect(authenticated).toBe(false);
+  });
 });

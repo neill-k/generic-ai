@@ -121,6 +121,12 @@ export interface RunHarnessTopologyOptions {
   readonly onTraceEvent?: (event: TraceEvent) => Awaitable<void>;
   /** Called after every executed action, in completion order. */
   readonly onOutcome?: (outcome: ProtocolActionOutcome) => Awaitable<void>;
+  /**
+   * Outcomes recorded by an earlier, interrupted run of the same topology.
+   * Protocol state is recomputed from outcomes, so the run resumes where it
+   * stopped and does not repeat actions that already ran.
+   */
+  readonly resumeFrom?: readonly ProtocolActionOutcome[];
 }
 
 export type HarnessTopologyRunStatus = "succeeded" | "failed" | "blocked" | "cancelled";
@@ -418,8 +424,8 @@ export async function runHarnessTopology(
         : new Date(options.deadline);
 
   const trace: TraceEvent[] = [];
-  const outcomes: ProtocolActionOutcome[] = [];
-  const executedKeys = new Set<string>();
+  const outcomes: ProtocolActionOutcome[] = [...(options.resumeFrom ?? [])];
+  const executedKeys = new Set<string>(outcomes.map((outcome) => outcome.idempotencyKey));
   const events: CanonicalEvent[] = [];
   const policyDecisions: PolicyDecisionRecord[] = [];
   const artifacts: AgentHarnessArtifactRef[] = [];
@@ -461,7 +467,7 @@ export async function runHarnessTopology(
   }
 
   let state: ProtocolState = Object.freeze({ status: "ready" });
-  let steps = 0;
+  let steps = outcomes.reduce((max, outcome) => Math.max(max, outcome.step), 0);
   const notes: string[] = [];
 
   function finish(input: {

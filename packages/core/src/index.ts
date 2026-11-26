@@ -11,3 +11,4 @@ export * from "./runtime/index.js";
 export * from "./scheduler/index.js";
 export * from "./scope/index.js";
 export * from "./session/index.js";
+export * from "./usage/index.js";

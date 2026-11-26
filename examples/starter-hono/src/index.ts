@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { isIP } from "node:net";
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path";
@@ -15,19 +14,32 @@ import {
   type GenericAILlmRuntimeAdapter,
 } from "@generic-ai/core";
 import {
-  createHonoPlugin,
-  type HonoAuthorizeHandler,
-  type HonoPlugin,
-} from "@generic-ai/plugin-hono";
+  type AuthStore,
+  authenticateOwnerRequest,
+  createOwnerAuthenticate,
+  unauthorizedResponse,
+} from "@generic-ai/plugin-auth-identity";
+import { createHonoPlugin, type HonoPlugin, type HonoRunContext } from "@generic-ai/plugin-hono";
 import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
 import { createHonoWebUiTransport, createWebUiPlugin } from "@generic-ai/plugin-web-ui/server";
 import type { WebUiHarnessRunnerInput, WebUiHarnessRunnerResult } from "@generic-ai/plugin-web-ui";
 import { createStarterHonoBootstrapFromYaml } from "@generic-ai/preset-starter-hono";
 import {
   getAgentHarnessToolEffects,
+  toRunActor,
   type AgentHarnessConfig,
   type AgentHarnessRunResult,
+  type RunActor,
 } from "@generic-ai/sdk";
+import {
+  AUTH_ROUTE_PREFIX,
+  createStarterAuth,
+  loadStarterAuthEnvironment,
+  OWNER_SETUP_TOKEN_ENV,
+  PUBLIC_URL_ENV,
+  type StarterAuth,
+  type StarterAuthEnvironment,
+} from "./auth.ts";
 
 const providerKeyName = "GENERIC_AI_PROVIDER_API_KEY";
 const modelName = "GENERIC_AI_MODEL";
@@ -44,10 +56,6 @@ const DEFAULT_PORT = 3000;
 const SUPPORTED_ADAPTERS = new Set<GenericAILlmRuntimeAdapter>(["openai-codex", "pi", "native"]);
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_UI_PUBLIC_DIR = resolve(PACKAGE_ROOT, "dist", "public");
-const UNAUTHORIZED_RESPONSE_HEADERS = {
-  "content-type": "application/json; charset=utf-8",
-  "www-authenticate": 'Bearer realm="generic-ai-starter"',
-} as const;
 const STATIC_SECURITY_HEADERS = {
   "cross-origin-opener-policy": "same-origin",
   "referrer-policy": "no-referrer",
@@ -85,6 +93,7 @@ export interface StarterExampleEnvironment {
   readonly port: number;
   readonly unsafeExpose: boolean;
   readonly authToken?: string;
+  readonly auth: StarterAuthEnvironment;
   readonly exposure: "loopback" | "authenticated-remote" | "unsafe-remote";
 }
 
@@ -98,6 +107,8 @@ export interface StarterExampleServer {
   readonly runtime: GenericAILlmRuntime;
   readonly environment: StarterExampleEnvironment;
   readonly workspaceRoot: string;
+  /** Owner auth service, present when `environment.auth.mode` is `owner`. */
+  readonly auth?: StarterAuth;
   readonly stop: () => Promise<void>;
 }
 
@@ -109,6 +120,10 @@ export interface StarterExampleServerOptions {
     options: CreateGenericAILlmRuntimeOptions,
   ) => Promise<GenericAILlmRuntime> | GenericAILlmRuntime;
   readonly createHarness?: typeof createAgentHarness;
+  /** Overrides the SQLite owner auth store, mainly for tests. */
+  readonly authStore?: AuthStore;
+  /** Receives operator-facing notices such as the one-time setup token. */
+  readonly log?: (message: string) => void;
 }
 
 function readTrimmedEnv(env: NodeJS.ProcessEnv, ...keys: readonly string[]): string | undefined {
@@ -211,13 +226,13 @@ function isLoopbackBindHost(host: string): boolean {
 function resolveExposure(
   host: string,
   unsafeExpose: boolean,
-  authToken: string | undefined,
+  auth: StarterAuthEnvironment,
 ): StarterExampleEnvironment["exposure"] {
   if (isLoopbackBindHost(host)) {
     return "loopback";
   }
 
-  if (authToken !== undefined) {
+  if (auth.mode === "owner") {
     return "authenticated-remote";
   }
 
@@ -227,32 +242,13 @@ function resolveExposure(
 
   throw new StarterExampleConfigError(
     `${hostName}/${fallbackHostName} is set to non-loopback host "${host}". ` +
-      `Set ${unsafeExposeName}=1 for deliberate unauthenticated exposure or configure ${authTokenName}.`,
+      `Configure owner auth (${PUBLIC_URL_ENV}, ${OWNER_SETUP_TOKEN_ENV}, or ${authTokenName}) ` +
+      `or set ${unsafeExposeName}=1 for deliberate unauthenticated exposure.`,
   );
 }
 
-function createTokenAuthorization(authToken: string | undefined): HonoAuthorizeHandler | undefined {
-  if (authToken === undefined) {
-    return undefined;
-  }
-
-  return ({ request }: { readonly request: Request }): Response | undefined => {
-    const authorization = request.headers.get("authorization");
-    const genericAiToken = request.headers.get("x-generic-ai-token");
-    if (authorization === `Bearer ${authToken}` || genericAiToken === authToken) {
-      return undefined;
-    }
-
-    return new Response(
-      JSON.stringify({
-        error: `Missing or invalid bearer token. Set Authorization: Bearer <${authTokenName}>.`,
-      }),
-      {
-        status: 401,
-        headers: UNAUTHORIZED_RESPONSE_HEADERS,
-      },
-    );
-  };
+function runOptionsFor(context: HonoRunContext): { actor?: RunActor } {
+  return context.auth === undefined ? {} : { actor: toRunActor(context.auth) };
 }
 
 function normalizePrompt(input: unknown): string {
@@ -651,6 +647,14 @@ async function readStaticFile(
   }
 }
 
+function isConsoleNavigation(pathname: string, request: Request): boolean {
+  if (pathname.startsWith("/assets/")) {
+    return false;
+  }
+  const extension = extname(pathname);
+  return (extension === "" || extension === ".html") && acceptsHtml(request);
+}
+
 function acceptsHtml(request: Request): boolean {
   const accept = request.headers.get("accept");
   return accept === null || accept.includes("text/html") || accept.includes("*/*");
@@ -671,7 +675,15 @@ function staticAssetPath(publicDir: string, pathname: string): string | undefine
 
 export function createStarterExampleFetch(
   transportFetch: HonoPlugin["fetch"],
-  options: { readonly publicDir?: string } = {},
+  options: {
+    readonly publicDir?: string;
+    /**
+     * When set, browser navigations to the console from a signed-out caller
+     * are redirected to the owner login page. Static assets stay public; every
+     * API route enforces auth on its own.
+     */
+    readonly isAuthenticated?: (request: Request) => Promise<boolean>;
+  } = {},
 ): (request: Request) => Promise<Response> {
   const publicDir = resolve(options.publicDir ?? DEFAULT_UI_PUBLIC_DIR);
   const indexPath = resolve(publicDir, "index.html");
@@ -681,13 +693,28 @@ export function createStarterExampleFetch(
 
     if (
       url.pathname.startsWith(`${STARTER_ROUTE_PREFIX}/`) ||
-      url.pathname.startsWith(`${WEB_UI_ROUTE_PREFIX}/`)
+      url.pathname.startsWith(`${WEB_UI_ROUTE_PREFIX}/`) ||
+      url.pathname.startsWith(`${AUTH_ROUTE_PREFIX}/`)
     ) {
       return transportFetch(request);
     }
 
     if (request.method !== "GET" && request.method !== "HEAD") {
       return transportFetch(request);
+    }
+
+    if (
+      options.isAuthenticated !== undefined &&
+      isConsoleNavigation(url.pathname, request) &&
+      !(await options.isAuthenticated(request))
+    ) {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          location: `${AUTH_ROUTE_PREFIX}/login`,
+          "cache-control": "no-store",
+        },
+      });
     }
 
     const targetPath = staticAssetPath(publicDir, url.pathname);
@@ -729,7 +756,8 @@ export function loadStarterExampleEnvironment(
   const host = normalizeBindHost(readTrimmedEnv(env, hostName, fallbackHostName) ?? DEFAULT_HOST);
   const unsafeExpose = parseBooleanFlag(readTrimmedEnv(env, unsafeExposeName), unsafeExposeName);
   const authToken = readTrimmedEnv(env, authTokenName);
-  const exposure = resolveExposure(host, unsafeExpose, authToken);
+  const auth = loadStarterAuthEnvironment(env, startDir);
+  const exposure = resolveExposure(host, unsafeExpose, auth);
 
   return Object.freeze({
     adapter: adapterValue as GenericAILlmRuntimeAdapter,
@@ -740,6 +768,7 @@ export function loadStarterExampleEnvironment(
     port: parsePort(readTrimmedEnv(env, portName, fallbackPortName)),
     unsafeExpose,
     ...(authToken === undefined ? {} : { authToken }),
+    auth,
     exposure,
   });
 }
@@ -777,29 +806,51 @@ export async function createStarterExampleServer(
 
   const runtime = await bootstrap.startRuntime();
   const workspaceRoot = environment.workspaceRoot ?? bootstrap.runtimePlan.runtime.workspaceRoot;
-  const authorize = createTokenAuthorization(environment.authToken);
+  let starterAuth: StarterAuth | undefined;
+  try {
+    starterAuth =
+      environment.auth.mode === "owner"
+        ? await createStarterAuth({
+            environment: environment.auth,
+            ...(environment.authToken === undefined ? {} : { authToken: environment.authToken }),
+            workspaceRoot,
+            ...(options.authStore === undefined ? {} : { store: options.authStore }),
+            log: options.log ?? console.log,
+          })
+        : undefined;
+  } catch (error) {
+    await runtime.close?.();
+    await bootstrap.stop();
+    throw error;
+  }
+  const authenticate =
+    starterAuth === undefined ? undefined : createOwnerAuthenticate(starterAuth.auth);
 
   const transport = createHonoPlugin({
     routePrefix: STARTER_ROUTE_PREFIX,
-    ...(authorize === undefined ? {} : { authorize }),
+    ...(authenticate === undefined ? {} : { authenticate }),
     health: () => ({
       transport: "@generic-ai/plugin-hono",
       streaming: true,
       adapter: runtime.adapter,
       model: runtime.model,
       exposure: environment.exposure,
+      auth: environment.auth.mode,
     }),
     run: async (payload, context) =>
-      bootstrap.run(() =>
-        runtime.run(normalizePrompt(payload.input), {
-          signal: context.signal,
-        }),
+      bootstrap.run(
+        () =>
+          runtime.run(normalizePrompt(payload.input), {
+            signal: context.signal,
+          }),
+        runOptionsFor(context),
       ),
     stream: async function* (payload, context) {
       const prompt = normalizePrompt(payload.input);
       const runtimeEvents = createStarterAsyncQueue<StarterRuntimeActivityEvent>();
-      const stream = bootstrap.stream(() =>
-        collectRuntimeStream(runtime, prompt, context.signal, runtimeEvents),
+      const stream = bootstrap.stream(
+        () => collectRuntimeStream(runtime, prompt, context.signal, runtimeEvents),
+        runOptionsFor(context),
       );
 
       for await (const chunk of mergeStarterStreams(stream, runtimeEvents)) {
@@ -823,22 +874,23 @@ export async function createStarterExampleServer(
     security: {
       sessionToken: webUi.sessionToken,
       allowRemote: environment.exposure !== "loopback",
-      ...(authorize === undefined
+      ...(starterAuth === undefined
         ? {}
         : {
-            authorize: (request) =>
-              authorize({
-                request,
-                requestId: randomUUID(),
-                mode: "sync",
-                signal: request.signal,
-              }),
+            authorize: async (request: Request) =>
+              (await authenticateOwnerRequest(starterAuth.auth, request)) === undefined
+                ? unauthorizedResponse()
+                : undefined,
           }),
     },
   });
   transport.app.route("/", webUiTransport.app);
+  if (starterAuth !== undefined) {
+    transport.app.route("/", starterAuth.routes.app);
+  }
   const fetch = createStarterExampleFetch(transport.fetch, {
     ...(options.uiPublicDir === undefined ? {} : { publicDir: options.uiPublicDir }),
+    ...(starterAuth === undefined ? {} : { isAuthenticated: starterAuth.isAuthenticated }),
   });
 
   return Object.freeze({
@@ -851,9 +903,11 @@ export async function createStarterExampleServer(
     runtime,
     environment,
     workspaceRoot,
+    ...(starterAuth === undefined ? {} : { auth: starterAuth }),
     stop: async () => {
       await runtime.close?.();
       await bootstrap.stop();
+      starterAuth?.close();
     },
   });
 }

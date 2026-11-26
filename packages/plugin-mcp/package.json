@@ -19,5 +19,12 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "dependencies": {
+    "@generic-ai/sdk": "0.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  },
+  "devDependencies": {
+    "zod": "^4.3.6"
   }
 }

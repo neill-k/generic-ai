@@ -6,6 +6,7 @@ import {
   registerFauxProvider,
 } from "@generic-ai/ai";
 import { afterEach, describe, expect, it } from "vitest";
+import { isUsageBudgetExceededError } from "../../src/usage/index.js";
 import {
   createGenericAILlmRuntime,
   type GenericAILlmStreamChunk,
@@ -44,7 +45,13 @@ describe("native runtime adapter", () => {
 
     const result = await runtime.run("Do the task");
 
-    expect(result).toEqual({ adapter: "native", model: "faux/faux-1", outputText: "All done." });
+    expect(result).toEqual({
+      adapter: "native",
+      model: "faux/faux-1",
+      outputText: "All done.",
+      usage: expect.objectContaining({ responses: 2 }),
+    });
+    expect(result.usage?.totalTokens).toBeGreaterThan(0);
     expect(runtime.adapter).toBe("native");
     expect(runtime.instructions).toBe("You are a test agent.");
     // One request for the plain reply, one for the stop call after the continuation prompt.
@@ -69,6 +76,41 @@ describe("native runtime adapter", () => {
     );
     await runtime.run("hi");
     expect(seen).toEqual({ systemPrompt: "Be precise.", tools: [STOP_AND_RESPOND_TOOL_NAME] });
+  });
+
+  it("stops the run cleanly when the token budget is reached", async () => {
+    const provider = faux();
+    provider.setResponses([
+      fauxAssistantMessage("still working on it"),
+      fauxAssistantMessage("still working on it"),
+      stopCall("never reached"),
+    ]);
+    const runtime = await createGenericAILlmRuntime(
+      { adapter: "native" },
+      { native: { model: provider.getModel() } },
+    );
+
+    const failure = await runtime.run("Do the task", { budget: { maxTokens: 1 } }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+
+    expect(isUsageBudgetExceededError(failure)).toBe(true);
+    expect((failure as Error).message).toMatch(/token budget reached/);
+    // The first response reached the cap, so no further request was made.
+    expect(provider.state.callCount).toBe(1);
+  });
+
+  it("finishes normally when the budget is not reached", async () => {
+    const provider = faux();
+    provider.setResponses([stopCall("done")]);
+    const runtime = await createGenericAILlmRuntime(
+      { adapter: "native" },
+      { native: { model: provider.getModel() } },
+    );
+    const result = await runtime.run("hi", { budget: { maxTokens: 1_000_000, maxCostUsd: 5 } });
+    expect(result.outputText).toBe("done");
+    expect(result.usage?.responses).toBe(1);
   });
 
   it("returns the first reply in single-turn mode", async () => {
@@ -128,7 +170,12 @@ describe("native runtime adapter", () => {
     ).toBe(true);
     expect(chunks.at(-1)).toEqual({
       type: "response",
-      response: { adapter: "native", model: "faux/faux-1", outputText: "Final." },
+      response: {
+        adapter: "native",
+        model: "faux/faux-1",
+        outputText: "Final.",
+        usage: expect.objectContaining({ responses: 2 }),
+      },
     });
   });
 

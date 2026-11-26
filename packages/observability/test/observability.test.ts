@@ -5,7 +5,11 @@ import { assertMetricAttributesAreBounded, getObservabilityMetricCatalog } from 
 import { createProvenanceBundle } from "../src/provenance.js";
 import { redactJsonValue, summarizePayload } from "../src/redaction.js";
 import { createDeterministicObservabilityReport } from "../src/reports.js";
-import { MemoryObservabilityRepository, SqliteObservabilityRepository } from "../src/repository.js";
+import {
+  canonicalEventToObservabilityEvent,
+  MemoryObservabilityRepository,
+  SqliteObservabilityRepository,
+} from "../src/repository.js";
 import { createGenericAIObservabilityRoutes, ingestObservabilityEvent } from "../src/server.js";
 import { createObservabilityLiveEventBus } from "../src/sse.js";
 import type { ObservabilityMetricPoint } from "../src/types.js";
@@ -112,6 +116,100 @@ describe("redaction and metric guardrails", () => {
       evidenceEventIds: [],
     };
     expect(() => assertMetricAttributesAreBounded(point)).toThrow(/unapproved attribute/);
+  });
+});
+
+describe("observability usage and cost", () => {
+  it.each([
+    ["memory", () => new MemoryObservabilityRepository()],
+    ["sqlite", () => new SqliteObservabilityRepository({ path: ":memory:" })],
+  ])("derives token and dollar metrics and a run rollup with %s", async (_name, createRepository) => {
+    const repository = createRepository();
+    const context = {
+      scopeId: "scope-1",
+      runId: "usage-run",
+      rootSessionId: "session-1",
+      sessionId: "session-1",
+    };
+    const usage = (tokens: number, costUsd: number) => ({
+      input: tokens,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: tokens,
+      cost: { input: costUsd, output: 0, cacheRead: 0, cacheWrite: 0, total: costUsd },
+    });
+    const events = [
+      createCanonicalEvent({
+        ...context,
+        eventId: "u1",
+        sequence: 1,
+        occurredAt: "2026-11-26T00:00:01.000Z",
+        name: "usage.recorded",
+        data: { provider: "anthropic", model: "claude-opus-5-5", usage: usage(1000, 0.02) },
+      }),
+      createCanonicalEvent({
+        ...context,
+        eventId: "u2",
+        sequence: 2,
+        occurredAt: "2026-11-26T00:00:02.000Z",
+        name: "usage.recorded",
+        data: { provider: "openai", model: "gpt-5.5", usage: usage(500, 0.01) },
+      }),
+      createCanonicalEvent({
+        ...context,
+        eventId: "u3",
+        sequence: 3,
+        occurredAt: "2026-11-26T00:00:03.000Z",
+        name: "usage.budget.exceeded",
+        data: { scope: "run", breaches: [{ limit: "tokens", max: 1200, used: 1500 }] },
+      }),
+    ];
+    for (const event of events) {
+      await repository.appendEvent({
+        workspaceId,
+        event: canonicalEventToObservabilityEvent(workspaceId, event),
+      });
+    }
+
+    const tokens = await repository.queryMetrics({
+      workspaceId,
+      names: ["generic_ai.model.tokens"],
+    });
+    expect(tokens.map((point) => [point.attributes["model"], point.value]).sort()).toEqual([
+      ["claude-opus-5-5", 1000],
+      ["gpt-5.5", 500],
+    ]);
+    const cost = await repository.queryMetrics({
+      workspaceId,
+      names: ["generic_ai.model.cost.usd"],
+    });
+    expect(cost.reduce((sum, point) => sum + point.value, 0)).toBeCloseTo(0.03);
+    const stops = await repository.queryMetrics({
+      workspaceId,
+      names: ["generic_ai.usage.budget_stops.count"],
+    });
+    expect(stops.map((point) => point.attributes["limit"])).toEqual(["tokens"]);
+
+    const run = await repository.getRun(workspaceId, "usage-run");
+    expect(run?.metadata["usage"]).toMatchObject({
+      responses: 2,
+      totalTokens: 1500,
+      budgetExceeded: true,
+    });
+    const trace = await repository.getTrace(workspaceId, "usage-run");
+    expect(trace?.events[0]?.usage).toMatchObject({ provider: "anthropic", totalTokens: 1000 });
+  });
+
+  it("lists the usage metrics in the bounded catalog", () => {
+    const names = getObservabilityMetricCatalog().map((metric) => metric.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "generic_ai.model.tokens",
+        "generic_ai.model.cost.usd",
+        "generic_ai.usage.budget_stops.count",
+      ]),
+    );
   });
 });
 

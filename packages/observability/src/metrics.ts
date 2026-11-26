@@ -73,7 +73,8 @@ export const observabilityMetricCatalog = Object.freeze([
   {
     name: "generic_ai.trace.completeness.ratio",
     unit: "ratio",
-    description: "Evidence completeness ratio derived from event, projection, and artifact presence.",
+    description:
+      "Evidence completeness ratio derived from event, projection, and artifact presence.",
     sourceEvents: ["trace assembly"],
     allowedAttributes: [
       { name: "workspace_id", description: "Stable workspace identity." },
@@ -81,9 +82,48 @@ export const observabilityMetricCatalog = Object.freeze([
     ],
     rejectedAttributes: CORRELATION_ONLY_ATTRIBUTES,
   },
+  {
+    name: "generic_ai.model.tokens",
+    unit: "tokens",
+    description:
+      "Tokens consumed per model response (input, output, and cache reads and writes), from usage.recorded events.",
+    sourceEvents: ["usage.recorded"],
+    allowedAttributes: [
+      { name: "workspace_id", description: "Stable workspace identity." },
+      { name: "provider", description: "Bounded model provider id." },
+      { name: "model", description: "Bounded model id." },
+    ],
+    rejectedAttributes: CORRELATION_ONLY_ATTRIBUTES,
+  },
+  {
+    name: "generic_ai.model.cost.usd",
+    unit: "usd",
+    description:
+      "Dollar cost per model response at the model's list prices, from usage.recorded events.",
+    sourceEvents: ["usage.recorded"],
+    allowedAttributes: [
+      { name: "workspace_id", description: "Stable workspace identity." },
+      { name: "provider", description: "Bounded model provider id." },
+      { name: "model", description: "Bounded model id." },
+    ],
+    rejectedAttributes: CORRELATION_ONLY_ATTRIBUTES,
+  },
+  {
+    name: "generic_ai.usage.budget_stops.count",
+    unit: "count",
+    description: "Runs stopped because they reached a token or dollar cap.",
+    sourceEvents: ["usage.budget.exceeded"],
+    allowedAttributes: [
+      { name: "workspace_id", description: "Stable workspace identity." },
+      { name: "limit", description: "Bounded cap kind: tokens or cost_usd." },
+    ],
+    rejectedAttributes: CORRELATION_ONLY_ATTRIBUTES,
+  },
 ] satisfies readonly ObservabilityMetricDefinition[]);
 
-const metricCatalogByName = new Map(observabilityMetricCatalog.map((metric) => [metric.name, metric]));
+const metricCatalogByName = new Map(
+  observabilityMetricCatalog.map((metric) => [metric.name, metric]),
+);
 
 export function getObservabilityMetricCatalog(): readonly ObservabilityMetricDefinition[] {
   return observabilityMetricCatalog;
@@ -146,6 +186,58 @@ export function deriveEventCountMetric(event: ObservabilityEventRecord): Observa
     },
     evidenceEventIds: [event.id],
   });
+}
+
+/** Every metric point one event yields: its count, plus usage points for usage events. */
+export function deriveEventMetrics(
+  event: ObservabilityEventRecord,
+): readonly ObservabilityMetricPoint[] {
+  const points = [deriveEventCountMetric(event)];
+  if (event.usage !== undefined) {
+    const attributes = {
+      workspace_id: event.workspaceId,
+      provider: event.usage.provider,
+      model: event.usage.model,
+    };
+    points.push(
+      metricPoint({
+        workspaceId: event.workspaceId,
+        runId: event.runId,
+        name: "generic_ai.model.tokens",
+        value: event.usage.totalTokens,
+        occurredAt: event.occurredAt,
+        attributes,
+        evidenceEventIds: [event.id],
+      }),
+      metricPoint({
+        workspaceId: event.workspaceId,
+        runId: event.runId,
+        name: "generic_ai.model.cost.usd",
+        value: event.usage.costUsd,
+        occurredAt: event.occurredAt,
+        attributes,
+        evidenceEventIds: [event.id],
+      }),
+    );
+  }
+  if (event.name === "usage.budget.exceeded") {
+    const limits = event.payload.metadata["budgetLimits"];
+    const kinds = Array.isArray(limits) && limits.length > 0 ? limits : ["unknown"];
+    for (const limit of kinds) {
+      points.push(
+        metricPoint({
+          workspaceId: event.workspaceId,
+          runId: event.runId,
+          name: "generic_ai.usage.budget_stops.count",
+          value: 1,
+          occurredAt: event.occurredAt,
+          attributes: { workspace_id: event.workspaceId, limit: String(limit) },
+          evidenceEventIds: [event.id],
+        }),
+      );
+    }
+  }
+  return Object.freeze(points);
 }
 
 export function deriveRunMetrics(run: ObservabilityRunRecord): readonly ObservabilityMetricPoint[] {
