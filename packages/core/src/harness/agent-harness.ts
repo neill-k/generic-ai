@@ -164,6 +164,8 @@ export interface NativeAgentHarnessOptions {
   readonly toolBatch?: RunCapabilityNativeAgentSessionOptions["toolBatch"];
   /** Save the scripts a session wrote when its run passes its goal's validators. */
   readonly harvest?: RunCapabilityNativeAgentSessionOptions["harvest"];
+  /** The continual harness for every native session (see `docs/continual-harness.md`). */
+  readonly continual?: RunCapabilityNativeAgentSessionOptions["continual"];
 }
 
 export interface CreateAgentHarnessOptions<
@@ -1423,6 +1425,7 @@ function createNativeSessionBackend(
         ...(options.offload === undefined ? {} : { offload: options.offload }),
         ...(options.toolBatch === undefined ? {} : { toolBatch: options.toolBatch }),
         ...(options.harvest === undefined ? {} : { harvest: options.harvest }),
+        ...(options.continual === undefined ? {} : { continual: options.continual }),
       });
       return {
         sessionId: result.sessionId,

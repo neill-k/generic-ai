@@ -12,6 +12,7 @@ const packageAliases = [
   "extensions",
   "subagents",
   "autonomy",
+  "continual",
   "core",
   "sdk",
   "observability",

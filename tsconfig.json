@@ -9,6 +9,7 @@
     { "path": "packages/extensions" },
     { "path": "packages/subagents" },
     { "path": "packages/autonomy" },
+    { "path": "packages/continual" },
     { "path": "packages/core" },
     { "path": "packages/sdk" },
     { "path": "packages/observability" },

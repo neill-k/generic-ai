@@ -81,6 +81,7 @@ ADRs must be written when:
 - [`0064-agent-isolation-on-railway.md`](0064-agent-isolation-on-railway.md) - R20 threat model; agent shell commands run as a separate `agent` user through a narrow sudoers rule, agent homes shared by group and server data closed, agent file tools confined to the workspace, with a visible fallback when sudo is unavailable.
 - [`0065-background-sessions-on-the-durable-queue.md`](0065-background-sessions-on-the-durable-queue.md) - schedules and heartbeats saved in the session, live delivery while it runs, and stored sessions resumed for due jobs from the SDK durable queue.
 - [`0066-offloading.md`](0066-offloading.md) - long tool results saved to output files with a preview, `tool_batch` through each tool's own hooks, and scripts harvested from runs that pass their validators and promoted to skills by the host.
+- [`0067-continual-harness.md`](0067-continual-harness.md) - the continual harness: global and session-local refinement stores, refinements planned from the conversation after a turn and applied with a stale check, base prompt immutable, Prime's factory kind left out.
 
 ## Planning Baseline
 

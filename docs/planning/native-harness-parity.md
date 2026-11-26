@@ -150,7 +150,7 @@ tests are used as behavioural specs for that thread.
 | Persistent goals: objective, token budget, continuation, no-progress cap and backoff, pause, resume, complete | ✓ | `@generic-ai/autonomy`: `goals.rs` and `goal_driver/tests.rs` cases ported; `complete_goal` tool instead of `goal.complete()`; in native sessions the goal is an SDK goal spec and `complete_goal` runs `runGoalValidators` (ADR 0063, NOVA: the agent cannot mark its own work done); `native.goal` harness option |
 | Heartbeats and schedules | ✓ | `@generic-ai/autonomy`: `cron/mod.rs` and `scheduler.rs` tests ported (schedule parsing, cron in UTC, `/heartbeat` grammar, deferral rules, failure backoff); `cron_add`, `cron_list`, `cron_cancel`, `heartbeat_set`, `heartbeat_manage` tools; `native.schedules` harness option; see `docs/schedules.md` |
 | Bounded autonomous mode: limits, quality gates, gate-failure continuation, no rerun on an unchanged worktree | ✓ | `@generic-ai/autonomy`: `autonomous/mod.rs`, `driver.rs` and `gates.rs` tests ported; `native.autonomous` harness option; gate commands become `check` validators of the session's SDK goal; in stop-tool mode a completed stop is checked against them |
-| Continual harness: supplemental prompts, memories, skill descriptions, subagent specs updated by `/refine` from evidence, base prompt immutable | ○ | `pa-core` refine tests, Continual Harness paper |
+| Continual harness: supplemental prompts, memories, skill descriptions, subagent specs updated by `/refine` from evidence, base prompt immutable | ✓ | `@generic-ai/continual`: `refinement/{mod,planner,ranking,executor}.rs` tests ported (state merge, history, proposal parsing and validation, apply and rollback, relevance ranking, prompt digest, planner and review requests); `refine`, `harness_read`, `harness_search` tools and `/refine [--global]`, `/refine rollback <id>`; automatic review after a compaction and every 25 turns; `native.continual` harness option; see `docs/continual-harness.md`. Prime's `factory` kind (state-machine workflows run by its Python kernel) is not ported; skill entries name a shell command or an installed skill instead of a Python callable |
 | Persistent Python REPL as the primary tool (RLM) | ○ | evaluate later; Generic AI agents do generic work (D6), so this is a plugin, not the core loop |
 
 ## Slices
@@ -178,12 +178,15 @@ Each slice is a reviewable PR that keeps every existing test green.
 6. **Long-running agents**: 6a (in review) adds `@generic-ai/autonomy` with Prime Agent's thread
    goals and autonomous mode and turns them on in native sessions (`native.goal`,
    `native.autonomous`). 6b (in review) adds schedules and heartbeats (`native.schedules`) and background sessions that resume from the durable queue (ADR 0065).
-7. **Continual harness**: evidence-backed refinement of supplemental harness state.
+7. **Continual harness** (in review): `@generic-ai/continual` ports Prime Agent's `/refine`: a
+   global and a session-local store of prompt notes, memories, skills and subagent specs that the
+   agent refines from evidence, with history and rollback, shown in the system prompt ranked by
+   relevance (`native.continual`, ADR 0067).
 8. **More providers and auth**: Gemini, Bedrock, Azure, OAuth logins.
 9. **Make native the default and remove pi**: once the harness suite passes on the native adapter.
 
 ## Running the parity suites
 
 ```bash
-npx vitest run packages/ai packages/agent packages/tools packages/session packages/resources packages/extensions packages/subagents packages/autonomy packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts packages/core/src/runtime/native-session-long-run.test.ts
+npx vitest run packages/ai packages/agent packages/tools packages/session packages/resources packages/extensions packages/subagents packages/autonomy packages/continual packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts packages/core/src/runtime/native-session-long-run.test.ts
 ```

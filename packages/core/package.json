@@ -22,6 +22,7 @@
     "@generic-ai/extensions": "0.0.0",
     "@generic-ai/subagents": "0.0.0",
     "@generic-ai/autonomy": "0.0.0",
+    "@generic-ai/continual": "0.0.0",
     "@generic-ai/resources": "0.0.0",
     "@generic-ai/session": "0.0.0",
     "@generic-ai/tools": "0.0.0",

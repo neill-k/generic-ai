@@ -24,6 +24,11 @@ import {
   SessionManager,
 } from "@generic-ai/session";
 import {
+  formatRefinementNotice,
+  parseRefineCommand,
+  type RefinementResult,
+} from "@generic-ai/continual";
+import {
   type AutonomousStatus,
   autonomousStatus,
   type GoalState,
@@ -69,6 +74,11 @@ import {
   type NativeSessionAutonomous,
   type NativeSessionGoal,
 } from "./native-long-run.js";
+import {
+  createSessionContinual,
+  type NativeSessionContinual,
+  type RefinementSource,
+} from "./native-continual.js";
 import { createSessionSchedules, type NativeSessionSchedules } from "./native-schedules.js";
 import {
   createScriptHarvest,
@@ -174,8 +184,15 @@ export interface RunCapabilityNativeAgentSessionOptions {
    * reused or promoted into skills (`promoteScriptToSkill`).
    */
   readonly harvest?: NativeSessionHarvest;
+  /**
+   * The continual harness (see `docs/continual-harness.md`): the agent refines supplemental
+   * prompt notes, memories, skills and subagent specs from evidence with the `refine` tool or a
+   * `/refine` prompt, and they are shown in its system prompt from then on.
+   */
+  readonly continual?: NativeSessionContinual;
 }
 
+export type { NativeSessionContinual } from "./native-continual.js";
 export type { NativeSessionAutonomous, NativeSessionGoal } from "./native-long-run.js";
 
 export interface NativeSessionSubagents {
@@ -230,6 +247,8 @@ export interface RunCapabilityNativeAgentSessionResult {
   readonly schedules?: readonly ScheduledJob[];
   /** Scripts saved because the run passed its goal's validators. */
   readonly harvestedScripts?: readonly HarvestedScript[];
+  /** Continual harness refinements made during the session. */
+  readonly refinements?: readonly RefinementResult[];
 }
 
 const DEFAULT_NATIVE_SYSTEM_PROMPT =
@@ -344,6 +363,7 @@ export function buildNativeSystemPrompt(input: {
   readonly cwd: string;
   readonly tools: readonly PromptedTool[];
   readonly skillsPrompt?: string;
+  readonly continualPrompt?: string;
 }): string {
   const sections = [input.base?.trim() || DEFAULT_NATIVE_SYSTEM_PROMPT];
   const snippets = input.tools
@@ -358,6 +378,9 @@ export function buildNativeSystemPrompt(input: {
   }
   if (input.skillsPrompt !== undefined && input.skillsPrompt.trim().length > 0) {
     sections.push(input.skillsPrompt.trim());
+  }
+  if (input.continualPrompt !== undefined && input.continualPrompt.trim().length > 0) {
+    sections.push(input.continualPrompt.trim());
   }
   sections.push(`Current working directory: ${input.cwd}`);
   return sections.join("\n\n");
@@ -490,6 +513,37 @@ export async function runCapabilityNativeAgentSession(
     },
   });
   const scheduleOptions = typeof options.schedules === "object" ? options.schedules : undefined;
+  const refinements: RefinementResult[] = [];
+  const continual = await createSessionContinual({
+    options: options.continual,
+    sessionManager,
+    model: options.model,
+    ...(apiKey === undefined || apiKey.length === 0 ? {} : { apiKey }),
+    ...(options.streamFn === undefined ? {} : { streamFn: options.streamFn }),
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    onRefined: async (result, source) => {
+      refinements.push(result);
+      agent.state.systemPrompt = composeSystemPrompt();
+      await emitRuntimeEvent("harness_refined", {
+        refinementId: result.id,
+        source,
+        scope: result.scope ?? "local",
+        summary: result.summary,
+        applied: result.appliedEdits.filter((edit) => edit.applied).length,
+        failed: result.appliedEdits.filter((edit) => !edit.applied).length,
+        ...(result.rollbackOf === undefined ? {} : { rollbackOf: result.rollbackOf }),
+      });
+    },
+    onError: async (error, source: RefinementSource) => {
+      await emitRuntimeEvent("harness_refine_failed", { source, error: toErrorMessage(error) });
+    },
+    onUsage: async (message, purpose) => {
+      await options.usageMeter?.record(
+        { ...eventContext, ...options.usageAttribution },
+        { provider: message.provider, model: message.model, usage: message.usage, purpose },
+      );
+    },
+  });
   const userOffload = options.offload === false ? undefined : (options.offload ?? {});
   const offload: OffloadOptions | undefined =
     userOffload === undefined
@@ -508,6 +562,7 @@ export async function runCapabilityNativeAgentSession(
     ...(subagentRoot === undefined ? [] : (createSubagentTools(subagentRoot) as AgentTool[])),
     ...(longRun?.tools ?? []),
     ...(schedules?.tools ?? []),
+    ...(continual?.tools ?? []),
     ...(turnMode === "single-turn" ? [] : [createNativeStopTool(stopState)]),
   ].map(offloaded);
   if (options.toolBatch !== undefined && options.toolBatch !== false) {
@@ -531,14 +586,19 @@ export async function runCapabilityNativeAgentSession(
     options.harvest === undefined
       ? undefined
       : createScriptHarvest({ cwd: options.cwd, options: options.harvest });
-  const systemPrompt = buildNativeSystemPrompt({
-    ...(options.systemPrompt === undefined ? {} : { base: options.systemPrompt }),
-    cwd: options.cwd,
-    tools: tools as unknown as PromptedTool[],
-    ...(toolRegistry.skillSnapshot === undefined
-      ? {}
-      : { skillsPrompt: toolRegistry.skillSnapshot.prompt }),
-  });
+  const composeSystemPrompt = () =>
+    buildNativeSystemPrompt({
+      ...(options.systemPrompt === undefined ? {} : { base: options.systemPrompt }),
+      cwd: options.cwd,
+      tools: tools as unknown as PromptedTool[],
+      ...(toolRegistry.skillSnapshot === undefined
+        ? {}
+        : { skillsPrompt: toolRegistry.skillSnapshot.prompt }),
+      ...(continual === undefined
+        ? {}
+        : { continualPrompt: continual.promptSection(options.prompt) }),
+    });
+  const systemPrompt = composeSystemPrompt();
   const agent = new Agent({
     initialState: {
       model: options.model,
@@ -619,6 +679,7 @@ export async function runCapabilityNativeAgentSession(
   const unbindSubagents = subagentRoot?.bindAgent(agent);
   const unbindLongRun = longRun?.bindAgent(agent);
   const unbindHarvest = harvest?.bindAgent(agent);
+  const unbindContinual = continual?.bindAgent(agent);
   let compacting = false;
   const runningCommands = new Set<string>();
   const unwatchCommands = agent.subscribe((event) => {
@@ -686,6 +747,7 @@ export async function runCapabilityNativeAgentSession(
             },
           );
         }
+        continual?.markCompacted();
         await emitRuntimeEvent("compaction", {
           tokensBefore: compaction.tokensBefore,
           firstKeptEntryId: compaction.firstKeptEntryId,
@@ -724,6 +786,7 @@ export async function runCapabilityNativeAgentSession(
     if (agent.state.errorMessage !== undefined && !stopState.stopped) {
       throw new Error(agent.state.errorMessage);
     }
+    await continual?.afterPrompt(agent);
   };
 
   const finish = async (input: {
@@ -735,6 +798,7 @@ export async function runCapabilityNativeAgentSession(
     unbindSubagents?.();
     unbindLongRun?.();
     unbindHarvest?.();
+    unbindContinual?.();
     let harvestedScripts: HarvestedScript[] | undefined;
     if (
       harvest !== undefined &&
@@ -814,6 +878,7 @@ export async function runCapabilityNativeAgentSession(
       ...(harvestedScripts === undefined || harvestedScripts.length === 0
         ? {}
         : { harvestedScripts }),
+      ...(refinements.length === 0 ? {} : { refinements: [...refinements] }),
       envelope: createRunEnvelope({
         runId,
         rootScopeId: scopeId,
@@ -869,6 +934,15 @@ export async function runCapabilityNativeAgentSession(
       throw signal.reason instanceof Error
         ? signal.reason
         : new Error("Native session run was aborted before prompt dispatch.");
+    }
+    const refineCommand = continual === undefined ? undefined : parseRefineCommand(submitted);
+    if (continual !== undefined && refineCommand !== undefined) {
+      const result = await continual.refine(agent, refineCommand.options, "user");
+      await options.lifecycleHooks?.onStop?.(eventContext);
+      return await finish({
+        outputText: formatRefinementNotice(result),
+        terminalStatus: "completed",
+      });
     }
     if (turnMode === "single-turn") {
       await runPrompt(prompt);
