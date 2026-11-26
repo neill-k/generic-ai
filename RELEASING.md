@@ -150,7 +150,10 @@ changesets `ignore` array.
 ## Checking the packages before a release
 
 `npm run release:check` (after `npm run build`) proves the packages work the way an outside user
-gets them, not through workspace links. It runs on every pull request as part of `baseline-build`.
+gets them, not through workspace links. To keep CI minutes down it does not run on every pull
+request: the `package-pack-check` workflow runs it when a package manifest, the changesets config
+or the release tooling changes (on pull requests and on `main`), and the `release` workflow runs
+it before any publish. It can also be started by hand from the Actions tab.
 
 1. Static checks: name, version, license, `publishConfig`, `repository.directory`, `engines`,
    `exports`, `files`, and that no public package depends on a private workspace or uses a

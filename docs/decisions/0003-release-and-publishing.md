@@ -397,7 +397,8 @@ by hand, in `check`, `version` or `publish` mode. `publish` runs only from `main
 the first publish, then npm trusted publishing via OIDC with `NPM_TRUSTED_PUBLISHING=true`).
 Otherwise it stops with a notice and publishes nothing.
 
-Every pull request now also runs `npm run release:check` in `baseline-build`: it packs every
+`npm run release:check` (workflow `package-pack-check`, run only when package manifests or release
+tooling change, and again before any publish) packs every
 public package, installs the tarballs into an empty project, imports and typechecks every export
 subpath, and runs a small multi-agent consumer script. Publishing metadata is kept consistent by
 `scripts/package-metadata.mjs`, run from `npm run lint`. `RELEASING.md` holds the details and the
