@@ -23,7 +23,12 @@ import {
   runWithRetry,
   SessionManager,
 } from "@generic-ai/session";
-import type { RunEnvelope, RunEnvelopeMode } from "@generic-ai/sdk";
+import { type AutonomousStatus, autonomousStatus, type GoalState } from "@generic-ai/autonomy";
+import {
+  goalTraceFromCanonicalEvents,
+  type RunEnvelope,
+  type RunEnvelopeMode,
+} from "@generic-ai/sdk";
 import {
   type AgentNode,
   createAgentChildSessionFactory,
@@ -48,6 +53,11 @@ import {
   resolveCapabilityPiToolRegistry,
 } from "./capability-runtime.js";
 import { createNativeStopTool } from "./native.js";
+import {
+  createSessionLongRun,
+  type NativeSessionAutonomous,
+  type NativeSessionGoal,
+} from "./native-long-run.js";
 import {
   type AgentTurnMode,
   STOP_AND_RESPOND_TOOL_NAME,
@@ -116,7 +126,21 @@ export interface RunCapabilityNativeAgentSessionOptions {
    * this process and are stopped when the session ends.
    */
   readonly subagents?: NativeSessionSubagents | boolean;
+  /**
+   * Keep the session working toward a persistent thread goal (see `@generic-ai/autonomy`). `true`
+   * gives the agent the goal tools without starting a goal. The goal is saved in the session, so a
+   * resumed session continues it.
+   */
+  readonly goal?: NativeSessionGoal | boolean;
+  /**
+   * Autonomous mode: continue with no human input until the quality gates pass or a limit is
+   * reached. In stop-tool mode a "completed" stop is checked against the gates and sent back with
+   * the failure when they fail.
+   */
+  readonly autonomous?: NativeSessionAutonomous | boolean;
 }
+
+export type { NativeSessionAutonomous, NativeSessionGoal } from "./native-long-run.js";
 
 export interface NativeSessionSubagents {
   /** Deepest subagent level; the session itself is depth 0. Defaults to 3. */
@@ -162,6 +186,10 @@ export interface RunCapabilityNativeAgentSessionResult {
   readonly outputText?: string;
   readonly terminalStatus?: StopAndRespondState["status"];
   readonly failureMessage?: string;
+  /** The thread goal's final state, when the session had one. */
+  readonly goal?: GoalState;
+  /** Autonomous mode's counters and gate results, when it was on. */
+  readonly autonomous?: AutonomousStatus;
 }
 
 const DEFAULT_NATIVE_SYSTEM_PROMPT =
@@ -387,9 +415,31 @@ export async function runCapabilityNativeAgentSession(
     ...(apiKey === undefined || apiKey.length === 0 ? {} : { apiKey }),
     onEvent: (event) => emitSubagentEvent(event),
   });
+  const longRun = createSessionLongRun({
+    cwd: options.cwd,
+    sessionManager,
+    goal: options.goal,
+    autonomous: options.autonomous,
+    evidence: () => {
+      const outputText = stopState.response ?? assistantText(latestAssistant(agent.state.messages));
+      return {
+        ...(outputText === undefined ? {} : { outputText }),
+        trace: goalTraceFromCanonicalEvents(eventStream.snapshot()),
+      };
+    },
+    signal: options.signal,
+    onValidation: async (report) => {
+      await emitRuntimeEvent("goal_validation", {
+        goalId: report.goalId,
+        status: report.status,
+        summary: report.summary,
+      });
+    },
+  });
   const tools = [
     ...capabilityTools,
     ...(subagentRoot === undefined ? [] : (createSubagentTools(subagentRoot) as AgentTool[])),
+    ...(longRun?.tools ?? []),
     ...(turnMode === "single-turn" ? [] : [createNativeStopTool(stopState)]),
   ];
   const systemPrompt = buildNativeSystemPrompt({
@@ -478,6 +528,7 @@ export async function runCapabilityNativeAgentSession(
     void emitRuntimeEvent(`subagent_${event.type}`, { ...event });
   };
   const unbindSubagents = subagentRoot?.bindAgent(agent);
+  const unbindLongRun = longRun?.bindAgent(agent);
 
   const extensions = await loadSessionExtensions(options, emitRuntimeEvent);
   const unbindExtensions = extensions?.bindAgent(agent);
@@ -571,6 +622,7 @@ export async function runCapabilityNativeAgentSession(
   }): Promise<RunCapabilityNativeAgentSessionResult> => {
     await subagentRoot?.children.shutdown();
     unbindSubagents?.();
+    unbindLongRun?.();
     await extensions?.emit({ type: "session_shutdown" });
     unbindExtensions?.();
     unsubscribe();
@@ -614,6 +666,10 @@ export async function runCapabilityNativeAgentSession(
       ...(input.outputText === undefined ? {} : { outputText: input.outputText }),
       ...(input.terminalStatus === undefined ? {} : { terminalStatus: input.terminalStatus }),
       ...(input.failureMessage === undefined ? {} : { failureMessage: input.failureMessage }),
+      ...(longRun?.goal === undefined ? {} : { goal: longRun.goal.stateWithCreationElapsed() }),
+      ...(longRun?.autonomous === undefined
+        ? {}
+        : { autonomous: autonomousStatus(longRun.autonomous.state) }),
       envelope: createRunEnvelope({
         runId,
         rootScopeId: scopeId,
@@ -628,6 +684,25 @@ export async function runCapabilityNativeAgentSession(
         },
       }),
     });
+  };
+
+  /** The prompt for the next long-run turn, or undefined when the goal and autonomous mode stop. */
+  const nextLongRunStep = async (): Promise<string | undefined> => {
+    if (longRun === undefined) {
+      return undefined;
+    }
+    const next = await longRun.controller.afterTurn(latestAssistant(agent.state.messages), signal);
+    if (next.kind === "continue") {
+      await emitRuntimeEvent("long_run_continuation", { source: next.source });
+      return next.text;
+    }
+    await emitRuntimeEvent("long_run_stopped", {
+      ...(next.goal === undefined
+        ? {}
+        : { goalStatus: next.goal.status, goalReason: next.goal.lastReason }),
+      ...(next.autonomous === undefined ? {} : { autonomousStop: next.autonomous.reason }),
+    });
+    return undefined;
   };
 
   try {
@@ -646,16 +721,42 @@ export async function runCapabilityNativeAgentSession(
     }
     if (turnMode === "single-turn") {
       await runPrompt(prompt);
+      while (longRun !== undefined) {
+        const next = await nextLongRunStep();
+        if (next === undefined) {
+          break;
+        }
+        await runModelPrompt(next);
+      }
       await options.lifecycleHooks?.onStop?.(eventContext);
       const outputText = assistantText(latestAssistant(agent.state.messages));
       return await finish(outputText === undefined ? {} : { outputText });
     }
-    const loop = await runStopToolLoop({
+    let loop = await runStopToolLoop({
       prompt,
       state: stopState,
       maxTurns: options.maxTurns,
       runPrompt: (text) => runPrompt(text),
     });
+    while (longRun !== undefined && loop.stopped && loop.status === "completed") {
+      const next = await nextLongRunStep();
+      if (next === undefined) {
+        break;
+      }
+      stopState.stopped = false;
+      delete stopState.response;
+      delete stopState.status;
+      loop = await runStopToolLoop({
+        prompt: next,
+        wrapPrompt: false,
+        state: stopState,
+        maxTurns: options.maxTurns,
+        runPrompt: (text) => runModelPrompt(text),
+      });
+    }
+    if (loop.stopped && loop.status !== undefined && loop.status !== "completed") {
+      longRun?.goal?.pause(`Agent stopped with status "${loop.status}".`);
+    }
     if (!loop.stopped || loop.outputText === undefined) {
       throw new Error(
         `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop.turnCount} turn(s).`,

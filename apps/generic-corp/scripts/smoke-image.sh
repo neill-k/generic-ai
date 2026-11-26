@@ -95,12 +95,27 @@ if docker exec -u node "$app" sh -c 'touch /app/apps/generic-corp/dist/run.js' 2
   fail "the server code is writable by node, so an agent could change it"
 fi
 
-step "Agent commands cannot see the server's secrets (environment or /proc)"
+step "Agent commands run as their own user"
+docker logs "$app" 2>&1 | grep -q 'Agent commands run as the OS user "agent"' \
+  || fail "the server did not switch agent commands to the agent user"
+curl -s "http://127.0.0.1:$port/ready" | grep -q '"agentIsolation":"user"' \
+  || fail "/ready does not report agentIsolation user"
+if docker exec -u agent "$app" sudo -n true 2>/dev/null; then
+  fail "the agent user can use sudo"
+fi
+if docker exec -u agent "$app" sudo -n -u node true 2>/dev/null; then
+  fail "the agent user can run commands as node"
+fi
+
+step "Agent commands cannot see the server's secrets or files (environment, /proc, /data)"
 # The probe holds the same secret variables as the server and is started the
 # same way (as root through the entrypoint, which drops to node), so this
 # checks both routes: inherited environment and /proc/<pid>/environ of the
-# server and of the probe itself.
+# server, of the probe itself and of a non-node child holding the secrets. It
+# also checks agent commands run as `agent`, cannot read or write the server's
+# files on /data, can work in their home, and are killed on a timeout.
 docker exec \
+  -e PROBE_EXPECT_ISOLATION=user \
   -e DATABASE_URL="$url" \
   -e ANTHROPIC_API_KEY="$api_key" \
   -e GENERIC_AI_SECRETS_KEY="$secrets_key" \

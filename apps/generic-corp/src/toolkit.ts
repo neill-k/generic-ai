@@ -6,7 +6,10 @@ import { createMcpPlugin, type McpPlugin, type McpServerStatus } from "@generic-
 import type { SecretsBroker } from "@generic-ai/plugin-secrets";
 import { createDocumentTools } from "@generic-ai/plugin-tools-documents";
 import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
-import { createTerminalToolPlugin } from "@generic-ai/plugin-tools-terminal";
+import {
+  createTerminalToolPlugin,
+  type TerminalRunAsUser,
+} from "@generic-ai/plugin-tools-terminal";
 import {
   createWebSearchProvider,
   createWebToolsPlugin,
@@ -171,6 +174,8 @@ export interface CreateCompanyToolkitOptions {
   readonly resolver?: WebAddressResolver;
   /** Skill folders every agent gets. Defaults to the company skills that ship with the app. */
   readonly skillDirs?: readonly string[];
+  /** Runs agent shell commands as another OS user (see `resolveAgentIsolation`). */
+  readonly runAs?: TerminalRunAsUser;
 }
 
 const PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -245,7 +250,10 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
 
   const build = (root: string) => {
     const files = createWorkspaceFileTools({ root });
-    const terminal = createTerminalToolPlugin({ root });
+    const terminal = createTerminalToolPlugin({
+      root,
+      ...(options.runAs === undefined ? {} : { runAs: options.runAs }),
+    });
     const web = createWebToolsPlugin({
       root,
       searchProvider,

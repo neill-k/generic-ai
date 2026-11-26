@@ -23,6 +23,8 @@ export interface StopToolLoopOptions<TPromptOptions> {
   readonly prompt: string;
   readonly promptOptions?: TPromptOptions | undefined;
   readonly maxTurns?: number | undefined;
+  /** Wrap the first prompt in the stop-tool loop instructions. Defaults to true. */
+  readonly wrapPrompt?: boolean | undefined;
   readonly state: StopAndRespondState;
   readonly runPrompt: (prompt: string, options?: TPromptOptions) => Promise<void>;
 }
@@ -52,11 +54,7 @@ function requireResponse(value: string | undefined): string {
   return response;
 }
 
-function createTextResult(
-  summary: string,
-  details: Record<string, unknown>,
-  terminate = false,
-) {
+function createTextResult(summary: string, details: Record<string, unknown>, terminate = false) {
   return {
     content: [{ type: "text" as const, text: summary }],
     details,
@@ -68,8 +66,7 @@ export function createStopAndRespondTool(state: StopAndRespondState) {
   return defineTool({
     name: STOP_AND_RESPOND_TOOL_NAME,
     label: "Stop And Respond",
-    description:
-      "Stop the current agent loop and return the final user-facing response.",
+    description: "Stop the current agent loop and return the final user-facing response.",
     promptSnippet: "stop the agent loop and respond to the user",
     promptGuidelines: [
       "Call this tool exactly once when the task is complete, blocked, or failed.",
@@ -93,9 +90,13 @@ export function createStopAndRespondTool(state: StopAndRespondState) {
       state.response = response;
       state.status = params.status ?? "completed";
 
-      return createTextResult("Agent loop stopped; final response captured.", {
-        status: state.status,
-      }, true);
+      return createTextResult(
+        "Agent loop stopped; final response captured.",
+        {
+          status: state.status,
+        },
+        true,
+      );
     },
   });
 }
@@ -130,7 +131,9 @@ export async function runStopToolLoop<TPromptOptions>(
   for (let turn = 1; turn <= maxTurns; turn += 1) {
     const prompt =
       turn === 1
-        ? wrapStopToolPrompt(options.prompt)
+        ? options.wrapPrompt === false
+          ? options.prompt
+          : wrapStopToolPrompt(options.prompt)
         : stopToolContinuationPrompt(turn, maxTurns);
 
     await options.runPrompt(prompt, options.promptOptions);

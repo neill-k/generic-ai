@@ -43,6 +43,7 @@ import {
 import { createDashboardRoutes } from "./dashboard.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
 import { createCompanyGoalEvidence, createModelJudge } from "./goals.js";
+import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
 import { DEFAULT_TEMPLATE, listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
@@ -235,6 +236,8 @@ export interface CreateGenericCorpServerOptions {
     readonly judges?: GoalJudge | Readonly<Record<string, GoalJudge>>;
     readonly checks?: Readonly<Record<string, GoalCheck>>;
   };
+  /** How agent commands run. Defaults to `resolveAgentIsolation` over the environment. */
+  readonly agentIsolation?: AgentIsolation;
   readonly log?: (message: string) => void;
 }
 
@@ -260,9 +263,17 @@ export async function createGenericCorpServer(
     for (const name of secrets.weakNames()) {
       log(`Secret ${name} is too short to redact reliably. Use a longer value.`);
     }
+    const agentIsolation =
+      options.agentIsolation ?? resolveAgentIsolation(options.env ?? process.env);
+    log(describeAgentIsolation(agentIsolation));
     toolkit =
       options.toolkit ??
-      createCompanyToolkit({ company, secrets, env: options.env ?? process.env });
+      createCompanyToolkit({
+        company,
+        secrets,
+        env: options.env ?? process.env,
+        ...(agentIsolation.runAs === undefined ? {} : { runAs: agentIsolation.runAs }),
+      });
     const companyToolkit = toolkit;
     // Outward actions (messages, external writes, payments, writing MCP tools) wait for the
     // owner. A gated call ends the agent's turn; the cascade parks the task as `waiting` and
@@ -325,6 +336,7 @@ export async function createGenericCorpServer(
         {
           ok: health.ok,
           storage: storage.driver,
+          agentIsolation: agentIsolation.mode,
           ...(health.error ? { error: health.error } : {}),
         },
         health.ok ? 200 : 503,

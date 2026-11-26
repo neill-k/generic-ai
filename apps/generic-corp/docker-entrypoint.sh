@@ -10,10 +10,30 @@ set -eu
 
 data_dir="${GENERIC_CORP_DATA_DIR:-/data}"
 
+# Files the server and agents create are not readable by other users. Agent
+# homes are shared with the `agent` group, so the server and agent commands
+# can both work in them.
+umask 0007
+
 if [ "$(id -u)" = "0" ]; then
-  mkdir -p "$data_dir"
-  # Only touch files that are not already owned by node, so restarts stay fast.
-  find "$data_dir" ! -user node -exec chown node:node {} +
+  agents_dir="$data_dir/agents"
+  mkdir -p "$agents_dir"
+  # Only touch files that need it, so restarts stay fast.
+  #
+  # Server data (database, artifacts, anything outside agent homes) belongs to
+  # node and is closed to everyone else. Agent commands run as `agent`, which
+  # may pass through /data but not list or read it.
+  find "$data_dir" -path "$agents_dir" -prune -o ! -user node -exec chown node:node {} +
+  find "$data_dir" -path "$agents_dir" -prune -o -perm /o=rwx -exec chmod o-rwx {} +
+  chmod 0711 "$data_dir"
+  # Agent homes: owned by node (which creates them), group `agent`, readable
+  # and writable by the group, and setgid so new files join the group.
+  # Files an agent command created stay owned by `agent`.
+  find "$agents_dir" ! -user node ! -user agent -exec chown node {} +
+  find "$agents_dir" ! -group agent -exec chgrp agent {} +
+  find "$agents_dir" -type d ! -perm -2770 -exec chmod g+rwxs {} +
+  find "$agents_dir" ! -type d ! -type l ! -perm -0060 -exec chmod g+rw {} +
+  find "$agents_dir" ! -type l -perm /o=rwx -exec chmod o-rwx {} +
   exec setpriv --reuid=node --regid=node --init-groups env HOME=/home/node USER=node "$@"
 fi
 

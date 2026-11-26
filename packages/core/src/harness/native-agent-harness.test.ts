@@ -636,6 +636,46 @@ describe("native harness adapter", () => {
     expect(names.some((name) => name.endsWith("native.subagent_settled"))).toBe(true);
   });
 
+  it("keeps a native session on a goal the agent created until it completes it", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    let tools: string[] = [];
+    provider.setResponses([
+      (context) => {
+        tools = toolNames(context);
+        return fauxAssistantMessage(
+          [fauxToolCall("create_goal", { objective: "Ship the widget" })],
+          {
+            stopReason: "toolUse",
+          },
+        );
+      },
+      fauxAssistantMessage("Started on the widget."),
+      fauxAssistantMessage([fauxToolCall("complete_goal", {})], { stopReason: "toolUse" }),
+      fauxAssistantMessage("Widget shipped."),
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "native-goal",
+        adapter: "native",
+        model: "faux/root-model",
+        execution: { turnMode: "single-turn" },
+      },
+      { native: { resolveModel, goal: true } },
+    );
+    const result = await harness.run({
+      instruction: "Ship the widget as a long-running goal",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+    });
+    expect(result.status).toBe("succeeded");
+    expect(tools).toEqual(expect.arrayContaining(["get_goal", "create_goal", "complete_goal"]));
+    expect(result.outputText).toBe("Widget shipped.");
+    expect(result.events.some((event) => event.name.endsWith("native.long_run_continuation"))).toBe(
+      true,
+    );
+  });
+
   it("runs a primary agent declared as a builder role under its own policy", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
     const { provider, resolveModel } = fauxModels();

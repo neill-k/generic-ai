@@ -33,60 +33,102 @@ Docker Compose runs the same image locally with Postgres. Decision record:
 
 Railway does not let a container start other containers, so there is no
 Docker sandbox there. Generic Corp does not use one: its agents' shell
-commands run directly in the app container, as `node`, starting in the
-agent's home under `/data`.
+commands run directly in the app container, starting in the agent's home
+under `/data/agents`, as a separate unprivileged user, `agent`. The server
+runs as `node`. Threat model and decision record:
+[`docs/decisions/0064-agent-isolation-on-railway.md`](../../docs/decisions/0064-agent-isolation-on-railway.md).
 
 - **Works:** shell commands, git, file tools, grep and find, outbound network
   access (web search, APIs, MCP servers, the browser connector), and
-  installing tools into the agent's home with user-level installs.
+  installing tools into the agent's home with user-level installs (`HOME` is
+  the agent's home).
 - **Does not work:** anything that needs Docker (building or running
   containers), root (`apt-get install`), or a GUI.
 
-**Keeping the server's secrets away from agent commands.** Provider keys,
+**How agent commands are kept away from the server.** Provider keys,
 `DATABASE_URL`, `GENERIC_AI_SECRETS_KEY`, the setup token and auth tokens live
-in the server process. Agent commands cannot read them by either route:
+in the server process; owner auth, runs and the company live in Postgres or,
+locally, in `/data/company.sqlite`.
 
-- **Environment.** The shell tool starts every command with an environment
-  built from an allowlist (`PATH`, `HOME`, `SHELL`, locale, temp dirs and the
-  tool's own session variables), never the server's. The grep and find tools
-  give `rg` and `fd` an allowlisted environment too.
-- **`/proc`.** The image makes the `node` binary execute-only. Linux marks a
-  process that runs a binary it cannot read as non-dumpable, and then refuses
-  other processes of the same user access to its `/proc/<pid>/environ` and
-  memory. So an agent command, which runs as `node` like the server, cannot
-  read the server's environment.
-- **Code.** `/app` is owned by root, so agent commands cannot change the
-  server code that runs on the next start.
+- **Separate user.** The shell tool runs each command through
+  `sudo -n -u agent`. The image's sudoers rule lets `node` run commands as
+  `agent` and nothing else; `agent` cannot use sudo at all. As `agent`, a
+  command cannot read `/proc/<pid>/environ` of the server or of anything the
+  server starts (MCP servers launched with `uvx` included), cannot signal
+  those processes, and cannot read or write the server's files on `/data`.
+  The entrypoint keeps `/data` closed to other users (it can only be passed
+  through) and gives agent homes to the `agent` group, which `node` is in, so
+  the server and agent commands both work there. On a timeout or abort the
+  whole command, including anything it started in the background, is killed.
+- **Environment.** Each command starts from an allowlist (`PATH`, `HOME`,
+  `SHELL`, locale, temp dirs and the tool's own session variables), never the
+  server's. The grep and find tools give `rg` and `fd` an allowlisted
+  environment too, and lifecycle hook commands start from the same allowlist
+  (a hook gets a server variable only when its config names it in `passEnv`).
+- **File tools.** The agents' read, write, edit, ls, find and grep tools run
+  inside the server process, as `node`. They only accept paths inside the
+  agent's home, resolving symlinks first, so `/proc/self/environ`, server
+  files and links pointing out of the home are refused. `read` may also open
+  the shell tool's own saved output in the temp directory.
+- **`/proc` as a second line.** The image makes the `node` binary
+  execute-only, so Linux marks the server non-dumpable and even a process of
+  the same user cannot read its environment or memory. This still protects
+  the server if agent commands ever fall back to running as `node`.
+- **Code.** `/app` is owned by root, so neither user can change the server
+  code that runs on the next start.
 
-The image smoke test checks all three on every PR, with a probe that runs a
-command through the agents' shell tool and looks for the server's secret
-values in its environment and in every `/proc/<pid>/environ` it can read.
+The server logs which user agent commands run as at startup, and `/ready`
+reports it as `agentIsolation` (`user` or `shared`). If the server cannot
+switch to `agent` (for example a platform that blocks sudo), it logs a
+`WARNING` and runs agent commands as `node`. Set
+`GENERIC_CORP_AGENT_ISOLATION=required` to refuse to start instead, once the
+first deploy shows `agentIsolation: user`. `off` turns the separate user off.
 
-**What remains** (stronger isolation is roadmap item R20):
+The image smoke test checks all of this on every PR. Its probe starts a
+non-node child holding the secrets, runs commands through the agents' shell
+tool and looks for the secret values in their environment and in every
+`/proc/<pid>/environ` they can read, checks they run as `agent`, cannot read
+or write server files on `/data`, can write in their home and are killed on a
+timeout, then asks each file tool for paths outside the workspace.
 
-- Agent commands run as the same user as the server, so they can read and
-  write everything `node` can: every agent's home and workspace under
-  `/data`, and the SQLite database when there is no `DATABASE_URL` (on
-  Railway there is one, so the database is not on disk).
-- Child processes the server starts that are not `node` (for example an MCP
-  server launched with `uvx` or a native binary) are ordinary processes, so
-  an agent command can read their environment, including credentials
-  configured for that MCP server. MCP servers launched with `npx` or `node`
-  are protected like the server.
-- Lifecycle hook commands configured in the harness get the server's full
-  environment while they run. Generic Corp configures none.
-- Agent commands share the network with the server. They can reach the
-  Postgres host on Railway's private network, but not its password.
-- The `/proc` protection relies on standard Linux behaviour. After the first
-  deploy, confirm it on Railway with `railway ssh` into the app service and:
+**What remains**, and what a stronger setup would need:
+
+- **Agents share one user with each other.** Every agent's commands run as
+  `agent`, and agent homes share the `agent` group, so one agent's commands
+  can read and change another agent's home, memory file and workspace. For a
+  single-owner company this is the same trust level, but a prompt-injected
+  agent could tamper with a colleague's memory. Closing it needs one OS user
+  per agent, created when the agent is, which needs root or a privileged
+  helper at runtime.
+- **The network is shared.** Agent commands can reach anything the server
+  can: the internet and, on Railway, the Postgres host on the private
+  network (not its password). Railway has no per-process egress policy and
+  the container cannot change its own firewall. A stronger setup runs agent
+  commands in a separate service or VM with its own egress rules (an
+  allowlisting proxy, or a provider's sandbox such as Firecracker/gVisor
+  microVMs) and talks to it over an authenticated API.
+- **No resource limits per command.** Agent commands share the container's
+  CPU, memory and disk. Railway does not expose cgroup controls inside the
+  container; a runaway command can slow or crash the server. Railway's
+  service limits cap the whole container.
+- **A symlink race in the file tools.** The file tools check a path and then
+  open it. An agent command that swaps a directory in its home for a symlink
+  at exactly the right moment could make a file tool (running as `node`)
+  read or write outside the home. Closing it needs kernel path resolution
+  (`openat2` with `RESOLVE_BENEATH`) or file tools that run as `agent`.
+- **MCP server arguments are public.** Any user can read any process's
+  command line, so put MCP server credentials in `env` (protected) and never
+  in `args`.
+- **Confirm on Railway.** After the first deploy, check `/ready` shows
+  `"agentIsolation":"user"`, then `railway ssh` into the app service and run:
 
   ```bash
-  generic-corp-entrypoint node apps/generic-corp/scripts/agent-env-probe.mjs \
+  PROBE_EXPECT_ISOLATION=user generic-corp-entrypoint \
+    node apps/generic-corp/scripts/agent-env-probe.mjs \
     "$ANTHROPIC_API_KEY" "$DATABASE_URL"
   ```
 
-  It prints `None of the 2 secret values reached the agent command.` on
-  success.
+  It ends with `Agent commands run as agent: ...` on success.
 
 ## Local testing with Docker Compose
 

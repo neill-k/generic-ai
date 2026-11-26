@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, rm, symlink } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -91,6 +91,119 @@ describe("@generic-ai/plugin-tools-files", () => {
         /escapes the workspace root/i,
       );
       await expect(lstat(path.join(outside, "nested"))).rejects.toThrow();
+    });
+  });
+});
+
+describe("agent-facing file tools stay inside the workspace", () => {
+  type PiTool = {
+    readonly name: string;
+    execute(id: string, params: Record<string, unknown>): Promise<{ content: unknown }>;
+  };
+  const tool = (files: ReturnType<typeof createWorkspaceFileTools>, toolName: string) => {
+    const found = (files.piTools as readonly unknown[]).find(
+      (candidate) => (candidate as PiTool).name === toolName,
+    );
+    if (found === undefined) throw new Error(`no ${toolName} tool`);
+    return found as PiTool;
+  };
+  const text = (result: { content: unknown }) => JSON.stringify(result.content);
+
+  async function withOutside<T>(run: (root: string, outside: string) => Promise<T>): Promise<T> {
+    return withTempRoot(async (root) => {
+      const outside = await mkdtemp(path.join(os.tmpdir(), "plugin-tools-files-outside-"));
+      tempRoots.push(outside);
+      await writeFile(path.join(outside, "server-secret.txt"), "server-only-value\n");
+      const home = path.join(root, "agent");
+      await mkdir(home);
+      return run(home, outside);
+    });
+  }
+
+  it("refuses absolute paths outside the workspace for every tool", async () => {
+    await withOutside(async (home, outside) => {
+      const files = createWorkspaceFileTools({ root: home });
+      const secret = path.join(outside, "server-secret.txt");
+      await expect(tool(files, "read").execute("1", { path: secret })).rejects.toThrow(
+        /outside the agent's workspace/,
+      );
+      await expect(
+        tool(files, "read").execute("1", { path: "/proc/self/environ" }),
+      ).rejects.toThrow(/outside the agent's workspace/);
+      await expect(
+        tool(files, "write").execute("1", {
+          path: path.join(outside, "planted.txt"),
+          content: "x",
+        }),
+      ).rejects.toThrow(/outside the agent's workspace/);
+      await expect(
+        tool(files, "edit").execute("1", {
+          path: secret,
+          edits: [{ oldText: "server", newText: "agent" }],
+        }),
+      ).rejects.toThrow(/outside the agent's workspace/);
+      for (const name of ["ls", "find", "grep"]) {
+        const params = name === "ls" ? { path: outside } : { pattern: "server", path: outside };
+        await expect(tool(files, name).execute("1", params)).rejects.toThrow(
+          /outside the agent's workspace/,
+        );
+      }
+      await expect(tool(files, "read").execute("1", { path: "../../etc/passwd" })).rejects.toThrow(
+        /outside the agent's workspace/,
+      );
+      expect(await readFile(secret, "utf8")).toBe("server-only-value\n");
+    });
+  });
+
+  it("refuses symlinks that point outside the workspace", async () => {
+    await withOutside(async (home, outside) => {
+      const files = createWorkspaceFileTools({ root: home });
+      await symlink(path.join(outside, "server-secret.txt"), path.join(home, "link.txt"));
+      await symlink(outside, path.join(home, "linked-dir"));
+      await expect(tool(files, "read").execute("1", { path: "link.txt" })).rejects.toThrow(
+        /outside the agent's workspace/,
+      );
+      await expect(
+        tool(files, "write").execute("1", { path: "linked-dir/planted.txt", content: "x" }),
+      ).rejects.toThrow(/outside the agent's workspace/);
+      await expect(tool(files, "ls").execute("1", { path: "linked-dir" })).rejects.toThrow(
+        /outside the agent's workspace/,
+      );
+    });
+  });
+
+  it("still works on relative and absolute paths inside the workspace", async () => {
+    await withOutside(async (home) => {
+      const files = createWorkspaceFileTools({ root: home });
+      await tool(files, "write").execute("1", { path: "notes/a.md", content: "inside value\n" });
+      expect(text(await tool(files, "read").execute("1", { path: "notes/a.md" }))).toContain(
+        "inside value",
+      );
+      expect(
+        text(await tool(files, "read").execute("1", { path: path.join(home, "notes", "a.md") })),
+      ).toContain("inside value");
+      expect(text(await tool(files, "ls").execute("1", {}))).toContain("notes");
+      expect(text(await tool(files, "grep").execute("1", { pattern: "inside" }))).toContain("a.md");
+    });
+  });
+
+  it("lets read open the shell tool's own full-output files, and nothing else in the temp dir", async () => {
+    await withOutside(async (home) => {
+      const files = createWorkspaceFileTools({ root: home });
+      const saved = path.join(os.tmpdir(), "generic-ai-bash-0123456789abcdef.log");
+      const planted = path.join(os.tmpdir(), "generic-ai-bash-fedcba9876543210.log");
+      tempRoots.push(saved, planted);
+      await writeFile(saved, "full command output\n");
+      await symlink("/proc/self/environ", planted);
+      expect(text(await tool(files, "read").execute("1", { path: saved }))).toContain(
+        "full command output",
+      );
+      await expect(tool(files, "read").execute("1", { path: planted })).rejects.toThrow(
+        /outside the agent's workspace/,
+      );
+      await expect(
+        tool(files, "write").execute("1", { path: saved, content: "changed" }),
+      ).rejects.toThrow(/outside the agent's workspace/);
     });
   });
 });

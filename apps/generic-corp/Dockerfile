@@ -44,9 +44,29 @@ ARG INSTALL_BROWSER=true
 # entrypoint fixes volume ownership.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      bash ca-certificates fd-find git ripgrep tini util-linux \
+      bash ca-certificates fd-find git ripgrep sudo tini util-linux \
  && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
  && rm -rf /var/lib/apt/lists/*
+
+# Agents' shell commands run as their own unprivileged user, `agent`, not as
+# `node`, which runs the server. As `agent` a command cannot read the server's
+# files on /data, the environment of the server or of anything it starts (MCP
+# servers included), or signal those processes. `node` may run commands as
+# `agent` and nothing else, without a password, keeping the environment it
+# hands over (already reduced to an allowlist by the terminal tool). `node` is
+# in the `agent` group so the server can read and write what agents create in
+# their homes. Agent workspaces are shared between the two users, so git must
+# not refuse repositories owned by the other one.
+RUN groupadd --gid 1001 agent \
+ && useradd --uid 1001 --gid agent --no-create-home --home-dir /nonexistent \
+      --shell /usr/sbin/nologin agent \
+ && usermod -aG agent node \
+ && printf '%s\n' \
+      'Defaults:node !requiretty, !use_pty, !lecture, !syslog, !pam_session' \
+      'node ALL=(agent) NOPASSWD:SETENV: ALL' > /etc/sudoers.d/generic-corp-agent \
+ && chmod 0440 /etc/sudoers.d/generic-corp-agent \
+ && visudo -cf /etc/sudoers.d/generic-corp-agent \
+ && git config --system --add safe.directory '*'
 
 # The browser connector launches `npx -y @playwright/mcp@<pinned> --headless`,
 # which drives Google Chrome by default. Install Chrome and its system
@@ -73,6 +93,7 @@ RUN if [ "$INSTALL_BROWSER" = "true" ]; then \
 RUN chmod 0711 "$(command -v node)"
 
 ENV NODE_ENV=production \
+    GENERIC_CORP_AGENT_USER=agent \
     GENERIC_CORP_HOST=0.0.0.0 \
     PORT=3000 \
     GENERIC_CORP_DATA_DIR=/data

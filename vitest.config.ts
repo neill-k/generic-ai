@@ -11,6 +11,7 @@ const packageAliases = [
   "resources",
   "extensions",
   "subagents",
+  "autonomy",
   "core",
   "sdk",
   "observability",
