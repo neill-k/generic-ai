@@ -198,7 +198,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: embedded MCP support exposed as a plugin so MCP is never a kernel hard requirement.
 - Allowed deps: `@generic-ai/sdk`, `pi`, MCP client libraries.
 - Not responsible for: replacing MCP as a protocol. The kernel and SDK must remain MCP-agnostic.
-- Notes: server trust, approval flow, and transport-specific governance are deferred to the roadmap in `docs/runtime-governance.md`.
+- Notes: connects to configured stdio/HTTP/SSE servers and hands their tools to the harness through the `mcp` capability's `harnessTools()`, tagged with `mcp.read`/`mcp.write` effects so core role policies filter them. Server trust tiers and approval flow are deferred to the roadmap in `docs/runtime-governance.md`.
 
 ### `@generic-ai/plugin-agent-skills`
 

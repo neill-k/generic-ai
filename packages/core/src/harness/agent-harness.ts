@@ -46,6 +46,7 @@ import { Type } from "@sinclair/typebox";
 import { createCanonicalEventStream, type CanonicalEventStream } from "../events/index.js";
 import {
   type CapabilityPiSessionEventContext,
+  expandMcpCapabilityTools,
   type PiCapabilityBindings,
   runCapabilityPiAgentSession,
 } from "../runtime/capability-runtime.js";
@@ -115,6 +116,7 @@ export const BENCHMARK_CONTAINER_POLICY_PROFILE: AgentHarnessPolicyProfileId =
 
 const READ_EFFECTS: readonly AgentHarnessCapabilityEffect[] = Object.freeze([
   "fs.read",
+  "mcp.read",
   "repo.inspect",
   "lsp.read",
   "memory.read",
@@ -131,6 +133,7 @@ const MUTATING_EFFECTS: readonly AgentHarnessCapabilityEffect[] = Object.freeze(
   "fs.write",
   "process.spawn",
   "network.egress",
+  "mcp.write",
   "mcp.launch",
   "memory.write",
   "secret.read",
@@ -143,7 +146,6 @@ const ALL_LOCAL_EFFECTS: readonly AgentHarnessCapabilityEffect[] = Object.freeze
   ...READ_EFFECTS,
   ...HANDOFF_EFFECTS,
   ...MUTATING_EFFECTS,
-  "mcp.read",
 ]);
 
 function effectSet(
@@ -940,6 +942,8 @@ function profileDeniedEffects(input: {
     effects.add("network.egress");
   }
   if (input.profile === BENCHMARK_CONTAINER_POLICY_PROFILE || !input.allowMcp) {
+    effects.add("mcp.read");
+    effects.add("mcp.write");
     effects.add("mcp.launch");
     effects.add("secret.read");
   }
@@ -1664,7 +1668,9 @@ function createPiAgentHarnessAdapter(
       const roles = resolveRoles(input.harness);
       const modelId = input.harness.model ?? DEFAULT_OPENAI_CODEX_MODEL;
       const piSessionInputs = options.sessionInputs ?? resolvePiSessionInputs(modelId);
-      const baseCapabilities = applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp);
+      const baseCapabilities = await expandMcpCapabilityTools(
+        applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
+      );
       const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp });
       const profilePolicyDecisions = createPolicyDecisions({
         runId,
