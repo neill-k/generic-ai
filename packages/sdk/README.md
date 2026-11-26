@@ -31,6 +31,9 @@ Current SDK contents:
 - Agent execution config for the default stop-tool loop and the
   `single-turn` opt-out used when a caller truly wants one provider turn. When
   `maxTurns` is omitted, stop-tool loop execution is unbounded by default.
+- Stateful standard protocol reducers (pipeline, verifier-loop, hierarchy,
+  squad), `ProtocolActionOutcome`, and `parseActorDirectives()` for the core
+  topology runner
 - Deterministic Harness DSL compiler and evidence report helpers
 - Goal contracts (`src/goals/`): `GoalSpec` with a definition of done and
   numeric, rubric, trace, output-schema, and host-check validators; `sealGoal`

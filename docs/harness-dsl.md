@@ -24,6 +24,53 @@ Harness DSL -> Generic Agent IR -> runtime/packages -> traces/evals/reports
 - `examples/harness-shootout` provides the first package-composed benchmark
   fixture and walkthrough.
 
+## Running Topologies
+
+Protocol bindings are executable. `runHarnessTopology()` in `@generic-ai/core`
+selects a binding (the first one, or `protocol` by binding id or protocol
+name), validates it, and then loops: the protocol reducer returns the next batch
+of actions from the outcomes so far, the runner executes them, and each
+outcome feeds the next reduction. Actions in one batch run concurrently up to
+`maxConcurrency`. Failed actor attempts retry up to `maxAttempts` unless the
+actor runner marks the failure non-retryable. Runs stop at `done`, `failed`,
+or `blocked`, at `maxSteps`, at the deadline, or on cancellation.
+
+The scheduler is runtime-neutral: actors run through an injected
+`TopologyActorRunner`. `createAdapterTopologyActorRunner()` runs each actor
+through any SDK `AgentHarnessAdapter`, giving it a single-role harness config
+whose model comes from the actor, a matching `harness.roles` entry, or the
+harness default, so models can be chosen per role and new runtimes work
+without scheduler changes.
+
+`runAgentHarnessTopology()` executes each actor as a Pi role session with the
+same policy profile, role effect policy, lifecycle hooks, canonical events,
+and artifacts as `AgentHarness`. Actor role names map to role policies:
+`implementer`, `solver`, and `repairer` can edit; `critic` and `reviewer` run
+checks without file writes; `manager`, `planner`, and unknown role names are
+read-only. A `harness.roles` entry whose id matches the actor id or role name
+overrides the mapping.
+
+Standard protocol behaviour and binding `config`:
+
+| Protocol | Flow | Config |
+| --- | --- | --- |
+| `pipeline` | Stages run in order; each sees earlier outputs. A failed or `VERDICT: FAIL` stage fails the run. | `stages` (actor ids) |
+| `verifier-loop` | Solver, then critic; on `VERDICT: FAIL` the repairer (or solver) fixes and the critic reviews again. | `solver`, `critic`, `repairer`, `maxIterations` (default 3) |
+| `hierarchy` | Manager plans assignments, reports work in parallel, manager synthesizes. | `manager`, `delegatees` |
+| `squad` | Members claim work items in parallel batches and share a board of finished items. | `workItems`, `lead`, `space` |
+
+All protocols accept `maxContextChars` to bound how much earlier output is
+shared with each actor. Actors steer protocols with a `VERDICT: PASS|FAIL`
+line or a fenced JSON block (`{"assignments": [...]}` for hierarchy plans,
+`{"workItems": [...]}` for squad decomposition), parsed by
+`parseActorDirectives()`.
+
+Every run returns per-action outcomes and a `TraceEvent` trace in which
+`actor.completed` events point at their `actor.invoked` event and each
+invocation points at its `protocol.action.planned` event. The Pi-backed runner
+also writes `topology/topology-trace.json` and `topology/topology-outcomes.json`
+beside the standard harness artifacts.
+
 ## Recommendation Boundary
 
 Reports are evidence-backed, not marketing claims. They separate:
