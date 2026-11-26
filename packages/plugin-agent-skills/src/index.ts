@@ -7,7 +7,7 @@ import {
   loadSkillsFromDir,
   type LoadSkillsResult,
   type Skill,
-} from "@mariozechner/pi-coding-agent";
+} from "@generic-ai/resources";
 import {
   createWorkspaceLayout,
   type WorkspaceRootInput,

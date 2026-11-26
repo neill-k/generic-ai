@@ -8,6 +8,7 @@ const packageAliases = [
   "agent",
   "tools",
   "session",
+  "resources",
   "core",
   "sdk",
   "observability",
