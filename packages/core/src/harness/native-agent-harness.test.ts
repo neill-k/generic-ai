@@ -65,6 +65,52 @@ function stop(response: string, status?: "completed" | "blocked" | "failed"): As
 }
 
 describe("native harness adapter", () => {
+  it("shows project instruction files in the system prompt only when contextFiles is on", async () => {
+    const outer = await mkdtemp(join(tmpdir(), "generic-ai-native-context-"));
+    const workspaceRoot = join(outer, "workspace");
+    await mkdir(workspaceRoot, { recursive: true });
+    await writeFile(join(outer, "AGENTS.md"), "Server instructions.");
+    await writeFile(join(workspaceRoot, "AGENTS.md"), "Workspace instructions.");
+    const prompts: string[] = [];
+    const run = async (contextFiles: boolean | { stopAt: string } | undefined) => {
+      const { provider, resolveModel } = fauxModels();
+      provider.setResponses([
+        (context) => {
+          prompts.push(context.systemPrompt ?? "");
+          return stop("done");
+        },
+      ]);
+      const harness = createAgentHarness(
+        { id: "native-context-files", adapter: "native", model: "faux/root-model" },
+        {
+          native: {
+            resolveModel,
+            ...(contextFiles === undefined ? {} : { contextFiles }),
+          },
+        },
+      );
+      const result = await harness.run({
+        instruction: "Say done",
+        workspaceRoot,
+        artifactDir: join(workspaceRoot, "artifacts"),
+      });
+      expect(result.status).toBe("succeeded");
+    };
+
+    await run(undefined);
+    await run({ stopAt: workspaceRoot });
+    await run(true);
+
+    expect(prompts[0]).not.toContain("project_instructions");
+    expect(prompts[1]).toContain(
+      `<project_instructions path="${join(workspaceRoot, "AGENTS.md")}">\nWorkspace instructions.\n</project_instructions>`,
+    );
+    expect(prompts[1]).not.toContain("Server instructions.");
+    expect(prompts[2]?.indexOf("Server instructions.")).toBeLessThan(
+      prompts[2]?.indexOf("Workspace instructions.") ?? -1,
+    );
+  });
+
   it("runs root and delegated roles on their own models with role-filtered tools", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
     const { provider, resolveModel } = fauxModels();

@@ -1,4 +1,11 @@
 export {
+  CONTEXT_FILE_NAMES,
+  type ContextFile,
+  formatContextFilesForPrompt,
+  type LoadProjectContextFilesOptions,
+  loadProjectContextFiles,
+} from "./context-files.js";
+export {
   type ParsedFrontmatter,
   parseFrontmatter,
   stripBom,

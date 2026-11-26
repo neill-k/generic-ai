@@ -157,6 +157,8 @@ export interface NativeAgentHarnessOptions {
   readonly harvest?: RunCapabilityNativeAgentSessionOptions["harvest"];
   /** The continual harness for every native session (see `docs/continual-harness.md`). */
   readonly continual?: RunCapabilityNativeAgentSessionOptions["continual"];
+  /** Project instruction files (`AGENTS.md` and friends) in every native session's system prompt. */
+  readonly contextFiles?: RunCapabilityNativeAgentSessionOptions["contextFiles"];
 }
 
 export interface CreateAgentHarnessOptions<
@@ -1289,6 +1291,7 @@ function createNativeSessionBackend(
         ...(options.toolBatch === undefined ? {} : { toolBatch: options.toolBatch }),
         ...(options.harvest === undefined ? {} : { harvest: options.harvest }),
         ...(options.continual === undefined ? {} : { continual: options.continual }),
+        ...(options.contextFiles === undefined ? {} : { contextFiles: options.contextFiles }),
       });
       return {
         sessionId: result.sessionId,

@@ -1,6 +1,6 @@
 # @generic-ai/resources
 
-Skills and prompt templates for the Generic AI native runtime, adapted from pi's coding agent
+Skills, prompt templates and project context files for the Generic AI native runtime, adapted from pi's coding agent
 (MIT; see `THIRD_PARTY_NOTICES.md`).
 
 ```ts
@@ -33,3 +33,18 @@ expandSkillCommand("/skill:triage issue 42", skills); // <skill …>body</skill>
   run with `/skill:name`.
 - Prompt templates are `.md` files; the file name is the command. `$1`, `$@`, `$ARGUMENTS`,
   `${1:-default}`, `${@:2}` and `${@:2:1}` are filled from bash-style quoted arguments.
+
+## Project context files
+
+`loadProjectContextFiles({ cwd, agentDir, stopAt })` returns the project instruction files an
+agent should follow, as pi does: the global agent directory's file first, then one file per
+directory from the outermost ancestor of `cwd` down to `cwd`. Each directory contributes its first
+match from `AGENTS.override.md`, `AGENTS.md`, `AGENTS.MD`, `CLAUDE.md`, `CLAUDE.MD`. Inside a
+nested linked git worktree, the main repository's copy of the worktree's file is skipped so the
+same instructions are not applied twice. `stopAt` ends the walk at a directory, so a server can
+keep its own instructions away from an agent's workspace.
+`formatContextFilesForPrompt(files)` renders them as `<project_instructions path="…">` blocks.
+
+In core, native sessions show them when `contextFiles` is set (`native.contextFiles` on a
+harness): `true` climbs to the filesystem root, `{ stopAt: workspaceRoot }` stops at the
+workspace. It is off by default.
