@@ -13,6 +13,7 @@ import {
 
 export * from "./client.js";
 export * from "./config.js";
+export * from "./connectors.js";
 export * from "./registry.js";
 export * from "./tools.js";
 

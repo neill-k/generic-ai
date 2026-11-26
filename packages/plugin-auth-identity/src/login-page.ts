@@ -104,6 +104,8 @@ export function renderOwnerAuthPage(input: OwnerAuthPageInput): string {
     <label for="passkey-name">New passkey name</label>
     <input id="passkey-name" maxlength="100" value="Another device">
     <button id="passkey-add" type="button" class="secondary">Add a passkey</button>
+    <button id="sessions-revoke" type="button" class="secondary">Sign out other sessions</button>
+    <p id="sessions-result" hidden></p>
   </div>
 </main>
 <script nonce="${nonce}">
@@ -264,6 +266,12 @@ export function renderOwnerAuthPage(input: OwnerAuthPageInput): string {
   $("continue-button").addEventListener("click", () => { window.location.assign(CONFIG.afterLogin); });
   $("logout-button").addEventListener("click", guard(async () => { await api("/logout", { method: "POST" }); await refresh(); }));
   $("passkey-add").addEventListener("click", guard(async () => { await registerPasskey($("passkey-name").value); await refresh(); }));
+  $("sessions-revoke").addEventListener("click", guard(async () => {
+    const result = await api("/sessions/revoke-others", { method: "POST" });
+    const note = $("sessions-result");
+    note.textContent = "Signed out " + result.revoked + " other session" + (result.revoked === 1 ? "" : "s") + ".";
+    note.hidden = false;
+  }));
   $("token-create").addEventListener("click", guard(async () => {
     const days = $("token-expiry").value.trim();
     const created = await api("/tokens", {

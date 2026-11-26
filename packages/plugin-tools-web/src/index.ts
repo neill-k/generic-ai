@@ -1244,3 +1244,5 @@ export function createWebToolsPlugin(options: WebToolsOptions): WebToolsPlugin {
     search: searchImpl,
   });
 }
+
+export * from "./search-providers.js";

@@ -19,6 +19,7 @@ When any of this document conflicts with the planning pack, the planning pack wi
 
 ```text
 packages/            framework source: kernel, SDK, plugins, and the starter preset
+apps/                production applications built on the framework (Generic Corp)
 examples/            runnable reference usage of the framework
 contracts/           frozen interface contracts surfaced to plugin and external consumers
 specs/               specifications used by docs-as-code and contract testing
@@ -29,33 +30,35 @@ docs/                planning pack, decision records, and framework documentatio
 
 Generic AI has a small number of layers. Dependency direction is strictly downward:
 
-0. **Native runtime** — `@generic-ai/ai` (provider-neutral model layer) and `@generic-ai/agent` (agent loop)
+0. **Native runtime** — `@generic-ai/ai` (provider-neutral model layer), `@generic-ai/agent` (agent loop), `@generic-ai/tools` (coding tools), and `@generic-ai/session` (sessions and compaction)
 1. **Kernel** — `@generic-ai/core`
 2. **SDK** — `@generic-ai/sdk`
 3. **Plugins and package extensions** - everything matching `@generic-ai/plugin-*` plus future documented protocol/grader/report/policy package layers
 4. **Presets** — `@generic-ai/preset-*`
 5. **Surface packages** — documented public user-facing packages such as `@generic-ai/observability` and future `@generic-ai/web-ui`
 6. **Examples** — `examples/*`
+7. **Apps** — `apps/*`, production applications such as `apps/generic-corp` (ADR 0046)
 
 The layering rules:
 
-- The native runtime packages depend only on third-party libraries (the official provider SDKs) and on each other (`@generic-ai/agent` depends on `@generic-ai/ai`). They must not depend on the kernel, the SDK, plugins, or presets. They are the replacement for `pi` underneath the existing adapter boundary; see `docs/planning/native-harness-parity.md`.
+- The native runtime packages depend only on third-party libraries (the official provider SDKs) and on each other (`@generic-ai/agent` depends on `@generic-ai/ai`; `@generic-ai/tools` on both; `@generic-ai/session` on all three). They must not depend on the kernel, the SDK, plugins, or presets. They are the replacement for `pi` underneath the existing adapter boundary; see `docs/planning/native-harness-parity.md`.
 - The kernel may depend on `pi` and on `@generic-ai/sdk` where that helps it expose its own contracts cleanly. It must not depend on any plugin or preset package.
 - The SDK may depend on `pi`. It must not depend on the kernel or any plugin.
 - Plugins may depend on `@generic-ai/sdk` and on `pi`. They must not import from `@generic-ai/core`. Plugins may depend on other plugins only when the dependency is part of the documented intent for that plugin (for example, `plugin-memory-files` and `plugin-tools-files` depending on `plugin-workspace-fs`, or `plugin-messaging` depending on a storage plugin through the storage contract rather than through a specific implementation whenever possible).
 - Presets may depend on `@generic-ai/core`, `@generic-ai/sdk`, and any plugins they wire up. Presets are the normal package type that composes kernel and plugins together. Approved exception: `@generic-ai/core` may keep the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls, but that exception is limited to bootstrap metadata and must not introduce plugin or preset package imports into the kernel.
 - Surface packages may depend on `@generic-ai/sdk`, third-party UI/server libraries, and documented plugin packages through their public contracts. They must not import `@generic-ai/core` or `@generic-ai/preset-*`. Surface packages must keep their public entrypoints isolated so client/React imports do not pull server-only code and server imports do not pull React DOM.
 - Examples may depend on any public package they need to demonstrate framework usage. Examples must not be depended on by any package inside `packages/`.
+- Apps may depend on any public package, including the kernel and presets. Nothing under `packages/` or `examples/` may depend on an app. App concepts (for Generic Corp: CEO, org chart, board, company templates) stay in the app unless an ADR promotes a general form into the SDK or a plugin; see `docs/decisions/0046-generic-corp-app-on-generic-ai.md`.
 - Harness DSL and Generic Agent IR contracts belong in the SDK and specs. Runtime helpers in core may consume compiled harnesses, but loose DSL parsing and package-owned protocol/policy/grader semantics must not become kernel business logic.
 
 Anything outside these rules needs an entry in `docs/decisions/` explaining the trade-off.
 
 ## Publishing And Visibility
 
-Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and the repo root itself are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
+Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and `apps/*`, and the repo root itself, are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
 - **Public (27 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
-- **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. Any new workspace under `examples/*` inherits this private-by-default rule.
+- **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. `apps/generic-corp/` (`@generic-ai/app-generic-corp`) is `"private": true` and listed in the same `ignore` array. Any new workspace under `examples/*` or `apps/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
 
@@ -77,13 +80,27 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Not responsible for: coding tools, sessions on disk, compaction, or framework integration (those arrive in later runtime slices or stay in core).
 - Publishes as: `@generic-ai/agent` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
+### `@generic-ai/tools`
+
+- Role: the native coding tools (`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`) as `AgentTool`s, with output truncation, a per-file mutation queue, and pluggable operations for remote workspaces. Adapted from pi's coding agent under MIT.
+- Allowed deps: `@generic-ai/ai`, `@generic-ai/agent`, and small third-party libraries (`diff`, `minimatch`, `cross-spawn`, `@sinclair/typebox`).
+- Not responsible for: effect metadata, policy, or capability binding (plugins and core add those).
+- Publishes as: `@generic-ai/tools` — public, independent versioning, `publishConfig.access: public`, provenance on.
+
+### `@generic-ai/session`
+
+- Role: native sessions: the append-only JSONL session tree (branching, labels, resume, migration), context compaction and branch summaries, usage totals, and agent helpers for persistence, auto-compaction, and retry on transient provider errors. Adapted from pi's coding agent under MIT.
+- Allowed deps: `@generic-ai/ai`, `@generic-ai/agent`, `@generic-ai/tools`.
+- Not responsible for: the durable store or queue (those are R6/R7; a store-backed writer plugs in later), policy, or harness orchestration.
+- Publishes as: `@generic-ai/session` — public, independent versioning, `publishConfig.access: public`, provenance on.
+
 ### `@generic-ai/core`
 
 - Role: framework kernel. Owns bootstrap, plugin host, registries, scope, sessions, streaming events, and the canonical run envelope.
-- Allowed deps: `pi`, `@generic-ai/sdk`.
+- Allowed deps: `pi`, `@generic-ai/sdk`, and the native runtime packages (`@generic-ai/ai`, `@generic-ai/agent`, `@generic-ai/session`).
 - Not responsible for: MCP, Agent Skills, delegation, messaging, memory, storage implementations, transport, output shaping, Harness DSL syntax, package-specific protocol/policy/grader semantics, or any business capability.
 - Notes: the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls is the only approved kernel/preset composition exception. See `docs/decisions/0012-bootstrap-api.md`.
-- Harness note: core exposes the Pi-backed `AgentHarness` control-plane implementation, filters role capabilities by SDK-declared effects, writes artifacts through the harness artifact-store contract, and may consume SDK-owned compiled harness contracts. `GenericAILlmRuntime` remains a low-level text/model helper rather than the composable agent harness.
+- Harness note: core exposes the `AgentHarness` control-plane implementation with two built-in session backends, `pi` and `native` (selected by `harness.adapter`); both share the same role policy, hooks, delegation, events, and artifacts. It filters role capabilities by SDK-declared effects, writes artifacts through the harness artifact-store contract, and may consume SDK-owned compiled harness contracts. `GenericAILlmRuntime` remains a low-level text/model helper rather than the composable agent harness.
 - Agent-loop note: Pi owns the per-prompt model/tool loop. Core owns the
   Generic AI terminal contract around Pi sessions: it injects the
   runtime-control `stop_and_respond` tool, lets that tool terminate Pi's

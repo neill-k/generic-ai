@@ -49,9 +49,18 @@ const cascade = createDelegationCascade({
 
 await cascade.recover(); // re-queue anything a previous process left behind
 cascade.start();
-const task = await cascade.submit({ agentId: "ceo", instruction: "Plan the launch" });
+const task = await cascade.submit({
+  agentId: "ceo",
+  instruction: "Plan the launch",
+  actor: toRunActor(authContext), // recorded on every task, event and run in the cascade
+});
 const result = await cascade.wait(task.taskId);
 ```
+
+Give a task a checkable goal with `goal: { spec }` (an SDK goal spec, see
+`docs/goals.md`). The task then only succeeds when its validators report
+`COMPLETE`; otherwise the agent gets the validators' feedback and another turn.
+Register rubric judges and host checks with the cascade's `goals` option.
 
 An agent turn either replies with its result, gives up with
 `{"finish_task": {"status": "failed", "reason": "..."}}`, or delegates by ending

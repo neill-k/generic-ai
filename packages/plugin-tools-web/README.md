@@ -40,6 +40,35 @@ const fetched = await webTools.fetch({ url: "https://docs.example.com/start" });
 const searched = await webTools.search({ query: "generic ai", limit: 5 });
 ```
 
+## Search providers
+
+Three ready-made providers turn `web_search` into real web research:
+
+| Provider | Factory | Needs |
+| --- | --- | --- |
+| Brave Search API | `createBraveSearchProvider({ apiKey })` | A Brave Search API key |
+| Tavily | `createTavilySearchProvider({ apiKey })` | A Tavily API key |
+| SearXNG | `createSearxngSearchProvider({ baseUrl })` | A self-hosted instance with JSON output enabled; no third-party account |
+
+From config, `createWebSearchProvider` resolves `${VAR}` placeholders from the environment so keys
+stay out of config files, and fails clearly when a variable is missing:
+
+```ts
+import { createWebSearchProvider, createWebToolsPlugin } from "@generic-ai/plugin-tools-web";
+
+const webTools = createWebToolsPlugin({
+  root: process.cwd(),
+  searchProvider: createWebSearchProvider({ provider: "brave", apiKey: "${BRAVE_API_KEY}" }),
+});
+```
+
+Provider results still pass through the host policy below. Snippets are stripped of HTML and capped
+at 500 characters. HTTP failures raise `WebSearchProviderError` with the provider name and status,
+which `web_search` reports as a structured tool error.
+
+For interactive browsing (clicking, forms, pages that need JavaScript), use the `browser` connector
+in `@generic-ai/plugin-mcp`.
+
 ## Host policy rules
 
 - `blockedHosts` always wins

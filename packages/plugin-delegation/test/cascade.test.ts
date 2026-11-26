@@ -656,3 +656,258 @@ describe.skipIf(!postgresUrl)("delegation cascade on Postgres", () => {
     ]);
   });
 });
+
+describe("cascade actor", () => {
+  it("records who started a cascade on every task, event and turn", async () => {
+    const actor = {
+      subjectId: "owner",
+      actorType: "human",
+      credentialSource: "passkey",
+      displayName: "Owner",
+    } as const;
+    const { executor, calls } = scriptedExecutor({
+      ceo: (_input, turn) =>
+        turn === 1
+          ? {
+              status: "succeeded",
+              outputText: json({ delegate_task: [{ to: "vp-ops", task: "x" }] }),
+            }
+          : { status: "succeeded", outputText: "done" },
+    });
+    const { cascade, runStore } = await openHarness(executor);
+    await cascade.submit({ agentId: "ceo", instruction: "x", taskId: "who", actor });
+    await cascade.drain();
+
+    for (const taskId of ["who", "who.0.1"]) {
+      expect((await cascade.get(taskId))?.actor).toEqual(actor);
+      expect((await runStore.getRun(taskId))?.envelope.actor).toEqual(actor);
+      const events = await runStore.readEvents(taskId);
+      expect(events.length).toBeGreaterThan(0);
+      expect(events.every((event) => event.actor?.subjectId === "owner")).toBe(true);
+    }
+    expect(calls.every((call) => call.actor?.subjectId === "owner")).toBe(true);
+  });
+});
+
+describe("goal-gated tasks (R24)", () => {
+  const reportGoal = {
+    id: "report",
+    objective: "Report the headcount as JSON.",
+    definitionOfDone: ["The output is JSON with a numeric headcount of at least 10"],
+    validators: [
+      {
+        id: "shape",
+        kind: "output_schema",
+        schema: {
+          type: "object",
+          required: ["headcount"],
+          properties: { headcount: { type: "number" } },
+        },
+      },
+      {
+        id: "size",
+        kind: "numeric",
+        source: { outputPath: "headcount" },
+        operator: "gte",
+        value: 10,
+      },
+    ],
+  } as const;
+
+  it("keeps a task going until its goal validators report COMPLETE", async () => {
+    const { executor, calls } = scriptedExecutor({
+      analyst: (_input, turn) => ({
+        status: "succeeded",
+        outputText: turn === 1 ? "About eight people." : json({ headcount: 12 }),
+      }),
+    });
+    const { cascade } = await openHarness(executor);
+    const submitted = await cascade.submit({
+      agentId: "analyst",
+      instruction: "Count the team",
+      taskId: "count",
+      goal: { spec: reportGoal },
+    });
+    expect(submitted.goal?.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    await cascade.drain();
+
+    const task = await cascade.get("count");
+    expect(task?.status).toBe("succeeded");
+    expect(task?.validationFailures).toBe(1);
+    expect(task?.lastGoalReport?.status).toBe("COMPLETE");
+    expect(calls[0]?.prompt).toContain("Report the headcount as JSON.");
+    expect(calls[1]?.prompt).toContain("Your last result did not pass validation");
+    expect(calls[1]?.prompt).toContain("shape");
+  });
+
+  it("checks the turn's trace and host-registered checks", async () => {
+    const goal = {
+      id: "research",
+      objective: "Read the ledger and pass the audit check.",
+      definitionOfDone: ["The ledger was read", "The audit check passes"],
+      validators: [
+        { id: "read-ledger", kind: "trace", require: [{ tool: "read_file" }] },
+        { id: "audit", kind: "check", checkRef: "audit" },
+      ],
+    } as const;
+    let harness: Harness | undefined;
+    const executor: AgentTaskExecutor = async (input) => {
+      const turn = Number(/attempt-(\d+)/.exec(input.attemptRunId)?.[1] ?? "1");
+      if (turn > 1) {
+        await harness?.runStore.appendEvents(input.attemptRunId, [
+          {
+            eventId: `${input.attemptRunId}:1`,
+            sequence: 1,
+            occurredAt: new Date().toISOString(),
+            name: "tool.call.completed",
+            origin: { namespace: "core" },
+            scopeId: "s",
+            runId: input.attemptRunId,
+            rootSessionId: "r",
+            sessionId: "r",
+            data: { toolName: "read_file", args: { path: "ledger.csv" } },
+          },
+        ]);
+      }
+      return { status: "succeeded", outputText: `audit ok ${turn}`, runIds: [input.attemptRunId] };
+    };
+    harness = await openHarness(executor, {
+      goals: {
+        checks: {
+          audit: ({ evidence }) => ({
+            passed: evidence.outputText?.startsWith("audit ok") === true,
+            message: "Audit failed.",
+          }),
+        },
+      },
+    });
+    await harness.cascade.submit({
+      agentId: "analyst",
+      instruction: "Audit",
+      taskId: "audit",
+      goal: { spec: goal },
+    });
+    await harness.cascade.drain();
+    const task = await harness.cascade.get("audit");
+    expect(task?.status).toBe("succeeded");
+    expect(task?.validationFailures).toBe(1);
+    expect(task?.lastGoalReport?.passed).toBe(2);
+  });
+
+  it("fails closed when a goal's check is not registered", async () => {
+    const { executor } = scriptedExecutor({});
+    const { cascade } = await openHarness(executor, { maxValidationAttempts: 1 });
+    await cascade.submit({
+      agentId: "analyst",
+      instruction: "x",
+      taskId: "unregistered",
+      goal: {
+        spec: {
+          id: "g",
+          objective: "o",
+          definitionOfDone: ["d"],
+          validators: [{ id: "c", kind: "check", checkRef: "missing" }],
+        },
+      },
+    });
+    await cascade.drain();
+    const task = await cascade.get("unregistered");
+    expect(task?.status).toBe("failed");
+    expect(task?.lastGoalReport?.status).toBe("INCOMPLETE");
+  });
+
+  it("rejects an invalid goal at submit time", async () => {
+    const { executor } = scriptedExecutor({});
+    const { cascade } = await openHarness(executor);
+    await expect(
+      cascade.submit({
+        agentId: "analyst",
+        instruction: "x",
+        goal: { spec: { id: "g", objective: "o", definitionOfDone: [], validators: [] } as never },
+      }),
+    ).rejects.toThrow(/goal/i);
+  });
+
+  it("refuses a goal that was changed after the task was created", async () => {
+    const { executor } = scriptedExecutor({
+      analyst: () => ({ status: "succeeded", outputText: json({ headcount: 1 }) }),
+    });
+    const { cascade, runStore } = await openHarness(executor, { maxValidationAttempts: 1 });
+    await cascade.submit({
+      agentId: "analyst",
+      instruction: "x",
+      taskId: "tamper",
+      goal: { spec: reportGoal },
+    });
+    // Someone lowers the bar in storage after submission.
+    const record = await runStore.getRun("tamper");
+    const stored = record?.metadata?.["task"] as Record<string, unknown>;
+    const goal = stored["goal"] as Record<string, unknown>;
+    const spec = goal["spec"] as Record<string, unknown>;
+    const validators = spec["validators"] as Array<Record<string, unknown>>;
+    await runStore.saveRun({
+      envelope: record?.envelope as never,
+      metadata: {
+        ...(record?.metadata ?? {}),
+        task: {
+          ...stored,
+          goal: {
+            ...goal,
+            spec: { ...spec, validators: [validators[0], { ...validators[1], value: 0 }] },
+          },
+        } as never,
+      },
+    });
+    await cascade.drain();
+    const task = await cascade.get("tamper");
+    expect(task?.status).toBe("failed");
+    expect(task?.failureMessage).toMatch(/goal/i);
+  });
+
+  it("lets a manager attach a checked goal to delegated work", async () => {
+    const { executor, calls } = scriptedExecutor({
+      "vp-research": (_input, turn) =>
+        turn === 1
+          ? {
+              status: "succeeded",
+              outputText: json({
+                delegate_task: [{ to: "analyst", task: "Count", goal: reportGoal }],
+              }),
+            }
+          : { status: "succeeded", outputText: "Team counted." },
+      analyst: (_input, turn) => ({
+        status: "succeeded",
+        outputText: turn === 1 ? json({ headcount: 3 }) : json({ headcount: 11 }),
+      }),
+    });
+    const { cascade } = await openHarness(executor);
+    await cascade.submit({ agentId: "vp-research", instruction: "Count", taskId: "mgr" });
+    await cascade.drain();
+    const child = await cascade.get("mgr.0.1");
+    expect(child?.goal?.spec?.id).toBe("report");
+    expect(child?.goal?.fingerprint).toBeDefined();
+    expect(child?.status).toBe("succeeded");
+    expect(child?.validationFailures).toBe(1);
+    expect((await cascade.get("mgr"))?.status).toBe("succeeded");
+    expect(calls.filter((call) => call.agentId === "analyst")).toHaveLength(2);
+  });
+
+  it("sends an invalid delegated goal back to the manager", async () => {
+    const { executor, calls } = scriptedExecutor({
+      "vp-research": (_input, turn) =>
+        turn === 1
+          ? {
+              status: "succeeded",
+              outputText: json({
+                delegate_task: [{ to: "analyst", task: "Count", goal: { id: "bad" } }],
+              }),
+            }
+          : { status: "succeeded", outputText: "Did it myself." },
+    });
+    const { cascade } = await openHarness(executor);
+    await cascade.submit({ agentId: "vp-research", instruction: "Count", taskId: "badgoal" });
+    await cascade.drain();
+    expect((await cascade.get("badgoal"))?.childTaskIds).toEqual([]);
+    expect(calls[1]?.prompt).toContain("is not a valid goal spec");
+  });
+});
