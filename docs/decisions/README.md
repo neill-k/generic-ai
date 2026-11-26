@@ -63,6 +63,7 @@ ADRs must be written when:
 - [`0038-tool-overuse-budget-evaluator.md`](0038-tool-overuse-budget-evaluator.md) - optional SDK tool-use discipline profiles and report summaries for benchmark harnesses.
 - [`0039-contextual-integrity-privacy-harness.md`](0039-contextual-integrity-privacy-harness.md) - optional SDK contextual-integrity privacy profiles and report summaries for workspace-agent benchmarks.
 - [`0041-structured-tool-error-recovery.md`](0041-structured-tool-error-recovery.md) - SDK structured tool-error envelopes, timeout budgets, and report summaries for recovery evidence.
+- [`0042-protocol-topology-runner.md`](0042-protocol-topology-runner.md) - stateful SDK protocol reducers plus the core topology runner that executes pipeline, verifier-loop, hierarchy, and squad harnesses.
 
 ## Planning Baseline
 

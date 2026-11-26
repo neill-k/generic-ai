@@ -52,6 +52,15 @@ import {
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 import {
+  type HarnessTopologyRunResult,
+  resolveTopologyActorRole,
+  type RunHarnessTopologyOptions,
+  runHarnessTopology,
+  type TopologyActorInvocation,
+  type TopologyActorResult,
+  type TopologyActorRunner,
+} from "./topology-runner.js";
+import {
   appendHookContext,
   createAgentLifecycleHookExecutor,
   type AgentLifecycleHookExecutor,
@@ -62,7 +71,10 @@ type AgentHarnessAdapterRegistry<TCapabilities, TOutput> = Readonly<
   Partial<Record<AgentHarnessAdapterKind, AgentHarnessAdapter<TCapabilities, TOutput>>>
 >;
 
-export interface CreateAgentHarnessOptions<TCapabilities = PiCapabilityBindings, TOutput = unknown> {
+export interface CreateAgentHarnessOptions<
+  TCapabilities = PiCapabilityBindings,
+  TOutput = unknown,
+> {
   readonly factories?: PiRuntimeFactories;
   readonly sessionInputs?: PiSessionInputs;
   readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
@@ -1073,6 +1085,120 @@ function summarizeEvent(event: CanonicalEvent): string {
   return event.name;
 }
 
+interface RoleSessionResult {
+  readonly outputText: string;
+  readonly failureMessage?: string;
+  readonly events: readonly CanonicalEvent[];
+  readonly sessionId: string;
+}
+
+/**
+ * Run one harness role as its own Pi session, applying the role's effect
+ * policy, lifecycle hooks, and policy-decision tracing. Shared by the
+ * model-directed `delegate_agent` tool and the protocol-driven topology runner.
+ */
+async function runRoleSession(input: {
+  readonly runId: string;
+  readonly rootScopeId: string;
+  readonly workspaceRoot: string;
+  readonly sessionInputs: PiSessionInputs;
+  readonly role: AgentHarnessRole;
+  readonly prompt: string;
+  readonly turnMode?: AgentHarnessTurnMode;
+  readonly maxTurns?: number;
+  readonly capabilities: PiCapabilityBindings;
+  readonly deniedEffects: ReadonlySet<AgentHarnessCapabilityEffect>;
+  readonly hookExecutor: AgentLifecycleHookExecutor;
+  readonly policy: AgentHarnessPolicyEvaluator;
+  readonly signal?: AbortSignal;
+  readonly eventStream: CanonicalEventStream;
+  readonly rootSessionId?: string;
+  readonly parentSessionId?: string;
+  readonly recordPolicyDecisions: (decisions: readonly PolicyDecisionRecord[]) => void;
+  readonly factories?: PiRuntimeFactories;
+}): Promise<RoleSessionResult> {
+  const { role } = input;
+  const rolePolicy = policyForRole(role, false);
+  const rolePolicyResult = await applyRolePolicy({
+    capabilities: input.capabilities,
+    rolePolicy,
+    runId: input.runId,
+    actorId: role.id,
+    deniedEffects: input.deniedEffects,
+    policy: input.policy,
+  });
+  input.recordPolicyDecisions(rolePolicyResult.policyDecisions);
+  const roleHookContext = {
+    runId: input.runId,
+    scopeId: input.rootScopeId,
+    ...(input.rootSessionId === undefined
+      ? {}
+      : { rootSessionId: input.rootSessionId, sessionId: input.rootSessionId }),
+    ...(input.parentSessionId === undefined ? {} : { parentSessionId: input.parentSessionId }),
+    actorId: role.id,
+    roleId: role.id,
+  };
+  const roleCapabilities = wrapCapabilitiesWithHooks({
+    capabilities: rolePolicyResult.capabilities,
+    executor: input.hookExecutor,
+    context: roleHookContext,
+  });
+  const roleLifecycleHooks = createSessionLifecycleHooks({
+    executor: input.hookExecutor,
+    context: roleHookContext,
+  });
+  const roleRunOptions = {
+    cwd: input.workspaceRoot,
+    agentDir: input.sessionInputs.agentDir,
+    authStorage: input.sessionInputs.authStorage as never,
+    modelRegistry: input.sessionInputs.modelRegistry as never,
+    model: input.sessionInputs.model as never,
+    sessionManager: input.sessionInputs.sessionManager as never,
+    settingsManager: input.sessionInputs.settingsManager as never,
+    capabilities: roleCapabilities,
+    prompt: input.prompt,
+    ...(input.turnMode === undefined ? {} : { turnMode: input.turnMode }),
+    ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
+    runId: input.runId,
+    rootScopeId: input.rootScopeId,
+    rootAgentId: role.id,
+    ...(input.rootSessionId === undefined ? {} : { rootSessionId: input.rootSessionId }),
+    ...(input.parentSessionId === undefined ? {} : { parentSessionId: input.parentSessionId }),
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
+    eventStream: input.eventStream,
+    ...(roleLifecycleHooks === undefined ? {} : { lifecycleHooks: roleLifecycleHooks }),
+    onSessionReady: async (context: CapabilityPiSessionEventContext) => {
+      await observePermissionDecisions({
+        executor: input.hookExecutor,
+        context: roleHookContext,
+        decisions: rolePolicyResult.policyDecisions,
+        sessionContext: context,
+      });
+      for (const decision of rolePolicyResult.policyDecisions) {
+        await emitPolicyDecision(input.eventStream, {
+          runId: input.runId,
+          scopeId: input.rootScopeId,
+          rootSessionId: context.rootSessionId,
+          sessionId: context.sessionId,
+          decision,
+        });
+      }
+    },
+  };
+  const roleResult =
+    input.factories === undefined
+      ? await runCapabilityPiAgentSession(roleRunOptions)
+      : await runCapabilityPiAgentSession(roleRunOptions, input.factories);
+  return {
+    outputText: roleResult.outputText ?? extractLatestAssistantText(roleResult.session.messages),
+    ...(roleResult.failureMessage === undefined
+      ? {}
+      : { failureMessage: roleResult.failureMessage }),
+    events: roleResult.events,
+    sessionId: roleResult.session.sessionId,
+  };
+}
+
 function createDelegateTool(input: {
   readonly runId: string;
   readonly rootScopeId: string;
@@ -1147,43 +1273,12 @@ function createDelegateTool(input: {
           },
         });
 
-        const rolePolicy = policyForRole(role, false);
-        const rolePolicyResult = await applyRolePolicy({
-          capabilities: input.capabilities,
-          rolePolicy,
+        const roleResult = await runRoleSession({
           runId: input.runId,
-          actorId: role.id,
-          deniedEffects: input.deniedEffects,
-          policy: input.policy,
-        });
-        input.recordPolicyDecisions(rolePolicyResult.policyDecisions);
-        const roleHookContext = {
-          runId: input.runId,
-          scopeId: input.rootScopeId,
-          rootSessionId,
-          sessionId: rootSessionId,
-          parentSessionId: rootSessionId,
-          actorId: role.id,
-          roleId: role.id,
-        };
-        const roleCapabilities = wrapCapabilitiesWithHooks({
-          capabilities: rolePolicyResult.capabilities,
-          executor: input.hookExecutor,
-          context: roleHookContext,
-        });
-        const roleLifecycleHooks = createSessionLifecycleHooks({
-          executor: input.hookExecutor,
-          context: roleHookContext,
-        });
-        const roleRunOptions = {
-          cwd: input.workspaceRoot,
-          agentDir: input.sessionInputs.agentDir,
-          authStorage: input.sessionInputs.authStorage as never,
-          modelRegistry: input.sessionInputs.modelRegistry as never,
-          model: input.sessionInputs.model as never,
-          sessionManager: input.sessionInputs.sessionManager as never,
-          settingsManager: input.sessionInputs.settingsManager as never,
-          capabilities: roleCapabilities,
+          rootScopeId: input.rootScopeId,
+          workspaceRoot: input.workspaceRoot,
+          sessionInputs: input.sessionInputs,
+          role,
           prompt: buildRolePrompt({
             role,
             instruction: params.task,
@@ -1192,38 +1287,18 @@ function createDelegateTool(input: {
           }),
           ...(input.turnMode === undefined ? {} : { turnMode: input.turnMode }),
           ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
-          runId: input.runId,
-          rootScopeId: input.rootScopeId,
-          rootAgentId: role.id,
-          rootSessionId,
-          parentSessionId: rootSessionId,
+          capabilities: input.capabilities,
+          deniedEffects: input.deniedEffects,
+          hookExecutor: input.hookExecutor,
+          policy: input.policy,
           ...(input.signal === undefined ? {} : { signal: input.signal }),
           eventStream: input.eventStream,
-          ...(roleLifecycleHooks === undefined ? {} : { lifecycleHooks: roleLifecycleHooks }),
-          onSessionReady: async (context: CapabilityPiSessionEventContext) => {
-            await observePermissionDecisions({
-              executor: input.hookExecutor,
-              context: roleHookContext,
-              decisions: rolePolicyResult.policyDecisions,
-              sessionContext: context,
-            });
-            for (const decision of rolePolicyResult.policyDecisions) {
-              await emitPolicyDecision(input.eventStream, {
-                runId: input.runId,
-                scopeId: input.rootScopeId,
-                rootSessionId: context.rootSessionId,
-                sessionId: context.sessionId,
-                decision,
-              });
-            }
-          },
-        };
-        const roleResult =
-          input.factories === undefined
-            ? await runCapabilityPiAgentSession(roleRunOptions)
-            : await runCapabilityPiAgentSession(roleRunOptions, input.factories);
-        const outputText =
-          roleResult.outputText ?? extractLatestAssistantText(roleResult.session.messages);
+          rootSessionId,
+          parentSessionId: rootSessionId,
+          recordPolicyDecisions: input.recordPolicyDecisions,
+          ...(input.factories === undefined ? {} : { factories: input.factories }),
+        });
+        const outputText = roleResult.outputText;
 
         await input.eventStream.emit({
           ...eventContext,
@@ -1305,7 +1380,9 @@ function createEventSink(): {
   });
 }
 
-function createDeadlineSignal(context: AgentHarnessAdapterRunContext): {
+function createDeadlineSignal(
+  context: Pick<AgentHarnessAdapterRunContext, "signal" | "deadline">,
+): {
   readonly signal?: AbortSignal;
   readonly cleanup: () => void;
 } {
@@ -1436,10 +1513,7 @@ export function createAgentHarness(
   config: AgentHarnessConfig,
   options?: CreateAgentHarnessOptions,
 ): AgentHarness<PiCapabilityBindings, unknown>;
-export function createAgentHarness<
-  TCapabilities = PiCapabilityBindings,
-  TOutput = unknown,
->(
+export function createAgentHarness<TCapabilities = PiCapabilityBindings, TOutput = unknown>(
   config: AgentHarnessConfig,
   options: CreateAgentHarnessOptions<TCapabilities, TOutput> = {},
 ): AgentHarness<TCapabilities, TOutput> {
@@ -1761,4 +1835,281 @@ export async function runAgentHarness(
     options.factories === undefined ? {} : { factories: options.factories },
   );
   return harness.run(options);
+}
+
+export interface RunAgentHarnessTopologyOptions
+  extends Omit<RunHarnessTopologyOptions, "runner" | "deadline"> {
+  readonly harness: AgentHarnessConfig;
+  readonly workspaceRoot: string;
+  readonly capabilities?: PiCapabilityBindings;
+  readonly hooks?: AgentHarnessRunInput["hooks"];
+  readonly artifactDir?: string;
+  readonly rootScopeId?: string;
+  readonly deadline?: string;
+  readonly factories?: PiRuntimeFactories;
+  readonly sessionInputs?: PiSessionInputs;
+  readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
+  readonly policy?: AgentHarnessPolicyEvaluator;
+  /**
+   * Replace the Pi role-session runner, for example to route some actors to an
+   * external runtime. The replacement still gets the scheduler's retries,
+   * concurrency, budgets, and trace.
+   */
+  readonly runner?: TopologyActorRunner;
+}
+
+export interface AgentHarnessTopologyRunResult extends HarnessTopologyRunResult {
+  readonly projections: readonly AgentHarnessEventProjection[];
+  readonly hookDecisions: readonly AgentLifecycleHookDecisionRecord[];
+}
+
+/**
+ * Run a compiled harness's protocol topology (pipeline, verifier-loop,
+ * hierarchy, squad, or a custom protocol) with each actor executed as a
+ * policy-scoped Pi role session.
+ *
+ * Shares the agent harness's policy profile, role effect policies, lifecycle
+ * hooks, canonical event stream, and artifact layout, and adds the topology
+ * trace and per-action outcomes as artifacts.
+ */
+export async function runAgentHarnessTopology(
+  options: RunAgentHarnessTopologyOptions,
+): Promise<AgentHarnessTopologyRunResult> {
+  const runId = options.runId ?? randomUUID();
+  const rootScopeId = options.rootScopeId ?? "scope/root";
+  const harness = options.harness;
+  const profile = harness.policyProfile ?? LOCAL_DEV_FULL_POLICY_PROFILE;
+  const allowMcp = harness.allowMcp ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
+  const allowNetwork = harness.allowNetwork ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
+  const turnMode = harness.execution?.turnMode;
+  const maxTurns = harness.execution?.maxTurns;
+  const topologySessionId = `${runId}:topology`;
+  const eventStream = createCanonicalEventStream({});
+  const hookExecutor = createAgentLifecycleHookExecutor(options.hooks ?? harness.hooks, {
+    eventStream,
+    ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
+  });
+  const policy =
+    options.policy ?? createPolicyEvaluator({ runId, actorId: harness.primaryAgent ?? "topology" });
+  const baseCapabilities = applyProfilePolicy(options.capabilities ?? {}, profile, allowMcp);
+  const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp });
+  const policyDecisions: PolicyDecisionRecord[] = [
+    ...createPolicyDecisions({
+      runId,
+      actorId: harness.primaryAgent ?? "topology",
+      profile,
+      allowNetwork,
+      allowMcp,
+    }),
+  ];
+  const artifactStore = createLocalArtifactStore({
+    runId,
+    artifactDir: resolve(
+      options.artifactDir ??
+        harness.artifactDir ??
+        join(options.workspaceRoot, ".generic-ai", "artifacts", runId),
+    ),
+  });
+  const runSignal = createDeadlineSignal({
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.deadline === undefined ? {} : { deadline: new Date(options.deadline) }),
+  });
+  const sessionInputsByModel = new Map<string, PiSessionInputs>();
+  const sessionInputsFor = (role: AgentHarnessRole): PiSessionInputs => {
+    if (options.sessionInputs !== undefined) {
+      return options.sessionInputs;
+    }
+    const modelId = role.model ?? harness.model ?? DEFAULT_OPENAI_CODEX_MODEL;
+    let inputs = sessionInputsByModel.get(modelId);
+    if (inputs === undefined) {
+      inputs = resolvePiSessionInputs(modelId);
+      sessionInputsByModel.set(modelId, inputs);
+    }
+    return inputs;
+  };
+  const eventContext = {
+    runId,
+    scopeId: rootScopeId,
+    rootSessionId: topologySessionId,
+    sessionId: topologySessionId,
+  };
+  for (const decision of policyDecisions) {
+    await emitPolicyDecision(eventStream, { ...eventContext, decision });
+  }
+
+  const piRunner: TopologyActorRunner = async (
+    invocation: TopologyActorInvocation,
+  ): Promise<TopologyActorResult> => {
+    const role = resolveTopologyActorRole(invocation.actor, harness.roles);
+    const delegationId = `${runId}:topology:${invocation.action.id}:${invocation.attempt}`;
+    const handoffContext = { ...eventContext, delegationId };
+    await eventStream.emit({
+      ...handoffContext,
+      name: "handoff.requested",
+      data: {
+        roleId: role.id,
+        protocol: invocation.protocol,
+        actionId: invocation.action.id,
+        actionKind: invocation.action.kind,
+        attempt: invocation.attempt,
+        task: invocation.task,
+      },
+    });
+    await eventStream.emit({
+      ...handoffContext,
+      name: "handoff.accepted",
+      data: { roleId: role.id },
+    });
+    const delegatedTask =
+      invocation.context.length > 0
+        ? `${invocation.task}\n\nContext from other agents:\n${invocation.context}`
+        : invocation.task;
+    let roleResult: RoleSessionResult;
+    try {
+      roleResult = await runRoleSession({
+        runId,
+        rootScopeId,
+        workspaceRoot: options.workspaceRoot,
+        sessionInputs: sessionInputsFor(role),
+        role,
+        prompt: buildRolePrompt({
+          role,
+          instruction: delegatedTask,
+          parentTask: invocation.instruction,
+          ...(turnMode === undefined ? {} : { turnMode }),
+        }),
+        ...(turnMode === undefined ? {} : { turnMode }),
+        ...(maxTurns === undefined ? {} : { maxTurns }),
+        capabilities: baseCapabilities,
+        deniedEffects,
+        hookExecutor,
+        policy,
+        ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
+        eventStream,
+        rootSessionId: topologySessionId,
+        parentSessionId: topologySessionId,
+        recordPolicyDecisions: (decisions) => {
+          policyDecisions.push(...decisions);
+        },
+        ...(options.factories === undefined ? {} : { factories: options.factories }),
+      });
+    } catch (error) {
+      const failureMessage = error instanceof Error ? error.message : String(error);
+      await eventStream.emit({
+        ...handoffContext,
+        name: "handoff.failed",
+        data: { roleId: role.id, status: "failed", failureMessage },
+      });
+      throw error;
+    }
+    const status = roleResult.failureMessage === undefined ? "succeeded" : "failed";
+    await eventStream.emit({
+      ...handoffContext,
+      name: status === "succeeded" ? "handoff.completed" : "handoff.failed",
+      data: {
+        roleId: role.id,
+        status,
+        outputText: roleResult.outputText,
+        ...(roleResult.failureMessage === undefined
+          ? {}
+          : { failureMessage: roleResult.failureMessage }),
+      },
+    });
+    return {
+      status,
+      outputText: roleResult.outputText,
+      ...(roleResult.failureMessage === undefined
+        ? {}
+        : { failureMessage: roleResult.failureMessage }),
+    };
+  };
+
+  const rest = options;
+  const topology = await runHarnessTopology({
+    compiled: rest.compiled,
+    instruction: rest.instruction,
+    runId,
+    runner: options.runner ?? piRunner,
+    ...(rest.protocol === undefined ? {} : { protocol: rest.protocol }),
+    ...(rest.protocols === undefined ? {} : { protocols: rest.protocols }),
+    ...(rest.maxSteps === undefined ? {} : { maxSteps: rest.maxSteps }),
+    ...(rest.maxConcurrency === undefined ? {} : { maxConcurrency: rest.maxConcurrency }),
+    ...(rest.maxAttempts === undefined ? {} : { maxAttempts: rest.maxAttempts }),
+    ...(rest.deadline === undefined ? {} : { deadline: rest.deadline }),
+    ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
+    ...(rest.approve === undefined ? {} : { approve: rest.approve }),
+    ...(rest.onTraceEvent === undefined ? {} : { onTraceEvent: rest.onTraceEvent }),
+    ...(rest.onOutcome === undefined ? {} : { onOutcome: rest.onOutcome }),
+  }).finally(() => {
+    runSignal.cleanup();
+  });
+
+  policyDecisions.push(...topology.policyDecisions);
+  const finalPolicyDecisions = Object.freeze([...policyDecisions]);
+  const hookDecisions = hookExecutor.snapshot();
+  const preArtifactEvents = eventStream.snapshot();
+  const topologyArtifacts: AgentHarnessArtifactRef[] = [];
+  for (const artifact of [
+    {
+      id: "topology-trace",
+      kind: "trace" as const,
+      description: "Topology runner trace events.",
+      value: topology.trace,
+    },
+    {
+      id: "topology-outcomes",
+      kind: "report" as const,
+      description: "Outcome of every protocol action the topology runner executed.",
+      value: topology.outcomes,
+    },
+  ]) {
+    topologyArtifacts.push(
+      await artifactStore.write({
+        id: artifact.id,
+        kind: artifact.kind,
+        bytes: `${JSON.stringify(artifact.value, null, 2)}\n`,
+        contentType: "application/json",
+        description: artifact.description,
+        ownerId: topology.protocol,
+        namespace: "topology",
+      }),
+    );
+  }
+  const harnessArtifacts = await writeHarnessArtifacts({
+    artifactStore,
+    eventStream,
+    runId,
+    scopeId: rootScopeId,
+    rootAgentId: harness.primaryAgent ?? "topology",
+    rootSessionId: topologySessionId,
+    sessionId: topologySessionId,
+    events: preArtifactEvents,
+    projections: Object.freeze(preArtifactEvents.map(projectEvent)),
+    policyDecisions: finalPolicyDecisions,
+    hookDecisions,
+    summary: jsonObject({
+      harnessId: harness.id,
+      compiledHarnessId: topology.harnessId,
+      adapter: "pi",
+      mode: "topology",
+      protocol: topology.protocol,
+      bindingId: topology.bindingId ?? null,
+      status: topology.status,
+      outputText: topology.outputText,
+      steps: topology.steps,
+      actionCount: topology.outcomes.length,
+      failureMessage: topology.failureMessage ?? null,
+      notes: [...topology.notes],
+    }),
+  });
+  const finalEvents = eventStream.snapshot();
+
+  return Object.freeze({
+    ...topology,
+    events: Object.freeze([...finalEvents, ...topology.events]),
+    projections: Object.freeze(finalEvents.map(projectEvent)),
+    policyDecisions: finalPolicyDecisions,
+    hookDecisions,
+    artifacts: Object.freeze([...topology.artifacts, ...topologyArtifacts, ...harnessArtifacts]),
+  });
 }
