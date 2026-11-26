@@ -10,13 +10,16 @@ import {
   type Awaitable,
   approvalInputDigest,
   canonicalJson,
+  createToolErrorEnvelope,
   DEFAULT_APPROVAL_POLICY,
   evaluateApprovalPolicy,
+  GenericAIToolError,
   getAgentHarnessToolEffects,
   getAgentHarnessToolReversibility,
   isApprovalError,
   type JsonValue,
   type RunActor,
+  TOOL_EFFECT_NOT_PERFORMED_KEY,
 } from "@generic-ai/sdk";
 
 /**
@@ -157,6 +160,27 @@ export function pendingApprovalMessage(approval: ApprovalRequest): string {
   ].join("\n");
 }
 
+/** Same shape and meaning as the effect journal's refusal of an unreported call (ADR 0059). */
+function uncertainError(approval: ApprovalRequest): GenericAIToolError {
+  return new GenericAIToolError(
+    createToolErrorEnvelope({
+      kind: "unknown",
+      safeMessage:
+        `An earlier attempt started the action approved by ${approval.approvalId} ` +
+        `(${approval.action.summary}) and stopped before it reported a result, so it may already ` +
+        "have happened. It was not run again. Check whether it took effect before you decide to " +
+        "retry; calling it again asks the owner for a new approval.",
+      retryable: false,
+      userActionable: true,
+      metadata: {
+        toolName: approval.action.name,
+        approvalId: approval.approvalId,
+        uncertain: true,
+      },
+    }),
+  );
+}
+
 function rejectedMessage(approval: ApprovalRequest): string {
   const who = describeActor(approval.decision?.decidedBy);
   const comment = approval.decision?.comment;
@@ -205,9 +229,7 @@ export function createApprovalGate(options: CreateApprovalGateOptions): Approval
       await service.claimExecution(approval.approvalId);
     } catch (error) {
       if (isApprovalError(error, "ALREADY_EXECUTED")) {
-        throw new Error(
-          `The action approved by ${approval.approvalId} already started once and may have run. It will not be repeated; check its effect before asking again.`,
-        );
+        throw uncertainError(approval);
       }
       throw error;
     }
@@ -238,9 +260,11 @@ export function createApprovalGate(options: CreateApprovalGateOptions): Approval
     if (current.status === "pending") {
       if (mode === "suspend") {
         await markPending(current);
+        // Not an effect: the journal (ADR 0059) records it as not performed, so a retry asks again.
         return textResult(pendingApprovalMessage(current), {
           approvalId: current.approvalId,
           status: "pending",
+          [TOOL_EFFECT_NOT_PERFORMED_KEY]: true,
         });
       }
       current = await waitForDecision(current);
@@ -318,7 +342,18 @@ export function createApprovalGate(options: CreateApprovalGateOptions): Approval
       if (existing.status === "approved" && existing.execution === undefined) {
         return settle(existing, execute);
       }
-      // Already ran, expired, or cancelled: an identical new call needs a new request.
+      if (existing.status === "approved" && existing.execution?.state === "started") {
+        // An earlier turn claimed this approval and stopped before reporting back. Within one
+        // turn the effect journal (ADR 0059) catches this first; across turns the claim does.
+        // Either way the action is not repeated: record it as uncertain and tell the agent once.
+        await service.completeExecution({
+          approvalId: existing.approvalId,
+          state: "uncertain",
+          error: "The attempt that ran it stopped before reporting a result.",
+        });
+        throw uncertainError(existing);
+      }
+      // Already ran, uncertain, expired, or cancelled: an identical new call needs a new request.
     }
     throw new Error(`Too many approval requests for the same ${toolName} call.`);
   }

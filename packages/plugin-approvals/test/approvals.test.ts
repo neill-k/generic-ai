@@ -8,6 +8,8 @@ import {
   type ApprovalServiceEvent,
   type AuthContext,
   DEFAULT_APPROVAL_POLICY,
+  createMemoryToolEffectJournal,
+  createToolEffectGuard,
   evaluateApprovalPolicy,
   getAgentHarnessToolEffects,
   isApprovalError,
@@ -533,5 +535,95 @@ describe("topology approver", () => {
       kind: "topology.action",
       summary: "Publish the report",
     });
+  });
+});
+
+describe("approvals with the turn effect journal (ADR 0059)", () => {
+  it("journals a pending approval as not performed, so the retried turn asks again", async () => {
+    const { service } = openService();
+    const send = fakeTool("gmail_send", ["message.send"]);
+    const journal = createMemoryToolEffectJournal("task-1:turn-0");
+    const requester = { agentId: "vp-ops", taskId: "task-1", runId: "attempt-1" };
+    const first = createToolEffectGuard(journal).wrap(
+      createApprovalGate({ service, requester }).wrapTool(send),
+    );
+    expect(text(await first.execute("c1", EMAIL))).toContain("needs the owner's approval");
+    expect(journal.records().map((record) => record.status)).toEqual(["not-performed"]);
+
+    // The owner approves before the same turn is retried: the retry runs the call.
+    const [pending] = await service.list({ status: "pending" });
+    await service.decide({
+      approvalId: pending?.approvalId ?? "",
+      decision: "approved",
+      actor: OWNER,
+    });
+    const retry = createToolEffectGuard(journal).wrap(
+      createApprovalGate({ service, requester: { ...requester, runId: "attempt-2" } }).wrapTool(
+        send,
+      ),
+    );
+    expect(text(await retry.execute("c1", EMAIL))).toBe("gmail_send done");
+    expect(send.calls).toHaveLength(1);
+    expect(journal.records().map((record) => record.status)).toEqual(["completed"]);
+  });
+
+  it("never repeats an approved action that was interrupted mid-run", async () => {
+    const { service } = openService();
+    const sent: unknown[] = [];
+    // Performs the send, then the worker dies before the tool returns.
+    const crashing = withAgentHarnessToolEffects(
+      {
+        name: "gmail_send",
+        execute(_id: string, params: unknown) {
+          sent.push(params);
+          return new Promise(() => {});
+        },
+      },
+      { id: "gmail_send", effects: ["message.send"], reversibility: "irreversible" },
+    );
+    const requester = { agentId: "vp-ops", taskId: "task-2" };
+    const gateFor = (runId: string) =>
+      createApprovalGate({ service, requester: { ...requester, runId } });
+
+    // Round 0: request, then the owner approves.
+    await gateFor("r0").wrapTool(crashing).execute("c0", EMAIL);
+    const [request] = await service.list({ status: "pending" });
+    const approvalId = request?.approvalId ?? "";
+    await service.decide({ approvalId, decision: "approved", actor: OWNER });
+
+    // Round 1, attempt 1: the approved call starts and the worker dies mid-run.
+    const turnJournal = createMemoryToolEffectJournal("task-2:turn-1");
+    void createToolEffectGuard(turnJournal)
+      .wrap(gateFor("r1-a1").wrapTool(crashing))
+      .execute("c1", EMAIL);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(sent).toHaveLength(1);
+    expect((await service.get(approvalId))?.execution?.state).toBe("started");
+    expect(turnJournal.records().map((record) => record.status)).toEqual(["started"]);
+
+    // Round 1, attempt 2 (same turn retried): the journal refuses; nothing runs.
+    await expect(
+      createToolEffectGuard(turnJournal)
+        .wrap(gateFor("r1-a2").wrapTool(crashing))
+        .execute("c1", EMAIL),
+    ).rejects.toThrow(/may already have happened/);
+    expect(sent).toHaveLength(1);
+
+    // Round 2 (a new turn and journal): the approval's claim refuses; it is marked uncertain.
+    const nextJournal = createMemoryToolEffectJournal("task-2:turn-2");
+    const nextTurn = createToolEffectGuard(nextJournal).wrap(gateFor("r2").wrapTool(crashing));
+    await expect(nextTurn.execute("c2", EMAIL)).rejects.toThrow(/may already have happened/);
+    expect(sent).toHaveLength(1);
+    const uncertain = await service.get(approvalId);
+    expect(uncertain?.execution?.state).toBe("uncertain");
+    expect((await service.history(approvalId)).at(-1)).toMatchObject({
+      name: "approval.execution.failed",
+      data: { uncertain: true },
+    });
+
+    // Calling it again on purpose needs a fresh approval from the owner.
+    expect(text(await nextTurn.execute("c3", EMAIL))).toContain("needs the owner's approval");
+    expect(sent).toHaveLength(1);
+    expect(await service.list({ status: "pending" })).toHaveLength(1);
   });
 });

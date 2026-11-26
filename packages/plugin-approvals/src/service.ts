@@ -498,6 +498,7 @@ export function createApprovalService(
           input.state === "succeeded" ? "approval.executed" : "approval.execution.failed",
           approval,
           {
+            ...(input.state === "uncertain" ? { uncertain: true } : {}),
             ...(input.error === undefined ? {} : { error: input.error }),
             ...(input.resultSummary === undefined ? {} : { resultSummary: input.resultSummary }),
           },

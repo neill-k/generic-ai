@@ -68,9 +68,21 @@ a task that waits for the owner, possibly for days, must not hold a worker.
    by task and digest, so only the identical call runs. The gate claims the
    request before running the tool; a second claim fails. If the process dies
    between the claim and the result, the action is not repeated automatically
-   (at most once): the agent is told it may have run and must ask again. A
+   (at most once): the agent is told it may have run and must ask again (see 8). A
    second identical action, or any different input, needs a new approval.
-8. **HTTP inbox for the dashboard.** `createApprovalRoutes` serves list, detail
+8. **One at-most-once mechanism with the turn effect journal (ADR 0059).** The
+   journal answers "did this call already run in this turn"; the approval claim
+   answers "may this approval still run". They compose on the same call
+   instead of competing: a gate that only filed or found a pending request
+   marks its result `effectNotPerformed`, so the journal records
+   `not-performed` and a retried turn asks the gate again rather than
+   replaying a stale "waiting" message. When an approved action is interrupted
+   mid-run, a retry of the same turn is refused by the journal; a later turn
+   finds the approval claimed but unreported, marks its execution `uncertain`
+   (`approval.execution.failed` with `uncertain: true`), and refuses with the
+   same message the journal uses. Calling the tool again after that asks the
+   owner for a new approval; the action is never repeated under the old one.
+9. **HTTP inbox for the dashboard.** `createApprovalRoutes` serves list, detail
    with audit events, approve, reject, and an SSE stream of changes. It takes
    an `authenticate` function (normally `authenticateOwnerRequest` from the auth
    plugin) and refuses to start without one unless explicitly local.

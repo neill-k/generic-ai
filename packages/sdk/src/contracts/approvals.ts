@@ -329,8 +329,12 @@ export interface ApprovalDecisionRecord {
   readonly comment?: string;
 }
 
+/**
+ * `uncertain`: an earlier attempt started the approved action and stopped before reporting a
+ * result, so it may have happened. It is never run again under the same approval.
+ */
 export interface ApprovalExecutionRecord {
-  readonly state: "started" | "succeeded" | "failed";
+  readonly state: "started" | "succeeded" | "failed" | "uncertain";
   readonly startedAt: string;
   readonly completedAt?: string;
   readonly error?: string;
@@ -391,7 +395,7 @@ export interface DecideApprovalInput {
 
 export interface CompleteApprovalExecutionInput {
   readonly approvalId: string;
-  readonly state: "succeeded" | "failed";
+  readonly state: "succeeded" | "failed" | "uncertain";
   readonly error?: string;
   readonly resultSummary?: string;
 }
