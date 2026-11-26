@@ -57,5 +57,19 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neill-k/generic-ai.git",
+    "directory": "packages/observability"
+  },
+  "homepage": "https://github.com/neill-k/generic-ai/tree/main/packages/observability#readme",
+  "bugs": {
+    "url": "https://github.com/neill-k/generic-ai/issues"
+  },
+  "keywords": [
+    "generic-ai",
+    "ai-agents",
+    "multi-agent"
+  ]
 }
