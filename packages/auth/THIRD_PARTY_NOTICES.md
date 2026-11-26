@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 The credential store contract, the in-memory store, locked OAuth refresh, the loopback callback
-server, device-code polling, PKCE, URL checks and the OpenRouter sign-in in this package are
+server, device-code polling, PKCE, URL checks, and the OpenRouter, Claude Pro/Max (Anthropic), ChatGPT/Codex and GitHub Copilot sign-ins in this package are
 adapted from pi's `auth` module (https://github.com/badlogic/pi-mono), as are the tests under
 `test/` that carry an "Adapted from pi" header. Those files keep the notice below.
 

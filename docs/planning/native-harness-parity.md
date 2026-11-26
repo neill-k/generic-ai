@@ -88,7 +88,7 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Amazon Bedrock Converse (SigV4 and API-key auth, region and endpoint resolution, Claude adaptive and budget thinking with block binding, signed and encrypted reasoning replay, cache points, grouped tool results, OpenAI and flat reasoning efforts, prefixed exceptions, SDK retries) | ✓ | `bedrock.ts` on `@aws-sdk/client-bedrock-runtime`; cases from pi `bedrock-*` suites in `bedrock.test.ts`, driving the real SDK over replayed event-stream frames |
 | Cloudflare Workers AI | ○ | not planned for v1 |
 | Credential storage, locked token refresh, OAuth building blocks (PKCE, loopback callback, device code) and OpenRouter sign-in | ✓ | `packages/auth/test` (ports pi `oauth-callback-server`, `oauth-device-code`, `openrouter-oauth`; fake `fetch` and a local callback server only) |
-| Subscription sign-ins that reuse another product's OAuth client (Claude Pro/Max, ChatGPT/Codex, GitHub Copilot) | decision pending | pi `anthropic`, `openai-codex`, `github-copilot` |
+| Subscription sign-ins that reuse another product's OAuth client (Claude Pro/Max, ChatGPT/Codex, GitHub Copilot) | ◐ sign-in and refresh ported; the ChatGPT Codex backend API and a Copilot provider in `@generic-ai/ai` are still to come | `packages/auth/test/{anthropic,openai-codex,github-copilot}-oauth.test.ts` (ports pi's tests; fake `fetch` only) |
 | Context-overflow detection, max-token clamping, compact-and-retry on overflow | ✓ | pi `overflow.test.ts` ported whole, `clamp-max-tokens` cases; `runWithRetry` `onContextOverflow`, used by native sessions |
 | Cross-provider handoff matrix | ○ | pi `cross-provider-handoff` (needs live keys) |
 | Deferred (batch) responses, images API, classifiers | ○ | pi `faux-provider` deferred cases, `images*`, `classifier-*` |
@@ -226,7 +226,7 @@ Each slice is a reviewable PR that keeps every existing test green.
 8. **More providers and auth**: 8a adds Google Gemini, Vertex AI and Azure OpenAI, and
    context-overflow detection with compact-and-retry; 8b Bedrock and native Mistral; 8c
    `@generic-ai/auth`: credential stores, locked token refresh, the OAuth building blocks and
-   OpenRouter's sign-in. Sign-ins that reuse another product's OAuth client wait on a decision.
+   OpenRouter's sign-in. Sign-ins that reuse another product's OAuth client were ported after Neill chose to follow pi (2026-11-26).
 9. **Make native the default and remove pi**: 9a makes `native` the default harness
    and LLM runtime adapter (ADR 0068); 9b moves the plugin tool API off
    `@generic-ai/sdk/pi` to `defineTool` in the root `@generic-ai/sdk`; 9c (in review)

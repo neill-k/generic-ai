@@ -86,8 +86,9 @@ Beyond the runtime it shares with `pi`, the added value is the framework control
 
 Generic AI should stay honest about its boundary.
 
-It does not port `pi`'s terminal UI or its borrowed subscription sign-ins (ChatGPT/Codex, Claude
-Pro/Max, Copilot). Providers use API keys or the credential store in `@generic-ai/auth`.
+It does not port `pi`'s terminal UI. Providers use API keys or the credential store in
+`@generic-ai/auth`, which also carries pi's Claude Pro/Max, ChatGPT/Codex and GitHub Copilot
+sign-ins.
 
 It does not make TUI or web UI part of the kernel. A product can still build UI on top of Generic
 AI.

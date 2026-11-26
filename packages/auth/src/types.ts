@@ -93,8 +93,8 @@ export type AuthEvent =
       type: "device_code";
       userCode: string;
       verificationUri: string;
-      intervalSeconds?: number;
-      expiresInSeconds?: number;
+      intervalSeconds?: number | undefined;
+      expiresInSeconds?: number | undefined;
     }
   | { type: "progress"; message: string };
 
@@ -106,6 +106,12 @@ export interface AuthInteraction {
   signal?: AbortSignal;
   prompt(prompt: AuthPrompt): Promise<string>;
   notify(event: AuthEvent): void;
+}
+
+/** App details some sign-ins send to the provider. */
+export interface LoginOptions {
+  /** The app's name, sent where a provider asks for the client's name (OpenAI's `originator`). */
+  agentName?: string;
 }
 
 /** Interaction passed to provider sign-in implementations, always with a signal. */
@@ -122,7 +128,7 @@ export interface OAuthProvider {
   loginLabel?: string;
   /** Whether access is backed by a consumer subscription rather than API billing. */
   isSubscription?: boolean;
-  login(interaction: ProviderAuthInteraction): Promise<OAuthCredential>;
+  login(interaction: ProviderAuthInteraction, options?: LoginOptions): Promise<OAuthCredential>;
   /** Exchange the refresh token. Network call; throws on failure. Runs under the store lock. */
   refresh(credential: OAuthCredential, signal: AbortSignal): Promise<OAuthCredential>;
   /** Side-effect-free derivation of request auth from a valid credential. */
