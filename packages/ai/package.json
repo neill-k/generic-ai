@@ -26,7 +26,7 @@
     "openai": "6.26.0"
   },
   "devDependencies": {
-    "@sinclair/typebox": "0.34.49"
+    "@sinclair/typebox": "0.34.52"
   },
   "license": "MIT",
   "private": false,

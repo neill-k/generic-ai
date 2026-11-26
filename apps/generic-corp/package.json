@@ -46,7 +46,7 @@
   "private": true,
   "devDependencies": {
     "@playwright/test": "1.63.0",
-    "@sinclair/typebox": "0.34.49"
+    "@sinclair/typebox": "0.34.52"
   },
   "files": [
     "dist",
