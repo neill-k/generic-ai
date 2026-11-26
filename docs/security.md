@@ -31,6 +31,12 @@ GitHub disables scheduled workflows after 60 days without repository activity. I
 
 Keep the job outside the required branch-protection set until the team explicitly decides dependency audit should block ordinary merges.
 
+Note: GitHub disabled the Security Baseline workflow for inactivity (its weekly schedule), so it does not run on PRs until it is re-enabled under Actions.
+
+## Secret Scanning
+
+`.github/workflows/secret-scan.yml` runs gitleaks (pinned version, SHA-256 checked) over every commit of the branch on each PR to `main` and each push to `main`, and fails the build on any finding. Output is redacted. Before scanning it checks that gitleaks flags a fake GitHub token generated at run time, so a broken scanner cannot pass silently. A false positive is allowlisted in a `.gitleaks.toml` at the repo root, with a comment saying why; a real secret must be rotated, not allowlisted, because it stays in history.
+
 ## Ownership Review
 
 `.github/CODEOWNERS` routes all code-owner review requests. Branch protection should require Code Owner review on `main`.
@@ -50,7 +56,6 @@ The following controls are intentionally planned but not fully landed by this ba
 - SAST with uploaded SARIF,
 - SBOM generation,
 - npm trusted publishing workflow,
-- release attestation verification,
-- automated secret scanning beyond GitHub's platform controls.
+- release attestation verification.
 
 Add these as separate issues when the repo is ready to make the checks required rather than advisory.
