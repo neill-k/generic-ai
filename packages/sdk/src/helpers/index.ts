@@ -8,3 +8,5 @@ export * from "./define-plugin.js";
 export * from "./define-queue.js";
 export * from "./define-storage.js";
 export * from "./define-workspace.js";
+export * from "./queue-worker.js";
+export * from "./run-event-log.js";

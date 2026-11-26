@@ -39,10 +39,7 @@ export interface SqliteNamespaceView {
   get<T = unknown>(key: string): T | undefined;
   has(key: string): boolean;
   set<T = unknown>(key: string, value: T): SqliteRecordSnapshot<T>;
-  update<T = unknown>(
-    key: string,
-    updater: (current: T | undefined) => T,
-  ): SqliteRecordSnapshot<T>;
+  update<T = unknown>(key: string, updater: (current: T | undefined) => T): SqliteRecordSnapshot<T>;
   delete(key: string): boolean;
   clear(): void;
   entries<T = unknown>(): Array<readonly [string, T]>;
@@ -129,24 +126,24 @@ export class SqliteStorage {
   }
 
   namespaces(): string[] {
-    const rows = getSqliteStorageInternals(this).db
-      .prepare("SELECT DISTINCT namespace FROM records ORDER BY namespace")
+    const rows = getSqliteStorageInternals(this)
+      .db.prepare("SELECT DISTINCT namespace FROM records ORDER BY namespace")
       .all() as Array<{ namespace: string }>;
 
     return rows.map((row) => row.namespace);
   }
 
   hasNamespace(name: string): boolean {
-    const row = getSqliteStorageInternals(this).db
-      .prepare("SELECT 1 AS present FROM records WHERE namespace = ? LIMIT 1")
+    const row = getSqliteStorageInternals(this)
+      .db.prepare("SELECT 1 AS present FROM records WHERE namespace = ? LIMIT 1")
       .get(normalizeName(name, "namespace")) as { present?: number } | undefined;
 
     return row?.present === 1;
   }
 
   deleteNamespace(name: string): boolean {
-    const result = getSqliteStorageInternals(this).db
-      .prepare("DELETE FROM records WHERE namespace = ?")
+    const result = getSqliteStorageInternals(this)
+      .db.prepare("DELETE FROM records WHERE namespace = ?")
       .run(normalizeName(name, "namespace"));
 
     return Number(result.changes) > 0;
@@ -158,8 +155,8 @@ export class SqliteStorage {
 
   snapshot(): SqliteStorageSnapshot {
     const snapshot: Record<string, SqliteNamespaceSnapshot> = {};
-    const rows = getSqliteStorageInternals(this).db
-      .prepare(
+    const rows = getSqliteStorageInternals(this)
+      .db.prepare(
         "SELECT namespace, key, value, version, created_at, updated_at FROM records ORDER BY namespace, key",
       )
       .all() as RecordRow[];
@@ -293,10 +290,7 @@ export class SqliteNamespace implements SqliteNamespaceView {
 
   restore(snapshot: SqliteNamespaceSnapshot): void {
     if (!isNamespaceSnapshot(snapshot)) {
-      throw new SqliteStorageError(
-        "INVALID_SNAPSHOT",
-        "Expected a namespace snapshot object.",
-      );
+      throw new SqliteStorageError("INVALID_SNAPSHOT", "Expected a namespace snapshot object.");
     }
 
     restoreSqliteNamespace(this.#storage, this.#name, snapshot);
@@ -307,9 +301,7 @@ export function createSqliteStorage(options: SqliteStorageOptions): SqliteStorag
   return new SqliteStorage(options);
 }
 
-function getSqliteStorageInternals(
-  storage: SqliteStorage,
-): SqliteStorageInternals {
+function getSqliteStorageInternals(storage: SqliteStorage): SqliteStorageInternals {
   const internals = sqliteStorageInternals.get(storage);
   if (!internals) {
     throw new Error("SqliteStorage internals are unavailable.");
@@ -318,10 +310,7 @@ function getSqliteStorageInternals(
   return internals;
 }
 
-function runSqliteTransaction<T>(
-  storage: SqliteStorage,
-  operation: () => T,
-): T {
+function runSqliteTransaction<T>(storage: SqliteStorage, operation: () => T): T {
   const { db } = getSqliteStorageInternals(storage);
   db.exec("BEGIN IMMEDIATE");
   let result: T;
@@ -394,14 +383,13 @@ function readSqliteRecord(
   namespaceName: string,
   key: string,
 ): RecordRow | undefined {
-  return getSqliteStorageInternals(storage).db
-    .prepare(
+  return getSqliteStorageInternals(storage)
+    .db.prepare(
       "SELECT namespace, key, value, version, created_at, updated_at FROM records WHERE namespace = ? AND key = ? LIMIT 1",
     )
-    .get(
-      normalizeName(namespaceName, "namespace"),
-      normalizeName(key, "key"),
-    ) as RecordRow | undefined;
+    .get(normalizeName(namespaceName, "namespace"), normalizeName(key, "key")) as
+    | RecordRow
+    | undefined;
 }
 
 function writeSqliteRecord<T>(
@@ -444,17 +432,10 @@ function writeSqliteRecord<T>(
   };
 }
 
-function removeSqliteRecord(
-  storage: SqliteStorage,
-  namespaceName: string,
-  key: string,
-): boolean {
-  const result = getSqliteStorageInternals(storage).db
-    .prepare("DELETE FROM records WHERE namespace = ? AND key = ?")
-    .run(
-      normalizeName(namespaceName, "namespace"),
-      normalizeName(key, "key"),
-    );
+function removeSqliteRecord(storage: SqliteStorage, namespaceName: string, key: string): boolean {
+  const result = getSqliteStorageInternals(storage)
+    .db.prepare("DELETE FROM records WHERE namespace = ? AND key = ?")
+    .run(normalizeName(namespaceName, "namespace"), normalizeName(key, "key"));
 
   return Number(result.changes) > 0;
 }
@@ -463,8 +444,8 @@ function listSqliteRecords<T = unknown>(
   storage: SqliteStorage,
   namespaceName: string,
 ): Array<SqliteRecordSnapshot<T>> {
-  const rows = getSqliteStorageInternals(storage).db
-    .prepare(
+  const rows = getSqliteStorageInternals(storage)
+    .db.prepare(
       "SELECT namespace, key, value, version, created_at, updated_at FROM records WHERE namespace = ? ORDER BY key",
     )
     .all(normalizeName(namespaceName, "namespace")) as RecordRow[];
@@ -522,10 +503,7 @@ function configureDatabase(database: DatabaseSync, databasePath: string): void {
 function normalizeName(name: string, kind: "namespace" | "key"): string {
   const normalizedName = typeof name === "string" ? name.trim() : "";
   if (normalizedName.length === 0) {
-    throw new SqliteStorageError(
-      "INVALID_NAME",
-      `Expected a non-empty ${kind} name.`,
-    );
+    throw new SqliteStorageError("INVALID_NAME", `Expected a non-empty ${kind} name.`);
   }
 
   return normalizedName;
@@ -567,3 +545,4 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     Object.getPrototypeOf(value) === Object.prototype
   );
 }
+export * from "./durable.js";

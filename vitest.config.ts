@@ -29,6 +29,7 @@ const packageAliases = [
   "plugin-queue-memory",
   "plugin-hono",
   "plugin-storage-sqlite",
+  "plugin-storage-postgres",
   "plugin-tools-web",
   "plugin-web-ui",
 ];
@@ -44,6 +45,10 @@ export default defineConfig({
         {
           find: /^@generic-ai\/sdk\/pi$/,
           replacement: resolve(__dirname, "packages/sdk/src/pi/index.ts"),
+        },
+        {
+          find: /^@generic-ai\/sdk\/testing$/,
+          replacement: resolve(__dirname, "packages/sdk/src/testing/index.ts"),
         },
         {
           find: /^@generic-ai\/plugin-web-ui\/client$/,
