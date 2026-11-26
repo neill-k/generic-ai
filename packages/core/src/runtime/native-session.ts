@@ -424,6 +424,17 @@ export async function runCapabilityNativeAgentSession(
           : {}),
       });
       if (compaction !== undefined) {
+        if (compaction.usage !== undefined) {
+          await options.usageMeter?.record(
+            { ...eventContext, ...options.usageAttribution },
+            {
+              provider: options.model.provider,
+              model: options.model.id,
+              usage: compaction.usage,
+              purpose: "compaction",
+            },
+          );
+        }
         await emitRuntimeEvent("compaction", {
           tokensBefore: compaction.tokensBefore,
           firstKeptEntryId: compaction.firstKeptEntryId,
@@ -434,6 +445,12 @@ export async function runCapabilityNativeAgentSession(
           tokensBefore: compaction.tokensBefore,
         });
       }
+    }
+    if (signal?.aborted) {
+      // The compaction's own spend can reach the budget; stop before the next model call.
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error("Native session run was aborted.");
     }
     await runWithRetry(agent, () => agent.prompt(text), {
       policy: retryPolicy ?? { enabled: false, maxRetries: 0, baseDelayMs: 0 },
