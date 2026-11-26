@@ -82,9 +82,12 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | OpenAI-compatible Chat Completions (OpenRouter, Groq, xAI, DeepSeek, Mistral, Ollama): reasoning fields, tool-call deltas, usage | ✓ | `providers.test.ts` |
 | Cross-model transcript transforms, tool-call id normalisation, orphaned tool results | ✓ | `transform-messages.test.ts` |
 | Model catalog, `provider/id` refs, overrides | ✓ | `transform-messages.test.ts` |
-| Google Gemini / Vertex, Bedrock, Azure OpenAI, Mistral native, Cloudflare | ○ | pi `google-*`, `bedrock-*`, `azure-*`, `mistral-*` suites |
+| Google Gemini and Vertex (thinking level and budget, thought-signature replay, multimodal tool results, tool schema conversion, finish-reason mapping) | ✓ | `@generic-ai/ai` `google.ts` on `@google/genai`; cases from pi `google-*` suites in `google-azure.test.ts` |
+| Azure OpenAI Responses (endpoint normalisation, deployment map, API version) | ✓ | `azure-openai.ts`; cases from pi `azure-openai-base-url` and `azure-models` |
+| Bedrock, Mistral native, Cloudflare | ○ | pi `bedrock-*`, `mistral-*` suites (slice 8b) |
 | OAuth login flows (Claude, ChatGPT, Copilot) and credential storage | ○ | pi `oauth*`, `*-oauth.test.ts` |
-| Context-overflow detection, max-token clamping, cross-provider handoff matrix | ○ | pi `context-overflow`, `clamp-max-tokens`, `cross-provider-handoff` |
+| Context-overflow detection, max-token clamping, compact-and-retry on overflow | ✓ | pi `overflow.test.ts` ported whole, `clamp-max-tokens` cases; `runWithRetry` `onContextOverflow`, used by native sessions |
+| Cross-provider handoff matrix | ○ | pi `cross-provider-handoff` (needs live keys) |
 | Deferred (batch) responses, images API, classifiers | ○ | pi `faux-provider` deferred cases, `images*`, `classifier-*` |
 
 ### Agent loop (pi `agent`, 5 test files)
@@ -182,7 +185,9 @@ Each slice is a reviewable PR that keeps every existing test green.
    global and a session-local store of prompt notes, memories, skills and subagent specs that the
    agent refines from evidence, with history and rollback, shown in the system prompt ranked by
    relevance (`native.continual`, ADR 0067).
-8. **More providers and auth**: Gemini, Bedrock, Azure, OAuth logins.
+8. **More providers and auth**: 8a (in review) adds Google Gemini, Vertex AI and Azure OpenAI, and
+   context-overflow detection with compact-and-retry; 8b Bedrock and native Mistral; 8c OAuth
+   logins.
 9. **Make native the default and remove pi**: once the harness suite passes on the native adapter.
 
 ## Running the parity suites

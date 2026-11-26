@@ -7,6 +7,10 @@ export const PROVIDER_API_KEY_ENV: Record<string, readonly string[]> = {
   xai: ["XAI_API_KEY"],
   deepseek: ["DEEPSEEK_API_KEY"],
   mistral: ["MISTRAL_API_KEY"],
+  google: ["GEMINI_API_KEY", "GOOGLE_API_KEY"],
+  // Vertex falls back to application default credentials when no key is set.
+  "google-vertex": ["GOOGLE_CLOUD_API_KEY"],
+  "azure-openai": ["AZURE_OPENAI_API_KEY"],
   // Local servers accept any key.
   ollama: ["OLLAMA_API_KEY"],
 };

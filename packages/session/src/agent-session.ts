@@ -1,6 +1,7 @@
 import type { Agent, AgentMessage, AgentThinkingLevel, StreamFn } from "@generic-ai/agent";
 import {
   type AssistantMessage,
+  isContextOverflow,
   isRetryableAssistantError,
   type Model,
   type RetryPolicy,
@@ -93,13 +94,40 @@ export async function runWithRetry(
     readonly policy?: RetryPolicy | undefined;
     readonly signal?: AbortSignal | undefined;
     readonly onRetry?: ((notice: RetryNotice) => void | Promise<void>) | undefined;
+    /**
+     * Called once when the step ends in a context overflow (`isContextOverflow`). Compact the
+     * session and return true to drop the failed message and continue, or false to stop.
+     */
+    readonly onContextOverflow?: (() => Promise<boolean>) | undefined;
+    /** The model's context window, for detecting overflows a provider reports as success. */
+    readonly contextWindow?: number | undefined;
   } = {},
 ): Promise<number> {
   const policy = options.policy ?? DEFAULT_RETRY_POLICY;
   await step();
   let attempt = 0;
+  let overflowHandled = false;
   for (;;) {
     const last = lastAssistant(agent.state.messages);
+    if (
+      options.onContextOverflow !== undefined &&
+      !overflowHandled &&
+      last !== undefined &&
+      agent.state.messages.at(-1) === last &&
+      isContextOverflow(last, options.contextWindow) &&
+      !options.signal?.aborted
+    ) {
+      overflowHandled = true;
+      if (!(await options.onContextOverflow())) {
+        return attempt;
+      }
+      const after = agent.state.messages.at(-1);
+      if (after !== undefined && "role" in after && after.role === "assistant") {
+        agent.state.messages = agent.state.messages.slice(0, -1);
+      }
+      await agent.continue();
+      continue;
+    }
     if (
       !policy.enabled ||
       attempt >= policy.maxRetries ||
