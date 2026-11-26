@@ -213,6 +213,9 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
             args: z.array(z.string()).optional(),
             cwd: z.string().min(1, "handler.cwd cannot be empty").optional(),
             env: z.record(z.string()).optional(),
+            passEnv: z
+              .array(z.string().min(1, "handler.passEnv entries cannot be empty"))
+              .optional(),
             shell: z.boolean().optional(),
             ref: z.string().min(1, "handler.ref cannot be empty").optional(),
             timeoutMs: z

@@ -57,10 +57,19 @@ in the server process. Agent commands cannot read them by either route:
   read the server's environment.
 - **Code.** `/app` is owned by root, so agent commands cannot change the
   server code that runs on the next start.
+- **File tools.** The agents' read, write, edit, ls, find and grep tools run
+  inside the server process, so they could otherwise read the server's own
+  `/proc/self/environ`. They only accept paths inside the agent's home, and
+  resolve symlinks before checking, so `/proc/self/environ`, `/data/...` of
+  other agents and links pointing out of the home are refused.
+- **Hooks.** Lifecycle hook commands start from the same allowlisted
+  environment as agent commands. A hook gets a server variable only when its
+  config names it in `passEnv`.
 
-The image smoke test checks all three on every PR, with a probe that runs a
+The image smoke test checks all of this on every PR, with a probe that runs a
 command through the agents' shell tool and looks for the server's secret
-values in its environment and in every `/proc/<pid>/environ` it can read.
+values in its environment and in every `/proc/<pid>/environ` it can read, then
+asks each file tool for paths outside the workspace.
 
 **What remains** (stronger isolation is roadmap item R20):
 
@@ -73,8 +82,6 @@ values in its environment and in every `/proc/<pid>/environ` it can read.
   an agent command can read their environment, including credentials
   configured for that MCP server. MCP servers launched with `npx` or `node`
   are protected like the server.
-- Lifecycle hook commands configured in the harness get the server's full
-  environment while they run. Generic Corp configures none.
 - Agent commands share the network with the server. They can reach the
   Postgres host on Railway's private network, but not its password.
 - The `/proc` protection relies on standard Linux behaviour. After the first

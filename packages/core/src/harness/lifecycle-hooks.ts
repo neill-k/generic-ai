@@ -16,6 +16,8 @@ import type {
 } from "@generic-ai/sdk";
 import type { ToolDefinition } from "@generic-ai/sdk/pi";
 
+import { getAgentCommandEnv } from "@generic-ai/tools";
+
 import type { CanonicalEventStream } from "../events/index.js";
 
 export interface AgentLifecycleHookExecutorOptions {
@@ -309,6 +311,7 @@ async function runCommandHook(input: {
     args: handler.args ?? [],
     cwd: handler.cwd,
     env: handler.env ?? {},
+    passEnv: handler.passEnv ?? [],
     shell: handler.shell ?? false,
   });
   const existing = input.commandRuns.get(key);
@@ -319,6 +322,7 @@ async function runCommandHook(input: {
   const run = runCommand(handler.command, handler.args ?? [], {
     ...(handler.cwd === undefined ? {} : { cwd: handler.cwd }),
     ...(handler.env === undefined ? {} : { env: handler.env }),
+    ...(handler.passEnv === undefined ? {} : { passEnv: handler.passEnv }),
     ...(handler.shell === undefined ? {} : { shell: handler.shell }),
     timeoutMs: input.timeoutMs,
     stdin: `${JSON.stringify(input.context)}\n`,
@@ -357,6 +361,7 @@ function runCommand(
   options: {
     readonly cwd?: string;
     readonly env?: Readonly<Record<string, string>>;
+    readonly passEnv?: readonly string[];
     readonly shell?: boolean;
     readonly timeoutMs: number;
     readonly stdin: string;
@@ -365,7 +370,13 @@ function runCommand(
   return new Promise((resolve, reject) => {
     const child = spawn(command, [...args], {
       cwd: options.cwd,
-      env: options.env === undefined ? process.env : { ...process.env, ...options.env },
+      // Hook commands get the same allowlisted environment as agent commands, never the server's
+      // provider keys, database URL or tokens. A hook names any server variable it needs in
+      // `passEnv`, or sets values in `env`.
+      env: {
+        ...getAgentCommandEnv(process.env, { allow: options.passEnv ?? [] }),
+        ...(options.env ?? {}),
+      },
       shell: options.shell ?? false,
       stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,

@@ -6,11 +6,15 @@
 // It runs one command through the same terminal tool the agents use, from a
 // process holding the same environment as the server. The command prints its
 // own environment and every /proc/<pid>/environ it can read, which covers the
-// server process and this probe. Exits 1 if any VALUE shows up.
+// server process and this probe. It also asks the agents' file tools, which run
+// inside the server process, for /proc/self/environ and other files outside the
+// agent's workspace; they must refuse. Exits 1 if any VALUE shows up or a file
+// tool reaches outside the workspace.
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
 import { createTerminalToolPlugin } from "@generic-ai/plugin-tools-terminal";
 
 const secrets = process.argv.slice(2).filter((value) => value.length > 0);
@@ -62,3 +66,35 @@ if (leaks.length > 0) {
   process.exit(1);
 }
 console.log(`None of the ${secrets.length} secret values reached the agent command.`);
+
+// The file tools run in the server process, so /proc/self/environ is the
+// server's own environment. Each must refuse paths outside the workspace.
+const files = createWorkspaceFileTools({ root });
+const fileTool = (name) => files.piTools.find((tool) => tool.name === name);
+const attempts = [
+  ["read", { path: "/proc/self/environ" }],
+  ["grep", { pattern: ".", path: "/proc/self" }],
+  ["ls", { path: "/" }],
+  ["write", { path: path.join(tmpdir(), "agent-env-probe-planted.txt"), content: "planted" }],
+];
+let escaped = false;
+for (const [name, params] of attempts) {
+  try {
+    const result = await fileTool(name).execute("probe", params);
+    const text = JSON.stringify(result.content);
+    const leaked = secrets.filter((value) => text.includes(value)).length;
+    console.error(
+      `ESCAPE: the ${name} tool reached ${params.path}${leaked ? ` and returned ${leaked} secret value(s)` : ""}.`,
+    );
+    escaped = true;
+  } catch (error) {
+    if (!String(error?.message).includes("outside the agent's workspace")) {
+      console.error(`ESCAPE?: the ${name} tool failed for another reason: ${error?.message}`);
+      escaped = true;
+    }
+  }
+}
+if (escaped) {
+  process.exit(1);
+}
+console.log(`The file tools refused all ${attempts.length} paths outside the workspace.`);

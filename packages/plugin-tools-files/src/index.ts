@@ -1,10 +1,8 @@
 import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 
-import {
-  withAgentHarnessToolEffects,
-  type WorkspaceEntry,
-} from "@generic-ai/sdk";
+import { withAgentHarnessToolEffects, type WorkspaceEntry } from "@generic-ai/sdk";
 import {
   createEditTool,
   createFindTool,
@@ -157,45 +155,115 @@ function toSearchExpression(pattern: string, options: FileGrepOptions): RegExp {
   return new RegExp(source, options.ignoreCase ? "gi" : "g");
 }
 
+const UNICODE_SPACES = /[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g;
+
+/** Reads a path the way the tools in `@generic-ai/tools` do: `@` prefix, `~`, odd spaces. */
+function normalizeToolPath(input: string, root: string): string {
+  let value = input.replace(UNICODE_SPACES, " ");
+  if (value.startsWith("@")) {
+    value = value.slice(1);
+  }
+  if (value === "~" || value.startsWith("~/")) {
+    value = path.join(os.homedir(), value.slice(1));
+  }
+  return path.resolve(root, value);
+}
+
+/** The error an agent sees for a path outside its workspace. */
+export class WorkspaceBoundaryError extends Error {
+  constructor(requested: string, root: string) {
+    super(
+      `Path "${requested}" is outside the agent's workspace (${root}). File tools only reach files under the workspace; use a relative path.`,
+    );
+    this.name = "WorkspaceBoundaryError";
+  }
+}
+
+/**
+ * Keeps an agent-facing file tool inside `root`. The tools in `@generic-ai/tools` accept any
+ * absolute path and run in the server process, so without this an agent could read the server's
+ * own files (including `/proc/self/environ`, which holds its API keys and database URL) or write
+ * into other agents' homes. Every `path` argument is resolved, symlinks included, and refused when
+ * it lands outside the root; the tool then gets the resolved path, so a symlink checked here is not
+ * followed somewhere else later.
+ */
+function confineToWorkspace<T extends { execute: (...args: never[]) => unknown }>(
+  tool: T,
+  root: string,
+): T {
+  const execute = tool.execute as unknown as (
+    id: string,
+    params: unknown,
+    ...rest: unknown[]
+  ) => unknown;
+  const confined = async (id: string, params: unknown, ...rest: unknown[]) => {
+    const record = (params ?? {}) as Record<string, unknown>;
+    const requested = typeof record["path"] === "string" ? record["path"] : ".";
+    let resolved: string;
+    try {
+      resolved = await resolveSafeWorkspacePath(root, normalizeToolPath(requested, root));
+    } catch {
+      throw new WorkspaceBoundaryError(requested, root);
+    }
+    return execute.call(tool, id, { ...record, path: resolved }, ...rest);
+  };
+  return { ...tool, execute: confined } as T;
+}
+
 export function createWorkspaceFileTools(options: WorkspaceFileToolsOptions): WorkspaceFileTools {
   const workspace = createWorkspaceFs(options.root);
   const piTools = Object.freeze([
-    withAgentHarnessToolEffects(createReadTool(workspace.root), {
-      id: "files.read",
-      label: "Read file",
-      effects: ["fs.read"],
-      reversibility: "reversible-cheap",
-      retrySemantics: "safe-to-retry",
-    }),
-    withAgentHarnessToolEffects(createWriteTool(workspace.root), {
-      id: "files.write",
-      label: "Write file",
-      effects: ["fs.write"],
-      reversibility: "irreversible",
-      retrySemantics: "retry-may-duplicate",
-    }),
-    withAgentHarnessToolEffects(createEditTool(workspace.root), {
-      id: "files.edit",
-      label: "Edit file",
-      effects: ["fs.read", "fs.write"],
-      reversibility: "reversible-with-cost",
-      retrySemantics: "idempotency-key-required",
-    }),
-    withAgentHarnessToolEffects(createFindTool(workspace.root), {
-      id: "files.find",
-      label: "Find files",
-      effects: ["fs.read"],
-      reversibility: "reversible-cheap",
-      retrySemantics: "safe-to-retry",
-    }),
-    withAgentHarnessToolEffects(createGrepTool(workspace.root), {
-      id: "files.grep",
-      label: "Search file contents",
-      effects: ["fs.read"],
-      reversibility: "reversible-cheap",
-      retrySemantics: "safe-to-retry",
-    }),
-    withAgentHarnessToolEffects(createLsTool(workspace.root), {
+    withAgentHarnessToolEffects(
+      confineToWorkspace(createReadTool(workspace.root), workspace.root),
+      {
+        id: "files.read",
+        label: "Read file",
+        effects: ["fs.read"],
+        reversibility: "reversible-cheap",
+        retrySemantics: "safe-to-retry",
+      },
+    ),
+    withAgentHarnessToolEffects(
+      confineToWorkspace(createWriteTool(workspace.root), workspace.root),
+      {
+        id: "files.write",
+        label: "Write file",
+        effects: ["fs.write"],
+        reversibility: "irreversible",
+        retrySemantics: "retry-may-duplicate",
+      },
+    ),
+    withAgentHarnessToolEffects(
+      confineToWorkspace(createEditTool(workspace.root), workspace.root),
+      {
+        id: "files.edit",
+        label: "Edit file",
+        effects: ["fs.read", "fs.write"],
+        reversibility: "reversible-with-cost",
+        retrySemantics: "idempotency-key-required",
+      },
+    ),
+    withAgentHarnessToolEffects(
+      confineToWorkspace(createFindTool(workspace.root), workspace.root),
+      {
+        id: "files.find",
+        label: "Find files",
+        effects: ["fs.read"],
+        reversibility: "reversible-cheap",
+        retrySemantics: "safe-to-retry",
+      },
+    ),
+    withAgentHarnessToolEffects(
+      confineToWorkspace(createGrepTool(workspace.root), workspace.root),
+      {
+        id: "files.grep",
+        label: "Search file contents",
+        effects: ["fs.read"],
+        reversibility: "reversible-cheap",
+        retrySemantics: "safe-to-retry",
+      },
+    ),
+    withAgentHarnessToolEffects(confineToWorkspace(createLsTool(workspace.root), workspace.root), {
       id: "files.list",
       label: "List files",
       effects: ["fs.read"],
