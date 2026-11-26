@@ -1,0 +1,96 @@
+// LIVE: calls a real provider. Files named *.live.test.ts are excluded from `npm test` and CI, so
+// automated runs never call a model. Run by hand only:
+//   GENERIC_AI_ENABLE_LIVE_SMOKE=1 GENERIC_AI_LIVE_PROVIDER_API_KEY=... \
+//     npm run test:live -w @generic-ai/example-starter-hono
+
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  createLiveProviderSmokeTransport,
+  LIVE_SMOKE_DONE_TEXT,
+  LIVE_SMOKE_ENABLE_ENV,
+  type LiveProviderSmokeCompletedResult,
+} from "./live-smoke.ts";
+
+async function withTempRoot<T>(run: (root: string) => Promise<T>): Promise<T> {
+  const root = await mkdtemp(path.join(os.tmpdir(), "example-starter-hono-live-"));
+  try {
+    return await run(root);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+describe("@generic-ai/example-starter-hono live smoke (live)", () => {
+  it("runs the real provider smoke flow when explicitly enabled and configured", async () => {
+    if (process.env[LIVE_SMOKE_ENABLE_ENV] !== "1") {
+      return;
+    }
+
+    await withTempRoot(async (root) => {
+      const transport = createLiveProviderSmokeTransport({
+        root,
+        env: process.env,
+      });
+      const response = await transport.app.request("/starter/live/run/stream", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ input: "ignored" }),
+      });
+      const text = await response.text();
+
+      if (text.includes('"skipped": true')) {
+        throw new Error(
+          "Live smoke was skipped but LIVE_PROVIDER_SMOKE is enabled — check credentials/model config",
+        );
+      }
+
+      // Parse the done event payload to get the full result.
+      // `createHonoPlugin` serialises with `JSON.stringify(..., 2)`, which
+      // spreads the payload across multiple `data:` lines.  Collect every
+      // consecutive `data:` line that follows `event: done`, strip the
+      // prefix, and join them so `JSON.parse` receives the complete object.
+      const doneSection = text.match(/event: done\n((?:data: .*\n?)+)/);
+      expect(doneSection).not.toBeNull();
+      const donePayload = doneSection?.[1];
+      expect(donePayload).toBeDefined();
+      if (donePayload === undefined) {
+        throw new Error("Expected to capture the done event payload.");
+      }
+
+      const doneJson = donePayload
+        .split("\n")
+        .filter((line) => line.startsWith("data: "))
+        .map((line) => line.slice("data: ".length))
+        .join("\n");
+      const doneData = JSON.parse(doneJson) as LiveProviderSmokeCompletedResult;
+
+      // Verify agent_end was observed
+      expect(doneData.sawAgentEnd).toBe(true);
+
+      // Verify exactly 1 write and 1 read tool call
+      const writeCalls = doneData.toolCalls.filter((tc) => tc.toolName === "write");
+      const readCalls = doneData.toolCalls.filter((tc) => tc.toolName === "read");
+      expect(writeCalls).toHaveLength(1);
+      expect(readCalls).toHaveLength(1);
+
+      // Verify write comes before read
+      const writeIndex = doneData.toolCalls.findIndex((tc) => tc.toolName === "write");
+      const readIndex = doneData.toolCalls.findIndex((tc) => tc.toolName === "read");
+      expect(writeIndex).toBeLessThan(readIndex);
+
+      // Verify assistant text matches expected done marker
+      expect(doneData.assistantText).toBe(LIVE_SMOKE_DONE_TEXT);
+
+      // Verify SSE structure
+      expect(text).toContain("event: tool");
+      expect(text).toContain("event: done");
+    });
+  }, 120_000);
+});

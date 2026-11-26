@@ -85,7 +85,17 @@ export default defineConfig({
       "apps/*/test/**/*.{test,spec}.{ts,tsx}",
       "scripts/**/*.{test,spec}.{ts,tsx}",
     ],
-    exclude: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/.turbo/**", "**/coverage/**"],
+    // *.live.test.ts files call real models and never run in `npm test` or CI; see
+    // vitest.live.config.ts. The setup file strips provider keys so nothing else can either.
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/.turbo/**",
+      "**/coverage/**",
+      "**/*.live.test.{ts,tsx}",
+    ],
+    setupFiles: [resolve(__dirname, "scripts/vitest-no-live-providers.mjs")],
     passWithNoTests: true,
     reporters: ["default"],
     watch: false,

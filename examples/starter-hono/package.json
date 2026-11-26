@@ -16,7 +16,7 @@
     "typecheck": "tsc -b --pretty",
     "typecheck:ui": "tsc -p tsconfig.ui.json --pretty",
     "test": "vitest run --root ../.. --config vitest.config.ts examples/starter-hono/src/index.test.ts examples/starter-hono/src/live-smoke.test.ts",
-    "test:live": "vitest run --root ../.. --config vitest.config.ts examples/starter-hono/src/live-smoke.test.ts",
+    "test:live": "vitest run --root ../.. --config vitest.live.config.ts examples/starter-hono/src/live-smoke.live.test.ts",
     "lint": "biome lint ."
   },
   "dependencies": {
