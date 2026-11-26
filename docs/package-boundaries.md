@@ -30,7 +30,7 @@ docs/                planning pack, decision records, and framework documentatio
 
 Generic AI has a small number of layers. Dependency direction is strictly downward:
 
-0. **Native runtime** — `@generic-ai/ai` (provider-neutral model layer), `@generic-ai/agent` (agent loop), `@generic-ai/tools` (coding tools), and `@generic-ai/session` (sessions and compaction)
+0. **Native runtime** — `@generic-ai/ai` (provider-neutral model layer), `@generic-ai/agent` (agent loop), `@generic-ai/tools` (coding tools), `@generic-ai/session` (sessions and compaction), and `@generic-ai/resources` (skills and prompt templates)
 1. **Kernel** — `@generic-ai/core`
 2. **SDK** — `@generic-ai/sdk`
 3. **Plugins and package extensions** - everything matching `@generic-ai/plugin-*` plus future documented protocol/grader/report/policy package layers
@@ -41,7 +41,7 @@ Generic AI has a small number of layers. Dependency direction is strictly downwa
 
 The layering rules:
 
-- The native runtime packages depend only on third-party libraries (the official provider SDKs) and on each other (`@generic-ai/agent` depends on `@generic-ai/ai`; `@generic-ai/tools` on both; `@generic-ai/session` on all three). They must not depend on the kernel, the SDK, plugins, or presets. They are the replacement for `pi` underneath the existing adapter boundary; see `docs/planning/native-harness-parity.md`.
+- The native runtime packages depend only on third-party libraries (the official provider SDKs) and on each other (`@generic-ai/agent` depends on `@generic-ai/ai`; `@generic-ai/tools` on both; `@generic-ai/session` on all three; `@generic-ai/resources` on `@generic-ai/tools`). They must not depend on the kernel, the SDK, plugins, or presets. They are the replacement for `pi` underneath the existing adapter boundary; see `docs/planning/native-harness-parity.md`.
 - The kernel may depend on `pi` and on `@generic-ai/sdk` where that helps it expose its own contracts cleanly. It must not depend on any plugin or preset package.
 - The SDK may depend on `pi`. It must not depend on the kernel or any plugin.
 - Plugins may depend on `@generic-ai/sdk` and on `pi`. They must not import from `@generic-ai/core`. Plugins may depend on other plugins only when the dependency is part of the documented intent for that plugin (for example, `plugin-memory-files` and `plugin-tools-files` depending on `plugin-workspace-fs`, or `plugin-messaging` depending on a storage plugin through the storage contract rather than through a specific implementation whenever possible).
@@ -94,10 +94,17 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Not responsible for: the durable store or queue (those are R6/R7; a store-backed writer plugs in later), policy, or harness orchestration.
 - Publishes as: `@generic-ai/session` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
+### `@generic-ai/resources`
+
+- Role: native resources: Agent Skills discovery (`SKILL.md` trees, `.gitignore`-aware, name and description validation, collision diagnostics), the skills prompt block, `/skill:name` expansion, prompt templates with bash-style argument substitution, and markdown frontmatter parsing. Adapted from pi's coding agent under MIT.
+- Allowed deps: `@generic-ai/tools`, `ignore`, `yaml`.
+- Not responsible for: deciding which directories a workspace uses (that is `plugin-agent-skills` and the harness), extensions, or the system prompt as a whole.
+- Publishes as: `@generic-ai/resources` — public, independent versioning, `publishConfig.access: public`, provenance on.
+
 ### `@generic-ai/core`
 
 - Role: framework kernel. Owns bootstrap, plugin host, registries, scope, sessions, streaming events, and the canonical run envelope.
-- Allowed deps: `pi`, `@generic-ai/sdk`, and the native runtime packages (`@generic-ai/ai`, `@generic-ai/agent`, `@generic-ai/session`).
+- Allowed deps: `pi`, `@generic-ai/sdk`, and the native runtime packages (`@generic-ai/ai`, `@generic-ai/agent`, `@generic-ai/session`, `@generic-ai/resources`).
 - Not responsible for: MCP, Agent Skills, delegation, messaging, memory, storage implementations, transport, output shaping, Harness DSL syntax, package-specific protocol/policy/grader semantics, or any business capability.
 - Notes: the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls is the only approved kernel/preset composition exception. See `docs/decisions/0012-bootstrap-api.md`.
 - Harness note: core exposes the `AgentHarness` control-plane implementation with two built-in session backends, `pi` and `native` (selected by `harness.adapter`); both share the same role policy, hooks, delegation, events, and artifacts. It filters role capabilities by SDK-declared effects, writes artifacts through the harness artifact-store contract, and may consume SDK-owned compiled harness contracts. `GenericAILlmRuntime` remains a low-level text/model helper rather than the composable agent harness.

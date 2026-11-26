@@ -1,0 +1,35 @@
+{
+  "name": "@generic-ai/resources",
+  "version": "0.0.0",
+  "description": "Resources for the Generic AI native runtime: Agent Skills discovery and prompt formatting, prompt templates with argument substitution, and markdown frontmatter parsing.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "@generic-ai/tools": "0.0.0",
+    "ignore": "^5.3.2",
+    "yaml": "^2.8.3"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
