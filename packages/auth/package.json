@@ -1,0 +1,48 @@
+{
+  "name": "@generic-ai/auth",
+  "version": "0.0.0",
+  "description": "Credentials for the Generic AI native runtime: credential stores, OAuth sign-in flows (PKCE, loopback callback, device code) and locked token refresh.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {},
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neill-k/generic-ai.git",
+    "directory": "packages/auth"
+  },
+  "homepage": "https://github.com/neill-k/generic-ai/tree/main/packages/auth#readme",
+  "bugs": {
+    "url": "https://github.com/neill-k/generic-ai/issues"
+  },
+  "keywords": [
+    "generic-ai",
+    "ai-agents",
+    "multi-agent"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
