@@ -100,6 +100,33 @@ describe("retry on transient errors", () => {
     expect(provider.state.callCount).toBe(1);
   });
 
+  it("does not report a retry when the run is already aborted", async () => {
+    const { provider, agent } = setup();
+    provider.setResponses([
+      fauxAssistantMessage([], { stopReason: "error", errorMessage: "529 overloaded_error" }),
+      fauxAssistantMessage("Should not be reached."),
+    ]);
+    const controller = new AbortController();
+    const notices: number[] = [];
+    const retries = await runWithRetry(
+      agent,
+      async () => {
+        await agent.prompt("Hello");
+        controller.abort();
+      },
+      {
+        policy: { enabled: true, maxRetries: 2, baseDelayMs: 1 },
+        signal: controller.signal,
+        onRetry: (notice) => {
+          notices.push(notice.attempt);
+        },
+      },
+    );
+    expect(retries).toBe(0);
+    expect(notices).toEqual([]);
+    expect(provider.state.callCount).toBe(1);
+  });
+
   it("stops after maxRetries", async () => {
     const { provider, agent } = setup();
     const overloaded = () =>
@@ -137,6 +164,48 @@ describe("auto-compaction", () => {
     expect(manager.getEntries().some((entry) => entry.type === "compaction")).toBe(true);
     expect(agent.state.messages[0]?.role).toBe("compactionSummary");
     expect(agent.state.messages.length).toBeLessThan(6);
+  });
+
+  it("lets beforeCompact cancel a compaction or steer its summary", async () => {
+    const { provider, model, agent } = setup(4_000);
+    const manager = SessionManager.inMemory("/tmp/work");
+    persistAgentMessages(agent, manager);
+    const filler = "x".repeat(4_000);
+    let summaryPrompt = "";
+    provider.setResponses([
+      fauxAssistantMessage(`One ${filler}`),
+      fauxAssistantMessage(`Two ${filler}`),
+      fauxAssistantMessage(`Three ${filler}`),
+      (context) => {
+        summaryPrompt = JSON.stringify(context.messages);
+        return fauxAssistantMessage("Summary.");
+      },
+    ]);
+    await agent.prompt(`First ${filler}`);
+    await agent.prompt(`Second ${filler}`);
+    await agent.prompt(`Third ${filler}`);
+    const settings = { reserveTokens: 1_000, keepRecentTokens: 1_500 };
+
+    const infos: number[] = [];
+    const cancelled = await compactIfNeeded(agent, manager, {
+      model,
+      settings,
+      beforeCompact: (info) => {
+        infos.push(info.contextWindow);
+        return { cancel: true };
+      },
+    });
+    expect(cancelled).toBeUndefined();
+    expect(infos).toEqual([4_000]);
+    expect(manager.getEntries().some((entry) => entry.type === "compaction")).toBe(false);
+
+    const result = await compactIfNeeded(agent, manager, {
+      model,
+      settings,
+      beforeCompact: () => ({ customInstructions: "Keep the word PINEAPPLE." }),
+    });
+    expect(result?.summary).toContain("Summary.");
+    expect(summaryPrompt).toContain("Keep the word PINEAPPLE.");
   });
 
   it("does nothing while the context fits", async () => {

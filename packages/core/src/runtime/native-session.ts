@@ -3,6 +3,11 @@ import { randomUUID } from "node:crypto";
 import { Agent, type AgentEvent, type AgentTool, type StreamFn } from "@generic-ai/agent";
 import type { AssistantMessage, Model, RetryPolicy, ThinkingLevel } from "@generic-ai/ai";
 import {
+  discoverAndLoadExtensions,
+  type ExtensionFactory,
+  type ExtensionRunner,
+} from "@generic-ai/extensions";
+import {
   expandPromptTemplate,
   expandSkillCommand,
   type PromptTemplate,
@@ -97,6 +102,21 @@ export interface RunCapabilityNativeAgentSessionOptions {
    * its `$1`, `$@` and `${@:N}` placeholders filled from the arguments.
    */
   readonly promptTemplates?: readonly PromptTemplate[];
+  /** Extensions to load for this session (see `@generic-ai/extensions`). */
+  readonly extensions?: NativeSessionExtensions;
+}
+
+export interface NativeSessionExtensions {
+  /** Extension files or directories. Relative paths resolve against `cwd`. */
+  readonly paths?: readonly string[];
+  /** Extensions given as factories. */
+  readonly factories?: readonly ExtensionFactory[];
+  /**
+   * Also load `<cwd>/.generic-ai/extensions` and, when `agentDir` is set, `<agentDir>/extensions`.
+   * Off by default, because extensions run with the process's full permissions.
+   */
+  readonly discover?: boolean;
+  readonly agentDir?: string;
 }
 
 export interface RunCapabilityNativeAgentSessionResult {
@@ -122,6 +142,44 @@ type PromptedTool = {
   readonly promptSnippet?: string;
   readonly promptGuidelines?: readonly string[];
 };
+
+async function loadSessionExtensions(
+  options: RunCapabilityNativeAgentSessionOptions,
+  emitRuntimeEvent: (type: string, data: Record<string, unknown>) => Promise<unknown>,
+): Promise<ExtensionRunner | undefined> {
+  const config = options.extensions;
+  if (
+    config === undefined ||
+    (config.discover !== true &&
+      (config.paths ?? []).length === 0 &&
+      (config.factories ?? []).length === 0)
+  ) {
+    return undefined;
+  }
+  const loaded = await discoverAndLoadExtensions({
+    cwd: options.cwd,
+    includeDefaults: config.discover === true,
+    ...(config.agentDir === undefined ? {} : { agentDir: config.agentDir }),
+    ...(config.paths === undefined ? {} : { paths: config.paths }),
+    ...(config.factories === undefined ? {} : { factories: config.factories }),
+  });
+  for (const error of loaded.errors) {
+    await emitRuntimeEvent("extension_error", {
+      extensionPath: error.path,
+      event: "load",
+      error: error.error,
+    });
+  }
+  loaded.runner.onError((error) => {
+    void emitRuntimeEvent("extension_error", { ...error });
+  });
+  await emitRuntimeEvent("extensions_loaded", {
+    extensions: loaded.extensions.map((extension) => extension.path),
+    tools: loaded.runner.getTools().map((tool) => tool.name),
+    commands: loaded.runner.getCommands().map((command) => command.invocationName),
+  });
+  return loaded.runner;
+}
 
 /**
  * Expand a `/skill:name args` command into the skill's instructions, or a `/template args` command
@@ -332,7 +390,24 @@ export async function runCapabilityNativeAgentSession(
       }),
     );
 
+  const extensions = await loadSessionExtensions(options, emitRuntimeEvent);
+  const unbindExtensions = extensions?.bindAgent(agent);
+  await extensions?.emit({ type: "session_start" });
+
   const runPrompt = async (text: string) => {
+    if (extensions === undefined) {
+      await runModelPrompt(text);
+      return;
+    }
+    const outcome = await extensions.runPrompt(text, runModelPrompt);
+    if (outcome.kind === "handled") {
+      await emitRuntimeEvent("extension_handled", {
+        ...(outcome.command === undefined ? {} : { command: outcome.command }),
+      });
+    }
+  };
+
+  const runModelPrompt = async (text: string) => {
     if (options.compaction !== false) {
       const compaction = await compactIfNeeded(agent, sessionManager, {
         model: options.model,
@@ -341,11 +416,22 @@ export async function runCapabilityNativeAgentSession(
         streamFn: options.streamFn,
         signal,
         retry: retryPolicy,
+        ...(extensions?.hasHandlers("session_before_compact") === true
+          ? {
+              beforeCompact: (info: { tokens: number; contextWindow: number }) =>
+                extensions.emitBeforeCompact({ type: "session_before_compact", ...info }),
+            }
+          : {}),
       });
       if (compaction !== undefined) {
         await emitRuntimeEvent("compaction", {
           tokensBefore: compaction.tokensBefore,
           firstKeptEntryId: compaction.firstKeptEntryId,
+        });
+        await extensions?.emit({
+          type: "session_compact",
+          summary: compaction.summary,
+          tokensBefore: compaction.tokensBefore,
         });
       }
     }
@@ -377,6 +463,8 @@ export async function runCapabilityNativeAgentSession(
     readonly outputText?: string;
     readonly terminalStatus?: StopAndRespondState["status"];
   }): Promise<RunCapabilityNativeAgentSessionResult> => {
+    await extensions?.emit({ type: "session_shutdown" });
+    unbindExtensions?.();
     unsubscribe();
     unmeter?.();
     stopPersisting();
