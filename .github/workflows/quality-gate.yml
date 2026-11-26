@@ -1,12 +1,30 @@
 name: Quality Gate
 
+# End-to-end, crash and load tests in a real browser. Typecheck, lint, test, build and the offline
+# template evals run once, in baseline-quality-gate; this workflow used to repeat them.
+# e2e runs only when something it exercises changes, which skips docs-only and workflow-only PRs.
+
 on:
   pull_request:
     branches:
       - main
+    paths:
+      - "apps/generic-corp/**"
+      - "packages/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - ".github/workflows/quality-gate.yml"
   push:
     branches:
       - main
+    paths:
+      - "apps/generic-corp/**"
+      - "packages/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - ".github/workflows/quality-gate.yml"
   workflow_dispatch:
 
 permissions:
@@ -17,117 +35,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  typecheck:
-    name: typecheck
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: "npm"
-
-      - name: Use pinned npm
-        run: npm install --global npm@11.12.1
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run typecheck
-        run: npm run typecheck
-
-  lint:
-    name: lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: "npm"
-
-      - name: Use pinned npm
-        run: npm install --global npm@11.12.1
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run lint
-        run: npm run lint
-
-  test:
-    name: test
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      GENERIC_AI_TEST_POSTGRES_URL: postgres://postgres@localhost:5432/postgres
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: "npm"
-
-      - name: Use pinned npm
-        run: npm install --global npm@11.12.1
-
-      - name: Install ripgrep (needed by the native grep tool)
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: npm run test
-
-  build:
-    name: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: "24"
-          cache: "npm"
-
-      - name: Use pinned npm
-        run: npm install --global npm@11.12.1
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run build
-        run: npm run build
-
-      # One goal eval suite per company template, replayed offline from recorded agent turns.
-      # Fails the build when any template's gate fails. The reliability gate adds --live runs
-      # on real models once provider keys are available to CI.
-      - name: Run company template evals
-        run: npm run evals -w @generic-ai/app-generic-corp
-
   # Roadmap R19: the golden flows in a real browser (chat to the CEO, the delegation cascade,
   # an owner approval), a crash mid-run that must resume after a restart, and a load test. Each
   # spec starts a real Generic Corp server on a scripted model, so no provider key is needed.

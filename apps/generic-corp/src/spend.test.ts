@@ -1,7 +1,7 @@
 import { emptyUsageTotals } from "@generic-ai/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { missingProviderKeys, NOT_RUN_PREFIX, runTemplateEvals } from "./evals.js";
-import { EXIT_MISSING_KEY, main } from "./evals-cli.js";
+import { ECONOMY_MODELS, EXIT_MISSING_KEY, main, modelOverrides } from "./evals-cli.js";
 import { createSpendCap } from "./spend.js";
 import { loadCompanyTemplate } from "./templates.js";
 
@@ -73,6 +73,31 @@ describe("eval spend cap", () => {
     expect(errors.join("\n")).toMatch(
       /ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN.*nothing was spent/,
     );
+  });
+
+  it("builds cheaper tier models from --economy and --model", () => {
+    expect(modelOverrides(false, [])).toEqual({});
+    expect(modelOverrides(true, [])).toEqual(ECONOMY_MODELS);
+    expect(modelOverrides(true, ["ceo=anthropic/claude-haiku-5-5"])).toEqual({
+      ...ECONOMY_MODELS,
+      ceo: "anthropic/claude-haiku-5-5",
+    });
+    expect(modelOverrides(false, ["boss=anthropic/x"])).toMatch(/--model must look like/);
+    expect(modelOverrides(false, ["vp"])).toMatch(/--model must look like/);
+  });
+
+  it("checks the key for an overridden model's provider before spending", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "set");
+    vi.stubEnv("OPENAI_API_KEY", "");
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((message: string) => {
+      errors.push(message);
+    });
+    expect(
+      await main(["--live", "--template", "generic-corp", "--model", "ic=openai/gpt-5-mini"]),
+    ).toBe(EXIT_MISSING_KEY);
+    expect(errors.join("\n")).toMatch(/openai/);
+    expect(await main(["--model", "nope"])).toBe(2);
   });
 
   it("rejects caps that are not positive numbers", async () => {
