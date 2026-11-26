@@ -13,6 +13,21 @@ export const PROVIDER_API_KEY_ENV: Record<string, readonly string[]> = {
   "azure-openai": ["AZURE_OPENAI_API_KEY"],
   // Bedrock API keys; without one the AWS credential chain signs requests.
   "amazon-bedrock": ["AWS_BEARER_TOKEN_BEDROCK"],
+  cerebras: ["CEREBRAS_API_KEY"],
+  fireworks: ["FIREWORKS_API_KEY"],
+  together: ["TOGETHER_API_KEY"],
+  huggingface: ["HF_TOKEN"],
+  nvidia: ["NVIDIA_API_KEY"],
+  baseten: ["BASETEN_API_KEY"],
+  moonshotai: ["MOONSHOT_API_KEY"],
+  "moonshotai-cn": ["MOONSHOT_API_KEY"],
+  "kimi-coding": ["KIMI_API_KEY"],
+  zai: ["ZAI_API_KEY"],
+  xiaomi: ["XIAOMI_API_KEY"],
+  minimax: ["MINIMAX_API_KEY"],
+  "minimax-cn": ["MINIMAX_CN_API_KEY"],
+  "vercel-ai-gateway": ["AI_GATEWAY_API_KEY"],
+  meta: ["META_API_KEY"],
   // Local servers accept any key.
   ollama: ["OLLAMA_API_KEY"],
 };

@@ -80,6 +80,7 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Anthropic Messages: streaming, thinking (adaptive and budget), signatures, redacted thinking, tool use, OAuth tokens, cache breakpoints and 1h retention, refusal mapping, cost | ✓ | `providers.test.ts` (recorded SSE through the real SDK) |
 | OpenAI Responses: reasoning summaries, encrypted reasoning replay, function calls, prompt cache key and retention | ✓ | `providers.test.ts` |
 | OpenAI-compatible Chat Completions (OpenRouter, Groq, xAI, DeepSeek, Ollama): reasoning fields, tool-call deltas, usage | ✓ | `providers.test.ts` |
+| Hosted provider defaults (Cerebras, Fireworks, Together, Hugging Face, NVIDIA, Baseten, Moonshot, Kimi Coding, Z.ai, Xiaomi, MiniMax, Vercel AI Gateway, Meta) | ✓ | `hosted-providers.test.ts` (resolution and key variables; recorded request per API family) |
 | Cross-model transcript transforms, tool-call id normalisation, orphaned tool results | ✓ | `transform-messages.test.ts` |
 | Model catalog, `provider/id` refs, overrides | ✓ | `transform-messages.test.ts` |
 | Google Gemini and Vertex (thinking level and budget, thought-signature replay, multimodal tool results, tool schema conversion, finish-reason mapping) | ✓ | `@generic-ai/ai` `google.ts` on `@google/genai`; cases from pi `google-*` suites in `google-azure.test.ts` |
@@ -136,6 +137,7 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Extensions: events (`input`, `before_agent_start`, `context`, `tool_call`, `tool_result`, turn/message/agent/session events, `session_before_compact`), tools, commands, discovery and loading | ✓ | `@generic-ai/extensions`: discovery cases adapted from `extensions-discovery`, runner cases from `extensions-runner` and `extensions-input-event`; `native.extensions` harness option |
 | Extension UI: widgets, dialogs, keybindings, renderers, flags, editor and autocomplete hooks | — | out of scope: no TUI |
 | Extension provider hooks (`before_provider_request`, headers, stream events), model/thinking selection events, user bash | ○ | `extensions-runner` provider cases |
+| Tool search over deferred tools: BM25 ranker, `tool_search` loads matches for the next call, loaded tools survive resume (`native.toolSearch`) | ✓ | ported `tool-search` (codemode cases dropped) in `packages/tools/test`; `native-session-tool-search.test.ts` |
 | MCP client and OAuth | ○ | `mcp-*` (Generic AI already has `plugin-mcp`; port only what it lacks) |
 | RPC / print modes | ○ | `rpc*`, `print-mode` |
 | Interactive TUI, themes, clipboard, HTML export | — | out of scope: Generic AI's surfaces are the web UI and Hono transport |
@@ -166,16 +168,16 @@ tests are used as behavioural specs for that thread.
 Checked against pi-mono at `e73029b` (2026-11-26) and Prime Agent `main`. Everything not listed
 here, and not marked ✓ above, is either out of scope (terminal UI and its themes, keybindings,
 clipboard and HTML export; Windows PowerShell configuration; pi's package manager and self-update)
-or covered by Generic AI's own packages. Borrowed subscription sign-ins wait on Neill's decision.
+or covered by Generic AI's own packages. The borrowed subscription sign-ins were ported after Neill
+chose to follow pi; tool search and the hosted provider defaults were closed after this audit.
 
 pi (`badlogic/pi-mono`):
 
 | Gap | Where in pi | Notes |
 | --- | --- | --- |
-| Most built-in providers (Cerebras, Fireworks, Together, Hugging Face, NVIDIA, Baseten, Moonshot, MiniMax, Z.ai, Qwen, Xiaomi, Vercel and Cloudflare AI gateways, Cloudflare Workers AI and more) | `ai/src/providers/*` | Generic AI ships 12 providers; any OpenAI-compatible endpoint works with a custom base URL, but there are no defaults or per-provider compat quirks for the rest |
+| Remaining built-in providers: Qwen token plans, Cloudflare AI Gateway and Workers AI, OpenCode, and pi's per-model compat quirks and model catalogs for the hosted providers | `ai/src/providers/*` | Cerebras, Fireworks, Together, Hugging Face, NVIDIA, Baseten, Moonshot, Kimi Coding, Z.ai, Xiaomi, MiniMax, Vercel AI Gateway and Meta now have defaults (base URL, API, key variable), 27 providers in all; their models resolve with conservative defaults rather than pi's per-model catalog |
 | Image generation API, classifiers, deferred (batch) responses | `ai/src/images*`, `model-runtime-classifiers` | |
 | Code mode: model-written JavaScript in a QuickJS sandbox that calls tools, so nested tool results never enter the context | `codemode`, `coding-agent` `codemode-*`, `nested-tool-calls` | Closest to NOVA's "move work out of the model"; also Prime Agent's programmatic tool calling |
-| Tool search over deferred tools (large MCP tool sets loaded on demand) | `coding-agent/src/extensions/tool-search` | |
 | Extension provider hooks (`before_provider_request`, headers, stream events), model and thinking selection events, user bash | `extensions-runner` provider cases | |
 | Plan mode, project trust decisions for repository resources, virtual models and model fallback | `plan-mode-extension`, `trust-manager`, `virtual-models`, `model-fallback-diagnostic` | |
 | RPC and print modes (a JSONL protocol to drive an agent from another process) | `rpc*`, `print-mode` | Generic AI's surfaces are the Hono transport and the web UI |

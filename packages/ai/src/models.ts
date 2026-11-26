@@ -36,6 +36,22 @@ export const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   // Model ids are Bedrock ids or inference profiles (`us.anthropic.claude-opus-5-5-v1:0`, ARNs).
   // The region comes from AWS_REGION or the profile; set a base URL for a VPC endpoint or proxy.
   "amazon-bedrock": { api: "bedrock-converse-stream", baseUrl: "" },
+  // OpenAI-compatible and Anthropic-compatible hosted providers (base URLs from pi's catalog).
+  cerebras: { api: "openai-completions", baseUrl: "https://api.cerebras.ai/v1" },
+  fireworks: { api: "openai-completions", baseUrl: "https://api.fireworks.ai/inference/v1" },
+  together: { api: "openai-completions", baseUrl: "https://api.together.ai/v1" },
+  huggingface: { api: "openai-completions", baseUrl: "https://router.huggingface.co/v1" },
+  nvidia: { api: "openai-completions", baseUrl: "https://integrate.api.nvidia.com/v1" },
+  baseten: { api: "openai-completions", baseUrl: "https://inference.baseten.co/v1" },
+  moonshotai: { api: "openai-completions", baseUrl: "https://api.moonshot.ai/v1" },
+  "moonshotai-cn": { api: "openai-completions", baseUrl: "https://api.moonshot.cn/v1" },
+  "kimi-coding": { api: "openai-completions", baseUrl: "https://api.kimi.com/coding/v1" },
+  zai: { api: "openai-completions", baseUrl: "https://api.z.ai/api/coding/paas/v4" },
+  xiaomi: { api: "openai-completions", baseUrl: "https://api.xiaomimimo.com/v1" },
+  minimax: { api: "anthropic-messages", baseUrl: "https://api.minimax.io/anthropic" },
+  "minimax-cn": { api: "anthropic-messages", baseUrl: "https://api.minimaxi.com/anthropic" },
+  "vercel-ai-gateway": { api: "anthropic-messages", baseUrl: "https://ai-gateway.vercel.sh" },
+  meta: { api: "openai-responses", baseUrl: "https://api.meta.ai/v1" },
   // ChatGPT Plus/Pro sign-in (openaiCodexOAuth in @generic-ai/auth).
   "openai-codex": { api: "openai-codex-responses", baseUrl: DEFAULT_CODEX_BASE_URL },
   // GitHub Copilot sign-in (githubCopilotOAuth); the API depends on the model, see githubCopilotApi.

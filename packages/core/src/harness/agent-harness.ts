@@ -159,6 +159,8 @@ export interface NativeAgentHarnessOptions {
   readonly offload?: RunCapabilityNativeAgentSessionOptions["offload"];
   /** Give every native session `tool_batch`. */
   readonly toolBatch?: RunCapabilityNativeAgentSessionOptions["toolBatch"];
+  /** Defer MCP tools behind `tool_search` (see `RunCapabilityNativeAgentSessionOptions.toolSearch`). */
+  readonly toolSearch?: RunCapabilityNativeAgentSessionOptions["toolSearch"];
   /** Save the scripts a session wrote when its run passes its goal's validators. */
   readonly harvest?: RunCapabilityNativeAgentSessionOptions["harvest"];
   /** The continual harness for every native session (see `docs/continual-harness.md`). */
@@ -1296,6 +1298,7 @@ function createNativeSessionBackend(
         ...(options.schedules === undefined ? {} : { schedules: options.schedules }),
         ...(options.offload === undefined ? {} : { offload: options.offload }),
         ...(options.toolBatch === undefined ? {} : { toolBatch: options.toolBatch }),
+        ...(options.toolSearch === undefined ? {} : { toolSearch: options.toolSearch }),
         ...(options.harvest === undefined ? {} : { harvest: options.harvest }),
         ...(options.continual === undefined ? {} : { continual: options.continual }),
         ...(options.contextFiles === undefined ? {} : { contextFiles: options.contextFiles }),

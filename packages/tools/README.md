@@ -26,5 +26,8 @@ const agent = new Agent({
   `GENERIC_AI_BIN_DIR` (default `~/.generic-ai/bin`) and on `PATH`; nothing is downloaded.
 - Bash commands see `GENERIC_AI_SESSION_ID`, `GENERIC_AI_PROVIDER`, `GENERIC_AI_MODEL_ID`, and
   `GENERIC_AI_REASONING_LEVEL` when the host passes a tool context.
+- `createToolSearchTool` gives the agent `tool_search` over deferred tools (for example many MCP
+  tools): a BM25 ranker over names, descriptions and schema text loads the best matches so they are
+  declared from the next model call. The core native session turns it on with `toolSearch`.
 - Images read by `read` are attached as-is for PNG, JPEG, GIF, and WebP up to 5 MB; other formats
   are omitted with a note (pi resizes and converts them).
