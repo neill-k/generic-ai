@@ -169,3 +169,11 @@ task completion:
   the task as `lastGoalReport`.
 - A goal whose stored spec no longer matches its fingerprint never validates.
 
+## Topologies
+
+`runHarnessTopology()` and `runAgentHarnessTopology()` take `goal` and
+`goalValidators`. The verifier loop validates each candidate against the goal
+before (or instead of) its critic, and every protocol only succeeds when the
+goal is `COMPLETE` on the final output. See "Goals decide when a topology is
+done" in [harness-dsl.md](harness-dsl.md).
+

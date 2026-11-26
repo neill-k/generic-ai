@@ -1364,6 +1364,7 @@ export interface ProtocolAction {
     | "claim_work"
     | "delegate_work"
     | "review_artifact"
+    | "validate_goal"
     | "request_approval"
     | "emit_trace"
     | "complete"
@@ -1418,6 +1419,17 @@ export interface ProtocolReduceInput {
   readonly binding?: ProtocolBindingSpec;
   /** The user-facing task the topology is working on. */
   readonly instruction?: string;
+  /**
+   * The sealed goal the runner will check `validate_goal` actions against,
+   * when one was supplied. Protocols use it to decide whether to ask for
+   * validator checks; the runner owns the goal itself and the validators.
+   */
+  readonly goal?: ProtocolGoalRef;
+}
+
+export interface ProtocolGoalRef {
+  readonly id: string;
+  readonly fingerprint: string;
 }
 
 export interface ProtocolPlugin {

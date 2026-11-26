@@ -80,3 +80,14 @@ Protocol semantics stay in the SDK and scheduling stays in core.
   package-extensible and the kernel must not own it.
 - Let reducers hold mutable state. Rejected because pure reducers over outcomes
   are deterministic, testable without a model, and resumable.
+
+## Amendment: goals decide completion
+
+With goal contracts (ADR 0050) on main, topology runs accept a sealed goal.
+The verifier loop gains `config.acceptance` (`critic`, `goal`,
+`goal-then-critic`) and a `validate_goal` action that the runner executes with
+`runGoalValidators()`, keeping validator code out of the reducers and out of
+the agents' reach. Any protocol's success is gated on the goal being
+`COMPLETE` for the final output, so a critic's `VERDICT: PASS` alone can no
+longer finish a run that has a goal.
+

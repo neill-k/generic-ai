@@ -55,7 +55,7 @@ Standard protocol behaviour and binding `config`:
 | Protocol | Flow | Config |
 | --- | --- | --- |
 | `pipeline` | Stages run in order; each sees earlier outputs. A failed or `VERDICT: FAIL` stage fails the run. | `stages` (actor ids) |
-| `verifier-loop` | Solver, then critic; on `VERDICT: FAIL` the repairer (or solver) fixes and the critic reviews again. | `solver`, `critic`, `repairer`, `maxIterations` (default 3) |
+| `verifier-loop` | Solver, then the acceptance checks (goal validators and/or critic); on rejection the repairer (or solver) fixes from that feedback and the checks run again. | `solver`, `critic`, `repairer`, `maxIterations` (default 3), `acceptance` |
 | `hierarchy` | Manager plans assignments, reports work in parallel, manager synthesizes. | `manager`, `delegatees` |
 | `squad` | Members claim work items in parallel batches and share a board of finished items. | `workItems`, `lead`, `space` |
 
@@ -64,6 +64,32 @@ shared with each actor. Actors steer protocols with a `VERDICT: PASS|FAIL`
 line or a fenced JSON block (`{"assignments": [...]}` for hierarchy plans,
 `{"workItems": [...]}` for squad decomposition), parsed by
 `parseActorDirectives()`.
+
+### Goals decide when a topology is done
+
+Pass a sealed goal (see [goals.md](goals.md)) as `goal`, with the host's
+judges and checks as `goalValidators`, and the goal's validators decide
+success instead of an agent's opinion:
+
+- Every actor's prompt includes `describeGoalForAgent(goal)`: the objective,
+  definition of done, and the checks that will be run.
+- The verifier loop's `acceptance` picks its checks. With a goal it defaults
+  to `goal-then-critic` (validators first; the critic only reviews candidates
+  that pass them), or `goal` when there is no critic. Without a goal it stays
+  `critic`. Set `acceptance: "critic"` to ignore the goal in the loop.
+  Validator feedback (`GOAL INCOMPLETE` with fix hints) goes to the repairer.
+- The verifier loop asks for validation with a `validate_goal` action. The
+  runner executes it with `runGoalValidators()`; the agents never run or see
+  the validator implementations.
+- For every protocol, a run only ends `succeeded` when the goal is `COMPLETE`
+  on the final output. If the final output was not already accepted by a
+  `validate_goal` action, the runner validates it once more; `INCOMPLETE`
+  fails the run with the feedback as `failureMessage`. The last report is on
+  `result.goalReport`, and each validation adds a `grader.completed` trace
+  event.
+- Evidence is the candidate output plus a trace built from the run's
+  canonical events. `collectGoalEvidence` adds metrics, artifacts, or a fuller
+  trace.
 
 Every run returns per-action outcomes and a `TraceEvent` trace in which
 `actor.completed` events point at their `actor.invoked` event and each

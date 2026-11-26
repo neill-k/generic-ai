@@ -11,6 +11,7 @@ import {
   type HarnessDsl,
   type JsonObject,
   type ProtocolPlugin,
+  sealGoal,
 } from "@generic-ai/sdk";
 import { SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
 import { describe, expect, it } from "vitest";
@@ -629,5 +630,144 @@ describe("runAgentHarnessTopology", () => {
       protocol: "verifier-loop",
       status: "succeeded",
     });
+  });
+});
+
+describe("runHarnessTopology with a sealed goal", () => {
+  const goal = sealGoal({
+    id: "goal.answer",
+    objective: "Produce the answer 42.",
+    definitionOfDone: ["The output contains the number 42."],
+    validators: [
+      {
+        id: "has-42",
+        kind: "check",
+        checkRef: "contains-42",
+        description: "Output mentions 42",
+        fixHint: "Include the number 42 in the final answer.",
+      },
+    ],
+  });
+  const goalValidators = {
+    checks: {
+      "contains-42": ({ evidence }: { evidence: { outputText?: string } }) => ({
+        passed: (evidence.outputText ?? "").includes("42"),
+        message: "Looked for 42 in the output.",
+      }),
+    },
+  };
+
+  it("repairs from validator feedback until the goal is COMPLETE, then asks the critic", async () => {
+    const compiled = compile({
+      id: "h.goal.verifier",
+      protocol: "verifier-loop",
+      agents: [
+        { id: "solver", role: "solver" },
+        { id: "critic", role: "critic" },
+      ],
+    });
+    const { runner, calls } = scriptedRunner((invocation) => {
+      if (invocation.actor.id === "critic") {
+        return "VERDICT: PASS";
+      }
+      return invocation.action.payload?.["phase"] === "solve"
+        ? "the answer is 41"
+        : "the answer is 42";
+    });
+
+    const result = await runHarnessTopology({
+      compiled,
+      instruction: "Answer.",
+      runner,
+      goal,
+      goalValidators,
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toBe("the answer is 42");
+    expect(result.goalReport?.status).toBe("COMPLETE");
+    expect(result.outcomes.map((item) => `${item.kind}:${item.verdict ?? "-"}`)).toEqual([
+      "invoke_actor:-",
+      "validate_goal:fail",
+      "invoke_actor:-",
+      "validate_goal:pass",
+      "review_artifact:pass",
+    ]);
+    expect(calls[0]?.prompt).toContain("Definition of done:");
+    expect(calls[0]?.goalBrief).toContain("goal.answer");
+    expect(calls[1]?.context).toContain("GOAL INCOMPLETE");
+    expect(calls[1]?.context).toContain("Include the number 42");
+    expect(result.trace.filter((event) => event.type === "grader.completed")).toHaveLength(2);
+    // The final output was already validated, so no extra gate run happened.
+    expect(calls).toHaveLength(3);
+  });
+
+  it("fails a verifier loop that never satisfies the goal, even when the critic would pass", async () => {
+    const compiled = compile({
+      id: "h.goal.never",
+      protocol: "verifier-loop",
+      agents: [
+        { id: "solver", role: "solver" },
+        { id: "critic", role: "critic" },
+      ],
+      config: { maxIterations: 2 },
+    });
+    const { runner, calls } = scriptedRunner((invocation) =>
+      invocation.actor.id === "critic" ? "VERDICT: PASS" : "nope",
+    );
+    const result = await runHarnessTopology({
+      compiled,
+      instruction: "Answer.",
+      runner,
+      goal,
+      goalValidators,
+    });
+    expect(result.status).toBe("failed");
+    expect(result.goalReport?.status).toBe("INCOMPLETE");
+    expect(calls.some((call) => call.actor.id === "critic")).toBe(false);
+  });
+
+  it("gates any protocol's success on the goal", async () => {
+    const compiled = compile({
+      id: "h.goal.pipeline",
+      protocol: "pipeline",
+      agents: [{ id: "builder", role: "implementer" }],
+    });
+    const wrong = await runHarnessTopology({
+      compiled,
+      instruction: "Answer.",
+      runner: scriptedRunner(() => "the answer is 7").runner,
+      goal,
+      goalValidators,
+    });
+    expect(wrong.status).toBe("failed");
+    expect(wrong.failureMessage).toContain("GOAL INCOMPLETE");
+    expect(wrong.goalReport?.complete).toBe(false);
+
+    const right = await runHarnessTopology({
+      compiled,
+      instruction: "Answer.",
+      runner: scriptedRunner(() => "the answer is 42").runner,
+      goal,
+      goalValidators,
+    });
+    expect(right.status).toBe("succeeded");
+    expect(right.goalReport?.complete).toBe(true);
+  });
+
+  it("treats a missing host check as a blocking validator error", async () => {
+    const compiled = compile({
+      id: "h.goal.nocheck",
+      protocol: "pipeline",
+      agents: [{ id: "builder", role: "implementer" }],
+    });
+    const result = await runHarnessTopology({
+      compiled,
+      instruction: "Answer.",
+      runner: scriptedRunner(() => "42").runner,
+      goal,
+    });
+    expect(result.status).toBe("failed");
+    expect(result.goalReport?.summary.errored).toBe(1);
   });
 });
