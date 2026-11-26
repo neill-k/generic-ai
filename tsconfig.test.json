@@ -62,6 +62,10 @@
     "examples/*/src/**/*.tsx",
     "examples/*/test/**/*.ts",
     "examples/*/test/**/*.tsx",
+    "apps/*/src/**/*.ts",
+    "apps/*/src/**/*.tsx",
+    "apps/*/test/**/*.ts",
+    "apps/*/test/**/*.tsx",
     "scripts/**/*.ts",
     "scripts/**/*.tsx"
   ],

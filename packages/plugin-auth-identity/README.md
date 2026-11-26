@@ -60,8 +60,15 @@ scopes it does not hold.
 - `GET /auth/passkeys`, `DELETE /auth/passkeys/:id` (refuses the last one)
 - `GET /auth/tokens`, `POST /auth/tokens`, `DELETE /auth/tokens/:id`
 
+- `POST /auth/sessions/revoke-others` sign out every other browser session
+
 Cookie-authenticated requests that change state must come from the expected
 origin. Bearer requests are not subject to that check.
+
+Sessions are rotated around sensitive changes: signing in revokes any session
+the browser already held (no session fixation), and adding or removing a
+passkey or signing out other sessions swaps the caller's cookie for a fresh
+one. Removing a passkey also ends every session that passkey created.
 
 ## Sign-in rate limiting
 

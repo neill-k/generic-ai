@@ -34,6 +34,7 @@
     { "path": "packages/plugin-auth-identity" },
     { "path": "packages/plugin-web-ui" },
     { "path": "examples/starter-hono" },
-    { "path": "examples/terminal-bench" }
+    { "path": "examples/terminal-bench" },
+    { "path": "apps/generic-corp" }
   ]
 }

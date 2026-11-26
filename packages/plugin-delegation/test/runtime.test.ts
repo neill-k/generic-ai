@@ -83,6 +83,7 @@ describe("withRunPersistence", () => {
         workspaceRoot: "/tmp",
         runId: "run-1",
         rootAgentId: "ceo",
+        actor: { subjectId: "owner", actorType: "human", credentialSource: "bearer" },
       },
       context,
     );
@@ -90,6 +91,7 @@ describe("withRunPersistence", () => {
 
     const run = await store.getRun("run-1");
     expect(run?.envelope.status).toBe("succeeded");
+    expect(run?.envelope.actor?.subjectId).toBe("owner");
     expect(run?.metadata?.["agentId"]).toBe("ceo");
     expect(run?.metadata?.["outputText"]).toBe("hello");
     const events = await store.readEvents("run-1");
@@ -155,6 +157,7 @@ describe("createAdapterTaskExecutor", () => {
       instructions: "Run the company.",
       prompt: "Do the thing",
       workspaceRoot: "/agents/ceo",
+      actor: { subjectId: "owner", actorType: "human", credentialSource: "cookie" },
     });
     expect(result).toMatchObject({ status: "succeeded", outputText: "turn output" });
     const input = seen[0];
@@ -171,6 +174,7 @@ describe("createAdapterTaskExecutor", () => {
       }),
     ]);
     expect(input?.deadline).toBeDefined();
+    expect(input?.actor?.subjectId).toBe("owner");
   });
 
   it("maps role kinds and routes executors per turn", async () => {

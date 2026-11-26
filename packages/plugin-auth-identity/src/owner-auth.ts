@@ -195,6 +195,14 @@ export interface OwnerAuth {
   }): Promise<CreatedSession>;
 
   revokeSession(secret: string): Promise<void>;
+  /**
+   * Replaces a live session with a fresh one bound to the same passkey and
+   * revokes the old one. Returns `undefined` when the secret is not a live
+   * session.
+   */
+  rotateSession(secret: string): Promise<CreatedSession | undefined>;
+  /** Revokes every session except the one whose secret is given. Returns how many were revoked. */
+  revokeOtherSessions(keepSecret?: string): Promise<number>;
 }
 
 export function sha256Hex(value: string): string {
@@ -737,6 +745,28 @@ export function createOwnerAuth(options: OwnerAuthOptions): OwnerAuth {
 
     async revokeSession(secret) {
       await store.delete("sessions", sha256Hex(secret));
+    },
+
+    async rotateSession(secret) {
+      const id = sha256Hex(secret);
+      const record = await store.get("sessions", id);
+      if (record === undefined || Date.parse(record.expiresAt) <= now().getTime()) {
+        return undefined;
+      }
+      await store.delete("sessions", id);
+      return createSession(record.passkeyId);
+    },
+
+    async revokeOtherSessions(keepSecret) {
+      const keep = keepSecret === undefined ? undefined : sha256Hex(keepSecret);
+      let revoked = 0;
+      for (const session of await store.list("sessions")) {
+        if (session.id !== keep) {
+          await store.delete("sessions", session.id);
+          revoked += 1;
+        }
+      }
+      return revoked;
     },
   };
 

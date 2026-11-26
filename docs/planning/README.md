@@ -3,10 +3,13 @@
 This directory is the authoritative planning baseline for the `Generic AI`
 research harness.
 
-Generic AI is now planned as a composable agents-as-code research harness for
-specifying, running, tracing, evaluating, and comparing agentic system
-architectures under controlled conditions. Architecture Lab is the flagship
-proof surface built on that platform, not the platform boundary itself.
+Generic AI is the framework for building complex multi-agent systems that
+pursue a goal, without today's complexity. Generic Corp, in
+`apps/generic-corp`, is the flagship production app built on it
+([ADR 0046](../decisions/0046-generic-corp-app-on-generic-ai.md)). The
+composable agents-as-code research harness for specifying, running, tracing,
+evaluating, and comparing agentic system architectures stays as the framework's
+evaluation layer, with Architecture Lab as its validation demo.
 
 Use this README plus the numbered planning docs below as the planning source of
 truth for scope, architecture, dependency order, active repositioning, and Linear

@@ -74,6 +74,8 @@ export default defineConfig({
       "packages/*/test/**/*.{test,spec}.{ts,tsx}",
       "examples/*/src/**/*.{test,spec}.{ts,tsx}",
       "examples/*/test/**/*.{test,spec}.{ts,tsx}",
+      "apps/*/src/**/*.{test,spec}.{ts,tsx}",
+      "apps/*/test/**/*.{test,spec}.{ts,tsx}",
       "scripts/**/*.{test,spec}.{ts,tsx}",
     ],
     exclude: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/.turbo/**", "**/coverage/**"],

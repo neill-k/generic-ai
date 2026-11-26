@@ -49,7 +49,11 @@ const cascade = createDelegationCascade({
 
 await cascade.recover(); // re-queue anything a previous process left behind
 cascade.start();
-const task = await cascade.submit({ agentId: "ceo", instruction: "Plan the launch" });
+const task = await cascade.submit({
+  agentId: "ceo",
+  instruction: "Plan the launch",
+  actor: toRunActor(authContext), // recorded on every task, event and run in the cascade
+});
 const result = await cascade.wait(task.taskId);
 ```
 

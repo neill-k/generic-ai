@@ -1,5 +1,12 @@
 import type { AgentHarnessCapabilityEffect } from "@generic-ai/sdk";
 
+import {
+  isMcpConnectorKind,
+  MCP_CONNECTOR_KINDS,
+  MCP_CONNECTOR_PRESETS,
+  type McpConnectorKind,
+} from "./connectors.js";
+
 export const name = "@generic-ai/plugin-mcp" as const;
 export const kind = "mcp" as const;
 
@@ -15,6 +22,13 @@ export interface McpServerDefinition {
   readonly id: string;
   readonly transport: McpTransport;
   readonly description?: string;
+  /**
+   * What kind of external service this server reaches (`email`, `calendar`, `chat`, `documents`,
+   * `browser`, `payments` or `generic`). Tools are then classified by name into read-only tools and
+   * outward actions tagged `message.send`, `external.write` or `payment.spend`, which approval
+   * policies gate. `browser` also supplies a default launch (Playwright MCP, headless, isolated).
+   */
+  readonly connector?: McpConnectorKind;
   /** stdio: executable to launch. `${VAR}` placeholders resolve from the environment at connect time. */
   readonly command?: string;
   readonly args?: readonly string[];
@@ -47,7 +61,11 @@ export interface McpServerDefinition {
   readonly readOnlyTools?: readonly string[];
   /** Extra effects added to every tool on this server, for example `network.egress`. */
   readonly effects?: readonly AgentHarnessCapabilityEffect[];
-  /** Per-tool effect overrides; replaces the computed effects for that tool. */
+  /**
+   * Per-tool effect overrides; replaces the computed effects for that tool. Keys are tool names or
+   * glob patterns with `*` (for example `send_*`). An exact name wins over a pattern; among patterns
+   * the first listed match wins.
+   */
   readonly toolEffects?: Readonly<Record<string, readonly AgentHarnessCapabilityEffect[]>>;
 }
 
@@ -91,7 +109,38 @@ function assertNonEmpty(value: string | undefined, label: string): string {
   throw new McpRegistryError("INVALID_SERVER", `${label} must be a non-empty string.`);
 }
 
-export function normalizeMcpServer(server: McpServerDefinition): McpServerDefinition {
+/** Fill launch fields a connector preset supplies (only `browser` has one) and its description. */
+export function applyMcpConnectorDefaults(server: McpServerDefinition): McpServerDefinition {
+  if (server.connector === undefined) {
+    return server;
+  }
+  if (!isMcpConnectorKind(server.connector)) {
+    throw new McpRegistryError(
+      "INVALID_SERVER",
+      `MCP server "${server.id}" connector must be one of ${MCP_CONNECTOR_KINDS.join(", ")}.`,
+    );
+  }
+  const preset = MCP_CONNECTOR_PRESETS[server.connector];
+  const launch =
+    preset.launch !== undefined &&
+    server.command === undefined &&
+    server.url === undefined &&
+    (server.transport === undefined || server.transport === preset.launch.transport)
+      ? {
+          transport: preset.launch.transport,
+          command: preset.launch.command,
+          args: [...preset.launch.args],
+        }
+      : {};
+  return {
+    ...server,
+    ...launch,
+    description: server.description ?? preset.description,
+  };
+}
+
+export function normalizeMcpServer(input: McpServerDefinition): McpServerDefinition {
+  const server = applyMcpConnectorDefaults(input);
   const id = assertNonEmpty(server.id, "server.id");
 
   if (!MCP_SERVER_ID_PATTERN.test(id)) {
