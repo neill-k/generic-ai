@@ -68,7 +68,7 @@
     "requiredArtifacts": ["dag-route.json", "branch-observations.json", "aggregation-proof.md"]
   },
   "providerPolicy": {
-    "adapter": "openai-codex",
+    "adapter": "native",
     "model": "gpt-5.5",
     "cache": "deny",
     "network": "isolated"

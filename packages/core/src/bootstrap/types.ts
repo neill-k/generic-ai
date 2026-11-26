@@ -59,7 +59,7 @@ export interface BootstrapPorts {
   readonly pluginHost: BootstrapPortDescriptor;
   readonly runMode: BootstrapPortDescriptor;
   readonly runEnvelope: BootstrapPortDescriptor;
-  readonly piBoundary: BootstrapPortDescriptor;
+  readonly runtimeBoundary: BootstrapPortDescriptor;
 }
 
 export type BootstrapPluginConfig = Readonly<Record<string, unknown>>;

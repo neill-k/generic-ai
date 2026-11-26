@@ -53,7 +53,7 @@
     "requiredArtifacts": ["tool-plan.json", "audit-note.md"]
   },
   "providerPolicy": {
-    "adapter": "openai-codex",
+    "adapter": "native",
     "model": "deterministic-meso-adapter",
     "cache": "deny",
     "network": "isolated"

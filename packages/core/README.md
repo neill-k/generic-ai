@@ -14,7 +14,7 @@ Kernel responsibilities (see `docs/planning/02-architecture.md`):
 - Config discovery, validation, and composition wiring
 - Consuming compiled Harness DSL / Generic Agent IR contracts for runtime and
   benchmark execution
-- Pi-backed `AgentHarness` runtime over SDK adapter context, effect-described
+- Native `AgentHarness` runtime over SDK adapter context, effect-described
   tool policy, canonical harness events, and URI/hash artifacts
 
 The kernel does not own business capabilities. MCP, Agent Skills, delegation, messaging, memory, storage, output shaping, and transport all live in plugins.
@@ -36,23 +36,21 @@ Current bootstrap boundary:
 
 Current runtime bridge:
 
-- `resolveCapabilityPiToolRegistry(capabilities)` assembles the stable `pi` tool registry from capability plugins
-- `createCapabilityPiAgentSession(options)` wires capability tools plus Agent Skills into a real `pi` `AgentSession`
-- `runCapabilityPiAgentSession(options)` forwards `pi` session activity into the canonical event stream and run envelope
-- Pi already owns the per-prompt model/tool loop. Generic AI adds the terminal
+- `resolveCapabilityPiToolRegistry(capabilities)` assembles the stable tool registry from capability plugins (the `Pi` in the name is historical)
+- `runCapabilityNativeAgentSession(options)` runs capability tools plus Agent Skills as a native agent session and forwards its activity into the canonical event stream and run envelope
+- The native agent owns the per-prompt model/tool loop. Generic AI adds the terminal
   run contract around it: the runtime injects `stop_and_respond`, marks that
-  tool result as terminal for Pi, re-enters the same conversation if the model
+  tool result as terminal, re-enters the same conversation if the model
   finishes with a plain assistant message, and only returns once the stop tool
   is called. Set `execution.turnMode: single-turn` in agent or harness config
   for deliberately one-shot behavior. `execution.maxTurns` is optional; when
   omitted, the stop-tool loop is unbounded and relies on the stop tool,
   cancellation, or provider/session failure to end the run.
-- Pi-owned auto-compaction remains enabled by the underlying session settings;
-  the bridge forwards Pi `compaction_start` / `compaction_end` events into the
-  canonical event stream instead of replacing Pi's compactor.
+- Auto-compaction runs before each prompt when the context nears the model's
+  window (`@generic-ai/session`); pass `compaction: false` to turn it off.
 - `createDelegationCoordinator(options)` keeps child-session lifecycle plumbing in the kernel while delegation business contracts stay outside core
 - `createAgentHarness(options)` / `runAgentHarness(options)` run the composable
-  harness control plane above Pi; `GenericAILlmRuntime` remains the low-level
+  harness control plane above the native runtime; `GenericAILlmRuntime` remains the low-level
   text/model helper
 - Harness role binding is effect-based. Planner/explorer roles get read
   capabilities, builder gets edit/terminal access, and verifier gets terminal
@@ -67,14 +65,15 @@ Current runtime bridge:
   injected `TopologyActorRunner`; `createAdapterTopologyActorRunner(options)`
   runs actors through any `AgentHarnessAdapter` with per-role models.
 - `runAgentHarnessTopology(options)` runs the same topology with each actor as
-  a policy-scoped Pi role session, sharing role policies, hooks, canonical
+  a policy-scoped native role session, sharing role policies, hooks, canonical
   events, and artifacts with `AgentHarness`.
 - `runHarnessBenchmark(options)` compiles Harness DSL contracts from the SDK,
   then runs trials through the configured runtime helper for benchmark fixtures
 
-OpenAI Codex inference uses Pi's `openai-codex` provider path. The
-`openai-codex` adapter resolves credentials and models through Pi auth/model
-storage and creates a Pi `AgentSession`.
+Models are resolved by `resolveNativeModel`: `provider/id` as given, or a bare
+id routed by family (`claude-*` to Anthropic, anything else to OpenAI). API keys
+come from `GENERIC_AI_PROVIDER_API_KEY` or the provider's own environment
+variable.
 
 Planning baseline:
 

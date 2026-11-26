@@ -2,18 +2,18 @@
 
 Generic AI is not trying to beat `pi` at being `pi`.
 
-The design goal is to use `pi` for the low-level agent and tool runtime mechanics, then provide a framework shell for people who need a composed, replaceable, multi-agent runtime.
+Generic AI started as a framework shell on top of `pi`. It now runs on its own native runtime,
+built with feature parity against `pi` and adapted from it under its MIT license, and no longer
+depends on `pi` at all (ADR 0068).
 
-The root `@generic-ai/sdk` contract remains runtime-agnostic. Pi-specific
-runtime and tool compatibility primitives are exposed through the explicit
-subpath `@generic-ai/sdk/pi`.
-At the harness layer, adapter selection is explicit (`pi` or other registered
-adapters), so Pi remains the default reference path rather than the required
-runtime ontology.
+The root `@generic-ai/sdk` contract is runtime-agnostic: plugin tools use `defineTool` and
+`ToolDefinition` from the SDK. At the harness layer, adapter selection is explicit (`native`, or a
+registered `external` adapter).
 
 ## Short Version
 
-`pi` is the agent toolkit layer. Generic AI is the application framework layer.
+`pi` is a terminal coding agent and toolkit. Generic AI is an application framework for
+multi-agent systems, with its own runtime underneath.
 
 Use `pi` directly when you want:
 
@@ -38,14 +38,14 @@ Use Generic AI when you want:
 - Hono transport and a starter preset that works by default,
 - operational boundaries for docs, CI, ownership, release, and sandboxed execution.
 
-## Native Runtime (In Progress)
+## Native Runtime
 
-Generic AI is building its own runtime so it no longer depends on `pi` underneath. The model layer
-(`@generic-ai/ai`) and the agent loop (`@generic-ai/agent`) are native packages adapted from `pi`
-under its MIT license, and core exposes them as the `native` runtime adapter beside `pi` and
-`openai-codex`. The native adapter is now the default for harnesses and the LLM runtime (ADR 0068);
-`pi` and `openai-codex` stay available by name until they are removed, and the rules below apply to
-them until then. The plan, feature inventory, and test coverage live in
+The model layer (`@generic-ai/ai`), the agent loop (`@generic-ai/agent`), tools, sessions,
+resources, extensions, subagents, long-running work, the continual harness and credentials
+(`@generic-ai/auth`) are native packages adapted from `pi` under its MIT license. Core exposes them
+as the `native` runtime adapter, the only built-in one. The `pi` and `openai-codex` adapters, the
+`@generic-ai/sdk/pi` subpath and the `pi` dependencies were removed in native harness slice 9c. The
+plan, feature inventory, and test coverage live in
 [`docs/planning/native-harness-parity.md`](planning/native-harness-parity.md).
 
 ## Why Build Generic AI If `pi` Exists?
@@ -65,11 +65,9 @@ The core question is not "which one is better?" It is "which layer are you tryin
 | Provide durable messaging, memory, queueing, config, transport, and output through package boundaries | Generic AI |
 | Ship a default local-first multi-agent stack with room to swap pieces later | Generic AI |
 
-## What Generic AI Adds Around `pi`
+## What Generic AI Adds Beyond `pi`
 
-Generic AI intentionally builds on `pi` instead of forking it or rebuilding every primitive.
-
-The added value is the framework control plane:
+Beyond the runtime it shares with `pi`, the added value is the framework control plane:
 
 - **Bootstrap and presets.** `createGenericAI()` and `@generic-ai/preset-starter-hono` give callers a default working stack while still allowing explicit custom composition.
 - **Plugin host.** The kernel registers plugins, validates manifests, orders dependencies, runs lifecycle hooks, and exposes registries.
@@ -88,13 +86,11 @@ The added value is the framework control plane:
 
 Generic AI should stay honest about its boundary.
 
-It does not try to replace `pi`'s low-level model/provider and tool-call mechanics. It should expose `pi` primitives directly where that improves plugin ergonomics.
+It does not port `pi`'s terminal UI or its borrowed subscription sign-ins (ChatGPT/Codex, Claude
+Pro/Max, Copilot). Providers use API keys or the credential store in `@generic-ai/auth`.
 
-For OpenAI Codex inference, Generic AI uses Pi's `openai-codex` provider method:
-Pi auth/model resolution plus `AgentSession` execution. The framework does not
-maintain a separate direct OpenAI client path for the default Codex adapter.
-
-It does not make TUI or web UI part of the kernel. Those are deferred framework tracks. A product can still build UI on top of Generic AI, and it can use `pi` UI packages where those fit.
+It does not make TUI or web UI part of the kernel. A product can still build UI on top of Generic
+AI.
 
 It does not put MCP, Agent Skills, delegation, messaging, memory, terminal tools, file tools, or output shaping into the kernel. Those stay plugin-owned so the framework can evolve without locking every app into one business model.
 
@@ -120,18 +116,20 @@ Generic AI plugins
 tools, MCP, skills, memory
           |
           v
-pi
-model/runtime/tool mechanics
+Generic AI native runtime
+@generic-ai/ai, agent, tools, session
 ```
 
-The clean mental model: `pi` is the low-level runtime layer; Generic AI is the composition and application-framework layer that lets teams swap capabilities without redesigning the whole system.
+The clean mental model: the native runtime is the low-level layer; the kernel, SDK, plugins and
+presets are the composition and application-framework layer that lets teams swap capabilities
+without redesigning the whole system.
 
 ## Contributor Rules
 
 Keep these rules intact when changing the framework:
 
-- Build on top of `pi`; do not fork it.
-- Expose `pi` primitives directly where practical.
+- Keep runtime mechanics in the native runtime packages; they must not depend on the kernel, SDK, or plugins.
+- Credit `pi` (MIT) in `THIRD_PARTY_NOTICES` when porting more of its code.
 - Keep the kernel minimal.
 - Put business capabilities in plugins.
 - Make plugins depend on `@generic-ai/sdk`, not `@generic-ai/core`.

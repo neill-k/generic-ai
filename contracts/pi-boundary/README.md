@@ -1,36 +1,15 @@
-# Pi Boundary
+# Pi Boundary (removed)
 
-This directory captures the thin, documented boundary between Generic AI and
-`@mariozechner/pi-coding-agent`.
+Generic AI no longer depends on `@mariozechner/pi-coding-agent`. Agent sessions
+run on the native runtime (`@generic-ai/ai`, `@generic-ai/agent` and the
+packages around them), and the `@generic-ai/sdk/pi` compatibility subpath, the
+`pi` adapter and the `openai-codex` adapter have been removed.
 
-## Directly Exposed From `pi`
+- Plugin tools use the runtime-neutral contract in `@generic-ai/sdk`
+  (`defineTool`, `ToolDefinition`, `AgentToolResult`).
+- Kernel translation code stays in `packages/core/src/runtime`.
+- The decision is recorded in `docs/decisions/0068-native-runtime-default.md`,
+  which supersedes `docs/decisions/0011-pi-direct-boundary.md`. The parity work
+  that replaced `pi` is tracked in `docs/planning/native-harness-parity.md`.
 
-These are the `pi` primitives that Generic AI exposes from the explicit
-`@generic-ai/sdk/pi` compatibility subpath without adding a second wrapper
-layer:
-
-- runtime creation: `createAgentSession`, `createAgentSessionRuntime`
-- runtime objects: `AgentSession`, `AgentSessionRuntime`
-- runtime managers and loaders: `SessionManager`, `SettingsManager`, `AuthStorage`, `ModelRegistry`, `DefaultResourceLoader`
-- runtime types: `AgentSessionConfig`, `AgentSessionEvent`, `AgentSessionEventListener`, `CreateAgentSessionOptions`, `CreateAgentSessionResult`, `CreateAgentSessionRuntimeFactory`, `CreateAgentSessionRuntimeResult`, `ModelCycleResult`, `PromptOptions`, `SessionStats`
-- extension contracts: `defineTool`, `ExtensionAPI`, `ExtensionContext`, `ExtensionCommandContext`, `ExtensionFactory`, `ExtensionHandler`, `ToolDefinition`
-- tool built-ins: `readTool`, `bashTool`, `editTool`, `writeTool`, `grepTool`, `findTool`, `lsTool`, `codingTools`, `readOnlyTools`, `createCodingTools`, `createReadOnlyTools`
-
-## Kept Behind The Adapter
-
-These `pi` surfaces stay behind `packages/core/src/runtime` instead of being
-re-exported as part of the framework contract:
-
-- low-level `pi-agent-core` and `pi-ai` model primitives
-- TUI-specific extension UI types
-- event-bus and renderer internals
-- session persistence internals that belong to `pi`'s own runtime machinery
-- any kernel-specific composition state, plugin-host wiring, or scope/session
-  translation
-
-## Rule Of Thumb
-
-If a consumer would reasonably import the symbol while authoring an extension,
-tool, or direct embedding, it is exposed directly. If the symbol only matters
-while the kernel is translating `pi` into framework state, it stays behind the
-core adapter.
+This file is kept so older links resolve.

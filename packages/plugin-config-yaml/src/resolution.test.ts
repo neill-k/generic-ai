@@ -19,7 +19,7 @@ describe("resolveCanonicalConfig", () => {
     );
     await writeFile(
       join(root, ".generic-ai", "harnesses", "default.yaml"),
-      ["adapter: pi", "model: gpt-5.5", "policyProfile: local-dev-full"].join("\n"),
+      ["adapter: native", "model: gpt-5.5", "policyProfile: local-dev-full"].join("\n"),
       "utf8",
     );
 
@@ -32,7 +32,7 @@ describe("resolveCanonicalConfig", () => {
     expect(result.config.framework["primaryHarness"]).toBe("default");
     expect(result.config.harnesses["default"]).toMatchObject({
       id: "default",
-      adapter: "pi",
+      adapter: "native",
       model: "gpt-5.5",
       policyProfile: "local-dev-full",
     });

@@ -2,50 +2,106 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
 import {
+  type AssistantMessage,
+  type Context,
+  type FauxProviderRegistration,
+  type FauxResponseStep,
+  fauxAssistantMessage,
+  fauxToolCall,
+  type JsonObject,
+  type Model,
+  registerFauxProvider,
+} from "@generic-ai/ai";
+import {
+  type AgentHarnessConfig,
   type AgentHarnessHostTool,
   type AgentHarnessPolicyEvaluator,
+  defineTool,
   type PolicyDecisionRecord,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
-import { defineTool } from "@generic-ai/sdk";
 import { Type } from "@sinclair/typebox";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { createAgentHarness } from "./agent-harness.js";
 import { STOP_AND_RESPOND_TOOL_NAME } from "../runtime/index.js";
+import { type CreateAgentHarnessOptions, createAgentHarness } from "./agent-harness.js";
 
-async function callStopTool(
-  options:
-    | {
-        readonly customTools?: readonly {
-          readonly name?: string;
-          readonly execute?: unknown;
-        }[];
-      }
-    | undefined,
-  response: string,
+const registrations: FauxProviderRegistration[] = [];
+
+afterEach(() => {
+  for (const registration of registrations.splice(0)) {
+    registration.unregister();
+  }
+});
+
+/** A harness on the native adapter whose model answers from `responses`, in order. */
+function fauxHarness(
+  config: Omit<AgentHarnessConfig, "model" | "adapter">,
+  responses: FauxResponseStep[],
+  options: Omit<CreateAgentHarnessOptions, "native"> = {},
 ) {
-  const stopTool = options?.customTools?.find((tool) => tool.name === STOP_AND_RESPOND_TOOL_NAME);
-  if (stopTool === undefined) {
-    throw new Error("Expected stop_and_respond tool to be registered.");
+  const provider = registerFauxProvider({ models: [{ id: "test-model" }] });
+  registrations.push(provider);
+  provider.setResponses(responses);
+  const model = provider.getModel("test-model");
+  if (model === undefined) {
+    throw new Error("faux model missing");
   }
+  return createAgentHarness(
+    { ...config, adapter: "native", model: "faux/test-model" },
+    { ...options, native: { resolveModel: (): Model => model } },
+  );
+}
 
-  if (typeof stopTool.execute !== "function") {
-    throw new Error("Expected stop_and_respond tool to be executable.");
+function toolNames(context: Context): string[] {
+  return (context.tools ?? []).map((tool) => tool.name);
+}
+
+function lastUserText(context: Context): string {
+  const user = context.messages.filter((message) => message.role === "user").at(-1);
+  if (user === undefined) {
+    return "";
   }
+  return typeof user.content === "string"
+    ? user.content
+    : user.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+}
 
-  await (
-    stopTool.execute as (
-      toolCallId: string,
-      params: { readonly response: string },
-    ) => Promise<unknown> | unknown
-  )("stop-1", { response });
+function call(name: string, args: JsonObject): AssistantMessage {
+  return fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
+}
+
+function stop(response: string): AssistantMessage {
+  return call(STOP_AND_RESPOND_TOOL_NAME, { response });
+}
+
+/** Record the tools offered on this turn, then answer. */
+function recording(
+  toolSets: string[][],
+  answer: AssistantMessage | ((context: Context) => AssistantMessage),
+): FauxResponseStep {
+  return (context) => {
+    toolSets.push(toolNames(context));
+    return typeof answer === "function" ? answer(context) : answer;
+  };
+}
+
+function capabilityTool(name: string, effects: Parameters<typeof withAgentHarnessToolEffects>[1]) {
+  return withAgentHarnessToolEffects(
+    {
+      name,
+      label: name,
+      description: name,
+      parameters: Type.Object({}),
+      execute: async () => ({ content: [{ type: "text" as const, text: name }], details: {} }),
+    },
+    effects,
+  );
 }
 
 describe("createAgentHarness", () => {
-  it("can run with a non-pi adapter when registered explicitly", async () => {
+  it("can run with a non-native adapter when registered explicitly", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-external-"));
     const harness = createAgentHarness(
       {
@@ -100,84 +156,34 @@ describe("createAgentHarness", () => {
     expect(result.outputText).toBe("external adapter output");
   });
 
-  it("passes role-filtered tools into root and delegated Pi sessions", async () => {
+  it("runs on the native adapter when the config names none", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-default-"));
+    const provider = registerFauxProvider({ models: [{ id: "test-model" }] });
+    registrations.push(provider);
+    provider.setResponses([stop("native by default")]);
+    const model = provider.getModel("test-model");
+    const harness = createAgentHarness(
+      { id: "default-harness", model: "faux/test-model" },
+      { native: { resolveModel: () => model as Model } },
+    );
+    const result = await harness.run({ instruction: "Hello", workspaceRoot: root });
+    expect(result.status).toBe("succeeded");
+    expect(result.adapter).toBe("native");
+    expect(result.outputText).toBe("native by default");
+  });
+
+  it("passes role-filtered tools into root and delegated sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-"));
     const toolSets: string[][] = [];
-    let sessionIndex = 0;
-    const harness = createAgentHarness(
-      {
-        id: "test-harness",
-        adapter: "pi",
-        model: "fake-model",
-        policyProfile: "benchmark-container",
-        allowMcp: false,
-      },
-      {
-        sessionInputs: {
-          agentDir: root,
-          authStorage: {} as never,
-          modelRegistry: {} as never,
-          model: {} as never,
-          sessionManager: SessionManager.inMemory(),
-          settingsManager: SettingsManager.inMemory(),
-        },
-        factories: {
-          createAgentSession: async (options) => {
-            if (options === undefined) {
-              throw new Error("Expected createAgentSession options.");
-            }
-            const sessionId = `session-${++sessionIndex}`;
-            toolSets.push([...(options.tools ?? [])]);
-            const messages: unknown[] = [];
-            const listeners: ((event: unknown) => void)[] = [];
-            return {
-              session: {
-                sessionId,
-                messages,
-                subscribe(listener: (event: never) => void) {
-                  listeners.push(listener as (event: unknown) => void);
-                  return () => undefined;
-                },
-                async prompt(prompt: string) {
-                  for (const listener of listeners) {
-                    listener({
-                      type: "turn_start",
-                    });
-                  }
-                  if (prompt.includes("root coordinator")) {
-                    const delegate = options.customTools?.find(
-                      (tool) => tool.name === "delegate_agent",
-                    );
-                    await delegate?.execute(
-                      "delegate-1",
-                      { roleId: "builder", task: "write the answer" },
-                      undefined,
-                      undefined,
-                      {} as never,
-                    );
-                    await delegate?.execute(
-                      "delegate-2",
-                      { roleId: "verifier", task: "run the final check" },
-                      undefined,
-                      undefined,
-                      {} as never,
-                    );
-                    await callStopTool(options, "root done");
-                  } else {
-                    await callStopTool(options, "builder done");
-                  }
-                  for (const listener of listeners) {
-                    listener({
-                      type: "turn_end",
-                      toolResults: [],
-                    });
-                  }
-                },
-              },
-            } as never;
-          },
-        },
-      },
+    const harness = fauxHarness(
+      { id: "test-harness", policyProfile: "benchmark-container", allowMcp: false },
+      [
+        recording(toolSets, call("delegate_agent", { roleId: "builder", task: "write the answer" })),
+        recording(toolSets, stop("builder done")),
+        recording(toolSets, call("delegate_agent", { roleId: "verifier", task: "run the check" })),
+        recording(toolSets, stop("verifier done")),
+        recording(toolSets, stop("root done")),
+      ],
     );
 
     const result = await harness.run({
@@ -185,38 +191,25 @@ describe("createAgentHarness", () => {
       workspaceRoot: root,
       artifactDir: join(root, "artifacts"),
       capabilities: {
-        terminalTools: {
-          tool: withAgentHarnessToolEffects(
-            { name: "bash", description: "terminal", execute: async () => ({}) },
-            ["process.spawn", "fs.read", "fs.write"],
-          ),
-        },
+        terminalTools: { tool: capabilityTool("bash", ["process.spawn", "fs.read", "fs.write"]) },
         fileTools: {
-          piTools: [
-            withAgentHarnessToolEffects(
-              { name: "read", description: "read", execute: async () => ({}) },
-              ["fs.read"],
-            ),
-            withAgentHarnessToolEffects(
-              { name: "write", description: "write", execute: async () => ({}) },
-              ["fs.write"],
-            ),
-          ],
+          piTools: [capabilityTool("read", ["fs.read"]), capabilityTool("write", ["fs.write"])],
         },
       },
     });
 
     expect(result.status).toBe("succeeded");
     expect(result.outputText).toBe("root done");
-    expect(toolSets[0]).toContain("read");
-    expect(toolSets[0]).toContain("delegate_agent");
-    expect(toolSets[0]).toContain("stop_and_respond");
-    expect(toolSets[0]).not.toContain("bash");
-    expect(toolSets[0]).not.toContain("write");
-    expect(toolSets[1]).toEqual(expect.arrayContaining(["bash", "read", "write"]));
-    expect(toolSets[2]).toContain("bash");
-    expect(toolSets[2]).toContain("read");
-    expect(toolSets[2]).not.toContain("write");
+    const [rootTools, builderTools, , verifierTools] = toolSets;
+    expect(rootTools).toContain("read");
+    expect(rootTools).toContain("delegate_agent");
+    expect(rootTools).toContain(STOP_AND_RESPOND_TOOL_NAME);
+    expect(rootTools).not.toContain("bash");
+    expect(rootTools).not.toContain("write");
+    expect(builderTools).toEqual(expect.arrayContaining(["bash", "read", "write"]));
+    expect(verifierTools).toContain("bash");
+    expect(verifierTools).toContain("read");
+    expect(verifierTools).not.toContain("write");
     expect(result.projections.some((projection) => projection.type === "handoff.requested")).toBe(
       true,
     );
@@ -228,38 +221,20 @@ describe("createAgentHarness", () => {
     expect(result.policyDecisions.some((decision) => decision.reason.includes("effect"))).toBe(
       true,
     );
-    expect(new Set(result.events.map((event) => event.rootSessionId))).toEqual(
-      new Set(["session-1"]),
-    );
-    expect(
-      result.events.some(
-        (event) => event.name === "policy.decision" && event.sessionId === "session-3",
-      ),
-    ).toBe(true);
-    expect(result.policyDecisions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          actorId: "verifier",
-          action: "bind_tool",
-          decision: "denied",
-        }),
-      ]),
-    );
+    expect(new Set(result.events.map((event) => event.rootSessionId)).size).toBe(1);
+    const deniedVerifierWrite = expect.objectContaining({
+      actorId: "verifier",
+      action: "bind_tool",
+      decision: "denied",
+    });
+    expect(result.policyDecisions).toEqual(expect.arrayContaining([deniedVerifierWrite]));
 
     const policyArtifact = result.artifacts.find((artifact) => artifact.id === "policy-decisions");
     expect(policyArtifact?.localPath).toBeDefined();
     const artifactDecisions = JSON.parse(
       await readFile(policyArtifact?.localPath ?? "", "utf-8"),
     ) as readonly PolicyDecisionRecord[];
-    expect(artifactDecisions).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          actorId: "verifier",
-          action: "bind_tool",
-          decision: "denied",
-        }),
-      ]),
-    );
+    expect(artifactDecisions).toEqual(expect.arrayContaining([deniedVerifierWrite]));
   });
 
   it("exposes MCP server tools to roles by effect: reads everywhere, writes only to builders", async () => {
@@ -270,69 +245,13 @@ describe("createAgentHarness", () => {
       const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-mcp-"));
       const toolSets: string[][] = [];
       let harnessToolCalls = 0;
-      let sessionIndex = 0;
-      const mcpTool = (
-        name: string,
-        effects: readonly ("mcp.read" | "mcp.write" | "message.send" | "external.write")[],
-      ) =>
-        withAgentHarnessToolEffects(
-          {
-            name,
-            label: name,
-            description: name,
-            parameters: { type: "object", properties: {} },
-            execute: async () => ({ content: [{ type: "text", text: name }], details: {} }),
-          },
-          [...effects],
-        );
-      const harness = createAgentHarness(
-        { id: "mcp-harness", adapter: "pi", model: "fake-model", ...harnessOptions },
-        {
-          sessionInputs: {
-            agentDir: root,
-            authStorage: {} as never,
-            modelRegistry: {} as never,
-            model: {} as never,
-            sessionManager: SessionManager.inMemory(),
-            settingsManager: SettingsManager.inMemory(),
-          },
-          factories: {
-            createAgentSession: async (options) => {
-              if (options === undefined) {
-                throw new Error("Expected createAgentSession options.");
-              }
-              const sessionId = `session-${++sessionIndex}`;
-              toolSets.push([...(options.tools ?? [])]);
-              return {
-                session: {
-                  sessionId,
-                  messages: [],
-                  subscribe: () => () => undefined,
-                  async prompt(prompt: string) {
-                    if (prompt.includes("root coordinator")) {
-                      const delegate = options.customTools?.find(
-                        (tool) => tool.name === "delegate_agent",
-                      );
-                      for (const roleId of ["planner", "builder", "verifier"]) {
-                        await delegate?.execute(
-                          `delegate-${roleId}`,
-                          { roleId, task: "use the MCP tools" },
-                          undefined,
-                          undefined,
-                          {} as never,
-                        );
-                      }
-                      await callStopTool(options, "root done");
-                    } else {
-                      await callStopTool(options, "role done");
-                    }
-                  },
-                },
-              } as never;
-            },
-          },
-        },
-      );
+      const responses: FauxResponseStep[] = [];
+      for (const roleId of ["planner", "builder", "verifier"]) {
+        responses.push(recording(toolSets, call("delegate_agent", { roleId, task: "use MCP" })));
+        responses.push(recording(toolSets, stop("role done")));
+      }
+      responses.push(recording(toolSets, stop("root done")));
+      const harness = fauxHarness({ id: "mcp-harness", ...harnessOptions }, responses);
 
       const result = await harness.run({
         instruction: "Use MCP.",
@@ -346,22 +265,29 @@ describe("createAgentHarness", () => {
             async harnessTools() {
               harnessToolCalls += 1;
               return [
-                mcpTool("mcp__docs__search", ["mcp.read"]),
-                mcpTool("mcp__docs__update", ["mcp.read", "mcp.write"]),
-                mcpTool("mcp__mail__send_email", ["mcp.read", "mcp.write", "message.send"]),
-                mcpTool("mcp__cal__create_event", ["mcp.read", "mcp.write", "external.write"]),
+                capabilityTool("mcp__docs__search", ["mcp.read"]),
+                capabilityTool("mcp__docs__update", ["mcp.read", "mcp.write"]),
+                capabilityTool("mcp__mail__send_email", ["mcp.read", "mcp.write", "message.send"]),
+                capabilityTool("mcp__cal__create_event", ["mcp.read", "mcp.write", "external.write"]),
               ];
             },
           },
         },
       });
-      return { result, toolSets, harnessToolCalls };
+      // Each role's first turn shows its tool set; the root's first turn is index 0.
+      const [rootTools, plannerTools, , builderTools, , verifierTools] = toolSets;
+      return {
+        result,
+        harnessToolCalls,
+        toolSets,
+        roles: { rootTools, plannerTools, builderTools, verifierTools },
+      };
     };
 
     const local = await runMcpHarness({});
     expect(local.result.status).toBe("succeeded");
     expect(local.harnessToolCalls).toBe(1);
-    const [rootTools, plannerTools, builderTools, verifierTools] = local.toolSets;
+    const { rootTools, plannerTools, builderTools, verifierTools } = local.roles;
     for (const readOnlyRole of [rootTools, plannerTools, verifierTools]) {
       expect(readOnlyRole).toContain("mcp__docs__search");
       expect(readOnlyRole).not.toContain("mcp__docs__update");
@@ -422,141 +348,30 @@ describe("createAgentHarness", () => {
         };
       },
     };
-    const harness = createAgentHarness(
-      {
-        id: "policy-harness",
-        adapter: "pi",
-        model: "fake-model",
-      },
-      {
-        policy,
-        sessionInputs: {
-          agentDir: root,
-          authStorage: {} as never,
-          modelRegistry: {} as never,
-          model: {} as never,
-          sessionManager: SessionManager.inMemory(),
-          settingsManager: SettingsManager.inMemory(),
-        },
-        factories: {
-          createAgentSession: async (options) => {
-            toolSets.push([...(options?.tools ?? [])]);
-            return {
-              session: {
-                sessionId: "policy-session",
-                messages: [{ role: "assistant", content: "done" }],
-                subscribe: () => () => undefined,
-                prompt: async () => {
-                  await callStopTool(options, "policy done");
-                },
-              },
-              extensionsResult: {
-                diagnostics: [],
-              },
-              tools: options?.tools,
-            } as never;
-          },
-        },
-      },
+    const harness = fauxHarness(
+      { id: "policy-harness" },
+      [recording(toolSets, stop("policy done"))],
+      { policy },
     );
 
-    await harness.run({
+    const result = await harness.run({
       instruction: "Run with external policy.",
       workspaceRoot: root,
       artifactDir: join(root, "artifacts"),
       capabilities: {
-        fileTools: {
-          piTools: [
-            withAgentHarnessToolEffects(
-              { name: "read", description: "read", execute: async () => ({}) },
-              ["fs.read"],
-            ),
-          ],
-        },
-        customTools: [
-          withAgentHarnessToolEffects(
-            {
-              name: "visible",
-              label: "visible",
-              description: "visible",
-              parameters: {} as never,
-              execute: async () => ({ content: [], details: {} }),
-            },
-            ["handoff.read"],
-          ),
-        ],
+        fileTools: { piTools: [capabilityTool("read", ["fs.read"])] },
+        customTools: [capabilityTool("visible", ["handoff.read"])],
       },
-    });
-
-    expect(toolSets[0]).toContain("visible");
-    expect(toolSets[0]).not.toContain("read");
-  });
-
-  it("does not mention the stop tool when single-turn execution is configured", async () => {
-    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-single-turn-"));
-    const prompts: string[] = [];
-    const toolSets: string[][] = [];
-    const harness = createAgentHarness(
-      {
-        id: "single-turn-harness",
-        adapter: "pi",
-        model: "fake-model",
-        policyProfile: "benchmark-container",
-        allowMcp: false,
-        execution: {
-          turnMode: "single-turn",
-        },
-      },
-      {
-        sessionInputs: {
-          agentDir: root,
-          authStorage: {} as never,
-          modelRegistry: {} as never,
-          model: {} as never,
-          sessionManager: SessionManager.inMemory(),
-          settingsManager: SettingsManager.inMemory(),
-        },
-        factories: {
-          createAgentSession: async (options) => {
-            if (options === undefined) {
-              throw new Error("Expected createAgentSession options.");
-            }
-            toolSets.push([...(options.tools ?? [])]);
-            const messages: unknown[] = [{ role: "assistant", content: "single turn done" }];
-            return {
-              session: {
-                sessionId: "session-single-turn",
-                messages,
-                subscribe() {
-                  return () => undefined;
-                },
-                async prompt(prompt: string) {
-                  prompts.push(prompt);
-                },
-              },
-            } as never;
-          },
-        },
-      },
-    );
-
-    const result = await harness.run({
-      instruction: "Answer in one turn.",
-      workspaceRoot: root,
-      artifactDir: join(root, "artifacts"),
     });
 
     expect(result.status).toBe("succeeded");
-    expect(result.outputText).toBe("single turn done");
-    expect(toolSets[0]).not.toContain("stop_and_respond");
-    expect(prompts[0]).not.toContain("stop_and_respond");
-    expect(prompts[0]).toContain("single-turn compatibility");
+    expect(toolSets[0]).toContain("visible");
+    expect(toolSets[0]).not.toContain("read");
   });
 
   it("runs command lifecycle hooks around prompt submission with inspectable evidence", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-hooks-"));
     let observedPrompt = "";
-    const messages: unknown[] = [];
     const hookScript = [
       "let input='';",
       "process.stdin.on('data',(chunk)=>input+=chunk);",
@@ -565,55 +380,27 @@ describe("createAgentHarness", () => {
       "console.log(JSON.stringify({decision:'append_context',additionalContext:'hook saw '+context.event}));",
       "});",
     ].join("");
-    const harness = createAgentHarness(
+    const harness = fauxHarness(
       {
         id: "hooked-harness",
-        adapter: "pi",
-        model: "fake-model",
-        execution: {
-          turnMode: "single-turn",
-        },
+        execution: { turnMode: "single-turn" },
         hooks: {
           schemaVersion: "v1",
           hooks: [
             {
               id: "prompt-context",
               events: ["UserPromptSubmit"],
-              handler: {
-                type: "command",
-                command: process.execPath,
-                args: ["-e", hookScript],
-              },
+              handler: { type: "command", command: process.execPath, args: ["-e", hookScript] },
             },
           ],
         },
       },
-      {
-        sessionInputs: {
-          agentDir: root,
-          authStorage: {} as never,
-          modelRegistry: {} as never,
-          model: {} as never,
-          sessionManager: SessionManager.inMemory(),
-          settingsManager: SettingsManager.inMemory(),
+      [
+        (context) => {
+          observedPrompt = lastUserText(context);
+          return fauxAssistantMessage("hooked done");
         },
-        factories: {
-          createAgentSession: async () =>
-            ({
-              session: {
-                sessionId: "session-hooks",
-                messages,
-                subscribe() {
-                  return () => undefined;
-                },
-                async prompt(prompt: string) {
-                  observedPrompt = prompt;
-                  messages.push({ role: "assistant", content: "hooked done" });
-                },
-              },
-            }) as never,
-        },
-      },
+      ],
     );
 
     const result = await harness.run({
@@ -623,6 +410,7 @@ describe("createAgentHarness", () => {
     });
 
     expect(result.status).toBe("succeeded");
+    expect(result.outputText).toBe("hooked done");
     expect(observedPrompt).toContain("Additional hook context");
     expect(observedPrompt).toContain("hook saw UserPromptSubmit");
     expect(result.hookDecisions).toEqual(
@@ -638,64 +426,39 @@ describe("createAgentHarness", () => {
     expect(result.artifacts.some((artifact) => artifact.id === "hook-decisions")).toBe(true);
   });
 
-  it("blocks matching tool calls through PreToolUse hooks", async () => {
+  it("blocks matching tool calls through PreToolUse hooks and tells the model why", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-hooks-"));
     const blockScript = "console.log(JSON.stringify({decision:'block',reason:'danger blocked'}));";
-    const harness = createAgentHarness(
+    let dangerRan = false;
+    let blockedResult: { text: string; isError: boolean } | undefined;
+    const harness = fauxHarness(
       {
         id: "blocking-harness",
-        adapter: "pi",
-        model: "fake-model",
         hooks: {
           schemaVersion: "v1",
           hooks: [
             {
               id: "block-danger",
               events: ["PreToolUse"],
-              matcher: {
-                toolName: "danger",
-              },
-              handler: {
-                type: "command",
-                command: process.execPath,
-                args: ["-e", blockScript],
-              },
+              matcher: { toolName: "danger" },
+              handler: { type: "command", command: process.execPath, args: ["-e", blockScript] },
             },
           ],
         },
       },
-      {
-        sessionInputs: {
-          agentDir: root,
-          authStorage: {} as never,
-          modelRegistry: {} as never,
-          model: {} as never,
-          sessionManager: SessionManager.inMemory(),
-          settingsManager: SettingsManager.inMemory(),
+      [
+        call("danger", { ok: true }),
+        (context) => {
+          const last = context.messages.at(-1);
+          if (last?.role === "toolResult") {
+            blockedResult = {
+              text: last.content.map((block) => (block.type === "text" ? block.text : "")).join(""),
+              isError: last.isError,
+            };
+          }
+          return stop("used something else");
         },
-        factories: {
-          createAgentSession: async (options) =>
-            ({
-              session: {
-                sessionId: "session-blocked",
-                messages: [],
-                subscribe() {
-                  return () => undefined;
-                },
-                async prompt() {
-                  const danger = options?.customTools?.find((tool) => tool.name === "danger");
-                  await danger?.execute(
-                    "tool-call-1",
-                    { ok: true },
-                    undefined,
-                    undefined,
-                    {} as never,
-                  );
-                },
-              },
-            }) as never,
-        },
-      },
+      ],
     );
 
     const result = await harness.run({
@@ -711,6 +474,7 @@ describe("createAgentHarness", () => {
               description: "Dangerous test tool.",
               parameters: Type.Object({ ok: Type.Boolean() }),
               async execute() {
+                dangerRan = true;
                 return {
                   content: [{ type: "text" as const, text: "danger ok" }],
                   details: { ok: true },
@@ -723,23 +487,33 @@ describe("createAgentHarness", () => {
       },
     });
 
-    expect(result.status).toBe("failed");
-    expect(result.failureMessage).toContain("danger blocked");
+    expect(dangerRan).toBe(false);
+    expect(blockedResult?.isError).toBe(true);
+    expect(blockedResult?.text).toContain("danger blocked");
+    expect(result.status).toBe("succeeded");
     expect(result.hookDecisions).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          hookId: "block-danger",
-          decision: "block",
-          status: "blocked",
-        }),
+        expect.objectContaining({ hookId: "block-danger", decision: "block", status: "blocked" }),
       ]),
     );
   });
 });
 
 describe("host tools", () => {
-  function recordingTool(calls: unknown[]): AgentHarnessHostTool {
-    return {
+  it("returns host tool results and errors to the model", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-"));
+    const calls: unknown[] = [];
+    const toolResults: { text: string; isError: boolean }[] = [];
+    const captureToolResult = (context: Context) => {
+      const last = context.messages.at(-1);
+      if (last?.role === "toolResult") {
+        toolResults.push({
+          text: last.content.map((block) => (block.type === "text" ? block.text : "")).join(""),
+          isError: last.isError,
+        });
+      }
+    };
+    const hostTool: AgentHarnessHostTool = {
       name: "delegate_task",
       description: "Hand work to another agent.",
       parameters: {
@@ -757,81 +531,31 @@ describe("host tools", () => {
         return { text: `Recorded ${tasks.length} task(s).`, details: { count: tasks.length } };
       },
     };
-  }
-
-  it("runs runtime-neutral host tools in Pi sessions", async () => {
-    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-"));
-    const calls: unknown[] = [];
-    const results: unknown[] = [];
-    const errors: string[] = [];
-    const harness = createAgentHarness(
-      { id: "host-tools", adapter: "pi", model: "fake-model", allowMcp: false },
-      {
-        sessionInputs: {
-          agentDir: root,
-          authStorage: {} as never,
-          modelRegistry: {} as never,
-          model: {} as never,
-          sessionManager: SessionManager.inMemory(),
-          settingsManager: SettingsManager.inMemory(),
-        },
-        factories: {
-          createAgentSession: async (options) => {
-            const listeners: ((event: unknown) => void)[] = [];
-            return {
-              session: {
-                sessionId: "session-1",
-                messages: [],
-                subscribe(listener: (event: never) => void) {
-                  listeners.push(listener as (event: unknown) => void);
-                  return () => undefined;
-                },
-                async prompt() {
-                  const tool = options?.customTools?.find(
-                    (candidate) => candidate.name === "delegate_task",
-                  );
-                  results.push(
-                    await tool?.execute(
-                      "call-1",
-                      { tasks: [{ to: "analyst", task: "x" }] } as never,
-                      undefined,
-                      undefined,
-                      {} as never,
-                    ),
-                  );
-                  try {
-                    await tool?.execute(
-                      "call-2",
-                      { tasks: [] } as never,
-                      undefined,
-                      undefined,
-                      {} as never,
-                    );
-                  } catch (error) {
-                    errors.push(error instanceof Error ? error.message : String(error));
-                  }
-                  await callStopTool(options, "handed off");
-                },
-              },
-            } as never;
-          },
-        },
+    const harness = fauxHarness({ id: "host-tools", allowMcp: false }, [
+      call("delegate_task", { tasks: [{ to: "analyst", task: "x" }] }),
+      (context) => {
+        captureToolResult(context);
+        return call("delegate_task", { tasks: [] });
       },
-    );
+      (context) => {
+        captureToolResult(context);
+        return stop("handed off");
+      },
+    ]);
 
     const result = await harness.run({
       instruction: "Delegate.",
       workspaceRoot: root,
       artifactDir: join(root, "artifacts"),
-      hostTools: [recordingTool(calls)],
+      hostTools: [hostTool],
     });
 
     expect(result.status).toBe("succeeded");
+    expect(result.outputText).toBe("handed off");
     expect(calls).toEqual([{ tasks: [{ to: "analyst", task: "x" }] }, { tasks: [] }]);
-    expect(results[0]).toEqual({
-      content: [{ type: "text", text: "Recorded 1 task(s)." }],
-      details: { count: 1 },
-    });
-    expect(errors).toEqual(["Pass at least one task."]);
+    expect(toolResults).toEqual([
+      { text: "Recorded 1 task(s).", isError: false },
+      { text: "Pass at least one task.", isError: true },
+    ]);
   });
 });

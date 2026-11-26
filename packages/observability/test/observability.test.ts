@@ -360,7 +360,7 @@ describe("observability routes and live events", () => {
 function fakeRunResult(runId: string): AgentHarnessRunResult {
   return {
     harnessId: "harness-1",
-    adapter: "pi",
+    adapter: "native",
     status: "succeeded",
     outputText: "model output with sk-secret should not be stored",
     envelope: {

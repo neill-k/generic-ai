@@ -18,9 +18,9 @@ Harness DSL -> Generic Agent IR -> runtime/packages -> traces/evals/reports
   references before runtime execution.
 - `runHarnessBenchmark()` in `@generic-ai/core` consumes compiled harnesses and
   runs trials through `GenericAILlmRuntime`.
-- The default runtime is the native adapter, which calls providers through
-  `@generic-ai/ai`. The `openai-codex` adapter (Pi's provider machinery through
-  `@generic-ai/sdk/pi`) remains available by name until it is removed.
+- The runtime is the native adapter, which calls providers through
+  `@generic-ai/ai`. The `pi` and `openai-codex` adapters have been removed
+  (ADR 0068).
 - `examples/harness-shootout` provides the first package-composed benchmark
   fixture and walkthrough.
 
@@ -42,7 +42,7 @@ whose model comes from the actor, a matching `harness.roles` entry, or the
 harness default, so models can be chosen per role and new runtimes work
 without scheduler changes.
 
-`runAgentHarnessTopology()` executes each actor as a Pi role session with the
+`runAgentHarnessTopology()` executes each actor as a native role session with the
 same policy profile, role effect policy, lifecycle hooks, canonical events,
 and artifacts as `AgentHarness`. Actor role names map to role policies:
 `implementer`, `solver`, and `repairer` can edit; `critic` and `reviewer` run
@@ -93,7 +93,7 @@ success instead of an agent's opinion:
 
 Every run returns per-action outcomes and a `TraceEvent` trace in which
 `actor.completed` events point at their `actor.invoked` event and each
-invocation points at its `protocol.action.planned` event. The Pi-backed runner
+invocation points at its `protocol.action.planned` event. The session-backed runner
 also writes `topology/topology-trace.json` and `topology/topology-outcomes.json`
 beside the standard harness artifacts.
 

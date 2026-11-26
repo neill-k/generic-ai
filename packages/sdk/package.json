@@ -10,10 +10,6 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./pi": {
-      "types": "./dist/pi/index.d.ts",
-      "default": "./dist/pi/index.js"
-    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
@@ -21,9 +17,6 @@
   },
   "typesVersions": {
     "*": {
-      "pi": [
-        "dist/pi/index.d.ts"
-      ],
       "testing": [
         "dist/testing/index.d.ts"
       ]
@@ -40,7 +33,6 @@
     "provenance": true
   },
   "dependencies": {
-    "@mariozechner/pi-coding-agent": "0.73.1",
     "@sinclair/typebox": "0.34.49",
     "zod": "^4.3.6"
   },

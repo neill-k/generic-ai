@@ -25,7 +25,7 @@ Dependabot PRs should run the full quality gate before merge. Security updates c
 
 The allowlist is for advisories with no fixed release that cannot be removed yet. Each entry names the GHSA id, the package, why the risk is acceptable, and an expiry date. An expired entry fails the job, and an entry that no longer matches an advisory prints a warning so it can be deleted. Prefer upgrading, or an `overrides` entry in the root `package.json` that forces a patched transitive version, over adding to the allowlist.
 
-The current entries all come from `@mariozechner/pi-coding-agent`, which is deprecated upstream and is being replaced by the native harness (roadmap R22). Remove them when pi is removed.
+The allowlist is currently empty: its last entries came from `@mariozechner/pi-coding-agent` and went away when the native harness replaced pi (roadmap R22 slice 9c).
 
 GitHub disables scheduled workflows after 60 days without repository activity. If the weekly run stops, re-enable it from the Actions tab (Security Baseline, then "Enable workflow"). The file was renamed from `security.yml` in November 2026 because GitHub had disabled the old workflow this way; renaming registers a fresh, enabled workflow.
 

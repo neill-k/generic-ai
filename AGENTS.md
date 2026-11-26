@@ -15,7 +15,7 @@ This repository is the Generic AI framework monorepo, which also holds the Gener
 
 Use `docs/package-boundaries.md` before moving code across packages. Use `docs/slots.md` before changing plugin slot/category/method metadata. Plugins depend on `@generic-ai/sdk`, not `@generic-ai/core`; presets compose core and plugins.
 
-Runtime and harness work that touches `pi` must keep the adapter boundary explicit. Re-export extension and embedding primitives only through `@generic-ai/sdk/pi`, keep kernel translation code in `packages/core/src/runtime`, and update `contracts/pi-boundary/README.md`, `docs/generic-ai-and-pi.md`, or `docs/harness-dsl.md` when that contract changes.
+Agent sessions run on the native runtime (`@generic-ai/ai`, `@generic-ai/agent` and the packages around them); `pi` is no longer a dependency. Keep the adapter boundary explicit: kernel translation code stays in `packages/core/src/runtime`, plugin tools use the runtime-neutral `defineTool` contract from `@generic-ai/sdk`, and `docs/harness-dsl.md` or `docs/planning/native-harness-parity.md` is updated when that contract changes.
 
 ## Verification
 
@@ -68,7 +68,7 @@ npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile sm
 npm run -w @generic-ai/example-terminal-bench terminal-bench:import -- --job-dir examples/terminal-bench/jobs/<job-name>
 ```
 
-Provider-backed live smoke is opt-in and can incur real provider cost; run it only by hand, with trusted credentials or Pi auth configured. Never call a real model from `npm test`, CI or a workflow (see "No live model calls in automated tests" in `CONTRIBUTING.md`):
+Provider-backed live smoke is opt-in and can incur real provider cost; run it only by hand, with trusted provider credentials configured. Never call a real model from `npm test`, CI or a workflow (see "No live model calls in automated tests" in `CONTRIBUTING.md`):
 
 ```powershell
 $env:GENERIC_AI_ENABLE_LIVE_SMOKE = "1"; npm run -w @generic-ai/example-starter-hono test:live

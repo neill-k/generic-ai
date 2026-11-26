@@ -2,6 +2,8 @@
 
 - Status: accepted
 - Date: 2026-11-26
+- Amended: 2026-11-26 (slice 9c: `pi` removed)
+- Supersedes: `0011-pi-direct-boundary.md`
 - Related: `docs/planning/native-harness-parity.md` (slice 9), `docs/generic-ai-and-pi.md`
 
 ## Context
@@ -20,13 +22,20 @@ harness of Generic AI's own, without `pi` underneath.
    (`DEFAULT_GENERIC_AI_RUNTIME_ADAPTER`). The default model stays `gpt-5.5`, which the native
    adapter resolves to OpenAI.
 3. Web UI templates and the starter example's harness write `adapter: native`.
-4. `pi` and `openai-codex` stay available by name for now. They are removed in two later steps:
-   first the plugin tool API moves off `@generic-ai/sdk/pi` to a runtime-neutral one, then the `pi`
-   adapter, the `openai-codex` adapter and the `pi` dependencies are deleted.
+4. `pi` and `openai-codex` were removed in two later steps: first the plugin tool API moved off
+   `@generic-ai/sdk/pi` to a runtime-neutral one (`defineTool` in `@generic-ai/sdk`, slice 9b), then
+   the `pi` adapter, the `openai-codex` adapter, the `@generic-ai/sdk/pi` subpath and the `pi`
+   dependencies were deleted (slice 9c).
 
 ## Consequences
 
 - New projects and configs that never named an adapter run on the native runtime, with provider
   keys from `GENERIC_AI_PROVIDER_API_KEY` or the provider's own environment variable. Pi's stored
-  `openai-codex` sign-in is no longer used unless `adapter: openai-codex` is set.
-- Tests that exercised `pi` or `openai-codex` through the default now name the adapter.
+  `openai-codex` sign-in is no longer used.
+- `adapter: pi` and `adapter: openai-codex` are rejected by config validation and by
+  `createGenericAILlmRuntime`. The harness adapter kinds are `native` and `external`.
+- `DEFAULT_OPENAI_CODEX_MODEL` remains as a deprecated alias of `DEFAULT_GENERIC_AI_MODEL`.
+- The three production audit advisories that came only through `pi` are gone, and
+  `security/audit-allowlist.json` is empty.
+- Borrowed subscription sign-ins (ChatGPT/Codex, Claude Pro/Max, Copilot) are not ported; providers
+  use API keys or the credential store in `@generic-ai/auth`.

@@ -41,10 +41,10 @@ Generic AI has a small number of layers. Dependency direction is strictly downwa
 
 The layering rules:
 
-- The native runtime packages depend only on third-party libraries (the official provider SDKs) and on each other (`@generic-ai/agent` depends on `@generic-ai/ai`; `@generic-ai/tools` on both; `@generic-ai/session` on all three; `@generic-ai/resources` on `@generic-ai/tools`; `@generic-ai/extensions` on `@generic-ai/ai`, `@generic-ai/agent` and `@generic-ai/tools`; `@generic-ai/subagents` on `@generic-ai/ai` and `@generic-ai/agent`; `@generic-ai/autonomy` on `@generic-ai/ai`, `@generic-ai/agent` and `@generic-ai/tools`; `@generic-ai/continual` on `@generic-ai/ai` and `@generic-ai/agent`; `@generic-ai/auth` on nothing). They must not depend on the kernel, the SDK, plugins, or presets. They are the replacement for `pi` underneath the existing adapter boundary; see `docs/planning/native-harness-parity.md`.
-- The kernel may depend on `pi` and on `@generic-ai/sdk` where that helps it expose its own contracts cleanly. It must not depend on any plugin or preset package.
-- The SDK may depend on `pi`. It must not depend on the kernel or any plugin.
-- Plugins may depend on `@generic-ai/sdk` and on `pi`. They must not import from `@generic-ai/core`. Plugins may depend on other plugins only when the dependency is part of the documented intent for that plugin (for example, `plugin-memory-files` and `plugin-tools-files` depending on `plugin-workspace-fs`, or `plugin-messaging` depending on a storage plugin through the storage contract rather than through a specific implementation whenever possible).
+- The native runtime packages depend only on third-party libraries (the official provider SDKs) and on each other (`@generic-ai/agent` depends on `@generic-ai/ai`; `@generic-ai/tools` on both; `@generic-ai/session` on all three; `@generic-ai/resources` on `@generic-ai/tools`; `@generic-ai/extensions` on `@generic-ai/ai`, `@generic-ai/agent` and `@generic-ai/tools`; `@generic-ai/subagents` on `@generic-ai/ai` and `@generic-ai/agent`; `@generic-ai/autonomy` on `@generic-ai/ai`, `@generic-ai/agent` and `@generic-ai/tools`; `@generic-ai/continual` on `@generic-ai/ai` and `@generic-ai/agent`; `@generic-ai/auth` on nothing). They must not depend on the kernel, the SDK, plugins, or presets. They replaced `pi` underneath the existing adapter boundary; see `docs/planning/native-harness-parity.md`.
+- The kernel may depend on `@generic-ai/sdk` and the native runtime packages where that helps it expose its own contracts cleanly. It must not depend on any plugin or preset package.
+- The SDK must not depend on the kernel, any plugin, or the native runtime packages.
+- Plugins may depend on `@generic-ai/sdk`. They must not import from `@generic-ai/core`. Plugins may depend on other plugins only when the dependency is part of the documented intent for that plugin (for example, `plugin-memory-files` and `plugin-tools-files` depending on `plugin-workspace-fs`, or `plugin-messaging` depending on a storage plugin through the storage contract rather than through a specific implementation whenever possible).
 - Presets may depend on `@generic-ai/core`, `@generic-ai/sdk`, and any plugins they wire up. Presets are the normal package type that composes kernel and plugins together. Approved exception: `@generic-ai/core` may keep the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls, but that exception is limited to bootstrap metadata and must not introduce plugin or preset package imports into the kernel.
 - Surface packages may depend on `@generic-ai/sdk`, third-party UI/server libraries, and documented plugin packages through their public contracts. They must not import `@generic-ai/core` or `@generic-ai/preset-*`. Surface packages must keep their public entrypoints isolated so client/React imports do not pull server-only code and server imports do not pull React DOM.
 - Examples may depend on any public package they need to demonstrate framework usage. Examples must not be depended on by any package inside `packages/`.
@@ -139,13 +139,13 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 ### `@generic-ai/core`
 
 - Role: framework kernel. Owns bootstrap, plugin host, registries, scope, sessions, streaming events, and the canonical run envelope.
-- Allowed deps: `pi`, `@generic-ai/sdk`, and the native runtime packages (`@generic-ai/ai`, `@generic-ai/agent`, `@generic-ai/session`, `@generic-ai/resources`, `@generic-ai/extensions`, `@generic-ai/subagents`, `@generic-ai/autonomy`, `@generic-ai/continual`).
+- Allowed deps: `@generic-ai/sdk` and the native runtime packages (`@generic-ai/ai`, `@generic-ai/agent`, `@generic-ai/session`, `@generic-ai/resources`, `@generic-ai/extensions`, `@generic-ai/subagents`, `@generic-ai/autonomy`, `@generic-ai/continual`).
 - Not responsible for: MCP, Agent Skills, delegation, messaging, memory, storage implementations, transport, output shaping, Harness DSL syntax, package-specific protocol/policy/grader semantics, or any business capability.
 - Notes: the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls is the only approved kernel/preset composition exception. See `docs/decisions/0012-bootstrap-api.md`.
-- Harness note: core exposes the `AgentHarness` control-plane implementation with two built-in session backends, `pi` and `native` (selected by `harness.adapter`); both share the same role policy, hooks, delegation, events, and artifacts. It filters role capabilities by SDK-declared effects, writes artifacts through the harness artifact-store contract, and may consume SDK-owned compiled harness contracts. `GenericAILlmRuntime` remains a low-level text/model helper rather than the composable agent harness.
-- Agent-loop note: Pi owns the per-prompt model/tool loop. Core owns the
-  Generic AI terminal contract around Pi sessions: it injects the
-  runtime-control `stop_and_respond` tool, lets that tool terminate Pi's
+- Harness note: core exposes the `AgentHarness` control-plane implementation with the built-in `native` session backend (and any registered `external` adapter, selected by `harness.adapter`); every backend shares the same role policy, hooks, delegation, events, and artifacts. It filters role capabilities by SDK-declared effects, writes artifacts through the harness artifact-store contract, and may consume SDK-owned compiled harness contracts. `GenericAILlmRuntime` remains a low-level text/model helper rather than the composable agent harness.
+- Agent-loop note: the native agent (`@generic-ai/agent`) owns the per-prompt model/tool loop. Core owns the
+  Generic AI terminal contract around its sessions: it injects the
+  runtime-control `stop_and_respond` tool, lets that tool terminate the
   current loop, and honors SDK config that opts a specific agent or harness
   into `single-turn` behavior or sets an optional finite `maxTurns` cap.
 - Publishes as: `@generic-ai/core` — public, independent versioning, `publishConfig.access: public`, provenance on.
@@ -153,11 +153,11 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 ### `@generic-ai/sdk`
 
 - Role: public framework-facing SDK. Defines the contracts plugin authors and preset authors compile against.
-- Allowed deps: `pi`.
+- Allowed deps: `@sinclair/typebox` and `zod` (third-party only).
 - Not responsible for: plugin implementations, config discovery, kernel internals, live provider execution, or report hosting.
 - Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
-- Tool note: owns the runtime-neutral agent tool contract (`defineTool`, `ToolDefinition`, `AgentToolResult`, `AgentToolUpdateCallback`) that plugins compile against and both session backends run.
-- Pi note: Pi compatibility primitives are exposed from the explicit `@generic-ai/sdk/pi` subpath, now deprecated and removed with the `pi` adapter. The root `@generic-ai/sdk` entrypoint stays focused on runtime-agnostic framework contracts and helpers.
+- Tool note: owns the runtime-neutral agent tool contract (`defineTool`, `ToolDefinition`, `AgentToolResult`, `AgentToolUpdateCallback`) that plugins compile against and the session backends run.
+- Pi note: the `@generic-ai/sdk/pi` subpath was removed with the `pi` adapter (ADR 0068). The SDK has a single root entrypoint (plus `@generic-ai/sdk/testing`) focused on runtime-agnostic framework contracts and helpers.
 - Memory note: owns the public `MemoryService` contract and `defineMemory` helper so alternate memory plugins share the same read/write/search/forget baseline plus optional consolidation, provenance, timeline, and graph extensions.
 - Agent lifecycle hook note: owns the public hook event set, handler declarations, decision records, and in-process handler contracts. Runtime execution remains in core; YAML discovery remains in `@generic-ai/plugin-config-yaml`.
 - Publishes as: `@generic-ai/sdk` — public, independent versioning, `publishConfig.access: public`, provenance on.
@@ -165,33 +165,33 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 ### `@generic-ai/preset-starter-hono`
 
 - Role: default starter preset contract. Composes the local-first working stack and is the package-owned public contract for the starter path.
-- Allowed deps: `@generic-ai/core`, `@generic-ai/sdk`, all plugins it bundles (`plugin-config-yaml`, `plugin-workspace-fs`, storage, queue, logging, terminal/file/repo-map/LSP/web tools, MCP, skill, delegation, messaging, memory, output, and Hono plugins), and `pi`.
+- Allowed deps: `@generic-ai/core`, `@generic-ai/sdk`, all plugins it bundles (`plugin-config-yaml`, `plugin-workspace-fs`, storage, queue, logging, terminal/file/repo-map/LSP/web tools, MCP, skill, delegation, messaging, memory, output, and Hono plugins).
 - Not responsible for: defining new plugin-owned business models. The preset only wires existing plugins together.
 - Notes: the starter package owns the public starter contract and may expose a convenience bootstrap wrapper around the generic core bootstrap. `@generic-ai/core` keeps a mirrored starter descriptor only as the approved `createGenericAI()` default-path exception documented in `docs/decisions/0012-bootstrap-api.md`.
 
 ### `@generic-ai/plugin-config-yaml`
 
 - Role: canonical YAML config discovery and validation, including `.generic-ai/hooks.yaml`. Produces the single resolved config layer the rest of the framework consumes.
-- Allowed deps: `@generic-ai/sdk`, `pi`.
+- Allowed deps: `@generic-ai/sdk`.
 - Not responsible for: kernel bootstrap order, or plugin-owned runtime behavior that is merely configured via YAML.
 - Notes: this package also owns schema-fragment composition, startup-time config validation, and generation/export of the frozen machine-readable config contracts.
 
 ### `@generic-ai/plugin-workspace-fs`
 
 - Role: local-filesystem workspace services. Backs file tools and memory. Exposes the recommended workspace layout helpers.
-- Allowed deps: `@generic-ai/sdk`, `pi`.
+- Allowed deps: `@generic-ai/sdk`.
 - Not responsible for: storage, messaging, or any non-filesystem workspace primitive.
 
 ### `@generic-ai/plugin-storage-memory`
 
 - Role: in-memory implementation of the storage contract. Intended for tests and fast local iteration.
-- Allowed deps: `@generic-ai/sdk`, `pi`.
+- Allowed deps: `@generic-ai/sdk`.
 - Not responsible for: durability, concurrency semantics beyond what the contract requires, or any specific plugin's data model.
 
 ### `@generic-ai/plugin-storage-sqlite`
 
 - Role: durable SQLite-backed storage implementation. Default local persistence path for the starter preset. Also ships `SqliteRunStore` (`RunStoreContract`) and `SqliteQueue` (`DurableQueueContract`) for local and single-node durable runs.
-- Allowed deps: `@generic-ai/sdk`, `pi`, SQLite library of choice.
+- Allowed deps: `@generic-ai/sdk`, SQLite library of choice.
 - Not responsible for: non-SQLite backends or messaging and memory data shapes (those belong to their own plugins).
 
 ### `@generic-ai/plugin-storage-postgres`
@@ -203,32 +203,32 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 ### `@generic-ai/plugin-queue-memory`
 
 - Role: in-process queue implementation. Provides the async execution path that shares the kernel's session machinery.
-- Allowed deps: `@generic-ai/sdk`, `pi`.
+- Allowed deps: `@generic-ai/sdk`.
 - Not responsible for: external queues, scheduling semantics that other queue plugins might want to express differently.
 
 ### `@generic-ai/plugin-logging-otel`
 
 - Role: structured logging plus OTEL tracing plugin. Consumes the kernel event stream.
-- Allowed deps: `@generic-ai/sdk`, `pi`, OTEL client libraries.
+- Allowed deps: `@generic-ai/sdk`, OTEL client libraries.
 - Not responsible for: richer observability dashboards, metrics, or analytics surfaces. The deferred resume plan for those surfaces lives in `docs/advanced-observability.md` (`DEF-06`).
 
 ### `@generic-ai/plugin-tools-terminal`
 
-- Role: standard `pi` tool for local command execution.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs` where it needs workspace-aware paths.
+- Role: standard agent tool for local command execution.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs` where it needs workspace-aware paths.
 - Not responsible for: file operations (those belong to `@generic-ai/plugin-tools-files`) or cross-capability governance orchestration.
 - Notes: the deferred hardening plan for this package now lives in `docs/runtime-governance.md`.
 
 ### `@generic-ai/plugin-tools-terminal-sandbox`
 
 - Role: Docker-backed sandbox terminal execution with per-session containers, structured stdout/stderr capture, resource ceilings, timeout enforcement, and explicit cleanup semantics.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, plus Docker-facing client or process libraries used to talk to the local daemon.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`, plus Docker-facing client or process libraries used to talk to the local daemon.
 - Not responsible for: starter preset selection/defaulting (`@generic-ai/preset-starter-hono`), non-Docker backends, or higher-level security/governance policy outside the sandbox execution boundary.
 
 ### `@generic-ai/plugin-tools-files`
 
-- Role: standard `pi` tools for reading, writing, listing, and editing local files.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
+- Role: standard agent tools for reading, writing, listing, and editing local files.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`.
 - Not responsible for: terminal commands, storage, search beyond the filesystem-level primitives file tools natively provide, or cross-capability governance orchestration.
 - Notes: the deferred hardening plan for this package now lives in `docs/runtime-governance.md`.
 
@@ -242,41 +242,41 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 ### `@generic-ai/plugin-repo-map`
 
 - Role: deterministic compact repository map and repo-orientation tool for harness roles.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`.
 - Not responsible for: semantic code navigation, diagnostics, or long-running indexing. Those belong to LSP or future search/index plugins.
 - Notes: declares `repo.inspect` and `fs.read` effects so it is safe for read-only planner and explorer roles and stable enough for trace-backed benchmark artifacts.
 
 ### `@generic-ai/plugin-lsp`
 
 - Role: configurable stdio Language Server Protocol client exposing diagnostics, document symbols, definitions, and references as harness tools.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, and language-server protocol/client libraries if the package later adopts one.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`, and language-server protocol/client libraries if the package later adopts one.
 - Not responsible for: repository-wide indexing beyond server-backed LSP calls, file mutation, or installing language servers.
 - Notes: declares `lsp.read`, `fs.read`, and `process.spawn` effects. It is part of the local starter stack, but benchmark profiles should gate or omit it unless language-server spawning is explicitly allowed.
 
 ### `@generic-ai/plugin-tools-web`
 
-- Role: configurable `pi`-compatible web fetch and search tools with shared hostname allow/block policy enforcement.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, and provider/client libraries needed to back the search interface.
+- Role: configurable web fetch and search agent tools with shared hostname allow/block policy enforcement.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`, and provider/client libraries needed to back the search interface.
 - Not responsible for: browser automation, site-specific scrapers, or binding the framework to a single hosted search vendor.
 - Notes: its host allow/block rules are the current precedent for shared policy vocabulary, but it is not the cross-capability policy engine.
 
 ### `@generic-ai/plugin-mcp`
 
 - Role: embedded MCP support exposed as a plugin so MCP is never a kernel hard requirement.
-- Allowed deps: `@generic-ai/sdk`, `pi`, MCP client libraries.
+- Allowed deps: `@generic-ai/sdk`, MCP client libraries.
 - Not responsible for: replacing MCP as a protocol. The kernel and SDK must remain MCP-agnostic.
 - Notes: connects to configured stdio/HTTP/SSE servers and hands their tools to the harness through the `mcp` capability's `harnessTools()`, tagged with `mcp.read`/`mcp.write` effects so core role policies filter them. Server trust tiers and approval flow are deferred to the roadmap in `docs/runtime-governance.md`.
 
 ### `@generic-ai/plugin-agent-skills`
 
 - Role: Agent Skills compatibility plugin. Implements the public Agent Skills spec.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs` for skill discovery on disk.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs` for skill discovery on disk.
 - Not responsible for: trust gating (deferred) or any product-specific skill catalog.
 
 ### `@generic-ai/plugin-delegation`
 
 - Role: the delegation business model. Owns persistent agents (durable org-chart records with a memory file and a workspace or git worktree each), the cross-run delegation cascade (durable agent tasks, `delegate_task` and `finish_task` directives, parents waiting in the store while children run on the durable queue, results bubbling up), and run persistence for any `AgentHarnessAdapter`.
-- Allowed deps: `@generic-ai/sdk`, `pi`. Tests may use the SQLite and Postgres storage plugins as dev dependencies to exercise real durable backends.
+- Allowed deps: `@generic-ai/sdk`. Tests may use the SQLite and Postgres storage plugins as dev dependencies to exercise real durable backends.
 - Not responsible for: in-run child-session lifecycle (kernel), storage or queue implementations (storage plugins), or running agent turns (any SDK `AgentHarnessAdapter` or `AgentTaskExecutor`, such as core's `createTopologyTaskExecutor`).
 - Notes: the cascade talks to storage only through `RunStoreContract` and `DurableQueueContract`, and to runtimes only through `AgentTaskExecutor`, so it runs on Pi or the native runtime and on SQLite or Postgres. See `docs/decisions/0044-persistent-agents-and-delegation-cascade.md`.
 
@@ -290,31 +290,31 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 ### `@generic-ai/plugin-interaction`
 
 - Role: structured user interaction capability for blocking questions and visible task tracking.
-- Allowed deps: `@generic-ai/sdk`, `pi`, and concrete transport libraries such as `hono` when the package ships an adapter.
+- Allowed deps: `@generic-ai/sdk`, and concrete transport libraries such as `hono` when the package ships an adapter.
 - Not responsible for: kernel turn orchestration, transport ownership in the core, or rendering a specific product UI.
 
 ### `@generic-ai/plugin-messaging`
 
 - Role: durable inter-agent messaging, storage-backed in v1.
-- Allowed deps: `@generic-ai/sdk`, `pi`. Depends on a storage plugin through the shared storage contract, not on a specific storage implementation, whenever practical.
+- Allowed deps: `@generic-ai/sdk`. Depends on a storage plugin through the shared storage contract, not on a specific storage implementation, whenever practical.
 - Not responsible for: the kernel event stream or in-session message passing.
 
 ### `@generic-ai/plugin-memory-files`
 
 - Role: file-backed persistent agent memory with read, write, and search. It is the local-first reference implementation of the SDK `MemoryService` contract.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`.
 - Not responsible for: semantic vector retrieval, temporal reasoning, memory consolidation, graph memory, hosted memory backends, or durable non-file storage. Future memory plugins can own those behaviors while conforming to `MemoryService`.
 
 ### `@generic-ai/plugin-output-default`
 
 - Role: default output and finalization plugin. Keeps final response shaping out of the kernel.
-- Allowed deps: `@generic-ai/sdk`, `pi`.
+- Allowed deps: `@generic-ai/sdk`.
 - Not responsible for: session lifecycle or canonical run envelope semantics.
 
 ### `@generic-ai/plugin-hono`
 
 - Role: official-but-optional Hono integration plugin.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `hono`.
+- Allowed deps: `@generic-ai/sdk`, `hono`.
 - Not responsible for: being part of the kernel or making Hono mandatory at the core layer.
 - Notes: exposes `authorize` (allow/deny) and `authenticate` (allow with a normalized SDK `AuthContext`) hooks that run before the request body is read. It does not implement any credential scheme itself.
 
@@ -335,14 +335,14 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 ### `@generic-ai/plugin-web-ui`
 
 - Role: local-first web console plugin. Owns the browser client, Hono console adapter, guarded composer surface, chat/run viewer, and multi-agent architecture template catalog.
-- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-config-yaml`, `@generic-ai/plugin-hono`, `pi`, Hono, React, and browser-build helper libraries used only by the client entrypoint.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-config-yaml`, `@generic-ai/plugin-hono`, Hono, React, and browser-build helper libraries used only by the client entrypoint.
 - Not responsible for: kernel execution, preset composition, hosted multi-tenant auth, raw terminal proxying, or inventing config persistence outside `@generic-ai/plugin-config-yaml`.
 - Notes: server, client, agent-tools, and CSS are exported from separate subpaths. Browser code must not import Node built-ins, `@generic-ai/core`, presets, or server entrypoints. Mutating Hono routes require same-origin checks plus a local session token. See `docs/decisions/0028-web-ui-plugin-console.md`.
 
 ### `@generic-ai/plugin-repo-map`
 
 - Role: deterministic compact repository map and repo-orientation tool for harness roles.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`.
 - Not responsible for: semantic code navigation, diagnostics, or long-running indexing. Those belong to LSP or future search/index plugins.
 - Notes: declares `repo.inspect` and `fs.read` effects so it is safe for read-only planner and explorer roles and stable enough for trace-backed benchmark artifacts.
 - Publishes as: `@generic-ai/plugin-repo-map` — public, independent versioning, `publishConfig.access: public`, provenance on.
@@ -350,7 +350,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 ### `@generic-ai/plugin-lsp`
 
 - Role: configurable stdio Language Server Protocol client exposing diagnostics, document symbols, definitions, and references as harness tools.
-- Allowed deps: `@generic-ai/sdk`, `pi`, `@generic-ai/plugin-workspace-fs`, and language-server protocol/client libraries if the package later adopts one.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`, and language-server protocol/client libraries if the package later adopts one.
 - Not responsible for: repository-wide indexing beyond server-backed LSP calls, file mutation, or installing language servers.
 - Notes: declares `lsp.read`, `fs.read`, and `process.spawn` effects. It is part of the local starter stack, but benchmark profiles should gate or omit it unless language-server spawning is explicitly allowed.
 - Publishes as: `@generic-ai/plugin-lsp` — public, independent versioning, `publishConfig.access: public`, provenance on.
@@ -358,7 +358,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 ### `@generic-ai/plugin-web-ui`
 
 - Role: local-first web console plugin. Owns the browser client, Hono console adapter, guarded composer surface, chat/run viewer, and multi-agent architecture template catalog.
-- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-config-yaml`, `@generic-ai/plugin-hono`, `pi`, Hono, React, and browser-build helper libraries used only by the client entrypoint.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-config-yaml`, `@generic-ai/plugin-hono`, Hono, React, and browser-build helper libraries used only by the client entrypoint.
 - Not responsible for: kernel execution, preset composition, hosted multi-tenant auth, raw terminal proxying, or inventing config persistence outside `@generic-ai/plugin-config-yaml`.
 - Notes: server, client, agent-tools, and CSS are exported from separate subpaths. Browser code must not import Node built-ins, `@generic-ai/core`, presets, or server entrypoints. Mutating Hono routes require same-origin checks plus a local session token. See `docs/decisions/0028-web-ui-plugin-console.md`.
 - Publishes as: `@generic-ai/plugin-web-ui` — public, independent versioning, `publishConfig.access: public`, provenance on.
@@ -381,7 +381,7 @@ layer when the roadmap resumes.
 - Role: authentication and normalized identity context. Owns token/session
   validation, provider integration, principal normalization, and propagation of
   redaction-safe auth metadata into framework execution.
-- Allowed deps: `@generic-ai/sdk`, `pi`, identity-provider or token-validation
+- Allowed deps: `@generic-ai/sdk`, identity-provider or token-validation
   libraries, and transport adapters where needed. The Hono adapter may depend on
   `hono` but should stay adapter-local.
 - Not responsible for: kernel session orchestration, product account UI,
@@ -395,7 +395,7 @@ layer when the roadmap resumes.
 
 - Role: local-first semantic memory implementation that combines raw records,
   lexical search, dense embeddings, metadata filters, and optional reranking.
-- Allowed deps: `@generic-ai/sdk`, `pi`, storage/workspace/queue contracts,
+- Allowed deps: `@generic-ai/sdk`, storage/workspace/queue contracts,
   embedding/reranking libraries or provider clients, and optional vector-store
   adapters.
 - Not responsible for: kernel session orchestration, temporal interval
@@ -409,7 +409,7 @@ layer when the roadmap resumes.
 
 - Role: temporal semantic memory with point events, durative states, validity
   intervals, supersession, and `asOf`/timeline queries.
-- Allowed deps: `@generic-ai/sdk`, `pi`, storage/workspace/queue contracts, and
+- Allowed deps: `@generic-ai/sdk`, storage/workspace/queue contracts, and
   optional semantic retrieval adapters.
 - Not responsible for: graph entity extraction, summary/profile consolidation,
   or replacing the base `MemoryService` CRUD/search shape.
@@ -420,7 +420,7 @@ layer when the roadmap resumes.
 
 - Role: layered working, episodic, summary, semantic-profile, and procedural
   memory with queue-backed consolidation.
-- Allowed deps: `@generic-ai/sdk`, `pi`, storage/workspace/queue contracts,
+- Allowed deps: `@generic-ai/sdk`, storage/workspace/queue contracts,
   output/model helper libraries used for summarization, and optional Hono admin
   adapters.
 - Not responsible for: graph database ownership, kernel prompt construction,
@@ -432,7 +432,7 @@ layer when the roadmap resumes.
 
 - Role: entity-centric and multi-hop memory over episodes, entities, relation
   edges, temporal edges, and community summaries.
-- Allowed deps: `@generic-ai/sdk`, `pi`, storage/workspace/queue contracts,
+- Allowed deps: `@generic-ai/sdk`, storage/workspace/queue contracts,
   extraction/linking libraries, and optional graph/vector backend adapters.
 - Not responsible for: making graph infrastructure mandatory, replacing raw
   episode provenance, or hiding extraction confidence from callers.

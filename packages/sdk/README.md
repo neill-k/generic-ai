@@ -76,10 +76,9 @@ The contract modules are intentionally kernel-agnostic. They do not import
 `@generic-ai/core`, and they do not require private kernel knowledge to
 implement.
 
-Pi runtime compatibility is intentionally separated into an explicit subpath:
-`@generic-ai/sdk/pi`. It is deprecated: the native runtime is the default
-(ADR 0068) and the subpath is removed with the `pi` adapter. Define tools with
-`defineTool` from the root entrypoint instead.
+The `@generic-ai/sdk/pi` subpath and the `pi` dependency have been removed
+along with the `pi` adapter (ADR 0068). Define tools with `defineTool` from the
+root entrypoint.
 
 ## Helper surface
 

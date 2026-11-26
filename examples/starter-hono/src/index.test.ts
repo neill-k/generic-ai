@@ -44,7 +44,7 @@ function createFakeRuntime(outputText: string): GenericAILlmRuntime {
       yield {
         type: "event",
         event: {
-          name: "pi.turn_start",
+          name: "native.turn_start",
           data: {
             type: "turn_start",
           },
@@ -53,7 +53,7 @@ function createFakeRuntime(outputText: string): GenericAILlmRuntime {
       yield {
         type: "event",
         event: {
-          name: "pi.tool_execution_start",
+          name: "native.tool_execution_start",
           data: {
             type: "tool_execution_start",
             toolCallId: "call-1",
@@ -64,7 +64,7 @@ function createFakeRuntime(outputText: string): GenericAILlmRuntime {
       yield {
         type: "event",
         event: {
-          name: "pi.tool_execution_end",
+          name: "native.tool_execution_end",
           data: {
             type: "tool_execution_end",
             isError: false,
@@ -99,7 +99,6 @@ describe("@generic-ai/example-starter-hono", () => {
         expect(options.apiKey).toBe("test-key");
         expect(options.model).toBe("gpt-5.5");
         expect(options.cwd).toContain(path.join("examples", "starter-hono"));
-        expect(options.agentDir).toBeUndefined();
         expect(options.instructions).toContain("Break the user request into specialist work");
         return createFakeRuntime("runtime result");
       },
@@ -185,7 +184,7 @@ describe("@generic-ai/example-starter-hono", () => {
 
       expect(streamedText).toContain("event: run.created");
       expect(streamedText).toContain("event: run.started");
-      expect(streamedText).toContain("event: pi.tool_execution_start");
+      expect(streamedText).toContain("event: native.tool_execution_start");
       expect(streamedText).toContain("workspace_read");
       expect(streamedText).toContain("event: run.completed");
       expect(streamedText).toContain("event: run.envelope");
@@ -210,7 +209,7 @@ describe("@generic-ai/example-starter-hono", () => {
         config,
         adapter: {
           id: `${config.id}:fake`,
-          kind: "pi",
+          kind: "native",
           run: async () => {
             throw new Error("The fake adapter should not be called directly.");
           },
@@ -223,7 +222,7 @@ describe("@generic-ai/example-starter-hono", () => {
           );
           return {
             harnessId: config.id,
-            adapter: "pi",
+            adapter: "native",
             status: "succeeded",
             outputText: "harness actually ran through pipeline",
             envelope: {} as never,
@@ -404,10 +403,12 @@ describe("@generic-ai/example-starter-hono", () => {
     });
   });
 
-  it("still accepts the OpenAI Codex adapter by name", () => {
-    expect(
-      loadStarterExampleEnvironment({ GENERIC_AI_RUNTIME_ADAPTER: "openai-codex" }),
-    ).toMatchObject({ adapter: "openai-codex" });
+  it("rejects the removed pi and OpenAI Codex adapters", () => {
+    for (const adapter of ["pi", "openai-codex"]) {
+      expect(() =>
+        loadStarterExampleEnvironment({ GENERIC_AI_RUNTIME_ADAPTER: adapter }),
+      ).toThrow(/must be one of: native/);
+    }
   });
 
   it("fails fast when configured for unauthenticated non-loopback exposure", () => {
@@ -615,7 +616,7 @@ describe("@generic-ai/example-starter-hono", () => {
       config,
       adapter: {
         id: `${config.id}:fake`,
-        kind: "pi",
+        kind: "native",
         run: async () => {
           throw new Error("unused");
         },
@@ -624,7 +625,7 @@ describe("@generic-ai/example-starter-hono", () => {
         harnessActors.push(input.actor);
         return {
           harnessId: config.id,
-          adapter: "pi",
+          adapter: "native",
           status: "succeeded",
           outputText: "done",
           envelope: {} as never,

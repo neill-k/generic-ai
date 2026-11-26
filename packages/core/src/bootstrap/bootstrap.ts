@@ -85,7 +85,7 @@ function resolvePorts(
     pluginHost: mergePortDescriptor(base.pluginHost, override.pluginHost),
     runMode: mergePortDescriptor(base.runMode, override.runMode),
     runEnvelope: mergePortDescriptor(base.runEnvelope, override.runEnvelope),
-    piBoundary: mergePortDescriptor(base.piBoundary, override.piBoundary),
+    runtimeBoundary: mergePortDescriptor(base.runtimeBoundary, override.runtimeBoundary),
   });
 }
 

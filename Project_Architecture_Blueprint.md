@@ -6,6 +6,11 @@
 > claim below is anchored to a file. Where the planning pack and code
 > disagree, this document calls out the discrepancy instead of silently
 > promoting one source.
+>
+> **Out of date on the runtime (2026-11-26):** this snapshot describes the
+> `pi`-based runtime. Generic AI now runs on its own native runtime and no
+> longer depends on `pi`; see `docs/decisions/0068-native-runtime-default.md`
+> and `docs/planning/native-harness-parity.md`.
 
 ---
 

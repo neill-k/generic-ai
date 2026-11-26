@@ -16,7 +16,7 @@ describe("runBenchmarkProfile", () => {
       createRunId: () => "run-1",
       runHarness: (options) => ({
         harnessId: options.harness.id,
-        adapter: "pi",
+        adapter: "native",
         status: "succeeded",
         outputText: "Done.",
         envelope: {
@@ -37,11 +37,11 @@ describe("runBenchmarkProfile", () => {
             id: "projection-1",
             sequence: 1,
             type: "terminal.command.started",
-            eventName: "plugin.generic-ai-runtime.pi.tool_execution_start",
+            eventName: "plugin.generic-ai-runtime.native.tool_execution_start",
             occurredAt: "2026-04-26T00:00:00.000Z",
             roleId: "builder",
             toolName: "bash",
-            summary: "plugin.generic-ai-runtime.pi.tool_execution_start bash.",
+            summary: "plugin.generic-ai-runtime.native.tool_execution_start bash.",
             data: {
               toolName: "bash",
               command: "printf hello > hello.txt",

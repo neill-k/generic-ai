@@ -1,9 +1,12 @@
 import type { UsageBudgetLimits, UsageTotals } from "@generic-ai/sdk";
 
 export const DEFAULT_GENERIC_AI_RUNTIME_ADAPTER = "native" as const;
-export const DEFAULT_OPENAI_CODEX_MODEL = "gpt-5.5" as const;
+/** Model used when neither the caller nor the config names one. */
+export const DEFAULT_GENERIC_AI_MODEL = "gpt-5.5" as const;
+/** @deprecated Use `DEFAULT_GENERIC_AI_MODEL`. The `openai-codex` adapter has been removed. */
+export const DEFAULT_OPENAI_CODEX_MODEL = DEFAULT_GENERIC_AI_MODEL;
 
-export type GenericAILlmRuntimeAdapter = "openai-codex" | "pi" | "native";
+export type GenericAILlmRuntimeAdapter = "native";
 export type GenericAIAgentTurnMode = "stop-tool-loop" | "single-turn";
 
 export interface GenericAILlmRunOptions {
@@ -63,7 +66,6 @@ export interface CreateGenericAILlmRuntimeOptions {
   readonly model?: string;
   readonly instructions?: string;
   readonly cwd?: string;
-  readonly agentDir?: string;
   readonly turnMode?: GenericAIAgentTurnMode;
   readonly maxTurns?: number;
 }

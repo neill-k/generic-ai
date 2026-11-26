@@ -15,9 +15,6 @@
     "apps/*"
   ],
   "overrides": {
-    "@mariozechner/pi-ai": {
-      "@anthropic-ai/sdk": "0.91.1"
-    },
     "glob": "14.0.6",
     "minimatch": "11.0.9",
     "proxy-agent": "8.0.3"

@@ -1,23 +1,4 @@
 {
   "$comment": "Production npm advisories accepted for now. Read by scripts/check-audit.mjs. Each entry needs a reason and an expiry (YYYY-MM-DD); an expired entry fails the Security Baseline workflow. See docs/security.md.",
-  "advisories": [
-    {
-      "id": "GHSA-JFGX-WXX8-MP94",
-      "package": "@mariozechner/pi-coding-agent",
-      "reason": "No fixed release of @mariozechner/pi-coding-agent (the package is deprecated in favour of @earendil-works/pi-coding-agent). The advisory covers pi's own extension package installer writing to predictable temp paths on shared Linux hosts; Generic AI does not ask pi to install extension packages, and the server runs single-tenant in its own container. Goes away when the native harness replaces pi (roadmap R22 slice 9).",
-      "expires": "2027-01-31"
-    },
-    {
-      "id": "GHSA-JMR9-QJV8-65GV",
-      "package": "extract-zip",
-      "reason": "No fixed extract-zip release exists. Only pulled in by @mariozechner/pi-coding-agent's tools manager to unpack fd and ripgrep release archives from GitHub when they are missing; the Generic Corp image installs ripgrep itself. Goes away with pi (roadmap R22 slice 9).",
-      "expires": "2027-01-31"
-    },
-    {
-      "id": "GHSA-7PQW-9J4J-H8Q3",
-      "package": "extract-zip",
-      "reason": "Same as GHSA-JMR9-QJV8-65GV: no fixed extract-zip release; only reached through pi's tools manager. Goes away with pi (roadmap R22 slice 9).",
-      "expires": "2027-01-31"
-    }
-  ]
+  "advisories": []
 }

@@ -74,7 +74,7 @@ describe("importHarborResults", () => {
             id: `${trialId}:projection-1`,
             sequence: 1,
             type: "terminal.command.started",
-            eventName: "plugin.generic-ai-runtime.pi.tool_execution_start",
+            eventName: "plugin.generic-ai-runtime.native.tool_execution_start",
             occurredAt: "2026-04-26T00:00:01.000Z",
             roleId: "builder",
             toolName: "bash",

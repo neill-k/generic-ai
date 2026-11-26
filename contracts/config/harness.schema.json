@@ -16,7 +16,7 @@
     },
     "adapter": {
       "type": "string",
-      "enum": ["pi", "external"]
+      "enum": ["native", "external"]
     },
     "controller": {
       "type": "string",

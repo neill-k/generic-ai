@@ -849,7 +849,7 @@ function createMission(): MissionSpec {
       "Nested Generic AI Docker sandboxing is disabled by default.",
     ]),
     providerPolicy: Object.freeze({
-      adapter: "openai-codex",
+      adapter: "native",
       model: "gpt-5.5",
       network: "open",
       cache: "allow",

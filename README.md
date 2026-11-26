@@ -41,9 +41,9 @@ consumption by 90%":
 - **Generic Agent IR** - typed compiled form shared by runtime, plugins, and
   evaluators.
 - **Runtime adapters** - the execution boundary around the agent runtime. Generic
-  AI is growing its own native runtime with parity against `pi`
-  ([plan](docs/planning/native-harness-parity.md)); `pi` stays available as an
-  adapter, and the boundary stays explicit so runtime choices are inspectable.
+  AI runs on its own native runtime, built with feature parity against `pi`
+  ([plan](docs/planning/native-harness-parity.md)), and the boundary stays
+  explicit so runtime choices are inspectable.
 - **Method plugins** - replaceable packages for planning, coordination, memory,
   tools, policy, evaluation, reporting, and transport, cataloged in
   [`docs/slots.md`](docs/slots.md).
@@ -222,18 +222,16 @@ For deeper starter details, see
 
 ## How Generic AI Relates To `pi`
 
-Generic AI is not a replacement for `pi`; it is a framework layer built on top of `pi`.
-
-`pi` provides the low-level agent and tool runtime mechanics: model/provider access, tool calling, agent state, streaming, terminal coding-agent UX, and UI/toolkit packages such as `pi-ai` and `pi-tui`. Generic AI uses those primitives where practical instead of rewrapping them.
+Generic AI started as a framework layer on top of `pi` and now runs on its own native runtime. The low-level mechanics that `pi` provided (model and provider access, tool calling, agent state, streaming, sessions, skills, extensions) live in Generic AI's native packages, adapted from `pi` under its MIT license.
 
 Generic AI adds the reusable multi-agent application shell around those primitives: Harness DSL, Generic Agent IR, a small kernel, plugin host, package-level SDK contracts, canonical config, starter presets, sync and async run orchestration, child-session lifecycle, durable messaging, persistent memory, MCP and Agent Skills plugins, Hono transport, output finalization, trace/eval/report contracts, and operational boundaries such as docs, CI, package ownership, and sandboxed execution.
 
-The default runtime is Generic AI's own native runtime (`@generic-ai/ai`, `@generic-ai/agent` and
-the packages around them), adapted from `pi` under its MIT license. The `pi` and `openai-codex`
-adapters remain available by name while they are phased out (see
+The runtime is Generic AI's own native runtime (`@generic-ai/ai`, `@generic-ai/agent` and
+the packages around them). The `pi` and `openai-codex` adapters and the `pi` dependencies have
+been removed (see
 [`docs/decisions/0068-native-runtime-default.md`](docs/decisions/0068-native-runtime-default.md)).
 
-Use `pi` directly when you want a lean coding agent, provider/runtime toolkit, or terminal UI foundation. Use Generic AI when you want a plugin-first framework for embedding a composed multi-agent runtime in an app, service, or product surface.
+Use `pi` directly when you want a lean terminal coding agent or terminal UI foundation. Use Generic AI when you want a plugin-first framework for embedding a composed multi-agent runtime in an app, service, or product surface.
 
 See [`docs/generic-ai-and-pi.md`](docs/generic-ai-and-pi.md) for the fuller comparison.
 
@@ -300,7 +298,7 @@ Generic AI uses [Changesets](https://github.com/changesets/changesets) for indep
 
 ## Implementation Status
 
-The framework's first functional vertical slice is landed on `main`. The "Minimum It Works" milestone from [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) is met: a caller can bootstrap through the starter preset, get Hono transport by default, run streaming sync or async, delegate to child agents, read/write files and execute terminal commands through shipped `pi` tools, reach MCP servers, load Agent Skills, exchange durable messages, and read/write file-backed memory with search.
+The framework's first functional vertical slice is landed on `main`. The "Minimum It Works" milestone from [`docs/planning/03-linear-issue-tree.md`](docs/planning/03-linear-issue-tree.md) is met: a caller can bootstrap through the starter preset, get Hono transport by default, run streaming sync or async, delegate to child agents, read/write files and execute terminal commands through shipped agent tools, reach MCP servers, load Agent Skills, exchange durable messages, and read/write file-backed memory with search.
 
 ### Epics complete
 
@@ -345,16 +343,16 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 
 ### Capability plugins
 
-- [`@generic-ai/plugin-tools-terminal`](packages/plugin-tools-terminal) — local command execution as a shipped `pi` tool (host execution, no isolation).
+- [`@generic-ai/plugin-tools-terminal`](packages/plugin-tools-terminal) — local command execution as a shipped agent tool (host execution, no isolation).
 - [`@generic-ai/plugin-tools-terminal-sandbox`](packages/plugin-tools-terminal-sandbox) — Docker-backed terminal execution with per-session containers, resource ceilings, timeout enforcement, network policy modes, file bridge, and structured output capture. Opt-in via `GENERIC_AI_SANDBOX=docker` on the starter preset.
-- [`@generic-ai/plugin-tools-files`](packages/plugin-tools-files) — local file read/write/list/edit `pi` tools.
+- [`@generic-ai/plugin-tools-files`](packages/plugin-tools-files) — local file read/write/list/edit agent tools.
 - [`@generic-ai/plugin-tools-documents`](packages/plugin-tools-documents) — read PDF, Word, Excel and HTML documents as Markdown and write Markdown, HTML, Word, Excel, CSV and JSON.
 - [`@generic-ai/plugin-tools-web`](packages/plugin-tools-web) — configurable web fetch/search tools with shared host allow/block policies.
 - [`@generic-ai/plugin-mcp`](packages/plugin-mcp) — Model Context Protocol support as a replaceable plugin.
 - [`@generic-ai/plugin-agent-skills`](packages/plugin-agent-skills) — Agent Skills compatibility with progressive disclosure.
 - [`@generic-ai/plugin-delegation`](packages/plugin-delegation) — delegation business model; kernel retains child-session lifecycle.
 - [`@generic-ai/plugin-approvals`](packages/plugin-approvals) — owner approvals: outward or costly tool calls wait durably for the owner's decision, with an audit trail and an HTTP approval inbox.
-- [`@generic-ai/plugin-interaction`](packages/plugin-interaction) — blocking user questions plus visible task-list publishing through standard `pi` tools.
+- [`@generic-ai/plugin-interaction`](packages/plugin-interaction) — blocking user questions plus visible task-list publishing through standard agent tools.
 - [`@generic-ai/plugin-messaging`](packages/plugin-messaging) — durable, storage-backed inter-agent messaging.
 - [`@generic-ai/plugin-memory-files`](packages/plugin-memory-files) — file-backed persistent agent memory with search; the reference `MemoryService` implementation for richer memory plugins.
 - [`@generic-ai/plugin-repo-map`](packages/plugin-repo-map) — deterministic compact repository maps for planner/explorer harness roles.

@@ -178,7 +178,7 @@ export function buildHarborCommandPlan(options: TerminalBenchRunOptions = {}): H
     ...env,
     GENERIC_AI_REPO_ROOT: REPO_ROOT,
     GENERIC_AI_RUNTIME_ADAPTER:
-      options.adapter ?? env["GENERIC_AI_RUNTIME_ADAPTER"] ?? "openai-codex",
+      options.adapter ?? env["GENERIC_AI_RUNTIME_ADAPTER"] ?? "native",
     PYTHONIOENCODING: env["PYTHONIOENCODING"] ?? "utf-8",
     PYTHONUTF8: env["PYTHONUTF8"] ?? "1",
     TERM: env["TERM"] ?? "dumb",
