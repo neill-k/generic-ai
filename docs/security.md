@@ -21,7 +21,15 @@ Dependabot PRs should run the full quality gate before merge. Security updates c
 
 ## Dependency Audit
 
-`.github/workflows/security.yml` runs a scheduled and PR-time production `npm audit` with `--audit-level=moderate`. The job fails when moderate-or-higher production advisories are present. Keep it outside the required branch-protection set until the team explicitly decides dependency audit should block ordinary merges.
+`.github/workflows/security.yml` runs the production dependency audit on every pull request, on pushes to `main`, and weekly. It calls `npm run audit:prod` (`scripts/check-audit.mjs`), which runs `npm audit --omit=dev --omit=optional` and fails on any moderate-or-higher advisory that is not listed in `security/audit-allowlist.json`.
+
+The allowlist is for advisories with no fixed release that cannot be removed yet. Each entry names the GHSA id, the package, why the risk is acceptable, and an expiry date. An expired entry fails the job, and an entry that no longer matches an advisory prints a warning so it can be deleted. Prefer upgrading, or an `overrides` entry in the root `package.json` that forces a patched transitive version, over adding to the allowlist.
+
+The current entries all come from `@mariozechner/pi-coding-agent`, which is deprecated upstream and is being replaced by the native harness (roadmap R22). Remove them when pi is removed.
+
+GitHub disables scheduled workflows after 60 days without repository activity. If the weekly run stops, re-enable it from the Actions tab (Security Baseline, then "Enable workflow").
+
+Keep the job outside the required branch-protection set until the team explicitly decides dependency audit should block ordinary merges.
 
 ## Ownership Review
 
