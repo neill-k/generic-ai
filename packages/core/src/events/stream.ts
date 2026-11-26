@@ -1,3 +1,4 @@
+import type { RunActor } from "@generic-ai/sdk";
 import {
   createCanonicalEvent,
   getCanonicalEventFamily,
@@ -26,6 +27,11 @@ export interface CanonicalEventSubscription {
 
 export interface CanonicalEventStreamOptions {
   readonly historyLimit?: number;
+  /**
+   * Redaction-safe identity stamped on every emitted event that does not
+   * carry its own actor, so a whole run's events say who started it.
+   */
+  readonly actor?: RunActor;
   readonly createEventId?: () => string;
   readonly now?: () => string;
   readonly onSubscriberError?: (
@@ -143,10 +149,15 @@ export function createCanonicalEventStream(
         event.sequence !== undefined && event.sequence > 0
           ? Math.max(event.sequence, nextSequence)
           : nextSequence;
-      const sealedEvent = createCanonicalEvent(event, {
-        ...options,
-        sequence,
-      });
+      const sealedEvent = createCanonicalEvent(
+        options.actor !== undefined && event.actor === undefined
+          ? { ...event, actor: options.actor }
+          : event,
+        {
+          ...options,
+          sequence,
+        },
+      );
       nextSequence = sealedEvent.sequence + 1;
       store(sealedEvent);
       await notify(sealedEvent);

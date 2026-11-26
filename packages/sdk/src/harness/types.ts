@@ -1,6 +1,7 @@
 import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
 import type { CanonicalEvent } from "../events/index.js";
 import type { RunEnvelope } from "../run-envelope/index.js";
+import type { RunActor } from "../contracts/identity.js";
 import type {
   AgentLifecycleHookDecisionRecord,
   AgentLifecycleHooksConfig,
@@ -268,6 +269,8 @@ export interface AgentHarnessRunInput<TCapabilities = unknown> {
   readonly budget?: AgentHarnessBudget;
   readonly capabilities?: TCapabilities;
   readonly metadata?: JsonObject;
+  /** Redaction-safe identity of whoever started the run; stamped on every run event. */
+  readonly actor?: RunActor;
 }
 
 export interface AgentHarnessToolDescriptor {
