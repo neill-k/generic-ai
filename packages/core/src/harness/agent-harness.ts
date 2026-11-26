@@ -26,6 +26,7 @@ import {
   type AgentHarnessRunErrorCategory,
   type AgentHarnessRunResult,
   type CanonicalEvent,
+  type AgentHarnessHostTool,
   createToolEffectGuard,
   getAgentHarnessToolEffects,
   goalTraceFromCanonicalEvents,
@@ -855,6 +856,52 @@ function applyProfilePolicy(
     ...(capabilities.messaging === undefined ? {} : { messaging: capabilities.messaging }),
     ...(capabilities.memory === undefined ? {} : { memory: capabilities.memory }),
     ...(capabilities.secrets === undefined ? {} : { secrets: capabilities.secrets }),
+  };
+}
+
+/**
+ * Turns runtime-neutral host tools (ADR 0060) into tools both the pi and native runtimes run, with
+ * their declared effects so role policy treats them like any other tool.
+ */
+export function toHarnessToolDefinition(tool: AgentHarnessHostTool): ToolDefinition {
+  return withAgentHarnessToolEffects(
+    defineTool({
+      name: tool.name,
+      label: tool.label ?? tool.name,
+      description: tool.description,
+      ...(tool.promptSnippet === undefined ? {} : { promptSnippet: tool.promptSnippet }),
+      ...(tool.promptGuidelines === undefined
+        ? {}
+        : { promptGuidelines: [...tool.promptGuidelines] }),
+      parameters: Type.Unsafe<Record<string, unknown>>(tool.parameters),
+      async execute(toolCallId, params, signal) {
+        const result = await tool.execute((params ?? {}) as JsonObject, {
+          toolCallId,
+          ...(signal === undefined ? {} : { signal }),
+        });
+        if (result.isError === true) {
+          throw new Error(result.text);
+        }
+        return {
+          content: [{ type: "text" as const, text: result.text }],
+          details: result.details ?? {},
+        };
+      },
+    }),
+    [...tool.effects],
+  ) as ToolDefinition;
+}
+
+function withHostTools(
+  capabilities: PiCapabilityBindings,
+  hostTools: readonly AgentHarnessHostTool[] | undefined,
+): PiCapabilityBindings {
+  if (hostTools === undefined || hostTools.length === 0) {
+    return capabilities;
+  }
+  return {
+    ...capabilities,
+    customTools: [...(capabilities.customTools ?? []), ...hostTools.map(toHarnessToolDefinition)],
   };
 }
 
@@ -1978,8 +2025,11 @@ function createSessionAgentHarnessAdapter(
         ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
       });
       const roles = resolveRoles(input.harness);
-      const expandedCapabilities = await expandMcpCapabilityTools(
-        applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
+      const expandedCapabilities = withHostTools(
+        await expandMcpCapabilityTools(
+          applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
+        ),
+        input.hostTools,
       );
       const baseCapabilities =
         input.effectJournal === undefined
