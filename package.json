@@ -17,7 +17,10 @@
   "overrides": {
     "@mariozechner/pi-ai": {
       "@anthropic-ai/sdk": "0.91.1"
-    }
+    },
+    "glob": "14.0.6",
+    "minimatch": "11.0.9",
+    "proxy-agent": "8.0.3"
   },
   "scripts": {
     "check:node": "node scripts/check-node-version.mjs",
@@ -35,6 +38,7 @@
     "prelint": "node scripts/check-node-version.mjs",
     "check:boundaries": "node scripts/check-package-boundaries.mjs",
     "check:biome-helper-ignores": "node scripts/check-biome-helper-ignores.mjs",
+    "audit:prod": "node scripts/check-audit.mjs",
     "lint": "npm run check:boundaries && npm run check:biome-helper-ignores && biome lint README.md CONTRIBUTING.md RELEASING.md biome.json package.json tsconfig.json tsconfig.base.json tsconfig.test.json vitest.config.ts docs packages examples apps scripts",
     "format": "biome format --write .",
     "format:check": "biome format .",
@@ -50,8 +54,8 @@
     "@biomejs/biome": "2.4.13",
     "@changesets/cli": "2.31.0",
     "@types/node": "24.12.2",
-    "rimraf": "6.1.3",
+    "rimraf": "6.1.4",
     "typescript": "6.0.3",
-    "vitest": "4.1.5"
+    "vitest": "4.1.12"
   }
 }
