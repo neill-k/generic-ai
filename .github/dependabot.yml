@@ -8,6 +8,13 @@ updates:
       time: "09:00"
       timezone: "America/Chicago"
     open-pull-requests-limit: 10
+    ignore:
+      # @types/node tracks the Node runtime the repo targets (Node 24, see package.json engines).
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # TypeScript majors (7 is the native compiler) are planned migrations, not routine bumps.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       production-major-updates:
         dependency-type: "production"
