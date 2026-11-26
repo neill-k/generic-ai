@@ -12,6 +12,7 @@ export const canonicalEventFamilies = [
   "hook",
   "artifact",
   "usage",
+  "approval",
   "plugin",
 ] as const;
 
@@ -106,6 +107,25 @@ export const canonicalUsageLifecycleNames = ["usage.recorded", "usage.budget.exc
 
 export type CanonicalUsageLifecycleName = (typeof canonicalUsageLifecycleNames)[number];
 
+/**
+ * Owner approvals for outward or costly actions. A request is created when policy says an action
+ * needs sign-off, decided by the owner (or denied outright by policy), may expire or be cancelled,
+ * and records whether the approved action then ran. See
+ * `docs/decisions/0055-owner-approvals-for-outward-actions.md`.
+ */
+export const canonicalApprovalLifecycleNames = [
+  "approval.requested",
+  "approval.approved",
+  "approval.rejected",
+  "approval.denied",
+  "approval.expired",
+  "approval.cancelled",
+  "approval.executed",
+  "approval.execution.failed",
+] as const;
+
+export type CanonicalApprovalLifecycleName = (typeof canonicalApprovalLifecycleNames)[number];
+
 export const canonicalCoreEventNames = [
   ...canonicalRunLifecycleNames,
   ...canonicalSessionLifecycleNames,
@@ -117,6 +137,7 @@ export const canonicalCoreEventNames = [
   ...canonicalHookLifecycleNames,
   ...canonicalArtifactLifecycleNames,
   ...canonicalUsageLifecycleNames,
+  ...canonicalApprovalLifecycleNames,
 ] as const;
 
 export type CanonicalCoreEventName = (typeof canonicalCoreEventNames)[number];
@@ -229,6 +250,10 @@ export function getCanonicalEventFamily(name: string): CanonicalEventFamily | un
 
   if (name.startsWith("usage.")) {
     return "usage";
+  }
+
+  if (name.startsWith("approval.")) {
+    return "approval";
   }
 
   if (isCanonicalPluginEventName(name)) {

@@ -68,6 +68,7 @@ ADRs must be written when:
 - [`0044-persistent-agents-and-delegation-cascade.md`](0044-persistent-agents-and-delegation-cascade.md) - persistent org-chart agents with memory and workspaces, and the durable cross-run delegation cascade over the run store and queue.
 - [`0045-owner-auth-identity.md`](0045-owner-auth-identity.md) - single-owner auth: SDK identity contracts and run actor, Hono `authenticate` hook, passkey owner login, and revocable hashed API tokens.
 - [`0053-usage-and-cost-accounting.md`](0053-usage-and-cost-accounting.md) - `usage.recorded` and `usage.budget.exceeded` events, per-run/agent/goal/model usage rollups led by tokens per completed goal, and token and dollar caps that stop runs at response boundaries.
+- [`0055-owner-approvals-for-outward-actions.md`](0055-owner-approvals-for-outward-actions.md) - approval policy over tool effects, durable owner approval requests with an audit trail, the delegation cascade parking tasks until the owner decides, and the HTTP approval inbox.
 
 ## Planning Baseline
 

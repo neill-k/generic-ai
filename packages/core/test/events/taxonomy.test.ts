@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalApprovalLifecycleNames,
   canonicalCoreEventNames,
   canonicalDelegationLifecycleNames,
   canonicalArtifactLifecycleNames,
@@ -38,6 +39,8 @@ describe("core canonical event taxonomy", () => {
     expect(canonicalHookLifecycleNames).toContain("hook.decision");
     expect(canonicalArtifactLifecycleNames).toEqual(["artifact.created"]);
     expect(canonicalUsageLifecycleNames).toEqual(["usage.recorded", "usage.budget.exceeded"]);
+    expect(canonicalApprovalLifecycleNames).toContain("approval.requested");
+    expect(getCanonicalEventFamily("approval.approved")).toBe("approval");
     expect(canonicalCoreEventNames).toHaveLength(
       canonicalRunLifecycleNames.length +
         canonicalSessionLifecycleNames.length +
@@ -48,7 +51,8 @@ describe("core canonical event taxonomy", () => {
         canonicalPolicyLifecycleNames.length +
         canonicalHookLifecycleNames.length +
         canonicalArtifactLifecycleNames.length +
-        canonicalUsageLifecycleNames.length,
+        canonicalUsageLifecycleNames.length +
+        canonicalApprovalLifecycleNames.length,
     );
   });
 

@@ -18,6 +18,7 @@
       "@generic-ai/core": ["./packages/core/src/index.ts"],
       "@generic-ai/observability": ["./packages/observability/src/index.ts"],
       "@generic-ai/plugin-agent-skills": ["./packages/plugin-agent-skills/src/index.ts"],
+      "@generic-ai/plugin-approvals": ["./packages/plugin-approvals/src/index.ts"],
       "@generic-ai/plugin-auth-identity": ["./packages/plugin-auth-identity/src/index.ts"],
       "@generic-ai/plugin-config-yaml": ["./packages/plugin-config-yaml/src/index.ts"],
       "@generic-ai/plugin-delegation": ["./packages/plugin-delegation/src/index.ts"],

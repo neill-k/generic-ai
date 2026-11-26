@@ -213,6 +213,13 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Not responsible for: in-run child-session lifecycle (kernel), storage or queue implementations (storage plugins), or running agent turns (any SDK `AgentHarnessAdapter` or `AgentTaskExecutor`, such as core's `createTopologyTaskExecutor`).
 - Notes: the cascade talks to storage only through `RunStoreContract` and `DurableQueueContract`, and to runtimes only through `AgentTaskExecutor`, so it runs on Pi or the native runtime and on SQLite or Postgres. See `docs/decisions/0044-persistent-agents-and-delegation-cascade.md`.
 
+### `@generic-ai/plugin-approvals`
+
+- Role: owner approvals for outward or costly actions. Owns the approval service (durable requests stored in the SDK run store, decided once, claimed for execution once, with an `approval.*` event log as the audit trail), the approval gate that wraps agent tools and applies the SDK `ApprovalPolicy` to their effect descriptors, the Hono routes for the owner's approval inbox, and the topology runner approver.
+- Allowed deps: `@generic-ai/sdk`, `hono`. Tests may use the SQLite storage and delegation plugins as dev dependencies.
+- Not responsible for: classifying tools (each tool plugin tags its own effects), authenticating callers (routes take an `authenticate` function, normally from `@generic-ai/plugin-auth-identity`), or scheduling resumed work (the delegation cascade does that through its `approvals` option).
+- Notes: see `docs/decisions/0055-owner-approvals-for-outward-actions.md` and `docs/runtime-governance.md`.
+
 ### `@generic-ai/plugin-interaction`
 
 - Role: structured user interaction capability for blocking questions and visible task tracking.

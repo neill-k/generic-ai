@@ -60,6 +60,14 @@ export interface AgentTaskRecord {
   readonly childTaskIds: readonly string[];
   /** Children from the latest delegation, whose results the next round sees. */
   readonly pendingChildTaskIds: readonly string[];
+  /**
+   * Owner approvals this task is waiting on. The task stays `waiting` until
+   * every one is decided (approved, rejected, expired or cancelled); the next
+   * round's prompt shows the decisions.
+   */
+  readonly pendingApprovalIds?: readonly string[];
+  /** Every approval request this task has waited on, in order. */
+  readonly approvalIds?: readonly string[];
   /** Feedback for the next round (validation failures, rejected delegations). */
   readonly feedback?: string;
   readonly outputText?: string;

@@ -113,6 +113,7 @@ The complete public list:
 | `@generic-ai/plugin-mcp`              | embedded MCP plugin                         |
 | `@generic-ai/plugin-agent-skills`     | Agent Skills compatibility plugin           |
 | `@generic-ai/plugin-delegation`       | delegation business-model plugin            |
+| `@generic-ai/plugin-approvals`        | owner approvals for outward actions         |
 | `@generic-ai/plugin-interaction`      | user-question and task-tracking tools       |
 | `@generic-ai/plugin-messaging`        | durable storage-backed messaging            |
 | `@generic-ai/plugin-memory-files`     | file-backed persistent memory               |

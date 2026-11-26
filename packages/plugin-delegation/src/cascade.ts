@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import type {
   AgentTaskExecutionResult,
   AgentTaskExecutor,
+  ApprovalRequest,
+  ApprovalServiceContract,
   CanonicalEvent,
   CanonicalEventName,
   DurableQueueContract,
@@ -15,6 +17,7 @@ import type {
   RunStoreContract,
 } from "@generic-ai/sdk";
 import {
+  canonicalJson,
   createQueueWorker,
   isRunStoreError,
   NonRetryableJobError,
@@ -61,7 +64,14 @@ export interface AgentTaskJobPayload {
 export interface AgentTaskJobResult {
   readonly taskId: string;
   readonly round: number;
-  readonly outcome: "finished" | "failed" | "delegated" | "requeued" | "skipped" | "cancelled";
+  readonly outcome:
+    | "finished"
+    | "failed"
+    | "delegated"
+    | "awaiting_approval"
+    | "requeued"
+    | "skipped"
+    | "cancelled";
 }
 
 export type DelegationScope = "direct-reports" | "subtree" | "any";
@@ -98,6 +108,11 @@ export type DelegationCascadeEvent =
       readonly children: readonly AgentTaskRecord[];
     }
   | { readonly type: "task.requeued"; readonly task: AgentTaskRecord; readonly reason: string }
+  | {
+      readonly type: "task.awaiting_approval";
+      readonly task: AgentTaskRecord;
+      readonly approvals: readonly ApprovalRequest[];
+    }
   | { readonly type: "task.resumed"; readonly task: AgentTaskRecord }
   | { readonly type: "task.succeeded"; readonly task: AgentTaskRecord }
   | { readonly type: "task.failed"; readonly task: AgentTaskRecord }
@@ -110,6 +125,18 @@ export interface CreateDelegationCascadeOptions {
   readonly directory: AgentDirectory;
   readonly executor: AgentTaskExecutor;
   readonly validate?: TaskValidator;
+  /**
+   * Owner approvals (roadmap R11). When set, a turn that leaves approval
+   * requests pending for its task (see `@generic-ai/plugin-approvals`) parks
+   * the task as `waiting` without holding a worker, and the task resumes once
+   * the owner has decided every request.
+   */
+  readonly approvals?: ApprovalServiceContract;
+  /**
+   * How often a started worker checks for decided approvals and expiries, for
+   * decisions made by another process. Defaults to 5 seconds; 0 turns it off.
+   */
+  readonly approvalPollIntervalMs?: number;
   /** Who an agent may delegate to. Defaults to `direct-reports`. */
   readonly delegationScope?: DelegationScope;
   /** Deepest delegation allowed (root task is depth 0). Defaults to 6. */
@@ -164,6 +191,14 @@ export interface DelegationCascade {
   children(taskId: string): Promise<readonly AgentTaskRecord[]>;
   /** Every task in a cascade, ordered by creation. */
   tree(rootTaskId: string): Promise<readonly AgentTaskRecord[]>;
+  /**
+   * Resumes the task waiting on this approval if every approval it waits on
+   * is decided. Call it after a decision for an immediate resume; started
+   * workers also poll. Returns true when a turn was queued.
+   */
+  approvalDecided(approvalId: string): Promise<boolean>;
+  /** Expires overdue approvals and resumes every task whose approvals are all decided. */
+  resumeDecidedApprovals(): Promise<number>;
   /** Cancels a task and everything it delegated. */
   cancel(taskId: string, reason?: string): Promise<boolean>;
   /** Resolves once the task settles. */
@@ -183,6 +218,13 @@ export interface DelegationCascade {
   start(): QueueWorker;
   stop(): Promise<void>;
 }
+
+/** Fields to change. An explicit `undefined` clears an optional field. */
+type TaskPatch = {
+  readonly [K in keyof Omit<AgentTaskRecord, "version" | "taskId">]?:
+    | Omit<AgentTaskRecord, "version" | "taskId">[K]
+    | undefined;
+};
 
 class TaskSettledError extends Error {
   constructor(readonly task: AgentTaskRecord) {
@@ -219,6 +261,7 @@ export function createDelegationCascade(
     childChars: options.childResultPromptChars ?? DEFAULTS.childResultPromptChars,
   };
   let worker: QueueWorker | undefined;
+  let approvalTimer: ReturnType<typeof setInterval> | undefined;
 
   const emit = (event: DelegationCascadeEvent) => {
     try {
@@ -260,7 +303,7 @@ export function createDelegationCascade(
    */
   async function update(
     taskId: string,
-    mutate: (task: AgentTaskRecord) => Partial<Omit<AgentTaskRecord, "version" | "taskId">>,
+    mutate: (task: AgentTaskRecord) => TaskPatch,
     updateOptions: { readonly allowSettled?: boolean } = {},
   ): Promise<AgentTaskRecord> {
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -272,7 +315,16 @@ export function createDelegationCascade(
         throw new TaskSettledError(current);
       }
       const { version, ...rest } = current;
-      const next = { ...rest, ...mutate(current), updatedAt: now().toISOString() };
+      const merged: Record<string, unknown> = { ...rest, ...mutate(current) };
+      for (const key of Object.keys(merged)) {
+        if (merged[key] === undefined) {
+          delete merged[key];
+        }
+      }
+      const next = {
+        ...(merged as Omit<AgentTaskRecord, "version">),
+        updatedAt: now().toISOString(),
+      };
       const { envelope, metadata } = taskToRun(next);
       try {
         const saved = await store.saveRun({ envelope, metadata, expectedVersion: version });
@@ -384,8 +436,26 @@ export function createDelegationCascade(
     await resumeIfReady(parent);
   }
 
+  /** True while any approval the task waits on is still undecided. */
+  async function awaitingApprovals(task: AgentTaskRecord): Promise<boolean> {
+    const ids = task.pendingApprovalIds ?? [];
+    if (ids.length === 0 || options.approvals === undefined) {
+      return false;
+    }
+    for (const id of ids) {
+      const approval = await options.approvals.get(id);
+      if (approval?.status === "pending") {
+        return true;
+      }
+    }
+    return false;
+  }
+
   async function resumeIfReady(parent: AgentTaskRecord): Promise<boolean> {
     if (parent.status !== "waiting") {
+      return false;
+    }
+    if (await awaitingApprovals(parent)) {
       return false;
     }
     const pending = await childrenOf(parent, parent.pendingChildTaskIds);
@@ -413,6 +483,7 @@ export function createDelegationCascade(
       status,
       completedAt: timestamp,
       pendingChildTaskIds: [],
+      pendingApprovalIds: [],
       ...(fields.outputText === undefined ? {} : { outputText: fields.outputText }),
       ...(fields.failureMessage === undefined ? {} : { failureMessage: fields.failureMessage }),
     }));
@@ -446,6 +517,7 @@ export function createDelegationCascade(
       status: "queued",
       round: current.round + 1,
       feedback,
+      pendingApprovalIds: [],
       ...extra,
     }));
     emit({ type: "task.requeued", task, reason: feedback });
@@ -558,6 +630,7 @@ export function createDelegationCascade(
       round: current.round + 1,
       childTaskIds: [...new Set([...current.childTaskIds, ...childIds])],
       pendingChildTaskIds: childIds,
+      pendingApprovalIds: [],
     }));
     for (const child of children) {
       await logEvent(waiting, "delegation.requested", {
@@ -582,6 +655,75 @@ export function createDelegationCascade(
   }
 
   // ---------------------------------------------------------------------------
+  // Approvals
+  // ---------------------------------------------------------------------------
+
+  async function awaitApprovals(
+    taskId: string,
+    round: number,
+    approvals: readonly ApprovalRequest[],
+    outputText: string,
+  ): Promise<AgentTaskJobResult> {
+    const ids = approvals.map((approval) => approval.approvalId);
+    const dropped = readDirectives(outputText).delegations.length > 0;
+    const waiting = await update(taskId, (current) => ({
+      status: "waiting",
+      round: current.round + 1,
+      pendingChildTaskIds: [],
+      pendingApprovalIds: ids,
+      approvalIds: [...new Set([...(current.approvalIds ?? []), ...ids])],
+      ...(outputText.length === 0 ? {} : { outputText }),
+      feedback: dropped
+        ? "Your turn paused for the owner's approval, so the delegation in it was not sent. Delegate again if it is still needed."
+        : undefined,
+    }));
+    for (const approval of approvals) {
+      await logEvent(waiting, "approval.requested", {
+        approvalId: approval.approvalId,
+        action: approval.action.name,
+        summary: approval.action.summary,
+        effects: [...approval.action.effects],
+        ...(approval.expiresAt === undefined ? {} : { expiresAt: approval.expiresAt }),
+      });
+    }
+    emit({ type: "task.awaiting_approval", task: waiting, approvals });
+    // The owner may already have decided while the turn was finishing.
+    await resumeIfReady(waiting);
+    return { taskId, round, outcome: "awaiting_approval" };
+  }
+
+  async function resumeDecidedApprovals(): Promise<number> {
+    if (options.approvals === undefined) {
+      return 0;
+    }
+    await options.approvals.expireDue();
+    let resumed = 0;
+    let createdBefore: string | undefined;
+    for (;;) {
+      const page = await store.listRuns({
+        status: "running",
+        limit: 200,
+        ...(createdBefore === undefined ? {} : { createdBefore }),
+      });
+      for (const record of page) {
+        const task = runToTask(record);
+        if (
+          task?.status === "waiting" &&
+          (task.pendingApprovalIds?.length ?? 0) > 0 &&
+          (await queue.get(jobId(task.taskId, task.round))) === undefined &&
+          (await resumeIfReady(task))
+        ) {
+          resumed += 1;
+        }
+      }
+      if (page.length < 200) {
+        return resumed;
+      }
+      createdBefore = page[page.length - 1]?.createdAt;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Turn handler
   // ---------------------------------------------------------------------------
 
@@ -601,6 +743,9 @@ export function createDelegationCascade(
     if (initial.status === "waiting") {
       const pending = await childrenOf(initial, initial.pendingChildTaskIds);
       if (pending.some((child) => !isTerminalTaskStatus(child.status))) {
+        return skipped;
+      }
+      if (await awaitingApprovals(initial)) {
         return skipped;
       }
     }
@@ -680,6 +825,13 @@ export function createDelegationCascade(
 
     if (signal.aborted) {
       throw new Error("Turn was interrupted before it finished.");
+    }
+
+    if (options.approvals !== undefined) {
+      const awaiting = await options.approvals.list({ taskId, status: "pending" });
+      if (awaiting.length > 0) {
+        return awaitApprovals(taskId, round, awaiting, result.outputText);
+      }
     }
 
     if (result.status === "failed") {
@@ -831,6 +983,20 @@ export function createDelegationCascade(
         }
       }
     }
+    const decided = await decidedApprovals(task);
+    if (decided.length > 0) {
+      lines.push("", "## The owner's decisions on actions you asked to take");
+      for (const approval of decided) {
+        lines.push("", `### ${approval.action.summary}`, describeDecision(approval));
+      }
+      if (task.feedback === undefined && task.outputText !== undefined && task.outputText !== "") {
+        lines.push(
+          "",
+          "Your notes from the turn before the decision:",
+          clip(task.outputText, limits.childChars),
+        );
+      }
+    }
     if (task.feedback !== undefined) {
       lines.push("", "## Feedback on your previous attempt", task.feedback);
       if (task.outputText !== undefined && task.outputText.length > 0) {
@@ -859,6 +1025,20 @@ export function createDelegationCascade(
       "```",
     );
     return lines.join("\n");
+  }
+
+  async function decidedApprovals(task: AgentTaskRecord): Promise<readonly ApprovalRequest[]> {
+    if (options.approvals === undefined) {
+      return [];
+    }
+    const decided: ApprovalRequest[] = [];
+    for (const id of task.pendingApprovalIds ?? []) {
+      const approval = await options.approvals.get(id);
+      if (approval !== undefined && approval.status !== "pending") {
+        decided.push(approval);
+      }
+    }
+    return decided;
   }
 
   // ---------------------------------------------------------------------------
@@ -933,6 +1113,19 @@ export function createDelegationCascade(
           left.taskId.localeCompare(right.taskId),
       );
     },
+    async approvalDecided(approvalId) {
+      const approval = await options.approvals?.get(approvalId);
+      const taskId = approval?.requester.taskId;
+      if (taskId === undefined) {
+        return false;
+      }
+      const task = await load(taskId);
+      if (task === undefined || !(task.pendingApprovalIds ?? []).includes(approvalId)) {
+        return false;
+      }
+      return resumeIfReady(task);
+    },
+    resumeDecidedApprovals,
     async cancel(taskId, reason = "Cancelled by the owner.") {
       const task = await load(taskId);
       if (task === undefined || isTerminalTaskStatus(task.status)) {
@@ -947,6 +1140,11 @@ export function createDelegationCascade(
         throw error;
       }
       await queue.cancel(jobId(task.taskId, task.round));
+      if (options.approvals !== undefined) {
+        for (const approval of await options.approvals.list({ taskId, status: "pending" })) {
+          await options.approvals.cancel(approval.approvalId, `Task ${taskId} was cancelled.`);
+        }
+      }
       for (const childId of task.childTaskIds) {
         await cascade.cancel(childId, `Parent task ${taskId} was cancelled.`);
       }
@@ -1074,13 +1272,53 @@ export function createDelegationCascade(
         });
       }
       worker.start();
+      const pollMs = options.approvalPollIntervalMs ?? 5_000;
+      if (options.approvals !== undefined && pollMs > 0 && approvalTimer === undefined) {
+        approvalTimer = setInterval(() => {
+          resumeDecidedApprovals().catch((error: unknown) => emit({ type: "error", error }));
+        }, pollMs);
+        approvalTimer.unref?.();
+      }
       return worker;
     },
     async stop() {
+      if (approvalTimer !== undefined) {
+        clearInterval(approvalTimer);
+        approvalTimer = undefined;
+      }
       await worker?.stop();
     },
   };
   return cascade;
+}
+
+function describeDecision(approval: ApprovalRequest): string {
+  const who =
+    approval.decision?.decidedBy.displayName ??
+    approval.decision?.decidedBy.subjectId ??
+    "The owner";
+  const comment =
+    approval.decision?.comment === undefined ? "" : ` Their note: "${approval.decision.comment}".`;
+  switch (approval.status) {
+    case "approved": {
+      const call =
+        approval.action.input === undefined
+          ? `call \`${approval.action.name}\` again with the same input as before`
+          : [
+              `call \`${approval.action.name}\` again with exactly this input:`,
+              "```json",
+              canonicalJson(approval.action.input),
+              "```",
+            ].join("\n");
+      return `Approved by ${who}.${comment} To carry it out, ${call}\nIt runs once. Any other input needs a new approval.`;
+    }
+    case "rejected":
+      return `Rejected by ${who}.${comment} Do not try it again; choose another approach or explain why the task cannot be done.`;
+    case "expired":
+      return "Nobody decided before the request expired. Ask again only if it is still needed.";
+    default:
+      return `The request was ${approval.status}${approval.closedReason === undefined ? "" : `: ${approval.closedReason}`}.`;
+  }
 }
 
 interface ParsedDirectives {
