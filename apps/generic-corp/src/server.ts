@@ -18,6 +18,7 @@ import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
 import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
+import { createDashboardRoutes } from "./dashboard.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
@@ -292,6 +293,8 @@ export async function createGenericCorpServer(
         },
       }),
     );
+
+    app.route("/", createDashboardRoutes());
 
     if (environment.workers) {
       runtime.start();

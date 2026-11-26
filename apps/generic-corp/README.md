@@ -12,8 +12,8 @@ The decision to build it here, and the product decisions behind it, are in
 ## Status
 
 The app server (roadmap R13) is in. It runs the company, gives its agents the
-generic-work toolkit, and serves a JSON API with live events. The dashboard,
-approvals view and secrets screen come next.
+generic-work toolkit, serves a JSON API with live events, and serves the owner
+dashboard at `/`. The approvals view and secrets screen come next.
 
 - **Company.** `company.ts` defines the org chart as plain data (YAML via
   `GENERIC_CORP_COMPANY_FILE`, or the built-in default: a CEO, VPs for
@@ -40,6 +40,10 @@ approvals view and secrets screen come next.
   is set. Search keys and MCP `${NAME}` placeholders resolve host-side, so
   agents never see them. An agent's `secrets:` list lets it use named secrets
   in its own tool calls as `{{secret:NAME}}`.
+- **Dashboard.** `public/` holds a no-build page (`dashboard.ts` serves it at
+  `/` with a strict CSP): chat with the CEO, the org chart with each agent's
+  memory and tasks, the board, costs, and the agents' tools and connectors. It
+  refreshes from `/api/events`, and a signed-out browser goes to `/auth/login`.
 - **Storage.** Postgres when `DATABASE_URL` is set, otherwise SQLite under the
   data directory. Agents, threads and owner auth records share the backend.
 - **Auth.** Owner passkeys and API tokens (`@generic-ai/plugin-auth-identity`)

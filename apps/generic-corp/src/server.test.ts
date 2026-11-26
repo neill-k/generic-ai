@@ -364,3 +364,24 @@ describe("Generic Corp server", () => {
     ).toThrow(/loopback/);
   });
 });
+
+describe("dashboard", () => {
+  it("serves the page and its assets with a strict content security policy", async () => {
+    const { server } = await openServer({
+      insecureNoAuth: false,
+      authToken: "a-static-owner-token-for-tests",
+    });
+    const page = await server.fetch(new Request("http://127.0.0.1/"));
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
+    expect(await page.text()).toContain('src="/assets/app.js"');
+    const script = await server.fetch(new Request("http://127.0.0.1/assets/app.js"));
+    expect(script.headers.get("content-type")).toContain("javascript");
+    expect(await script.text()).toContain("textContent");
+    const style = await server.fetch(new Request("http://127.0.0.1/assets/styles.css"));
+    expect(style.status).toBe(200);
+    expect(
+      (await server.fetch(new Request("http://127.0.0.1/assets/..%2Fpackage.json"))).status,
+    ).toBe(404);
+  });
+});
