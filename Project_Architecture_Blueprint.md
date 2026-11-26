@@ -465,9 +465,13 @@ and `BenchmarkSpec` (`:291-315`) define the evaluation harness inputs.
 `TraceEvent` (`:364-384`) lists 21 trace event types.
 
 `harness/protocols.ts` ships four standard protocols
-(`createPipelineProtocol` `:69-104`, `createVerifierLoopProtocol`
-`:106-140`, `createHierarchyProtocol` `:142-178`,
-`createSquadProtocol` `:180-221`) and a `STANDARD_PROTOCOLS` array.
+(`createPipelineProtocol`, `createVerifierLoopProtocol`,
+`createHierarchyProtocol`, `createSquadProtocol`) and a
+`STANDARD_PROTOCOLS` array. They are pure, stateful reducers over
+`ProtocolActionOutcome`s; core's `runHarnessTopology` (in
+`packages/core/src/harness/topology-runner.ts`) executes them, and
+`runAgentHarnessTopology` runs each actor as a Pi role session (see
+ADR 0042).
 
 `harness/compiler.ts` provides `stableJson`,
 `createStableFingerprint` (sha256), and `compileHarness*` helpers used

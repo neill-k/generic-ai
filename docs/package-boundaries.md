@@ -144,9 +144,15 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/plugin-storage-sqlite`
 
-- Role: durable SQLite-backed storage implementation. Default local persistence path for the starter preset.
+- Role: durable SQLite-backed storage implementation. Default local persistence path for the starter preset. Also ships `SqliteRunStore` (`RunStoreContract`) and `SqliteQueue` (`DurableQueueContract`) for local and single-node durable runs.
 - Allowed deps: `@generic-ai/sdk`, `pi`, SQLite library of choice.
 - Not responsible for: non-SQLite backends or messaging and memory data shapes (those belong to their own plugins).
+
+### `@generic-ai/plugin-storage-postgres`
+
+- Role: production storage on Postgres. Provides key-value `StorageContract`, the `RunStoreContract` (runs, sessions, canonical event logs), a `DurableQueueContract` job queue, versioned schema migrations, and a readiness health check.
+- Allowed deps: `@generic-ai/sdk`, `pg`.
+- Not responsible for: choosing what to persist (core and app code decide that), worker scheduling (`createQueueWorker` in the SDK), or messaging and memory data shapes.
 
 ### `@generic-ai/plugin-queue-memory`
 

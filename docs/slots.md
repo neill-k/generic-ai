@@ -74,7 +74,8 @@ them yet:
 | `infra` | `@generic-ai/plugin-config-yaml` | `yaml-config.v1` | Starter preset `config` slot for canonical config discovery and validation. |
 | `infra` | `@generic-ai/plugin-queue-memory` | `in-process-queue.v1` | Starter preset `queue` slot for local async execution. |
 | `infra` | `@generic-ai/plugin-storage-memory` | `in-memory-storage.v1` | Fast local/test storage implementation for harnesses that do not need durable state. |
-| `infra` | `@generic-ai/plugin-storage-sqlite` | `sqlite-storage.v1` | Starter preset `storage` slot for durable local persistence. |
+| `infra` | `@generic-ai/plugin-storage-postgres` | `postgres-storage.v1` | Production storage, run store and durable queue on Postgres (Railway or Docker). |
+| `infra` | `@generic-ai/plugin-storage-sqlite` | `sqlite-storage.v1` | Starter preset `storage` slot for durable local persistence; also provides a SQLite run store and durable queue. |
 | `infra` | `@generic-ai/plugin-workspace-fs` | `workspace-filesystem.v1` | Starter preset `workspace` slot; backs file, terminal, memory, and skill discovery packages. |
 | `transport` | `@generic-ai/plugin-agent-skills` | `agent-skills.v1` | Starter preset `skills` slot for Agent Skills compatibility and progressive disclosure. |
 | `transport` | `@generic-ai/plugin-hono` | `hono.v1` | Starter preset `transport` slot for the optional Hono server integration. |

@@ -31,6 +31,28 @@ storage.namespace("runs").set("run-1", {
 });
 ```
 
+## Durable Run Store And Queue
+
+`SqliteRunStore` implements the SDK `RunStoreContract` (runs, sessions and
+canonical event logs) and `SqliteQueue` implements `DurableQueueContract`
+(leases, retries with backoff, dead letters, per-key concurrency,
+cancellation). Both can share the database file with `SqliteStorage`; they keep
+their own tables and track their schema in `gai_schema_migrations`.
+
+```ts
+import { createQueueWorker } from "@generic-ai/sdk";
+import { createSqliteQueue, createSqliteRunStore } from "@generic-ai/plugin-storage-sqlite";
+
+const runs = createSqliteRunStore({ path: ".generic-ai/state.sqlite" });
+const queue = createSqliteQueue<{ task: string }, string>({ path: ".generic-ai/state.sqlite" });
+
+await queue.enqueue({ name: "agent-task", payload: { task: "triage" }, concurrencyKey: "agent:ceo" });
+createQueueWorker(queue, async (job) => `done: ${job.payload.task}`).start();
+```
+
+Use `@generic-ai/plugin-storage-postgres` when more than one process or host
+shares the queue.
+
 ## Planning Baseline
 
 - `docs/planning/README.md`

@@ -1367,6 +1367,45 @@ export interface ProtocolSummary {
   readonly notes?: readonly string[];
 }
 
+/**
+ * Verdict an actor can attach to its output. Verifier-style protocols use it to
+ * decide whether to loop; other protocols treat it as informational.
+ */
+export type ProtocolActorVerdict = "pass" | "fail";
+
+/**
+ * Result of executing one {@link ProtocolAction}. Topology runners record one
+ * outcome per executed action and feed the full list back into
+ * {@link ProtocolPlugin.reduce} so protocols can advance deterministically.
+ */
+export interface ProtocolActionOutcome {
+  readonly actionId: string;
+  readonly idempotencyKey: string;
+  readonly kind: ProtocolAction["kind"];
+  readonly actorRef?: string;
+  readonly status: "succeeded" | "failed" | "skipped";
+  readonly outputText?: string;
+  readonly verdict?: ProtocolActorVerdict;
+  readonly failureMessage?: string;
+  /** Structured directives the actor returned, such as assignments or work items. */
+  readonly data?: JsonObject;
+  readonly payload?: JsonObject;
+  readonly step: number;
+  readonly attempt: number;
+}
+
+export interface ProtocolReduceInput {
+  readonly compiled: CompiledHarness;
+  readonly state: ProtocolState;
+  readonly events: readonly TraceEvent[];
+  /** Outcomes of every action executed so far, in completion order. */
+  readonly outcomes?: readonly ProtocolActionOutcome[];
+  /** The protocol binding being executed, when the runner selected one. */
+  readonly binding?: ProtocolBindingSpec;
+  /** The user-facing task the topology is working on. */
+  readonly instruction?: string;
+}
+
 export interface ProtocolPlugin {
   readonly manifest: {
     readonly id: string;
@@ -1376,11 +1415,7 @@ export interface ProtocolPlugin {
   };
   readonly initialize?: (compiled: CompiledHarness) => Awaitable<ProtocolState>;
   readonly validate?: (compiled: CompiledHarness) => Awaitable<readonly CompileDiagnostic[]>;
-  readonly reduce: (input: {
-    readonly compiled: CompiledHarness;
-    readonly state: ProtocolState;
-    readonly events: readonly TraceEvent[];
-  }) => Awaitable<{
+  readonly reduce: (input: ProtocolReduceInput) => Awaitable<{
     readonly state: ProtocolState;
     readonly actions: readonly ProtocolAction[];
     readonly summary: ProtocolSummary;

@@ -13,6 +13,7 @@
     { "path": "packages/plugin-workspace-fs" },
     { "path": "packages/plugin-storage-memory" },
     { "path": "packages/plugin-storage-sqlite" },
+    { "path": "packages/plugin-storage-postgres" },
     { "path": "packages/plugin-queue-memory" },
     { "path": "packages/plugin-logging-otel" },
     { "path": "packages/plugin-tools-terminal" },
