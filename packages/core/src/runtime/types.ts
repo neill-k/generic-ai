@@ -1,7 +1,7 @@
 export const DEFAULT_GENERIC_AI_RUNTIME_ADAPTER = "openai-codex" as const;
 export const DEFAULT_OPENAI_CODEX_MODEL = "gpt-5.5" as const;
 
-export type GenericAILlmRuntimeAdapter = "openai-codex" | "pi";
+export type GenericAILlmRuntimeAdapter = "openai-codex" | "pi" | "native";
 export type GenericAIAgentTurnMode = "stop-tool-loop" | "single-turn";
 
 export interface GenericAILlmRunOptions {
@@ -40,10 +40,7 @@ export interface GenericAILlmRuntime {
   readonly adapter: GenericAILlmRuntimeAdapter;
   readonly model: string;
   readonly instructions?: string;
-  readonly run: (
-    input: string,
-    options?: GenericAILlmRunOptions,
-  ) => Promise<GenericAILlmRunResult>;
+  readonly run: (input: string, options?: GenericAILlmRunOptions) => Promise<GenericAILlmRunResult>;
   readonly stream: (
     input: string,
     options?: GenericAILlmRunOptions,

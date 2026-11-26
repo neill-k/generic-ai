@@ -38,6 +38,15 @@ Use Generic AI when you want:
 - Hono transport and a starter preset that works by default,
 - operational boundaries for docs, CI, ownership, release, and sandboxed execution.
 
+## Native Runtime (In Progress)
+
+Generic AI is building its own runtime so it no longer depends on `pi` underneath. The model layer
+(`@generic-ai/ai`) and the agent loop (`@generic-ai/agent`) are native packages adapted from `pi`
+under its MIT license, and core exposes them as the `native` runtime adapter beside `pi` and
+`openai-codex`. Until the native adapter reaches parity, `pi` stays the default harness runtime and
+the rules below still apply. The plan, feature inventory, and test coverage live in
+[`docs/planning/native-harness-parity.md`](planning/native-harness-parity.md).
+
 ## Why Build Generic AI If `pi` Exists?
 
 `pi` is a strong foundation for individual agent execution and developer-facing agent workflows. Generic AI exists for the next layer up: building systems where multiple capabilities need to be composed, swapped, configured, persisted, observed, and embedded behind an application boundary.

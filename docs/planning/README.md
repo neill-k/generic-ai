@@ -28,6 +28,11 @@ synchronization.
 4. [04-agent-ready-mapping.md](04-agent-ready-mapping.md)
 5. [05-research-harness-plan.md](05-research-harness-plan.md)
 
+Workstream plans:
+
+- [native-harness-parity.md](native-harness-parity.md): the native runtime that replaces `pi`, with
+  its feature inventory, parity tests, and slices.
+
 ## Linear Import Order
 
 If this planning tree needs to be recreated or resynced in Linear, import it in dependency order:
