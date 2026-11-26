@@ -10,12 +10,22 @@
 // inside the server process, for /proc/self/environ and other files outside the
 // agent's workspace; they must refuse. Exits 1 if any VALUE shows up or a file
 // tool reaches outside the workspace.
-import { mkdtemp } from "node:fs/promises";
+//
+// When the image runs agent commands as their own user (GENERIC_CORP_AGENT_USER,
+// resolved the way the server does), the probe also starts a non-node child
+// holding the secrets, as an MCP server launched with uvx would, and checks the
+// command cannot read the server's files on the data volume, can work in its
+// home, and is killed with everything it started on a timeout. Set
+// PROBE_EXPECT_ISOLATION=user to fail when commands share the server's user.
+import { spawn } from "node:child_process";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
 import { createTerminalToolPlugin } from "@generic-ai/plugin-tools-terminal";
+
+import { describeAgentIsolation, resolveAgentIsolation } from "../dist/isolation.js";
 
 const secrets = process.argv.slice(2).filter((value) => value.length > 0);
 if (secrets.length === 0) {
@@ -23,8 +33,29 @@ if (secrets.length === 0) {
   process.exit(2);
 }
 
-const root = await mkdtemp(path.join(tmpdir(), "agent-env-probe-"));
-const terminal = createTerminalToolPlugin({ root });
+const isolation = resolveAgentIsolation(process.env);
+console.log(describeAgentIsolation(isolation));
+if (process.env.PROBE_EXPECT_ISOLATION === "user" && isolation.mode !== "user") {
+  console.error("Expected agent commands to run as their own user.");
+  process.exit(1);
+}
+const dataDir = process.env.GENERIC_CORP_DATA_DIR ?? tmpdir();
+let root;
+if (isolation.mode === "user") {
+  // Like a real agent home: under the agents directory the entrypoint shares with `agent`.
+  await mkdir(path.join(dataDir, "agents"), { recursive: true });
+  root = await mkdtemp(path.join(dataDir, "agents", "probe-"));
+  await chmod(root, 0o2770); // mkdtemp makes it 0700; agent homes are group-shared.
+} else {
+  root = await mkdtemp(path.join(tmpdir(), "agent-env-probe-"));
+}
+const terminal = createTerminalToolPlugin({
+  root,
+  ...(isolation.runAs === undefined ? {} : { runAs: isolation.runAs }),
+});
+// A child of the server that is not node (like an MCP server started with uvx)
+// and holds the same secrets: its /proc/<pid>/environ must stay unreadable.
+const sidecar = spawn("sleep", ["120"], { env: process.env, stdio: "ignore" });
 const command = [
   "echo '--- env'",
   "env",
@@ -59,6 +90,7 @@ if (!ownEnv.includes("SELF_ENVIRON_READABLE")) {
 }
 console.log(`Agent command could read its own environ and ${readable.length} other(s):`);
 for (const name of readable) console.log(`  ${name}`);
+sidecar.kill();
 if (leaks.length > 0) {
   for (const leak of leaks) {
     console.error(`LEAK: secret #${leak.index + 1} is visible in ${leak.source}.`);
@@ -98,3 +130,59 @@ if (escaped) {
   process.exit(1);
 }
 console.log(`The file tools refused all ${attempts.length} paths outside the workspace.`);
+
+if (isolation.mode === "user") {
+  const serverFile = path.join(dataDir, `.agent-env-probe-${process.pid}`);
+  await writeFile(serverFile, "server-only\n");
+  const check = await terminal.run({
+    command: [
+      'echo "USER=$(id -un)"',
+      `if cat ${serverFile} >/dev/null 2>&1; then echo SERVER_FILE=readable; else echo SERVER_FILE=denied; fi`,
+      `if touch ${dataDir}/.agent-planted 2>/dev/null; then echo DATA_WRITE=allowed; else echo DATA_WRITE=denied; fi`,
+      "echo agent-wrote > agent-file.txt && echo HOME_WRITE=ok",
+    ].join("; "),
+  });
+  await rm(serverFile, { force: true });
+  const expected = [
+    `USER=${isolation.user}`,
+    "SERVER_FILE=denied",
+    "DATA_WRITE=denied",
+    "HOME_WRITE=ok",
+  ];
+  const missing = expected.filter((line) => !check.output.includes(line));
+  if (missing.length > 0) {
+    console.error(
+      `Agent command isolation failed (missing ${missing.join(", ")}):\n${check.output}`,
+    );
+    process.exit(1);
+  }
+  if ((await readFile(path.join(root, "agent-file.txt"), "utf8")) !== "agent-wrote\n") {
+    console.error("The server cannot read what the agent command wrote in its home.");
+    process.exit(1);
+  }
+
+  // A timed-out command and everything it started are killed, although the
+  // server's user may not signal the agent's processes itself.
+  const marker = `agent-env-probe-${process.pid}`;
+  await terminal
+    .run({
+      command: `bash -c 'sleep 301; true' ${marker} & bash -c 'sleep 302; true' ${marker}`,
+      timeoutMs: 1000,
+    })
+    .catch(() => undefined);
+  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const survivors = [];
+  for (const pid of await readdir("/proc")) {
+    if (!/^\d+$/.test(pid)) continue;
+    const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => "");
+    if (cmdline.includes(marker)) survivors.push(pid);
+  }
+  if (survivors.length > 0) {
+    console.error(`A timed-out agent command left processes running: ${survivors.join(", ")}`);
+    process.exit(1);
+  }
+  await rm(root, { recursive: true, force: true });
+  console.log(
+    `Agent commands run as ${isolation.user}: no access to server files, home writable, killed on timeout.`,
+  );
+}

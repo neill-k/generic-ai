@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -174,4 +174,85 @@ describe("@generic-ai/plugin-tools-terminal", () => {
       ).rejects.toBeInstanceOf(TerminalToolError);
     });
   });
+});
+
+describe("running agent commands as another OS user", () => {
+  it("wraps every command in sudo with only allowlisted variable names, never values", async () => {
+    await withTempRoot(async (root) => {
+      process.env["GENERIC_AI_TERMINAL_RUN_AS_SECRET"] = "run-as-secret-value";
+      try {
+        const calls: { command: string; env: NodeJS.ProcessEnv | undefined }[] = [];
+        const operations: BashOperations = {
+          exec: async (command, _cwd, options) => {
+            calls.push({ command, env: options.env });
+            return { exitCode: 0 };
+          },
+        };
+        const plugin = createTerminalToolPlugin({
+          root,
+          operations,
+          runAs: { user: "agent", sudoPath: "/usr/bin/sudo" },
+        });
+        await plugin.run({ command: "echo 'hi' && id" });
+        await plugin.tool.execute("call", { command: "whoami" });
+
+        for (const call of calls) {
+          expect(call.command).toMatch(
+            /^exec '\/usr\/bin\/sudo' -n -u agent --preserve-env=[A-Z_,]+ -- 'setpriv' --pdeathsig TERM -- /,
+          );
+          expect(call.command).not.toContain("run-as-secret-value");
+          expect(call.env?.["HOME"]).toBe(root);
+          expect(call.env?.["USER"]).toBe("agent");
+          expect(call.env?.["GENERIC_AI_TERMINAL_RUN_AS_SECRET"]).toBeUndefined();
+        }
+        expect(calls[0]?.command).toContain(`'echo '\\''hi'\\'' && id'`);
+        expect(calls[1]?.command.endsWith("'whoami'")).toBe(true);
+      } finally {
+        delete process.env["GENERIC_AI_TERMINAL_RUN_AS_SECRET"];
+      }
+    });
+  });
+
+  it("refuses to combine runAs with the server's whole environment", async () => {
+    expect(() =>
+      createTerminalToolPlugin({
+        root: os.tmpdir(),
+        runAs: { user: "agent" },
+        inheritProcessEnv: true,
+      }),
+    ).toThrow(/runAs cannot be combined/);
+    await expect(
+      createTerminalToolPlugin({ root: os.tmpdir(), runAs: { user: "a; rm" } }).run({
+        command: "x",
+      }),
+    ).rejects.toThrow(/Invalid runAs user/);
+  });
+
+  // Runs only where the test host has a user the current user can sudo to, for example
+  // `GENERIC_AI_TEST_RUN_AS_USER=agent`. The image smoke test covers it on every build.
+  const runAsUser = process.env["GENERIC_AI_TEST_RUN_AS_USER"];
+  it.skipIf(runAsUser === undefined)(
+    "runs commands as the other user and kills them on timeout",
+    async () => {
+      await withTempRoot(async (root) => {
+        await chmod(root, 0o777);
+        const plugin = createTerminalToolPlugin({ root, runAs: { user: runAsUser as string } });
+        const who = await plugin.run({ command: 'id -un; echo "$HOME"; umask' });
+        expect(who.exitCode).toBe(0);
+        expect(who.output.split("\n").slice(0, 3)).toEqual([runAsUser, root, "0007"]);
+        expect((await plugin.run({ command: "exit 7" })).exitCode).toBe(7);
+
+        const marker = `generic-ai-run-as-${process.pid}-${Date.now()}`;
+        await plugin
+          .run({ command: `sleep 300 & sleep 301; echo ${marker}`, timeoutMs: 1000 })
+          .catch(() => undefined);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const left = await createTerminalToolPlugin({ root }).run({
+          command: `pgrep -u ${runAsUser} -f 'sleep 30[01]' || true`,
+        });
+        expect(left.output.trim()).toBe("");
+      });
+    },
+    20_000,
+  );
 });

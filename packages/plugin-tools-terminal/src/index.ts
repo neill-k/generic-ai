@@ -28,6 +28,35 @@ export interface TerminalToolOptions {
   readonly inheritProcessEnv?: boolean;
   readonly defaultTimeoutMs?: number;
   readonly unrestrictedLocal?: boolean;
+  /**
+   * Run every command as another OS user instead of the server's. See {@link TerminalRunAsUser}.
+   * Cannot be combined with `inheritProcessEnv`.
+   */
+  readonly runAs?: TerminalRunAsUser;
+}
+
+/**
+ * Runs agent commands as a separate, unprivileged OS user, so they cannot read or change what the
+ * server's user owns: its files, its `/proc/<pid>/environ` and that of every process it starts
+ * (MCP servers included), or signal those processes.
+ *
+ * Each command becomes `sudo -n -u <user> --preserve-env=<allowlisted names> -- setpriv
+ * --pdeathsig TERM -- <shell> -c <supervisor> <command>`. The host must let the server's user run
+ * commands as `user` without a password, and allow it to set the environment
+ * (`server ALL=(agent) NOPASSWD:SETENV: ALL` in sudoers). Values travel in the environment of the
+ * sudo process, never on its command line. The supervisor sets the umask, runs the command and,
+ * when sudo dies (the tool killed the command's process group on a timeout or abort, which the
+ * server's user may only do to sudo itself), kills every process of the command as `user`.
+ */
+export interface TerminalRunAsUser {
+  readonly user: string;
+  /** `HOME` for commands. Defaults to the workspace root, which `user` can write. */
+  readonly home?: string;
+  /** Default `0007`: files a command creates stay readable by the group the server shares. */
+  readonly umask?: string;
+  readonly sudoPath?: string;
+  readonly setprivPath?: string;
+  readonly shellPath?: string;
 }
 
 export interface TerminalRunRequest {
@@ -139,13 +168,80 @@ function mergeEnv(
   };
 }
 
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/** Rewrites a command and its environment so it runs as `runAs.user`. */
+export function wrapCommandForUser(
+  command: string,
+  env: NodeJS.ProcessEnv,
+  runAs: TerminalRunAsUser,
+  workspaceRoot: string,
+): { readonly command: string; readonly env: NodeJS.ProcessEnv } {
+  if (!/^[a-z_][a-z0-9_-]*$/i.test(runAs.user)) {
+    throw new Error(`Invalid runAs user "${runAs.user}".`);
+  }
+  const umask = runAs.umask ?? "0007";
+  if (!/^[0-7]{3,4}$/.test(umask)) {
+    throw new Error(`Invalid runAs umask "${umask}".`);
+  }
+  const shell = runAs.shellPath ?? "/bin/bash";
+  const outerEnv: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (value !== undefined && ENV_NAME.test(key)) {
+      outerEnv[key] = value;
+    }
+  }
+  outerEnv["HOME"] = runAs.home ?? workspaceRoot;
+  outerEnv["USER"] = runAs.user;
+  outerEnv["LOGNAME"] = runAs.user;
+  const supervisor = [
+    `umask ${umask}`,
+    'trap "kill -KILL 0" TERM HUP INT',
+    `${shellQuote(shell)} -c "$1" & wait "$!"`,
+  ].join("; ");
+  const wrapped = [
+    "exec",
+    shellQuote(runAs.sudoPath ?? "sudo"),
+    "-n",
+    "-u",
+    runAs.user,
+    `--preserve-env=${Object.keys(outerEnv).sort().join(",")}`,
+    "--",
+    shellQuote(runAs.setprivPath ?? "setpriv"),
+    "--pdeathsig",
+    "TERM",
+    "--",
+    shellQuote(shell),
+    "-c",
+    shellQuote(supervisor),
+    "generic-ai-agent-command",
+    shellQuote(command),
+  ].join(" ");
+  return { command: wrapped, env: outerEnv };
+}
+
 function buildSpawnHook(
   baseEnv: NodeJS.ProcessEnv | undefined,
   spawnHook: BashSpawnHook | undefined,
   inheritProcessEnv: boolean,
+  runAs?: { readonly user: TerminalRunAsUser; readonly root: string },
 ): BashSpawnHook | undefined {
   if (baseEnv === undefined && spawnHook === undefined && inheritProcessEnv) {
     return undefined;
+  }
+  if (runAs !== undefined) {
+    const inner = buildSpawnHook(baseEnv, spawnHook, inheritProcessEnv);
+    return (context) => {
+      const prepared = inner ? inner(context) : context;
+      return {
+        ...prepared,
+        ...wrapCommandForUser(prepared.command, prepared.env, runAs.user, runAs.root),
+      };
+    };
   }
 
   return (context) => {
@@ -187,7 +283,12 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
   const operations = options.operations ?? createLocalBashOperations();
   const commandPrefix = options.commandPrefix;
   const inheritProcessEnv = options.inheritProcessEnv ?? false;
-  const spawnHook = buildSpawnHook(options.env, options.spawnHook, inheritProcessEnv);
+  if (options.runAs !== undefined && inheritProcessEnv) {
+    throw new Error("runAs cannot be combined with inheritProcessEnv.");
+  }
+  const runAs =
+    options.runAs === undefined ? undefined : { user: options.runAs, root: layout.root };
+  const spawnHook = buildSpawnHook(options.env, options.spawnHook, inheritProcessEnv, runAs);
   const unrestrictedLocal = options.unrestrictedLocal ?? true;
   const tool = withAgentHarnessToolEffects(
     createBashTool(layout.root, {
@@ -215,6 +316,11 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
     async run(request: TerminalRunRequest): Promise<TerminalRunResult> {
       const cwd = await resolveTerminalCwd(layout.root, request.cwd);
       const command = applyCommandPrefix(request.command, commandPrefix);
+      const env = mergeEnv(options.env, request.env, inheritProcessEnv);
+      const prepared =
+        runAs === undefined
+          ? { command, env }
+          : wrapCommandForUser(command, env, runAs.user, runAs.root);
       const outputChunks: string[] = [];
       const startedAt = Date.now();
       // BashOperations.exec expects `timeout` in seconds (pi's default
@@ -229,13 +335,13 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
         onData: (data: Buffer) => {
           outputChunks.push(data.toString("utf8"));
         },
-        env: mergeEnv(options.env, request.env, inheritProcessEnv),
+        env: prepared.env,
         ...(request.signal === undefined ? {} : { signal: request.signal }),
         ...(timeoutSeconds === undefined ? {} : { timeout: timeoutSeconds }),
       };
       let result: Awaited<ReturnType<BashOperations["exec"]>>;
       try {
-        result = await operations.exec(command, cwd, executionOptions);
+        result = await operations.exec(prepared.command, cwd, executionOptions);
       } catch (error) {
         throw new TerminalToolError(
           normalizeToolError({
