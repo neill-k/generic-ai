@@ -127,3 +127,45 @@ jobs:
       # on real models once provider keys are available to CI.
       - name: Run company template evals
         run: npm run evals -w @generic-ai/app-generic-corp
+
+  # Roadmap R19: the golden flows in a real browser (chat to the CEO, the delegation cascade,
+  # an owner approval), a crash mid-run that must resume after a restart, and a load test. Each
+  # spec starts a real Generic Corp server on a scripted model, so no provider key is needed.
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Use pinned npm
+        run: npm install --global npm@11.12.1
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run build
+        run: npm run build
+
+      - name: Install the Playwright browser
+        run: npm exec -w @generic-ai/app-generic-corp -- playwright install --with-deps chromium
+
+      - name: Run end-to-end, crash and load tests
+        run: npm run e2e -w @generic-ai/app-generic-corp
+
+      - name: Upload the end-to-end report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            apps/generic-corp/e2e-report
+            apps/generic-corp/e2e-results
+          retention-days: 14
