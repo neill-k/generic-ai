@@ -1,4 +1,12 @@
-import type { JsonObject, JsonValue, RunActor, RunEnvelope, RunRecord } from "@generic-ai/sdk";
+import type {
+  GoalSpec,
+  GoalValidationStatus,
+  JsonObject,
+  JsonValue,
+  RunActor,
+  RunEnvelope,
+  RunRecord,
+} from "@generic-ai/sdk";
 
 /**
  * Durable agent tasks.
@@ -33,7 +41,29 @@ export function isTerminalTaskStatus(status: AgentTaskStatus): boolean {
 export interface AgentTaskGoal {
   readonly definitionOfDone?: string;
   readonly criteria?: readonly string[];
+  /**
+   * A machine-checkable goal (roadmap R24). When present the task only
+   * succeeds once its validators report `COMPLETE`; otherwise the agent gets
+   * the validators' feedback and another turn. Stored on the task record,
+   * which agents cannot write.
+   */
+  readonly spec?: GoalSpec;
+  /** sha256 fingerprint of `spec`, set when the goal is sealed on submit or delegation. */
+  readonly fingerprint?: string;
   readonly metadata?: JsonObject;
+}
+
+/** The latest goal validation of a task, kept for dashboards and audit. */
+export interface AgentTaskGoalReport {
+  readonly status: GoalValidationStatus;
+  readonly goalId: string;
+  readonly fingerprint: string;
+  readonly required: number;
+  readonly passed: number;
+  readonly failed: number;
+  readonly errored: number;
+  readonly feedback: string;
+  readonly evaluatedAt: string;
 }
 
 export interface AgentTaskRecord {
@@ -61,6 +91,7 @@ export interface AgentTaskRecord {
   /** Execution attempts across all rounds, including retries. */
   readonly attempts: number;
   readonly validationFailures: number;
+  readonly lastGoalReport?: AgentTaskGoalReport;
   /** Every child task this task has delegated, in order. */
   readonly childTaskIds: readonly string[];
   /** Children from the latest delegation, whose results the next round sees. */
