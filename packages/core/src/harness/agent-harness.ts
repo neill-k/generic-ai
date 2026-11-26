@@ -30,6 +30,7 @@ import {
   type JsonObject,
   type PolicyDecisionRecord,
   type ResourceSelector,
+  type RunActor,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
@@ -1667,7 +1668,9 @@ function createPiAgentHarnessAdapter(
         });
       }
       const runSignal = createDeadlineSignal(context);
-      const eventStream = createCanonicalEventStream({});
+      const eventStream = createCanonicalEventStream(
+        input.actor === undefined ? {} : { actor: input.actor },
+      );
       const hookExecutor = createAgentLifecycleHookExecutor(input.hooks ?? input.harness.hooks, {
         eventStream,
         ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
@@ -1863,6 +1866,8 @@ export interface RunAgentHarnessTopologyOptions
   readonly sessionInputs?: PiSessionInputs;
   readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
   readonly policy?: AgentHarnessPolicyEvaluator;
+  /** Redaction-safe identity of whoever started the run; stamped on every run event. */
+  readonly actor?: RunActor;
   /**
    * Replace the Pi role-session runner, for example to route some actors to an
    * external runtime. The replacement still gets the scheduler's retries,
@@ -1897,7 +1902,9 @@ export async function runAgentHarnessTopology(
   const turnMode = harness.execution?.turnMode;
   const maxTurns = harness.execution?.maxTurns;
   const topologySessionId = `${runId}:topology`;
-  const eventStream = createCanonicalEventStream({});
+  const eventStream = createCanonicalEventStream(
+    options.actor === undefined ? {} : { actor: options.actor },
+  );
   const hookExecutor = createAgentLifecycleHookExecutor(options.hooks ?? harness.hooks, {
     eventStream,
     ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
