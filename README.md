@@ -294,7 +294,7 @@ recorded in
 
 ## Releases
 
-Generic AI uses [Changesets](https://github.com/changesets/changesets) for independent per-package semver, automated changelog generation, and npm publishing. Every publishable package under `packages/*` is scoped `@generic-ai/*` and ships with `publishConfig.access: "public"` plus `publishConfig.provenance: true`. The full release playbook (versioning rules, public-vs-internal classification, and the manual-until-CTL-02 cut path) lives in [`RELEASING.md`](RELEASING.md). The release-tool decision, trade-offs, and rejected alternatives are recorded in [`docs/decisions/0003-release-and-publishing.md`](docs/decisions/0003-release-and-publishing.md). PRs that touch any publishable package should include a changeset — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the one-line recipe.
+Generic AI uses [Changesets](https://github.com/changesets/changesets) for independent per-package semver, automated changelog generation, and npm publishing. Every publishable package under `packages/*` is scoped `@generic-ai/*` and ships with `publishConfig.access: "public"` plus `publishConfig.provenance: true`. The full release playbook (versioning rules, public-vs-internal classification, the release workflow, and the owner checklist before the first publish) lives in [`RELEASING.md`](RELEASING.md). The release-tool decision, trade-offs, and rejected alternatives are recorded in [`docs/decisions/0003-release-and-publishing.md`](docs/decisions/0003-release-and-publishing.md). PRs that touch any publishable package should include a changeset — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the one-line recipe.
 
 ## Implementation Status
 

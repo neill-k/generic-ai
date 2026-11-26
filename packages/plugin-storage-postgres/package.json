@@ -40,5 +40,19 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neill-k/generic-ai.git",
+    "directory": "packages/plugin-storage-postgres"
+  },
+  "homepage": "https://github.com/neill-k/generic-ai/tree/main/packages/plugin-storage-postgres#readme",
+  "bugs": {
+    "url": "https://github.com/neill-k/generic-ai/issues"
+  },
+  "keywords": [
+    "generic-ai",
+    "ai-agents",
+    "multi-agent"
+  ]
 }
