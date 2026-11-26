@@ -184,8 +184,9 @@ export class WorkspaceBoundaryError extends Error {
  * absolute path and run in the server process, so without this an agent could read the server's
  * own files (including `/proc/self/environ`, which holds its API keys and database URL) or write
  * into other agents' homes. Every `path` argument is resolved, symlinks included, and refused when
- * it lands outside the root; the tool then gets the resolved path, so a symlink checked here is not
- * followed somewhere else later.
+ * it lands outside the root. The tool then gets the resolved path rather than the agent's, which
+ * narrows (but cannot close) the window in which an agent's shell could swap a directory for a
+ * symlink between the check and the read; running agent commands as another OS user closes it.
  */
 function confineToWorkspace<T extends { execute: (...args: never[]) => unknown }>(
   tool: T,
