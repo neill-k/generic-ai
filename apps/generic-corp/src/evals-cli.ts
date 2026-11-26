@@ -25,6 +25,9 @@ export const ECONOMY_MODELS: Readonly<Record<OrgTier, string>> = Object.freeze({
 /** Exit code of a live run that could not start because a provider key is missing. */
 export const EXIT_MISSING_KEY = 3;
 
+/** Exit code of a live run refused because it is running in GitHub Actions. */
+export const EXIT_LIVE_IN_CI = 4;
+
 const USAGE = `Usage: npm run evals -w @generic-ai/app-generic-corp -- [options]
 
 Runs company template goal evals and exits 1 when any gate fails.
@@ -45,7 +48,8 @@ Runs company template goal evals and exits 1 when any gate fails.
                     the run's verdict and spend as summary.json.
   --help            Show this message.
 
-A live run whose provider key is missing exits ${EXIT_MISSING_KEY} before spending anything. Once a cap is
+A live run whose provider key is missing exits ${EXIT_MISSING_KEY} before spending anything, and one
+started in GitHub Actions exits ${EXIT_LIVE_IN_CI}: live runs are manual only. Once a cap is
 reached, the turn in flight stops, and attempts not yet started are skipped and count as failures.
 
 Templates: ${listCompanyTemplates().join(", ")}`;
@@ -109,6 +113,13 @@ export async function main(argv: readonly string[]): Promise<number> {
           .join(", ")}. Nothing was run and nothing was spent.`,
       );
       return EXIT_MISSING_KEY;
+    }
+    // Automated runs never call a real model: live evals are started by hand only.
+    if (process.env["GITHUB_ACTIONS"] === "true") {
+      console.error(
+        "Live evals call real models and only run by hand, never in GitHub Actions. Nothing was run.",
+      );
+      return EXIT_LIVE_IN_CI;
     }
     if (!process.env["BRAVE_API_KEY"] && !process.env["TAVILY_API_KEY"]) {
       console.warn(

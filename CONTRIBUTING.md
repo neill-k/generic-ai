@@ -46,6 +46,15 @@ npm run clean           # remove dist, tsbuildinfo, and node_modules
 
 If one of the quality-gate commands fails, fix the root cause before pushing. Never bypass a failing gate.
 
+## No live model calls in automated tests
+
+`npm test`, CI and every GitHub Actions workflow use fakes, scripted models or recorded replays only. Nothing automated may call a real LLM provider, even when a key is available.
+
+- `npm test` strips provider credentials (`*_API_KEY`, `*_AUTH_TOKEN`, `*_OAUTH_TOKEN` and the live-smoke variables) before any test runs (`scripts/vitest-no-live-providers.mjs`), and skips `*.live.test.ts` files.
+- A test that needs a real model goes in a `*.live.test.ts` file and runs only by hand: `npm run test:live -- <file>`.
+- Live template evals run only by hand: `npm run reliability -w @generic-ai/app-generic-corp` (see `apps/generic-corp/README.md`).
+- Do not add provider keys as GitHub Actions secrets, and do not add a workflow that calls a model.
+
 ## Lint scope and local helper directories
 
 `npm run lint` intentionally lints first-party roots only: the top-level docs/config files, `docs/`, `packages/`, `examples/`, and `scripts/`. It also runs `npm run check:biome-helper-ignores`, which creates temporary nested `biome.json` configs under ignored local-helper paths and runs Biome with VCS ignores disabled. That regression check proves the root `biome.json` excludes helper/worktree state directly instead of relying only on `.gitignore`.
