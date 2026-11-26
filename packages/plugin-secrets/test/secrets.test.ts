@@ -253,6 +253,20 @@ describe("secrets broker", () => {
     expect(JSON.stringify(records)).not.toContain(FAKE_GITHUB);
   });
 
+  it("wraps frozen tools", async () => {
+    const { broker: secrets } = broker();
+    const tool = Object.freeze(
+      fakeTool("document_write", (params) => ({
+        content: [{ type: "text", text: `wrote ${String(params["content"])}` }],
+      })),
+    );
+    const wrapped = secrets.wrapTool(tool, { actorId: "builder", grants: ["GITHUB_TOKEN"] });
+    expect(wrapped).not.toBe(tool);
+    expect(wrapped.name).toBe("document_write");
+    const result = await wrapped.execute("call-1", { content: "{{secret:GITHUB_TOKEN}}" });
+    expect(JSON.stringify(result)).toContain("[REDACTED:GITHUB_TOKEN]");
+  });
+
   it("denies secrets the role was not granted, and host-only secrets even with *", async () => {
     const { broker: secrets, records } = broker();
     const tool = fakeTool("bash", () => ({ content: [] }));

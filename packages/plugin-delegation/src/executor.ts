@@ -30,6 +30,13 @@ export interface CreateAdapterTaskExecutorOptions<TCapabilities = unknown, TOutp
   readonly defaultRoleKind?: AgentHarnessRoleKind;
   /** Per-turn deadline in milliseconds. */
   readonly turnTimeoutMs?: number;
+  /**
+   * Extra role settings for an agent's turn, such as the secrets it may use or its tool list.
+   * `id`, `kind` and `model` always come from the agent record.
+   */
+  readonly role?: (
+    input: AgentTaskExecutionInput,
+  ) => Partial<Omit<AgentHarnessRole, "id" | "kind" | "model">> | undefined;
 }
 
 const NON_RETRYABLE: ReadonlySet<AgentHarnessRunErrorCategory> = new Set([
@@ -58,12 +65,13 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
     const kind = resolveAgentRoleKind(input.roleKind, options.defaultRoleKind);
     const model = input.model ?? options.harness.model;
     const role: AgentHarnessRole = {
-      id: input.agentId,
-      kind,
       description: `Persistent agent ${input.agentId} (${input.role}).`,
       ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
-      ...(model === undefined ? {} : { model }),
       readOnly: kind !== "builder" && kind !== "custom",
+      ...options.role?.(input),
+      id: input.agentId,
+      kind,
+      ...(model === undefined ? {} : { model }),
     };
     const harness: AgentHarnessConfig = {
       ...options.harness,

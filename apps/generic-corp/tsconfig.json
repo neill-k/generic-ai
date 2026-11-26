@@ -6,14 +6,44 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/plugin-auth-identity" },
-    { "path": "../../packages/plugin-delegation" },
-    { "path": "../../packages/plugin-storage-postgres" },
-    { "path": "../../packages/plugin-storage-sqlite" },
-    { "path": "../../packages/plugin-tools-files" },
-    { "path": "../../packages/plugin-tools-terminal" },
-    { "path": "../../packages/preset-starter-hono" },
-    { "path": "../../packages/sdk" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/plugin-auth-identity"
+    },
+    {
+      "path": "../../packages/plugin-delegation"
+    },
+    {
+      "path": "../../packages/plugin-mcp"
+    },
+    {
+      "path": "../../packages/plugin-secrets"
+    },
+    {
+      "path": "../../packages/plugin-storage-postgres"
+    },
+    {
+      "path": "../../packages/plugin-storage-sqlite"
+    },
+    {
+      "path": "../../packages/plugin-tools-documents"
+    },
+    {
+      "path": "../../packages/plugin-tools-files"
+    },
+    {
+      "path": "../../packages/plugin-tools-terminal"
+    },
+    {
+      "path": "../../packages/plugin-tools-web"
+    },
+    {
+      "path": "../../packages/preset-starter-hono"
+    },
+    {
+      "path": "../../packages/sdk"
+    }
   ]
 }

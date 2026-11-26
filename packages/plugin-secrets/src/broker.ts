@@ -6,8 +6,8 @@ import {
   type SecretAccessRecord,
   type SecretActorContext,
   type SecretDescriptor,
-  type SecretsBinding,
   type SecretSource,
+  type SecretsBinding,
   type WritableSecretSource,
 } from "@generic-ai/sdk";
 
@@ -232,7 +232,11 @@ export function createSecretsBroker(options: SecretsBrokerOptions): SecretsBroke
     const execute = (candidate.execute as (...args: unknown[]) => unknown).bind(tool);
     const toolName = typeof candidate.name === "string" ? candidate.name : undefined;
     const wrapped = Object.create(Object.getPrototypeOf(tool)) as Record<string, unknown>;
-    Object.defineProperties(wrapped, Object.getOwnPropertyDescriptors(tool));
+    // Copy everything but `execute`: a frozen tool's descriptors are not configurable, so
+    // copying `execute` first would make the replacement below throw.
+    const descriptors: Record<string, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool);
+    Reflect.deleteProperty(descriptors, "execute");
+    Object.defineProperties(wrapped, descriptors);
     Object.defineProperty(wrapped, "execute", {
       enumerable: true,
       configurable: true,
