@@ -99,6 +99,8 @@ export interface TaskSummary {
   readonly delegatedBy?: string;
   readonly depth: number;
   readonly status: AgentTaskStatus;
+  /** Short label: the owner's own words for a chat request, else the instruction. */
+  readonly title: string;
   readonly instruction: string;
   readonly round: number;
   readonly createdAt: string;
@@ -164,6 +166,17 @@ export const BOARD_COLUMNS: readonly AgentTaskStatus[] = [
 
 const ACTIVE_STATUSES: ReadonlySet<AgentTaskStatus> = new Set(["queued", "running", "waiting"]);
 
+function taskTitle(task: AgentTaskRecord): string {
+  const ownerText = task.metadata?.["ownerText"];
+  const source = typeof ownerText === "string" ? ownerText : task.instruction;
+  const line =
+    source
+      .split(/\r?\n/)
+      .find((entry) => entry.trim().length > 0)
+      ?.trim() ?? task.taskId;
+  return line.length > 160 ? `${line.slice(0, 159)}…` : line;
+}
+
 export function summarizeTask(task: AgentTaskRecord): TaskSummary {
   const report = task.lastGoalReport;
   const goal =
@@ -185,6 +198,7 @@ export function summarizeTask(task: AgentTaskRecord): TaskSummary {
     ...(task.delegatedBy === undefined ? {} : { delegatedBy: task.delegatedBy }),
     depth: task.depth,
     status: task.status,
+    title: taskTitle(task),
     instruction: task.instruction,
     round: task.round,
     createdAt: task.createdAt,
@@ -430,7 +444,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         instruction,
         ...(input.actor === undefined ? {} : { actor: input.actor }),
         ...(input.goal === undefined ? {} : { goal: input.goal }),
-        metadata: { threadId: thread.threadId, source: "owner-chat" },
+        metadata: { threadId: thread.threadId, source: "owner-chat", ownerText: text },
       });
       const message: ChatMessageRecord = {
         messageId: createId(),

@@ -10,6 +10,9 @@
       "path": "../../packages/core"
     },
     {
+      "path": "../../packages/plugin-approvals"
+    },
+    {
       "path": "../../packages/plugin-auth-identity"
     },
     {

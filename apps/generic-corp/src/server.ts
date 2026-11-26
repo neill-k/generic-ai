@@ -2,7 +2,12 @@ import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-
+import {
+  approvalRequesterForTask,
+  createApprovalGate,
+  createApprovalRoutes,
+  createApprovalService,
+} from "@generic-ai/plugin-approvals";
 import {
   type AuthStore,
   authenticateOwnerRequest,
@@ -12,16 +17,27 @@ import {
   type OwnerAuth,
   unauthorizedResponse,
 } from "@generic-ai/plugin-auth-identity";
-import { createSecretsFromEnvironment, type SecretsBroker } from "@generic-ai/plugin-secrets";
-import { type AgentTaskExecutor, ALL_AUTH_SCOPES, type AuthContext } from "@generic-ai/sdk";
+import {
+  createSecretsFromEnvironment,
+  SECRETS_KEY_ENV,
+  type SecretsBroker,
+} from "@generic-ai/plugin-secrets";
+import {
+  type AgentTaskExecutor,
+  ALL_AUTH_SCOPES,
+  type ApprovalServiceContract,
+  type AuthContext,
+  DEFAULT_APPROVAL_POLICY,
+} from "@generic-ai/sdk";
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
 import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
+import { createDashboardRoutes } from "./dashboard.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
-import { type CompanyToolkit, createCompanyToolkit } from "./toolkit.js";
+import { type CompanyToolkit, companySecretReferences, createCompanyToolkit } from "./toolkit.js";
 
 /**
  * Composes the Generic Corp server from the environment: storage (Postgres
@@ -169,6 +185,8 @@ export interface GenericCorpServer {
   readonly storage: CompanyStorage;
   readonly environment: GenericCorpEnvironment;
   readonly auth?: OwnerAuth;
+  /** Owner approvals for outward agent actions. */
+  readonly approvals: ApprovalServiceContract;
   stop(): Promise<void>;
 }
 
@@ -182,6 +200,8 @@ export interface CreateGenericCorpServerOptions {
   readonly authStore?: AuthStore;
   /** The secrets vault. Defaults to environment, files and the encrypted store in storage. */
   readonly secrets?: SecretsBroker;
+  /** Whether `secrets` can store values. Defaults to whether `GENERIC_AI_SECRETS_KEY` is set. */
+  readonly secretsWritable?: boolean;
   /** Replaces the generic-work toolkit, for tests. */
   readonly toolkit?: CompanyToolkit;
   readonly log?: (message: string) => void;
@@ -203,6 +223,9 @@ export async function createGenericCorpServer(
     const secrets =
       options.secrets ??
       createSecretsFromEnvironment({ env: options.env ?? process.env, storage: storage.kv });
+    const secretsWritable =
+      options.secretsWritable ??
+      ((options.env ?? process.env)[SECRETS_KEY_ENV] ?? "").trim().length > 0;
     for (const name of secrets.weakNames()) {
       log(`Secret ${name} is too short to redact reliably. Use a longer value.`);
     }
@@ -210,10 +233,20 @@ export async function createGenericCorpServer(
       options.toolkit ??
       createCompanyToolkit({ company, secrets, env: options.env ?? process.env });
     const companyToolkit = toolkit;
+    // Outward actions (messages, external writes, payments, writing MCP tools) wait for the
+    // owner. A gated call ends the agent's turn; the cascade parks the task as `waiting` and
+    // resumes it once every request is decided.
+    const approvals = createApprovalService({ runStore: storage.runStore });
+    const approvalPolicy = company.approvals ?? DEFAULT_APPROVAL_POLICY;
     const executor =
       options.executor ??
       createCompanyTaskExecutor({
-        capabilities: (input) => companyToolkit.capabilities(input),
+        capabilities: (input) =>
+          createApprovalGate({
+            service: approvals,
+            requester: approvalRequesterForTask(input, input.actor),
+            policy: approvalPolicy,
+          }).wrapBindings(companyToolkit.capabilities(input)),
         secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
         ...options.executorOptions,
         runStore: storage.runStore,
@@ -224,6 +257,7 @@ export async function createGenericCorpServer(
       storage,
       agentsRoot: path.join(environment.dataDir, "agents"),
       executor,
+      cascade: { approvals },
       log,
     });
     await runtime.initialize();
@@ -280,10 +314,30 @@ export async function createGenericCorpServer(
     }
 
     const ownerAuth = auth;
+    // The approvals inbox comes before the company API, whose not-found handler covers /api.
+    app.route(
+      API_ROUTE_PREFIX,
+      createApprovalRoutes(approvals, {
+        authenticate: async (request) =>
+          ownerAuth === undefined
+            ? LOCAL_OWNER
+            : await authenticateOwnerRequest(ownerAuth, request),
+        onDecided: async (approval) => {
+          await runtime.cascade.approvalDecided(approval.approvalId);
+        },
+      }),
+    );
     app.route(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
         toolkit: companyToolkit,
+        secrets: {
+          writable: secretsWritable,
+          references: companySecretReferences(company),
+          list: () => secrets.list(),
+          set: (name, value, setOptions) => secrets.set(name, value, setOptions),
+          delete: (name) => secrets.delete(name),
+        },
         authenticate: async (request) => {
           if (ownerAuth === undefined) {
             return LOCAL_OWNER;
@@ -292,6 +346,8 @@ export async function createGenericCorpServer(
         },
       }),
     );
+
+    app.route("/", createDashboardRoutes());
 
     if (environment.workers) {
       runtime.start();
@@ -304,6 +360,7 @@ export async function createGenericCorpServer(
       storage,
       environment,
       ...(auth === undefined ? {} : { auth }),
+      approvals,
       async stop() {
         await runtime.stop();
         await companyToolkit.close();

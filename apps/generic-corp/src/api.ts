@@ -1,11 +1,17 @@
 import type { AgentTaskStatus } from "@generic-ai/plugin-delegation";
-import { AUTH_SCOPES, type AuthContext, hasAuthScope, toRunActor } from "@generic-ai/sdk";
+import {
+  AUTH_SCOPES,
+  type AuthContext,
+  hasAuthScope,
+  type SecretDescriptor,
+  toRunActor,
+} from "@generic-ai/sdk";
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
 import type { CompanyEvent } from "./events.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
-import type { CompanyToolkitDescription } from "./toolkit.js";
+import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
  * The Generic Corp HTTP API (roadmap R13). JSON over Hono, mounted at
@@ -26,6 +32,31 @@ export interface CompanyApiOptions {
   readonly keepAliveMs?: number;
   /** The agents' toolkit, listed at `/api/tools`. */
   readonly toolkit?: { describe(): CompanyToolkitDescription };
+  /** The secrets vault, managed at `/api/secrets`. Values are never returned. */
+  readonly secrets?: CompanySecretsAdmin;
+}
+
+/** What the secrets screen needs from the vault. */
+export interface CompanySecretsAdmin {
+  /** Whether `set` and `delete` work (an encrypted store is configured). */
+  readonly writable: boolean;
+  /** Secrets the company config refers to. */
+  readonly references: readonly CompanySecretReference[];
+  list(): Promise<readonly SecretDescriptor[]>;
+  set(name: string, value: string, options?: { readonly updatedBy?: string }): Promise<void>;
+  delete(name: string): Promise<boolean>;
+}
+
+/** One row of the secrets screen. */
+export interface CompanySecretView {
+  readonly name: string;
+  readonly set: boolean;
+  /** `env`, `file` or `encrypted-store`, when set. */
+  readonly source?: string;
+  readonly updatedAt?: string;
+  readonly updatedBy?: string;
+  readonly usedBy: readonly string[];
+  readonly optional?: boolean;
 }
 
 export const API_ROUTE_PREFIX = "/api" as const;
@@ -34,6 +65,37 @@ type ApiEnv = { Variables: { auth: AuthContext } };
 
 const TASK_STATUSES: ReadonlySet<string> = new Set(BOARD_COLUMNS);
 const MAX_MESSAGE_CHARS = 32_000;
+const SECRET_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+const MAX_SECRET_CHARS = 16_384;
+
+async function secretViews(admin: CompanySecretsAdmin): Promise<CompanySecretView[]> {
+  const stored = new Map((await admin.list()).map((entry) => [entry.name, entry]));
+  const views = new Map<string, CompanySecretView>();
+  for (const reference of admin.references) {
+    const entry = stored.get(reference.name);
+    views.set(reference.name, {
+      name: reference.name,
+      set: entry !== undefined,
+      ...(entry === undefined ? {} : secretMetadata(entry)),
+      usedBy: reference.usedBy,
+      ...(reference.optional === true ? { optional: true } : {}),
+    });
+  }
+  for (const entry of stored.values()) {
+    if (!views.has(entry.name)) {
+      views.set(entry.name, { name: entry.name, set: true, ...secretMetadata(entry), usedBy: [] });
+    }
+  }
+  return [...views.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function secretMetadata(entry: SecretDescriptor) {
+  return {
+    source: entry.source,
+    ...(entry.updatedAt === undefined ? {} : { updatedAt: entry.updatedAt }),
+    ...(entry.updatedBy === undefined ? {} : { updatedBy: entry.updatedBy }),
+  };
+}
 
 class ApiError extends Error {
   constructor(
@@ -155,6 +217,77 @@ export function createCompanyApi(
   app.get("/tools", (c) =>
     c.json(options.toolkit?.describe() ?? { tools: [], webSearch: null, connectors: [] }),
   );
+
+  // --- Secrets -------------------------------------------------------------
+
+  const requireSecrets = (): CompanySecretsAdmin => {
+    if (options.secrets === undefined) {
+      throw new ApiError(404, "The secrets vault is not available.");
+    }
+    return options.secrets;
+  };
+
+  const requireManage = (c: Context<ApiEnv>): void => {
+    if (!hasAuthScope(c.get("auth"), AUTH_SCOPES.tokensManage)) {
+      throw new ApiError(403, `This credential lacks the "${AUTH_SCOPES.tokensManage}" scope.`);
+    }
+  };
+
+  const readSecretName = (c: Context<ApiEnv>): string => {
+    const name = c.req.param("name") ?? "";
+    if (!SECRET_NAME.test(name)) {
+      throw new ApiError(
+        400,
+        "Secret names are letters, digits and underscores, like CRM_API_KEY.",
+      );
+    }
+    return name;
+  };
+
+  app.get("/secrets", async (c) => {
+    const admin = requireSecrets();
+    return c.json({ writable: admin.writable, secrets: await secretViews(admin) });
+  });
+
+  app.put("/secrets/:name", async (c) => {
+    const admin = requireSecrets();
+    requireManage(c);
+    const name = readSecretName(c);
+    const value = (await readJsonObject(c))["value"];
+    if (typeof value !== "string" || value.length === 0) {
+      throw new ApiError(400, 'Send the value as {"value": "..."}.');
+    }
+    if (value.length > MAX_SECRET_CHARS) {
+      throw new ApiError(413, `Secret values are limited to ${MAX_SECRET_CHARS} characters.`);
+    }
+    if (!admin.writable) {
+      throw new ApiError(
+        409,
+        "Secrets can't be saved here until GENERIC_AI_SECRETS_KEY is set on the server.",
+      );
+    }
+    try {
+      await admin.set(name, value, { updatedBy: c.get("auth").subject.subjectId });
+    } catch (error) {
+      throw new ApiError(400, error instanceof Error ? error.message : String(error));
+    }
+    const view = (await secretViews(admin)).find((entry) => entry.name === name);
+    return c.json({ secret: view });
+  });
+
+  app.delete("/secrets/:name", async (c) => {
+    const admin = requireSecrets();
+    requireManage(c);
+    const name = readSecretName(c);
+    const deleted = await admin.delete(name);
+    if (!deleted) {
+      throw new ApiError(
+        404,
+        `Secret ${name} is not in the vault. Secrets from the environment or files are changed there.`,
+      );
+    }
+    return c.json({ deleted: true });
+  });
 
   // --- Agents and the org chart -------------------------------------------
 

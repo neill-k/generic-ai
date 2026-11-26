@@ -51,6 +51,95 @@ export interface CompanyConnectorDescription extends McpServerStatus {
   readonly connector?: string;
 }
 
+/** A secret the company config refers to, and who needs it. */
+export interface CompanySecretReference {
+  readonly name: string;
+  /** Where it is used: `web search`, `connector <id>`, `agent <id>`. */
+  readonly usedBy: readonly string[];
+  /** True when any one of a group of alternatives is enough (the search keys). */
+  readonly optional?: boolean;
+}
+
+function collectPlaceholders(value: unknown, into: Set<string>): void {
+  if (typeof value === "string") {
+    for (const match of value.matchAll(PLACEHOLDER)) {
+      into.add(match[1] as string);
+    }
+  } else if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectPlaceholders(entry, into);
+    }
+  } else if (typeof value === "object" && value !== null) {
+    for (const entry of Object.values(value)) {
+      collectPlaceholders(entry, into);
+    }
+  }
+}
+
+/**
+ * The secrets a company's config refers to: `${NAME}` placeholders in the search and connector
+ * settings, and exact names in agents' grants. Patterns such as `CRM_*` are not listed.
+ */
+export function companySecretReferences(company: CompanyConfig): readonly CompanySecretReference[] {
+  const references = new Map<string, { usedBy: string[]; optional: boolean }>();
+  const add = (name: string, usedBy: string, optional = false) => {
+    const entry = references.get(name) ?? { usedBy: [], optional };
+    if (!entry.usedBy.includes(usedBy)) {
+      entry.usedBy.push(usedBy);
+    }
+    entry.optional &&= optional;
+    references.set(name, entry);
+  };
+  const webSearch = company.tools?.webSearch;
+  if (webSearch === undefined) {
+    for (const config of AUTO_SEARCH) {
+      for (const name of placeholderNames(config)) {
+        add(name, "web search", true);
+      }
+    }
+  } else {
+    for (const name of placeholderNames(webSearch)) {
+      add(name, "web search");
+    }
+  }
+  const servers = company.tools?.mcp?.["servers"];
+  if (Array.isArray(servers)) {
+    for (const server of servers) {
+      if (
+        typeof server === "object" &&
+        server !== null &&
+        "enabled" in server &&
+        server.enabled === false
+      ) {
+        continue;
+      }
+      const names = new Set<string>();
+      collectPlaceholders(server, names);
+      const id =
+        typeof server === "object" && server !== null && "id" in server
+          ? String((server as { id: unknown }).id)
+          : "?";
+      for (const name of names) {
+        add(name, `connector ${id}`);
+      }
+    }
+  }
+  for (const agent of company.agents) {
+    for (const grant of agent.secrets ?? []) {
+      if (!grant.includes("*")) {
+        add(grant, `agent ${agent.id}`);
+      }
+    }
+  }
+  return [...references.entries()]
+    .map(([name, entry]) => ({
+      name,
+      usedBy: entry.usedBy,
+      ...(entry.optional ? { optional: true } : {}),
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export interface CreateCompanyToolkitOptions {
   readonly company: CompanyConfig;
   readonly secrets?: SecretsBroker;
@@ -67,7 +156,9 @@ const PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 /** Search backends tried, in order, when the company config names none. */
 const AUTO_SEARCH: readonly WebSearchProviderConfig[] = [
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: a config placeholder, resolved per search.
   { provider: "brave", apiKey: "${BRAVE_API_KEY}" },
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: a config placeholder, resolved per search.
   { provider: "tavily", apiKey: "${TAVILY_API_KEY}" },
 ];
 
