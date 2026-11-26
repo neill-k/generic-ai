@@ -4,9 +4,8 @@ import {
   defineTool,
   type AgentToolResult,
   type AgentToolUpdateCallback,
-  type ExtensionContext,
   type ToolDefinition,
-} from "@generic-ai/sdk/pi";
+} from "@generic-ai/sdk";
 
 import type { WebUiPlugin } from "./types.js";
 
@@ -73,7 +72,7 @@ function createListConfigTool(
       _params: Static<typeof listConfigSchema>,
       _signal: AbortSignal | undefined,
       _onUpdate: AgentToolUpdateCallback<unknown> | undefined,
-      _ctx: ExtensionContext,
+      _ctx?: unknown,
     ): Promise<AgentToolResult<unknown>> {
       const config = await plugin.getConfig();
       const templates = plugin.listTemplates();
@@ -107,7 +106,7 @@ function createReadConfigTool(
       _params: Static<typeof readConfigSchema>,
       _signal: AbortSignal | undefined,
       _onUpdate: AgentToolUpdateCallback<unknown> | undefined,
-      _ctx: ExtensionContext,
+      _ctx?: unknown,
     ): Promise<AgentToolResult<unknown>> {
       const snapshot = await plugin.getConfig();
       return {
@@ -131,7 +130,7 @@ function createValidateYamlTool(
       params: ValidateYamlInput,
       _signal: AbortSignal | undefined,
       _onUpdate: AgentToolUpdateCallback<unknown> | undefined,
-      _ctx: ExtensionContext,
+      _ctx?: unknown,
     ): Promise<AgentToolResult<unknown>> {
       const result = await plugin.previewConfig({
         edits: params.edits,
@@ -161,7 +160,7 @@ function createApplyTemplateTool(
       params: ApplyTemplateInput,
       _signal: AbortSignal | undefined,
       _onUpdate: AgentToolUpdateCallback<unknown> | undefined,
-      _ctx: ExtensionContext,
+      _ctx?: unknown,
     ): Promise<AgentToolResult<unknown>> {
       const result = await plugin.applyTemplate(params.templateId, {
         ...(params.dryRun === undefined ? {} : { dryRun: params.dryRun }),

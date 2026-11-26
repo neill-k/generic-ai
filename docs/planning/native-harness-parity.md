@@ -192,8 +192,9 @@ Each slice is a reviewable PR that keeps every existing test green.
    context-overflow detection with compact-and-retry; 8b Bedrock and native Mistral; 8c
    `@generic-ai/auth`: credential stores, locked token refresh, the OAuth building blocks and
    OpenRouter's sign-in. Sign-ins that reuse another product's OAuth client wait on a decision.
-9. **Make native the default and remove pi**: 9a (in review) makes `native` the default harness
-   and LLM runtime adapter (ADR 0068); 9b moves the plugin tool API off `@generic-ai/sdk/pi`; 9c
+9. **Make native the default and remove pi**: 9a makes `native` the default harness
+   and LLM runtime adapter (ADR 0068); 9b (in review) moves the plugin tool API off
+   `@generic-ai/sdk/pi` to `defineTool` in the root `@generic-ai/sdk`; 9c
    removes the `pi` and `openai-codex` adapters and the `pi` dependencies.
 
 ## Running the parity suites

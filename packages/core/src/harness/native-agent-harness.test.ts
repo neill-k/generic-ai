@@ -12,7 +12,7 @@ import {
   registerFauxProvider,
 } from "@generic-ai/ai";
 import { createMemoryToolEffectJournal, withAgentHarnessToolEffects } from "@generic-ai/sdk";
-import { defineTool } from "@generic-ai/sdk/pi";
+import { defineTool } from "@generic-ai/sdk";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
 

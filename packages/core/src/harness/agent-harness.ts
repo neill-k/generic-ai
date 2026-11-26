@@ -32,6 +32,7 @@ import {
   type CanonicalEvent,
   createToolEffectGuard,
   DEFAULT_AGENT_HARNESS_ADAPTER,
+  defineTool,
   getAgentHarnessToolEffects,
   goalTraceFromCanonicalEvents,
   type JsonObject,
@@ -43,16 +44,10 @@ import {
   type ToolEffectJournal,
   type UsageBudgetLimits,
   type UsageSummary,
+  type ToolDefinition,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
-import {
-  AuthStorage,
-  defineTool,
-  ModelRegistry,
-  SessionManager,
-  SettingsManager,
-  type ToolDefinition,
-} from "@generic-ai/sdk/pi";
+import { AuthStorage, ModelRegistry, SessionManager, SettingsManager } from "@generic-ai/sdk/pi";
 import {
   type CompactionSettings,
   SessionManager as NativeSessionManager,

@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
-import { defineTool, type ToolDefinition } from "@generic-ai/sdk/pi";
+import { defineTool, type ToolDefinition } from "@generic-ai/sdk";
 import {
   createWorkspaceLayout,
   resolveSafeWorkspacePath,

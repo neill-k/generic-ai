@@ -9,6 +9,7 @@ export * from "./harness/index.js";
 export * from "./preset.js";
 export * from "./run-envelope/index.js";
 export * from "./scope/index.js";
+export * from "./tools/index.js";
 export * from "./usage/index.js";
 
 // Re-export key config types for convenience

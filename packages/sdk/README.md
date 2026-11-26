@@ -68,14 +68,18 @@ The SDK defines the contract families planned in
   attempt summaries
 - composable agent harness contracts for adapters, role policy profiles,
   effect-described tools, artifact stores, and canonical harness events
+- the runtime-neutral tool contract: `defineTool`, `ToolDefinition`,
+  `AgentToolResult` and `AgentToolUpdateCallback`. Plugins define agent tools
+  with these and every session backend runs them
 
 The contract modules are intentionally kernel-agnostic. They do not import
 `@generic-ai/core`, and they do not require private kernel knowledge to
 implement.
 
 Pi runtime compatibility is intentionally separated into an explicit subpath:
-`@generic-ai/sdk/pi`. Import from that subpath only when you intentionally want
-Pi-specific runtime/tool primitives.
+`@generic-ai/sdk/pi`. It is deprecated: the native runtime is the default
+(ADR 0068) and the subpath is removed with the `pi` adapter. Define tools with
+`defineTool` from the root entrypoint instead.
 
 ## Helper surface
 

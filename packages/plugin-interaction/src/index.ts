@@ -6,9 +6,8 @@ import {
   defineTool,
   type AgentToolResult,
   type AgentToolUpdateCallback,
-  type ExtensionContext,
   type ToolDefinition,
-} from "@generic-ai/sdk/pi";
+} from "@generic-ai/sdk";
 
 export const name = "@generic-ai/plugin-interaction" as const;
 export const kind = "interaction" as const;
@@ -631,7 +630,7 @@ export function createAskUserToolDefinition(
       params: AskUserInput,
       signal: AbortSignal | undefined,
       _onUpdate: AgentToolUpdateCallback<InteractionResponse> | undefined,
-      _ctx: ExtensionContext,
+      _ctx?: unknown,
     ): Promise<AgentToolResult<InteractionResponse>> {
       const response = await interaction.askUser(
         params as InteractionQuestionInput,
@@ -665,7 +664,7 @@ export function createTaskWriteToolDefinition(
       params: TaskWriteInput,
       _signal: AbortSignal | undefined,
       _onUpdate: AgentToolUpdateCallback<InteractionTaskList> | undefined,
-      _ctx: ExtensionContext,
+      _ctx?: unknown,
     ): Promise<AgentToolResult<InteractionTaskList>> {
       const taskList = interaction.taskWrite(params as InteractionTaskListInput);
 
