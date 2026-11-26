@@ -82,6 +82,7 @@ const SESSION_STATUS: Record<ToolEffectRecord["status"], SessionRecordStatus> = 
   started: "active",
   completed: "succeeded",
   failed: "failed",
+  "not-performed": "cancelled",
 };
 
 function isToolEffectRecord(value: unknown): value is ToolEffectRecord {

@@ -54,6 +54,15 @@ Deliberate differences from pi:
   or dropped (listed in the test file headers).
 - Transport and retries come from `@anthropic-ai/sdk` and `openai` rather than hand-written SSE.
 - Model references are `provider/model-id` strings so config can choose a model per role.
+- Commands an agent runs get a clean environment. pi's bash tool passes the server's whole
+  environment, so provider keys and database URLs reach every command. The native bash tool
+  (`@generic-ai/tools`) builds the environment from an allowlist (`AGENT_COMMAND_ENV_KEYS`:
+  paths, home and temp directories, shell, user, locale, terminal) plus the session's
+  `GENERIC_AI_*` variables; `inheritProcessEnv: true` opts back into the whole environment, and
+  `plugin-tools-terminal` passes its own `inheritProcessEnv` through. Subagents reuse the
+  session's tools, so they get the same environment. Extensions run in the server process and are
+  trusted code, not agent commands. Any later process the runtime starts for an agent (slice 6
+  daemon sessions included) must use `getAgentCommandEnv`.
 
 ## Feature inventory
 

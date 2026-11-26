@@ -192,6 +192,7 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
   const tool = withAgentHarnessToolEffects(
     createBashTool(layout.root, {
       operations,
+      inheritProcessEnv,
       ...(commandPrefix === undefined ? {} : { commandPrefix }),
       ...(spawnHook === undefined ? {} : { spawnHook }),
     }),

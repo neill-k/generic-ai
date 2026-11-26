@@ -7,7 +7,7 @@ import { type Static, Type } from "@sinclair/typebox";
 import { Minimatch } from "minimatch";
 import { pathExists, resolveToCwd } from "./path-utils.js";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.js";
-import { getSearchHelperEnv } from "./shell.js";
+import { getAgentCommandEnv } from "./env.js";
 import { ensureTool } from "./tools-manager.js";
 import { DEFAULT_MAX_BYTES, formatSize, type TruncationResult, truncateHead } from "./truncate.js";
 import type { ExtensionContext, ToolDefinition } from "./types.js";
@@ -320,7 +320,7 @@ export function createFindToolDefinition(
             // child to stop yet. Do not start fd.
             if (signal?.aborted) return;
             const child = spawn(fdPath, args, {
-              env: getSearchHelperEnv(),
+              env: getAgentCommandEnv(),
               stdio: ["ignore", "pipe", "pipe"],
             });
             const rl = createInterface({ input: child.stdout });

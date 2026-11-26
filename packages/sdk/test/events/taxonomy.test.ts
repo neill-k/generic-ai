@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  canonicalApprovalLifecycleNames,
   canonicalCoreEventNames,
   canonicalDelegationLifecycleNames,
   canonicalArtifactLifecycleNames,
@@ -48,8 +49,10 @@ describe("sdk canonical event taxonomy", () => {
         canonicalPolicyLifecycleNames.length +
         canonicalHookLifecycleNames.length +
         canonicalArtifactLifecycleNames.length +
-        canonicalUsageLifecycleNames.length,
+        canonicalUsageLifecycleNames.length +
+        canonicalApprovalLifecycleNames.length,
     );
+    expect(canonicalApprovalLifecycleNames).toContain("approval.approved");
   });
 
   it("identifies canonical and plugin event names", () => {
@@ -65,6 +68,7 @@ describe("sdk canonical event taxonomy", () => {
     expect(getCanonicalEventFamily("terminal.command.failed")).toBe("terminal");
     expect(getCanonicalEventFamily("policy.decision")).toBe("policy");
     expect(getCanonicalEventFamily("usage.budget.exceeded")).toBe("usage");
+    expect(getCanonicalEventFamily("approval.requested")).toBe("approval");
     expect(getCanonicalEventFamily("hook.execution.failed")).toBe("hook");
     expect(getCanonicalEventFamily("plugin.logging-otel.span.created")).toBe("plugin");
   });

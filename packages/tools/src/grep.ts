@@ -5,7 +5,7 @@ import { createInterface } from "node:readline";
 import { type Static, Type } from "@sinclair/typebox";
 import { resolveToCwd } from "./path-utils.js";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.js";
-import { getSearchHelperEnv } from "./shell.js";
+import { getAgentCommandEnv } from "./env.js";
 import { ensureTool } from "./tools-manager.js";
 import {
   DEFAULT_MAX_BYTES,
@@ -192,7 +192,7 @@ export function createGrepToolDefinition(
 
             const child = spawn(rgPath, args, {
               cwd: isDirectory ? searchPath : undefined,
-              env: getSearchHelperEnv(),
+              env: getAgentCommandEnv(),
               stdio: ["ignore", "pipe", "pipe"],
             });
             const rl = createInterface({ input: child.stdout });
