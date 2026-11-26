@@ -32,7 +32,6 @@ export {
   getAgentCommandEnv,
 } from "./env.js";
 export { withFileMutationQueue } from "./file-mutation-queue.js";
-export { getShellConfig, killProcessTree, type ShellConfig } from "./shell.js";
 export {
   createFindTool,
   createFindToolDefinition,
@@ -65,6 +64,7 @@ export {
   type ReadToolInput,
   type ReadToolOptions,
 } from "./read.js";
+export { getShellConfig, killProcessTree, type ShellConfig } from "./shell.js";
 export {
   type ToolContextFactory,
   type TypeBoxAgentTool,
@@ -129,6 +129,17 @@ export function createReadOnlyTools(cwd: string, options: ToolsOptions = {}): To
   ] as Tool[];
 }
 export {
+  createToolBatchTool,
+  type OffloadEvent,
+  type OffloadedDetails,
+  type OffloadOptions,
+  offloadToolResult,
+  TOOL_BATCH_TOOL,
+  type ToolBatchCallResult,
+  type ToolBatchOptions,
+  withOffload,
+} from "./offload.js";
+export {
   canonicalizePath,
   getPathComparisonKey,
   isPathWithin,
@@ -137,13 +148,17 @@ export {
   resolvePath,
 } from "./paths.js";
 export {
-  createToolBatchTool,
-  type OffloadedDetails,
-  type OffloadEvent,
-  type OffloadOptions,
-  offloadToolResult,
-  TOOL_BATCH_TOOL,
-  type ToolBatchCallResult,
-  type ToolBatchOptions,
-  withOffload,
-} from "./offload.js";
+  Bm25Ranker,
+  createToolSearchDocument,
+  createToolSearchTool,
+  DEFAULT_TOOL_SEARCH_LIMIT,
+  TOOL_SEARCH_DESCRIPTION,
+  TOOL_SEARCH_TOOL_NAME,
+  type ToolRanker,
+  type ToolSearchDocument,
+  type ToolSearchMatch,
+  type ToolSearchNamespace,
+  type ToolSearchToolDetails,
+  type ToolSearchToolOptions,
+  tokenize,
+} from "./tool-search.js";

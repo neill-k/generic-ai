@@ -58,6 +58,8 @@ import {
 } from "@generic-ai/subagents";
 import {
   createToolBatchTool,
+  createToolSearchTool,
+  TOOL_SEARCH_TOOL_NAME,
   type OffloadOptions,
   type ToolBatchOptions,
   withOffload,
@@ -110,6 +112,33 @@ const NATIVE_RUNTIME_EVENT_PLUGIN_ID = "generic-ai-runtime";
  * policy, hook, and event plumbing; the pi-specific auth, registry, and session-manager inputs
  * are replaced by a resolved `model`.
  */
+export interface NativeToolSearchOptions {
+  /** Which tools start deferred. Default: names starting `mcp__`. */
+  readonly defer?: (tool: AgentTool) => boolean;
+  /** Tools loaded per search when the agent gives no limit. Default 8. */
+  readonly limit?: number;
+}
+
+/** Names of the tools earlier `tool_search` calls loaded, from a transcript. */
+function toolsLoadedBySearch(messages: readonly unknown[]): string[] {
+  const names: string[] = [];
+  for (const message of messages) {
+    if (typeof message !== "object" || message === null) continue;
+    const entry = message as { role?: unknown; toolName?: unknown; details?: unknown };
+    if (entry.role !== "toolResult" || entry.toolName !== TOOL_SEARCH_TOOL_NAME) continue;
+    const loaded = (entry.details as { loaded?: unknown } | undefined)?.loaded;
+    if (Array.isArray(loaded)) {
+      for (const name of loaded) if (typeof name === "string") names.push(name);
+    }
+  }
+  return names;
+}
+
+/** Default deferral: MCP tools. */
+export function isDefaultDeferredTool(tool: { readonly name: string }): boolean {
+  return tool.name.startsWith("mcp__");
+}
+
 export interface RunCapabilityNativeAgentSessionOptions {
   readonly cwd: string;
   readonly model: Model;
@@ -194,6 +223,12 @@ export interface RunCapabilityNativeAgentSessionOptions {
   readonly offload?: OffloadOptions | false;
   /** Give the agent `tool_batch`, which runs several independent tool calls in one step. */
   readonly toolBatch?: ToolBatchOptions | boolean;
+  /**
+   * Defer some tools and give the agent `tool_search`, which loads matching deferred tools from the
+   * next model call. Keeps requests small when many MCP tools are connected. `true` defers every
+   * MCP tool (names starting `mcp__`); `defer` chooses the tools. Off by default.
+   */
+  readonly toolSearch?: NativeToolSearchOptions | boolean;
   /**
    * Save the scripts the agent writes when the run passes its goal's validators, so they can be
    * reused or promoted into skills (`promoteScriptToSkill`).
@@ -621,6 +656,35 @@ export async function runCapabilityNativeAgentSession(
     ...(continual?.tools ?? []),
     ...(turnMode === "single-turn" ? [] : [createNativeStopTool(stopState)]),
   ].map(offloaded);
+  const deferredTools: AgentTool[] = [];
+  let toolsLoadedSinceTurn = false;
+  const loadDeferredTools = (names: readonly string[]): void => {
+    for (const name of names) {
+      const index = deferredTools.findIndex((tool) => tool.name === name);
+      if (index === -1) continue;
+      const [tool] = deferredTools.splice(index, 1);
+      if (tool !== undefined) tools.push(tool);
+      toolsLoadedSinceTurn = true;
+    }
+  };
+  if (options.toolSearch !== undefined && options.toolSearch !== false) {
+    const searchOptions = options.toolSearch === true ? {} : options.toolSearch;
+    const defer = searchOptions.defer ?? isDefaultDeferredTool;
+    for (let index = tools.length - 1; index >= 0; index -= 1) {
+      const tool = tools[index];
+      if (tool !== undefined && tool.name !== STOP_AND_RESPOND_TOOL_NAME && defer(tool)) {
+        deferredTools.unshift(tool);
+        tools.splice(index, 1);
+      }
+    }
+    tools.push(
+      createToolSearchTool({
+        getDeferredTools: () => deferredTools,
+        load: loadDeferredTools,
+        ...(searchOptions.limit === undefined ? {} : { defaultLimit: searchOptions.limit }),
+      }) as unknown as AgentTool,
+    );
+  }
   if (options.toolBatch !== undefined && options.toolBatch !== false) {
     const batchOptions = options.toolBatch === true ? {} : options.toolBatch;
     tools.push(
@@ -669,9 +733,22 @@ export async function runCapabilityNativeAgentSession(
     ...(options.streamFn === undefined ? {} : { streamFn: options.streamFn }),
     ...(apiKey === undefined || apiKey.length === 0 ? {} : { getApiKey: () => apiKey }),
     ...(options.getAuth === undefined ? {} : { getAuth: options.getAuth }),
+    // Tools loaded by `tool_search` are declared from the next model call.
+    prepareNextTurn: ({ context }) => {
+      if (!toolsLoadedSinceTurn) return undefined;
+      toolsLoadedSinceTurn = false;
+      agent.state.tools = tools;
+      return { context: { ...context, tools: tools.slice() } };
+    },
   });
 
   restoreAgentContext(agent, sessionManager);
+  // A resumed session keeps the tools its earlier searches loaded.
+  if (deferredTools.length > 0) {
+    loadDeferredTools(toolsLoadedBySearch(agent.state.messages));
+    agent.state.tools = tools;
+    toolsLoadedSinceTurn = false;
+  }
   const stopPersisting = persistAgentMessages(agent, sessionManager);
   const retryPolicy = options.retry === false ? undefined : (options.retry ?? DEFAULT_RETRY_POLICY);
 
