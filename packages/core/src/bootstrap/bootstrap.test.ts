@@ -212,6 +212,45 @@ describe("createGenericAI", () => {
     });
   });
 
+  it("carries the run actor on the envelope, events, and task context", async () => {
+    const actor = {
+      subjectId: "owner",
+      actorType: "human" as const,
+      credentialSource: "bearer" as const,
+      credentialId: "token:abc",
+    };
+    const bootstrap = createGenericAI({
+      preset: createStarterPreset({
+        id: "@acme/preset",
+        name: "Actor preset",
+        transport: "custom",
+        capabilities: [],
+        plugins: [{ pluginId: "provider", slot: "output" }],
+      }),
+      createRunId: () => "run-actor",
+      now: () => "2026-01-01T00:00:00.000Z",
+    });
+
+    const envelope = await bootstrap.run((context) => context.actor?.subjectId, { actor });
+    expect(envelope.actor).toEqual(actor);
+    expect(envelope.output?.payload).toBe("owner");
+
+    const chunks = [];
+    for await (const chunk of bootstrap.stream("hello", { actor })) {
+      chunks.push(chunk);
+    }
+    for (const chunk of chunks) {
+      if (chunk.type === "event") {
+        expect(chunk.event.actor).toEqual(actor);
+      } else {
+        expect(chunk.envelope.actor).toEqual(actor);
+      }
+    }
+
+    const anonymous = await bootstrap.run("hello");
+    expect(anonymous).not.toHaveProperty("actor");
+  });
+
   it("streams canonical run events and a terminal envelope", async () => {
     const bootstrap = createGenericAI({
       preset: createStarterPreset({
