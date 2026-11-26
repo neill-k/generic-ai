@@ -49,10 +49,14 @@ that figure as a first-class measure.
 
 ## Consequences
 
-- Harness sessions on the native runtime still need to route their agent
-  events through a shared meter and map `UsageBudgetExceededError` to the
-  existing `budget_exceeded` error category. That wiring touches the native
-  session runner, which is still landing, and follows as its own change.
+- Harness runs on the native adapter share one meter per run across the root
+  session, every `delegate_agent` session, and every topology actor. Caps come
+  from `AgentHarnessBudget.maxTokens` / `maxCostUsd` (run context first, then
+  the run input; `runAgentHarnessTopology` takes `budget`). A reached cap aborts
+  every session, the run fails with `errorCategory: "budget_exceeded"`, and the
+  result carries `usage`. A budget abort is never retried. The pi adapter does
+  not report usage through the meter yet.
+- Model calls made by context compaction are not metered yet.
 - Tool results that report nested usage are not counted, to avoid double
   counting delegated sessions that meter themselves.
 - Costs are list-price estimates from the model catalog, not provider invoices.

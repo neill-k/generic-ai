@@ -21,6 +21,7 @@ import {
   createPluginEvent,
 } from "../events/index.js";
 import { createRunEnvelope } from "../run-envelope/index.js";
+import type { UsageAttribution, UsageMeter } from "../usage/index.js";
 import {
   type CapabilityPiSessionEventContext,
   type PiCapabilityBindings,
@@ -76,6 +77,15 @@ export interface RunCapabilityNativeAgentSessionOptions {
   readonly compaction?: Partial<CompactionSettings> | false;
   /** Retry on transient provider errors. Defaults to three retries with exponential backoff; `false` turns it off. */
   readonly retry?: RetryPolicy | false;
+  /**
+   * Meter this session's model responses (usually one meter shared by every session of a run). The
+   * meter emits `usage.recorded` events, and when it reaches a cap its signal aborts this session
+   * like a caller abort, with a `UsageBudgetExceededError` as the reason. A budget abort is never
+   * retried.
+   */
+  readonly usageMeter?: UsageMeter;
+  /** Role, agent, and goal labels for this session's usage. The agent defaults to the session id. */
+  readonly usageAttribution?: UsageAttribution;
 }
 
 export interface RunCapabilityNativeAgentSessionResult {
@@ -254,6 +264,11 @@ export async function runCapabilityNativeAgentSession(
     ...(options.parentSessionId === undefined ? {} : { parentSessionId: options.parentSessionId }),
   } satisfies CapabilityPiSessionEventContext;
   const toolNames = tools.map((tool) => tool.name);
+  const signal = mergeAbortSignals(options.signal, options.usageMeter?.signal);
+  const unmeter = options.usageMeter?.bindAgent(agent, {
+    ...eventContext,
+    ...options.usageAttribution,
+  });
 
   await eventStream.emit({
     ...eventContext,
@@ -282,7 +297,7 @@ export async function runCapabilityNativeAgentSession(
       .then(() => undefined);
   });
   const abort = () => agent.abort();
-  options.signal?.addEventListener("abort", abort, { once: true });
+  signal?.addEventListener("abort", abort, { once: true });
 
   const emitRuntimeEvent = (type: string, data: Record<string, unknown>) =>
     eventStream.emit(
@@ -300,7 +315,7 @@ export async function runCapabilityNativeAgentSession(
         settings: options.compaction,
         apiKey,
         streamFn: options.streamFn,
-        signal: options.signal,
+        signal,
         retry: retryPolicy,
       });
       if (compaction !== undefined) {
@@ -312,7 +327,7 @@ export async function runCapabilityNativeAgentSession(
     }
     await runWithRetry(agent, () => agent.prompt(text), {
       policy: retryPolicy ?? { enabled: false, maxRetries: 0, baseDelayMs: 0 },
-      signal: options.signal,
+      signal,
       onRetry: async (notice) => {
         await emitRuntimeEvent("retry", {
           attempt: notice.attempt,
@@ -323,9 +338,9 @@ export async function runCapabilityNativeAgentSession(
       },
     });
     const last = latestAssistant(agent.state.messages);
-    if (options.signal?.aborted || last?.stopReason === "aborted") {
-      throw options.signal?.reason instanceof Error
-        ? options.signal.reason
+    if (signal?.aborted || last?.stopReason === "aborted") {
+      throw signal?.reason instanceof Error
+        ? signal.reason
         : new Error("Native session run was aborted.");
     }
     if (agent.state.errorMessage !== undefined && !stopState.stopped) {
@@ -339,8 +354,9 @@ export async function runCapabilityNativeAgentSession(
     readonly terminalStatus?: StopAndRespondState["status"];
   }): Promise<RunCapabilityNativeAgentSessionResult> => {
     unsubscribe();
+    unmeter?.();
     stopPersisting();
-    options.signal?.removeEventListener("abort", abort);
+    signal?.removeEventListener("abort", abort);
     await forwarder;
     const messageCount = agent.state.messages.length;
     const failed = input.failureMessage !== undefined;
@@ -398,9 +414,9 @@ export async function runCapabilityNativeAgentSession(
     const prompt =
       (await options.lifecycleHooks?.onUserPromptSubmit(eventContext, options.prompt)) ??
       options.prompt;
-    if (options.signal?.aborted) {
-      throw options.signal.reason instanceof Error
-        ? options.signal.reason
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error
+        ? signal.reason
         : new Error("Native session run was aborted before prompt dispatch.");
     }
     if (turnMode === "single-turn") {
@@ -430,4 +446,15 @@ export async function runCapabilityNativeAgentSession(
   } catch (error) {
     return finish({ failureMessage: toErrorMessage(error) });
   }
+}
+
+/** One signal that aborts when any of the given signals does, keeping the first abort reason. */
+function mergeAbortSignals(
+  ...signals: readonly (AbortSignal | undefined)[]
+): AbortSignal | undefined {
+  const present = signals.filter((signal): signal is AbortSignal => signal !== undefined);
+  if (present.length <= 1) {
+    return present[0];
+  }
+  return AbortSignal.any(present);
 }

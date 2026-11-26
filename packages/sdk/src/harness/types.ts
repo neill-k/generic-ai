@@ -3,6 +3,7 @@ import type { CanonicalEvent } from "../events/index.js";
 import type { RunEnvelope } from "../run-envelope/index.js";
 import type { RunActor } from "../contracts/identity.js";
 import type { GoalSpec } from "../goals/types.js";
+import type { UsageSummary } from "../usage/types.js";
 import type {
   AgentLifecycleHookDecisionRecord,
   AgentLifecycleHooksConfig,
@@ -415,6 +416,11 @@ export interface AgentHarnessRunResult<TOutput = string> {
   readonly hookDecisions: readonly AgentLifecycleHookDecisionRecord[];
   readonly failureMessage?: string;
   readonly errorCategory?: AgentHarnessRunErrorCategory;
+  /**
+   * Model usage of the run rolled up per agent, goal, and model, when the adapter meters it (the
+   * native adapter does). `errorCategory` is `budget_exceeded` when a token or dollar cap stopped it.
+   */
+  readonly usage?: UsageSummary;
   readonly metadata?: JsonObject;
 }
 
