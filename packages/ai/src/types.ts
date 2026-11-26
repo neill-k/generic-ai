@@ -12,7 +12,14 @@ export type JsonValue = null | boolean | number | string | readonly JsonValue[] 
 export type JsonObject = { [key: string]: JsonValue };
 
 /** Wire protocols the runtime can speak. Custom APIs can be registered with `registerApi()`. */
-export type KnownApi = "anthropic-messages" | "openai-responses" | "openai-completions" | "faux";
+export type KnownApi =
+  | "anthropic-messages"
+  | "openai-responses"
+  | "azure-openai-responses"
+  | "openai-completions"
+  | "google-generative-ai"
+  | "google-vertex"
+  | "faux";
 export type Api = KnownApi | (string & {});
 
 export type KnownProvider =
@@ -24,6 +31,9 @@ export type KnownProvider =
   | "deepseek"
   | "mistral"
   | "ollama"
+  | "google"
+  | "google-vertex"
+  | "azure-openai"
   | "faux";
 export type ProviderId = KnownProvider | (string & {});
 
@@ -73,6 +83,8 @@ export interface ToolCall {
    * and tool argument validation fails with this message.
    */
   argumentsError?: string;
+  /** Opaque provider signature replayed with the call to the same model (Gemini thought signatures). */
+  thoughtSignature?: string;
 }
 
 export interface Usage {

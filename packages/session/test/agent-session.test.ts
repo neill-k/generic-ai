@@ -100,6 +100,52 @@ describe("retry on transient errors", () => {
     expect(provider.state.callCount).toBe(1);
   });
 
+  it("recovers once from a context overflow through onContextOverflow", async () => {
+    const { provider, agent } = setup();
+    provider.setResponses([
+      fauxAssistantMessage([], {
+        stopReason: "error",
+        errorMessage: "prompt is too long: 213462 tokens > 200000 maximum",
+      }),
+      fauxAssistantMessage("Answered after compacting."),
+    ]);
+    let compactions = 0;
+    await runWithRetry(agent, () => agent.prompt("Hello"), {
+      policy: { enabled: true, maxRetries: 2, baseDelayMs: 1 },
+      onContextOverflow: async () => {
+        compactions += 1;
+        return true;
+      },
+    });
+    expect(compactions).toBe(1);
+    expect(agent.state.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+    const last = agent.state.messages.at(-1);
+    expect(last?.role === "assistant" && last.stopReason).toBe("stop");
+  });
+
+  it("stops when an overflow cannot be compacted, and does not loop on a second one", async () => {
+    const overflow = () =>
+      fauxAssistantMessage([], { stopReason: "error", errorMessage: "context_length_exceeded" });
+    const first = setup();
+    first.provider.setResponses([overflow(), fauxAssistantMessage("Not reached.")]);
+    await runWithRetry(first.agent, () => first.agent.prompt("Hello"), {
+      onContextOverflow: async () => false,
+    });
+    expect(first.provider.state.callCount).toBe(1);
+
+    const second = setup();
+    second.provider.setResponses([overflow(), overflow(), fauxAssistantMessage("Not reached.")]);
+    let calls = 0;
+    await runWithRetry(second.agent, () => second.agent.prompt("Hello"), {
+      onContextOverflow: async () => {
+        calls += 1;
+        return true;
+      },
+    });
+    expect(calls).toBe(1);
+    expect(second.provider.state.callCount).toBe(2);
+  });
+
   it("does not report a retry when the run is already aborted", async () => {
     const { provider, agent } = setup();
     provider.setResponses([

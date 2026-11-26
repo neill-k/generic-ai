@@ -23,6 +23,14 @@ export const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   deepseek: { api: "openai-completions", baseUrl: "https://api.deepseek.com/v1" },
   mistral: { api: "openai-completions", baseUrl: "https://api.mistral.ai/v1" },
   ollama: { api: "openai-completions", baseUrl: "http://localhost:11434/v1" },
+  google: {
+    api: "google-generative-ai",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+  },
+  // Empty: the SDK builds the regional endpoint from the project and location.
+  "google-vertex": { api: "google-vertex", baseUrl: "" },
+  // Set the resource URL (`https://<resource>.openai.azure.com/openai/v1`) or AZURE_OPENAI_BASE_URL.
+  "azure-openai": { api: "azure-openai-responses", baseUrl: "" },
 };
 
 function claude(id: string, name: string, input: number, output: number, cacheRead: number): Model {
@@ -120,17 +128,22 @@ export function resolveModel(
       `Unknown provider "${provider}" for model "${id}". Known providers: ${Object.keys(PROVIDER_DEFAULTS).join(", ")}; or pass api and baseUrl.`,
     );
   }
+  // Gemini 2.5 and later think and have a 1M-token window; other unknown models get conservative limits.
+  const gemini =
+    (provider === "google" || provider === "google-vertex") &&
+    /gemini-(?:2\.5|[3-9]|\d{2,})|gemini-flash(?:-lite)?-latest/.test(id.toLowerCase());
   return {
     id,
     name: id,
     api: defaults?.api ?? "openai-completions",
     provider,
     baseUrl: defaults?.baseUrl ?? "",
-    reasoning: provider === "anthropic" || provider === "openai",
+    reasoning:
+      provider === "anthropic" || provider === "openai" || provider === "azure-openai" || gemini,
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200_000,
-    maxTokens: 32_000,
+    contextWindow: gemini ? 1_048_576 : 200_000,
+    maxTokens: gemini ? 65_536 : 32_000,
     ...overrides,
   };
 }

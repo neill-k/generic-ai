@@ -16,6 +16,7 @@ import {
 import {
   type CompactionSettings,
   compactIfNeeded,
+  compactNow,
   convertToLlm,
   DEFAULT_RETRY_POLICY,
   persistAgentMessages,
@@ -768,6 +769,34 @@ export async function runCapabilityNativeAgentSession(
     await runWithRetry(agent, () => agent.prompt(text), {
       policy: retryPolicy ?? { enabled: false, maxRetries: 0, baseDelayMs: 0 },
       signal,
+      contextWindow: options.model.contextWindow,
+      ...(options.compaction === false
+        ? {}
+        : {
+            onContextOverflow: async () => {
+              compacting = true;
+              const compaction = await compactNow(agent, sessionManager, {
+                model: options.model,
+                settings: options.compaction === false ? undefined : options.compaction,
+                apiKey,
+                streamFn: options.streamFn,
+                signal,
+                retry: retryPolicy,
+              }).finally(() => {
+                compacting = false;
+              });
+              if (compaction === undefined) {
+                return false;
+              }
+              continual?.markCompacted();
+              await emitRuntimeEvent("compaction", {
+                tokensBefore: compaction.tokensBefore,
+                firstKeptEntryId: compaction.firstKeptEntryId,
+                reason: "overflow",
+              });
+              return true;
+            },
+          }),
       onRetry: async (notice) => {
         await emitRuntimeEvent("retry", {
           attempt: notice.attempt,
