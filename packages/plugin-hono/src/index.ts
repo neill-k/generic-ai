@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { AuthContext } from "@generic-ai/sdk";
 import { Hono } from "hono";
 
 export const name = "@generic-ai/plugin-hono" as const;
@@ -14,15 +15,33 @@ export interface HonoRunContext {
   readonly requestId: string;
   readonly mode: "health" | "sync" | "stream";
   readonly signal: AbortSignal;
+  /**
+   * Normalized identity of the caller, set when an `authenticate` handler
+   * accepted the request with a context. Never carries raw credentials.
+   */
+  readonly auth?: AuthContext;
 }
 
-export interface HonoAuthorizeContext extends HonoRunContext {
+export interface HonoAuthorizeContext extends Omit<HonoRunContext, "auth"> {
   readonly request: Request;
 }
 
 export type HonoAuthorizeHandler = (
   context: HonoAuthorizeContext,
 ) => Promise<Response | undefined> | Response | undefined;
+
+/**
+ * Outcome of authenticating a run request. `ok: true` lets the request
+ * through, optionally with a normalized {@link AuthContext}; `ok: false`
+ * returns the given response (usually 401 or 403) before the body is read.
+ */
+export type HonoAuthenticationResult =
+  | { readonly ok: true; readonly auth?: AuthContext }
+  | { readonly ok: false; readonly response: Response };
+
+export type HonoAuthenticateHandler = (
+  context: HonoAuthorizeContext,
+) => Promise<HonoAuthenticationResult> | HonoAuthenticationResult;
 
 export interface HonoStreamChunk {
   readonly event?: string;
@@ -43,7 +62,16 @@ export type HonoStreamHandler = (
 export interface HonoPluginOptions {
   readonly routePrefix?: string;
   readonly health?: (context: HonoRunContext) => Promise<unknown> | unknown;
+  /**
+   * Allow/deny hook that runs before the request body is read. Kept for
+   * callers that only need a yes/no decision; prefer `authenticate`.
+   */
   readonly authorize?: HonoAuthorizeHandler;
+  /**
+   * Identity hook that runs before the request body is read. When both
+   * `authorize` and `authenticate` are set, `authorize` runs first.
+   */
+  readonly authenticate?: HonoAuthenticateHandler;
   readonly run: HonoRunHandler;
   readonly stream?: HonoStreamHandler;
   readonly createRequestId?: () => string;
@@ -253,15 +281,26 @@ export function createHonoSseResponse(
   );
 }
 
-async function authorizeRequest(
-  authorize: HonoAuthorizeHandler | undefined,
+type GateResult =
+  | { readonly ok: true; readonly auth?: AuthContext }
+  | { readonly ok: false; readonly response: Response };
+
+async function gateRequest(
+  options: HonoPluginOptions,
   context: HonoAuthorizeContext,
-): Promise<Response | undefined> {
-  if (authorize === undefined) {
-    return undefined;
+): Promise<GateResult> {
+  if (options.authorize !== undefined) {
+    const unauthorized = await options.authorize(context);
+    if (unauthorized !== undefined) {
+      return { ok: false, response: unauthorized };
+    }
   }
 
-  return await authorize(context);
+  if (options.authenticate === undefined) {
+    return { ok: true };
+  }
+
+  return await options.authenticate(context);
 }
 
 export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
@@ -289,14 +328,14 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
 
   app.post(`${routePrefix}/run`, async (context) => {
     const requestId = createRequestId();
-    const unauthorized = await authorizeRequest(options.authorize, {
+    const gate = await gateRequest(options, {
       request: context.req.raw.clone(),
       requestId,
       mode: "sync",
       signal: context.req.raw.signal,
     });
-    if (unauthorized !== undefined) {
-      return unauthorized;
+    if (!gate.ok) {
+      return gate.response;
     }
 
     let payload: HonoRunPayload;
@@ -313,6 +352,7 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
       requestId,
       mode: "sync",
       signal: context.req.raw.signal,
+      ...(gate.auth === undefined ? {} : { auth: gate.auth }),
     });
 
     return context.json({
@@ -333,14 +373,14 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
     }
 
     const requestId = createRequestId();
-    const unauthorized = await authorizeRequest(options.authorize, {
+    const gate = await gateRequest(options, {
       request: context.req.raw.clone(),
       requestId,
       mode: "stream",
       signal: context.req.raw.signal,
     });
-    if (unauthorized !== undefined) {
-      return unauthorized;
+    if (!gate.ok) {
+      return gate.response;
     }
 
     let payload: HonoRunPayload;
@@ -357,6 +397,7 @@ export function createHonoPlugin(options: HonoPluginOptions): HonoPlugin {
       requestId,
       mode: "stream",
       signal: context.req.raw.signal,
+      ...(gate.auth === undefined ? {} : { auth: gate.auth }),
     });
 
     return createHonoSseResponse(stream, context.req.raw.signal);
