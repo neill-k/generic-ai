@@ -41,6 +41,12 @@ import {
   createSubagentTools,
   type SubagentEvent,
 } from "@generic-ai/subagents";
+import {
+  createToolBatchTool,
+  type OffloadOptions,
+  type ToolBatchOptions,
+  withOffload,
+} from "@generic-ai/tools";
 
 import {
   type CanonicalEvent,
@@ -64,6 +70,11 @@ import {
   type NativeSessionGoal,
 } from "./native-long-run.js";
 import { createSessionSchedules, type NativeSessionSchedules } from "./native-schedules.js";
+import {
+  createScriptHarvest,
+  type HarvestedScript,
+  type NativeSessionHarvest,
+} from "./script-harvest.js";
 import {
   type AgentTurnMode,
   STOP_AND_RESPOND_TOOL_NAME,
@@ -150,6 +161,19 @@ export interface RunCapabilityNativeAgentSessionOptions {
    * `service` runs the ones that come due after the session ends.
    */
   readonly schedules?: NativeSessionSchedules | boolean;
+  /**
+   * Offload long tool results: a result longer than `maxChars` (default 16000 characters) is saved
+   * to a file and the model gets a preview and the path (see `docs/offloading.md`). On by default;
+   * `false` turns it off.
+   */
+  readonly offload?: OffloadOptions | false;
+  /** Give the agent `tool_batch`, which runs several independent tool calls in one step. */
+  readonly toolBatch?: ToolBatchOptions | boolean;
+  /**
+   * Save the scripts the agent writes when the run passes its goal's validators, so they can be
+   * reused or promoted into skills (`promoteScriptToSkill`).
+   */
+  readonly harvest?: NativeSessionHarvest;
 }
 
 export type { NativeSessionAutonomous, NativeSessionGoal } from "./native-long-run.js";
@@ -204,6 +228,8 @@ export interface RunCapabilityNativeAgentSessionResult {
   readonly autonomous?: AutonomousStatus;
   /** The session's active and paused scheduled jobs when it ended, when it has schedules. */
   readonly schedules?: readonly ScheduledJob[];
+  /** Scripts saved because the run passed its goal's validators. */
+  readonly harvestedScripts?: readonly HarvestedScript[];
 }
 
 const DEFAULT_NATIVE_SYSTEM_PROMPT =
@@ -429,6 +455,7 @@ export async function runCapabilityNativeAgentSession(
     ...(apiKey === undefined || apiKey.length === 0 ? {} : { apiKey }),
     onEvent: (event) => emitSubagentEvent(event),
   });
+  let passedValidation: string | undefined;
   const longRun = createSessionLongRun({
     cwd: options.cwd,
     sessionManager,
@@ -443,6 +470,7 @@ export async function runCapabilityNativeAgentSession(
     },
     signal: options.signal,
     onValidation: async (report) => {
+      passedValidation = report.complete ? report.goalId : undefined;
       await emitRuntimeEvent("goal_validation", {
         goalId: report.goalId,
         status: report.status,
@@ -462,13 +490,47 @@ export async function runCapabilityNativeAgentSession(
     },
   });
   const scheduleOptions = typeof options.schedules === "object" ? options.schedules : undefined;
-  const tools = [
+  const userOffload = options.offload === false ? undefined : (options.offload ?? {});
+  const offload: OffloadOptions | undefined =
+    userOffload === undefined
+      ? undefined
+      : {
+          ...userOffload,
+          onOffload: (event) => {
+            userOffload.onOffload?.(event);
+            void emitRuntimeEvent("tool_result_offloaded", { ...event });
+          },
+        };
+  const offloaded = (tool: AgentTool): AgentTool =>
+    offload === undefined ? tool : withOffload(tool, offload);
+  const tools: AgentTool[] = [
     ...capabilityTools,
     ...(subagentRoot === undefined ? [] : (createSubagentTools(subagentRoot) as AgentTool[])),
     ...(longRun?.tools ?? []),
     ...(schedules?.tools ?? []),
     ...(turnMode === "single-turn" ? [] : [createNativeStopTool(stopState)]),
-  ];
+  ].map(offloaded);
+  if (options.toolBatch !== undefined && options.toolBatch !== false) {
+    const batchOptions = options.toolBatch === true ? {} : options.toolBatch;
+    tools.push(
+      offloaded(
+        createToolBatchTool(() => tools, {
+          ...batchOptions,
+          // Calls that end or decide the run stay single calls the loop sees.
+          exclude: [
+            ...(batchOptions.exclude ?? []),
+            STOP_AND_RESPOND_TOOL_NAME,
+            "complete_goal",
+            "create_goal",
+          ],
+        }),
+      ),
+    );
+  }
+  const harvest =
+    options.harvest === undefined
+      ? undefined
+      : createScriptHarvest({ cwd: options.cwd, options: options.harvest });
   const systemPrompt = buildNativeSystemPrompt({
     ...(options.systemPrompt === undefined ? {} : { base: options.systemPrompt }),
     cwd: options.cwd,
@@ -556,6 +618,7 @@ export async function runCapabilityNativeAgentSession(
   };
   const unbindSubagents = subagentRoot?.bindAgent(agent);
   const unbindLongRun = longRun?.bindAgent(agent);
+  const unbindHarvest = harvest?.bindAgent(agent);
   let compacting = false;
   const runningCommands = new Set<string>();
   const unwatchCommands = agent.subscribe((event) => {
@@ -671,6 +734,25 @@ export async function runCapabilityNativeAgentSession(
     await subagentRoot?.children.shutdown();
     unbindSubagents?.();
     unbindLongRun?.();
+    unbindHarvest?.();
+    let harvestedScripts: HarvestedScript[] | undefined;
+    if (
+      harvest !== undefined &&
+      passedValidation !== undefined &&
+      input.failureMessage === undefined
+    ) {
+      try {
+        harvestedScripts = await harvest.harvest({ goalId: passedValidation, runId, sessionId });
+        if (harvestedScripts.length > 0) {
+          await emitRuntimeEvent("scripts_harvested", {
+            goalId: passedValidation,
+            scripts: harvestedScripts.map((script) => script.sourcePath),
+          });
+        }
+      } catch (error) {
+        await emitRuntimeEvent("script_harvest_failed", { error: toErrorMessage(error) });
+      }
+    }
     await unbindSchedules?.();
     unwatchCommands();
     releaseScheduledSession?.();
@@ -729,6 +811,9 @@ export async function runCapabilityNativeAgentSession(
         ? {}
         : { autonomous: autonomousStatus(longRun.autonomous.state) }),
       ...(schedules === undefined ? {} : { schedules: schedules.book.list() }),
+      ...(harvestedScripts === undefined || harvestedScripts.length === 0
+        ? {}
+        : { harvestedScripts }),
       envelope: createRunEnvelope({
         runId,
         rootScopeId: scopeId,

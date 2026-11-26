@@ -77,7 +77,10 @@ ADRs must be written when:
 - [`0060-delegate-task-tools.md`](0060-delegate-task-tools.md) - runtime-neutral host tools (`AgentHarnessHostTool`) on pi and native, and the cascade's `delegate_task` and `finish_task` tools replacing the fenced-JSON reply as the primary way to hand off work.
 - [`0061-owner-approvals-for-outward-actions.md`](0061-owner-approvals-for-outward-actions.md) - approval policy over tool effects, durable owner approval requests with an audit trail, the delegation cascade parking tasks until the owner decides, and the HTTP approval inbox.
 - [`0062-generic-corp-deploy-packaging.md`](0062-generic-corp-deploy-packaging.md) - one production image for Generic Corp, Railway config as code with pre-deploy migrations and `/ready` health checks, Compose with Postgres for local testing, and the app container as the shell boundary on Railway.
+- [`0063-one-goal-mechanism-for-long-running-sessions.md`](0063-one-goal-mechanism-for-long-running-sessions.md) - native long-running goals wrap the SDK goal spec, `complete_goal` and the autonomous gates run `runGoalValidators`, and a topology goal is not handed to each actor.
 - [`0064-agent-isolation-on-railway.md`](0064-agent-isolation-on-railway.md) - R20 threat model; agent shell commands run as a separate `agent` user through a narrow sudoers rule, agent homes shared by group and server data closed, agent file tools confined to the workspace, with a visible fallback when sudo is unavailable.
+- [`0065-background-sessions-on-the-durable-queue.md`](0065-background-sessions-on-the-durable-queue.md) - schedules and heartbeats saved in the session, live delivery while it runs, and stored sessions resumed for due jobs from the SDK durable queue.
+- [`0066-offloading.md`](0066-offloading.md) - long tool results saved to output files with a preview, `tool_batch` through each tool's own hooks, and scripts harvested from runs that pass their validators and promoted to skills by the host.
 
 ## Planning Baseline
 

@@ -136,3 +136,14 @@ export {
   pathsEqual,
   resolvePath,
 } from "./paths.js";
+export {
+  createToolBatchTool,
+  type OffloadedDetails,
+  type OffloadEvent,
+  type OffloadOptions,
+  offloadToolResult,
+  TOOL_BATCH_TOOL,
+  type ToolBatchCallResult,
+  type ToolBatchOptions,
+  withOffload,
+} from "./offload.js";

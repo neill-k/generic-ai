@@ -74,6 +74,7 @@ import {
   type NativeSessionExtensions,
   type NativeSessionGoal,
   type NativeSessionSubagents,
+  type RunCapabilityNativeAgentSessionOptions,
   runCapabilityNativeAgentSession,
 } from "../runtime/native-session.js";
 import type { NativeSessionSchedules } from "../runtime/native-schedules.js";
@@ -157,6 +158,12 @@ export interface NativeAgentHarnessOptions {
    * `sessionDir`, jobs that come due after a run resume its session from the durable queue.
    */
   readonly schedules?: NativeSessionSchedules | boolean;
+  /** Offload long tool results to files (on by default; `false` turns it off). */
+  readonly offload?: RunCapabilityNativeAgentSessionOptions["offload"];
+  /** Give every native session `tool_batch`. */
+  readonly toolBatch?: RunCapabilityNativeAgentSessionOptions["toolBatch"];
+  /** Save the scripts a session wrote when its run passes its goal's validators. */
+  readonly harvest?: RunCapabilityNativeAgentSessionOptions["harvest"];
 }
 
 export interface CreateAgentHarnessOptions<
@@ -1413,6 +1420,9 @@ function createNativeSessionBackend(
         ...(options.goal === undefined ? {} : { goal: options.goal }),
         ...(options.autonomous === undefined ? {} : { autonomous: options.autonomous }),
         ...(options.schedules === undefined ? {} : { schedules: options.schedules }),
+        ...(options.offload === undefined ? {} : { offload: options.offload }),
+        ...(options.toolBatch === undefined ? {} : { toolBatch: options.toolBatch }),
+        ...(options.harvest === undefined ? {} : { harvest: options.harvest }),
       });
       return {
         sessionId: result.sessionId,

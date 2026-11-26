@@ -213,3 +213,6 @@ with the same runner.
 A session can also schedule its own future work, such as a heartbeat that
 checks on a long-running goal every few minutes, and a stored session resumes
 from the durable queue when a job comes due. See `docs/schedules.md`.
+
+When a run passes its validators, the scripts it wrote can be kept and
+promoted into skills (`harvest`; see `docs/offloading.md`).
