@@ -2,7 +2,7 @@
 
 Generic Corp ships as one Docker image. Railway runs it in production and
 Docker Compose runs the same image locally with Postgres. Decision record:
-[`docs/decisions/0060-generic-corp-deploy-packaging.md`](../../docs/decisions/0060-generic-corp-deploy-packaging.md).
+[`docs/decisions/0062-generic-corp-deploy-packaging.md`](../../docs/decisions/0062-generic-corp-deploy-packaging.md).
 
 | File | What it does |
 | --- | --- |

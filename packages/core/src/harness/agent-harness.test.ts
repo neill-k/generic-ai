@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
 import {
+  type AgentHarnessHostTool,
   type AgentHarnessPolicyEvaluator,
   type PolicyDecisionRecord,
   withAgentHarnessToolEffects,
@@ -730,5 +731,98 @@ describe("createAgentHarness", () => {
         }),
       ]),
     );
+  });
+});
+
+describe("host tools", () => {
+  function recordingTool(calls: unknown[]): AgentHarnessHostTool {
+    return {
+      name: "delegate_task",
+      description: "Hand work to another agent.",
+      parameters: {
+        type: "object",
+        properties: { tasks: { type: "array" } },
+        required: ["tasks"],
+      },
+      effects: ["handoff.write"],
+      execute(params) {
+        calls.push(params);
+        const tasks = params["tasks"];
+        if (!Array.isArray(tasks) || tasks.length === 0) {
+          return { text: "Pass at least one task.", isError: true };
+        }
+        return { text: `Recorded ${tasks.length} task(s).`, details: { count: tasks.length } };
+      },
+    };
+  }
+
+  it("runs runtime-neutral host tools in Pi sessions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-"));
+    const calls: unknown[] = [];
+    const results: unknown[] = [];
+    const errors: string[] = [];
+    const harness = createAgentHarness(
+      { id: "host-tools", adapter: "pi", model: "fake-model", allowMcp: false },
+      {
+        sessionInputs: {
+          agentDir: root,
+          authStorage: {} as never,
+          modelRegistry: {} as never,
+          model: {} as never,
+          sessionManager: SessionManager.inMemory(),
+          settingsManager: SettingsManager.inMemory(),
+        },
+        factories: {
+          createAgentSession: async (options) => {
+            const listeners: ((event: unknown) => void)[] = [];
+            return {
+              session: {
+                sessionId: "session-1",
+                messages: [],
+                subscribe(listener: (event: never) => void) {
+                  listeners.push(listener as (event: unknown) => void);
+                  return () => undefined;
+                },
+                async prompt() {
+                  const tool = options?.customTools?.find(
+                    (candidate) => candidate.name === "delegate_task",
+                  );
+                  results.push(
+                    await tool?.execute(
+                      "call-1",
+                      { tasks: [{ to: "analyst", task: "x" }] } as never,
+                      undefined,
+                      undefined,
+                      {} as never,
+                    ),
+                  );
+                  try {
+                    await tool?.execute("call-2", { tasks: [] } as never, undefined, undefined, {} as never);
+                  } catch (error) {
+                    errors.push(error instanceof Error ? error.message : String(error));
+                  }
+                  await callStopTool(options, "handed off");
+                },
+              },
+            } as never;
+          },
+        },
+      },
+    );
+
+    const result = await harness.run({
+      instruction: "Delegate.",
+      workspaceRoot: root,
+      artifactDir: join(root, "artifacts"),
+      hostTools: [recordingTool(calls)],
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(calls).toEqual([{ tasks: [{ to: "analyst", task: "x" }] }, { tasks: [] }]);
+    expect(results[0]).toEqual({
+      content: [{ type: "text", text: "Recorded 1 task(s)." }],
+      details: { count: 1 },
+    });
+    expect(errors).toEqual(["Pass at least one task."]);
   });
 });

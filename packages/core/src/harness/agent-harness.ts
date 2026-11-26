@@ -26,6 +26,8 @@ import {
   type AgentHarnessRunErrorCategory,
   type AgentHarnessRunResult,
   type CanonicalEvent,
+  type AgentHarnessHostTool,
+  createToolEffectGuard,
   getAgentHarnessToolEffects,
   goalTraceFromCanonicalEvents,
   type JsonObject,
@@ -33,6 +35,8 @@ import {
   type ResourceSelector,
   type RunActor,
   type RunEnvelope,
+  type ToolEffectGuard,
+  type ToolEffectJournal,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
@@ -852,6 +856,75 @@ function applyProfilePolicy(
     ...(capabilities.messaging === undefined ? {} : { messaging: capabilities.messaging }),
     ...(capabilities.memory === undefined ? {} : { memory: capabilities.memory }),
     ...(capabilities.secrets === undefined ? {} : { secrets: capabilities.secrets }),
+  };
+}
+
+/**
+ * Turns runtime-neutral host tools (ADR 0062) into tools both the pi and native runtimes run, with
+ * their declared effects so role policy treats them like any other tool.
+ */
+export function toHarnessToolDefinition(tool: AgentHarnessHostTool): ToolDefinition {
+  return withAgentHarnessToolEffects(
+    defineTool({
+      name: tool.name,
+      label: tool.label ?? tool.name,
+      description: tool.description,
+      ...(tool.promptSnippet === undefined ? {} : { promptSnippet: tool.promptSnippet }),
+      ...(tool.promptGuidelines === undefined
+        ? {}
+        : { promptGuidelines: [...tool.promptGuidelines] }),
+      parameters: Type.Unsafe<Record<string, unknown>>(tool.parameters),
+      async execute(toolCallId, params, signal) {
+        const result = await tool.execute((params ?? {}) as JsonObject, {
+          toolCallId,
+          ...(signal === undefined ? {} : { signal }),
+        });
+        if (result.isError === true) {
+          throw new Error(result.text);
+        }
+        return {
+          content: [{ type: "text" as const, text: result.text }],
+          details: result.details ?? {},
+        };
+      },
+    }),
+    [...tool.effects],
+  ) as ToolDefinition;
+}
+
+function withHostTools(
+  capabilities: PiCapabilityBindings,
+  hostTools: readonly AgentHarnessHostTool[] | undefined,
+): PiCapabilityBindings {
+  if (hostTools === undefined || hostTools.length === 0) {
+    return capabilities;
+  }
+  return {
+    ...capabilities,
+    customTools: [...(capabilities.customTools ?? []), ...hostTools.map(toHarnessToolDefinition)],
+  };
+}
+
+/**
+ * Journals outward tool calls (ADR 0059) so a retried attempt of the same turn replays finished
+ * calls instead of repeating them. Applied before role policy and hooks, so delegated role
+ * sessions in the same run share the guard and its occurrence counts.
+ */
+export function guardCapabilityEffects(
+  capabilities: PiCapabilityBindings,
+  guard: ToolEffectGuard,
+): PiCapabilityBindings {
+  return {
+    ...capabilities,
+    ...(capabilities.terminalTools === undefined
+      ? {}
+      : { terminalTools: { tool: guard.wrap(capabilities.terminalTools.tool) } }),
+    ...(capabilities.fileTools === undefined
+      ? {}
+      : { fileTools: { piTools: guard.wrapAll(capabilities.fileTools.piTools) } }),
+    ...(capabilities.customTools === undefined
+      ? {}
+      : { customTools: guard.wrapAll(capabilities.customTools) }),
   };
 }
 
@@ -1952,9 +2025,19 @@ function createSessionAgentHarnessAdapter(
         ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
       });
       const roles = resolveRoles(input.harness);
-      const baseCapabilities = await expandMcpCapabilityTools(
-        applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
+      const expandedCapabilities = withHostTools(
+        await expandMcpCapabilityTools(
+          applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
+        ),
+        input.hostTools,
       );
+      const baseCapabilities =
+        input.effectJournal === undefined
+          ? expandedCapabilities
+          : guardCapabilityEffects(
+              expandedCapabilities,
+              createToolEffectGuard(input.effectJournal),
+            );
       const instruction = await expandHarnessInstruction(
         input.instruction,
         baseCapabilities,
@@ -2176,6 +2259,8 @@ export interface RunAgentHarnessTopologyOptions
   readonly policy?: AgentHarnessPolicyEvaluator;
   /** Redaction-safe identity of whoever started the run; stamped on every run event. */
   readonly actor?: RunActor;
+  /** Journal for outward tool calls, shared by every role session in the topology (ADR 0059). */
+  readonly effectJournal?: ToolEffectJournal;
   /**
    * Replace the role-session runner, for example to route some actors to an
    * external runtime. The replacement still gets the scheduler's retries,
@@ -2219,7 +2304,14 @@ export async function runAgentHarnessTopology(
   });
   const policy =
     options.policy ?? createPolicyEvaluator({ runId, actorId: harness.primaryAgent ?? "topology" });
-  const baseCapabilities = applyProfilePolicy(options.capabilities ?? {}, profile, allowMcp);
+  const profiledCapabilities = applyProfilePolicy(options.capabilities ?? {}, profile, allowMcp);
+  const baseCapabilities =
+    options.effectJournal === undefined
+      ? profiledCapabilities
+      : guardCapabilityEffects(
+          await expandMcpCapabilityTools(profiledCapabilities),
+          createToolEffectGuard(options.effectJournal),
+        );
   const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp });
   const policyDecisions: PolicyDecisionRecord[] = [
     ...createPolicyDecisions({
