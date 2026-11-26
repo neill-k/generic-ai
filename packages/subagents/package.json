@@ -1,0 +1,35 @@
+{
+  "name": "@generic-ai/subagents",
+  "version": "0.0.0",
+  "description": "Subagents and agent messaging for the Generic AI native runtime: spawn, collect, list, rename and delete child agents, messages between parent, sibling and child agents, inboxes, and progress notes.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "@generic-ai/agent": "0.0.0",
+    "@generic-ai/ai": "0.0.0",
+    "@sinclair/typebox": "0.34.49"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

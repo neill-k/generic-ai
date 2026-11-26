@@ -106,6 +106,27 @@ function processEnvSnapshot(inheritProcessEnv: boolean): NodeJS.ProcessEnv {
   return env;
 }
 
+/** Session variables the bash tool sets for each command; safe to pass on. */
+const BASH_SESSION_ENV_KEYS = new Set([
+  "GENERIC_AI_SESSION_ID",
+  "GENERIC_AI_PROVIDER",
+  "GENERIC_AI_MODEL_ID",
+  "GENERIC_AI_REASONING_LEVEL",
+]);
+
+function allowlistedEnv(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  const result: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(env ?? {})) {
+    if (
+      value !== undefined &&
+      (MINIMAL_PROCESS_ENV_KEYS.has(key) || BASH_SESSION_ENV_KEYS.has(key) || key.startsWith("LC_"))
+    ) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 function mergeEnv(
   baseEnv: NodeJS.ProcessEnv | undefined,
   overrideEnv: NodeJS.ProcessEnv | undefined,
@@ -128,9 +149,14 @@ function buildSpawnHook(
   }
 
   return (context) => {
+    // The bash tool hands the hook the server's whole environment (plus its
+    // own session variables). Unless the caller opted in, keep only the
+    // allowlisted keys, so provider keys, DATABASE_URL and the like never
+    // reach agent commands.
+    const ambientEnv = inheritProcessEnv ? context.env : allowlistedEnv(context.env);
     const mergedContext = {
       ...context,
-      env: mergeEnv(baseEnv, context.env, inheritProcessEnv),
+      env: mergeEnv(baseEnv, ambientEnv, inheritProcessEnv),
     };
 
     return spawnHook ? spawnHook(mergedContext) : mergedContext;
@@ -166,6 +192,7 @@ export function createTerminalToolPlugin(options: TerminalToolOptions): Terminal
   const tool = withAgentHarnessToolEffects(
     createBashTool(layout.root, {
       operations,
+      inheritProcessEnv,
       ...(commandPrefix === undefined ? {} : { commandPrefix }),
       ...(spawnHook === undefined ? {} : { spawnHook }),
     }),

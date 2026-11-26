@@ -7,6 +7,7 @@
     { "path": "packages/session" },
     { "path": "packages/resources" },
     { "path": "packages/extensions" },
+    { "path": "packages/subagents" },
     { "path": "packages/core" },
     { "path": "packages/sdk" },
     { "path": "packages/observability" },

@@ -33,6 +33,13 @@ export interface PostgresConnectionOptions {
   readonly maxConnections?: number;
   /** Database schema holding the tables. Defaults to `generic_ai`. */
   readonly schema?: string;
+  /**
+   * Called when an idle pooled connection fails, for example when the database
+   * restarts. The pool drops that connection and opens a new one on the next
+   * query. Defaults to a warning on stderr. Only used for a pool the storage
+   * creates; without a listener, `pg` would crash the process instead.
+   */
+  readonly onPoolError?: (error: Error) => void;
 }
 
 export interface ResolvedPostgresConnection {
@@ -56,10 +63,19 @@ export function resolvePostgresConnection(
       "Postgres storage needs a `pool`, a `connectionString`, or the DATABASE_URL environment variable.",
     );
   }
-  const pool = new pg.Pool({
+  const pgPool = new pg.Pool({
     connectionString,
     max: options.maxConnections ?? 10,
-  }) as unknown as PostgresPool;
+  });
+  const onPoolError =
+    options.onPoolError ??
+    ((error: Error) => {
+      console.warn(
+        `Postgres connection lost; it will reconnect on the next query: ${error.message}`,
+      );
+    });
+  pgPool.on("error", (error) => onPoolError(error));
+  const pool = pgPool as unknown as PostgresPool;
   return { pool, ownsPool: true, schema };
 }
 

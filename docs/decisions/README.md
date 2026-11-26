@@ -76,6 +76,7 @@ ADRs must be written when:
 - [`0059-safe-resume-of-interrupted-turns.md`](0059-safe-resume-of-interrupted-turns.md) - outward tool calls journaled per turn so a retried turn replays finished calls and refuses unrecorded ones, a checkpoint of the model's answer, and `goal.validated` events from the delegation cascade.
 - [`0060-delegate-task-tools.md`](0060-delegate-task-tools.md) - runtime-neutral host tools (`AgentHarnessHostTool`) on pi and native, and the cascade's `delegate_task` and `finish_task` tools replacing the fenced-JSON reply as the primary way to hand off work.
 - [`0061-owner-approvals-for-outward-actions.md`](0061-owner-approvals-for-outward-actions.md) - approval policy over tool effects, durable owner approval requests with an audit trail, the delegation cascade parking tasks until the owner decides, and the HTTP approval inbox.
+- [`0062-generic-corp-deploy-packaging.md`](0062-generic-corp-deploy-packaging.md) - one production image for Generic Corp, Railway config as code with pre-deploy migrations and `/ready` health checks, Compose with Postgres for local testing, and the app container as the shell boundary on Railway.
 
 ## Planning Baseline
 

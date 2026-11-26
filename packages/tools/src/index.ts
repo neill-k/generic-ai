@@ -26,6 +26,11 @@ export {
   type EditToolInput,
   type EditToolOptions,
 } from "./edit.js";
+export {
+  AGENT_COMMAND_ENV_KEYS,
+  type AgentCommandEnvOptions,
+  getAgentCommandEnv,
+} from "./env.js";
 export { withFileMutationQueue } from "./file-mutation-queue.js";
 export {
   createFindTool,
