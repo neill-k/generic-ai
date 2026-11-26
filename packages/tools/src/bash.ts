@@ -4,10 +4,10 @@ import { access as fsAccess } from "node:fs/promises";
 import { constants as osConstants } from "node:os";
 import { type Static, Type } from "@sinclair/typebox";
 import { waitForChildProcess } from "./child-process.js";
+import { getAgentCommandEnv } from "./env.js";
 import { OutputAccumulator, type OutputSnapshot } from "./output-accumulator.js";
 import {
   getShellConfig,
-  getShellEnv,
   killProcessTree,
   type ShellConfig,
   trackDetachedChildPid,
@@ -152,7 +152,7 @@ export function createLocalShellOperations(
         {
           cwd,
           detached: process.platform !== "win32",
-          env: env ?? getShellEnv(),
+          env: env ?? getAgentCommandEnv(),
           stdio: [commandFromStdin ? "pipe" : "ignore", "pipe", "pipe"],
           windowsHide: true,
         },
@@ -251,8 +251,9 @@ function resolveSpawnContext(
   spawnHook: BashSpawnHook | undefined,
   exposeSessionEnvironment: boolean,
   ctx: ExtensionContext | undefined,
+  inheritProcessEnv: boolean,
 ): BashSpawnContext {
-  const env = { ...getShellEnv() };
+  const env = getAgentCommandEnv(process.env, { inheritProcessEnv });
   delete env["GENERIC_AI_SESSION_ID"];
   delete env["GENERIC_AI_PROVIDER"];
   delete env["GENERIC_AI_MODEL_ID"];
@@ -279,6 +280,12 @@ export interface BashToolOptions {
   shellPath?: string;
   /** Expose session metadata as GENERIC_AI_* environment variables. Default: true */
   exposeSessionEnvironment?: boolean;
+  /**
+   * Pass the server's whole environment to commands. Default false: commands get only the
+   * allowlisted variables (`AGENT_COMMAND_ENV_KEYS`), so API keys and database URLs in the
+   * server's environment stay out of reach. Unlike pi, which passes everything.
+   */
+  inheritProcessEnv?: boolean;
   /** Hook to adjust command, cwd, or env before execution */
   spawnHook?: BashSpawnHook;
 }
@@ -307,6 +314,7 @@ export function createShellToolDefinition(
   const ops = options?.operations ?? createLocalBashOperations({ shellPath: options?.shellPath });
   const commandPrefix = options?.commandPrefix;
   const exposeSessionEnvironment = options?.exposeSessionEnvironment ?? true;
+  const inheritProcessEnv = options?.inheritProcessEnv ?? false;
   const spawnHook = options?.spawnHook;
   return {
     name: config.name,
@@ -334,6 +342,7 @@ export function createShellToolDefinition(
         spawnHook,
         exposeSessionEnvironment,
         ctx,
+        inheritProcessEnv,
       );
       const output = new OutputAccumulator({ tempFilePrefix: config.tempFilePrefix });
       let acceptingOutput = true;
