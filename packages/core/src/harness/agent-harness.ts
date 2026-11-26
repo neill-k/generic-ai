@@ -66,6 +66,7 @@ import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
 import {
   expandPrompt,
   type NativeSessionExtensions,
+  type NativeSessionSubagents,
   runCapabilityNativeAgentSession,
 } from "../runtime/native-session.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
@@ -123,6 +124,11 @@ export interface NativeAgentHarnessOptions {
    * its own instances. Extension tools are added as given: role effect policies do not filter them.
    */
   readonly extensions?: NativeSessionExtensions;
+  /**
+   * Let every native session spawn subagents and message them (see `@generic-ai/subagents`).
+   * A spawn's `model` goes through `resolveModel`; children get the session's tools.
+   */
+  readonly subagents?: Omit<NativeSessionSubagents, "resolveModel" | "getApiKey"> | boolean;
 }
 
 export interface CreateAgentHarnessOptions<
@@ -1250,8 +1256,7 @@ function createNativeSessionBackend(
   options: NativeAgentHarnessOptions,
 ): HarnessSessionBackend {
   const modelsByRef = new Map<string, Model>();
-  const modelFor = (role: AgentHarnessRole | undefined): Model => {
-    const ref = role?.model ?? config.model ?? DEFAULT_NATIVE_MODEL;
+  const modelForRef = (ref: string): Model => {
     let model = modelsByRef.get(ref);
     if (model === undefined) {
       model = (options.resolveModel ?? resolveNativeModel)(ref);
@@ -1259,10 +1264,25 @@ function createNativeSessionBackend(
     }
     return model;
   };
-  const apiKeyFor = (model: Model): string | undefined =>
-    options.apiKey ??
-    resolveApiKey(model.provider) ??
-    readTrimmedEnv("GENERIC_AI_PROVIDER_API_KEY");
+  const modelFor = (role: AgentHarnessRole | undefined): Model =>
+    modelForRef(role?.model ?? config.model ?? DEFAULT_NATIVE_MODEL);
+  const apiKeyForProvider = (provider: string): string | undefined =>
+    options.apiKey ?? resolveApiKey(provider) ?? readTrimmedEnv("GENERIC_AI_PROVIDER_API_KEY");
+  const apiKeyFor = (model: Model): string | undefined => apiKeyForProvider(model.provider);
+  const subagents: NativeSessionSubagents | undefined =
+    options.subagents === undefined || options.subagents === false
+      ? undefined
+      : {
+          ...(options.subagents === true ? {} : options.subagents),
+          resolveModel: (ref) => {
+            try {
+              return modelForRef(ref);
+            } catch {
+              return undefined;
+            }
+          },
+          getApiKey: apiKeyForProvider,
+        };
 
   return Object.freeze({
     kind: "native" as const,
@@ -1284,6 +1304,7 @@ function createNativeSessionBackend(
         ...(options.compaction === undefined ? {} : { compaction: options.compaction }),
         ...(options.retry === undefined ? {} : { retry: options.retry }),
         ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
+        ...(subagents === undefined ? {} : { subagents }),
       });
       return {
         sessionId: result.sessionId,

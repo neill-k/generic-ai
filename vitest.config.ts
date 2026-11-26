@@ -10,6 +10,7 @@ const packageAliases = [
   "session",
   "resources",
   "extensions",
+  "subagents",
   "core",
   "sdk",
   "observability",

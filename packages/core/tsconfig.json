@@ -5,5 +5,5 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [{ "path": "../sdk" }, { "path": "../ai" }, { "path": "../agent" }, { "path": "../session" }, { "path": "../resources" }, { "path": "../extensions" }]
+  "references": [{ "path": "../sdk" }, { "path": "../ai" }, { "path": "../agent" }, { "path": "../session" }, { "path": "../resources" }, { "path": "../extensions" }, { "path": "../subagents" }]
 }

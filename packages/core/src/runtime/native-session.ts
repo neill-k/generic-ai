@@ -24,6 +24,13 @@ import {
   SessionManager,
 } from "@generic-ai/session";
 import type { RunEnvelope, RunEnvelopeMode } from "@generic-ai/sdk";
+import {
+  type AgentNode,
+  createAgentChildSessionFactory,
+  createSubagentRoot,
+  createSubagentTools,
+  type SubagentEvent,
+} from "@generic-ai/subagents";
 
 import {
   type CanonicalEvent,
@@ -94,6 +101,29 @@ export interface RunCapabilityNativeAgentSessionOptions {
   readonly promptTemplates?: readonly PromptTemplate[];
   /** Extensions to load for this session (see `@generic-ai/extensions`). */
   readonly extensions?: NativeSessionExtensions;
+  /**
+   * Let the agent spawn subagents and message them (see `@generic-ai/subagents`). Children run in
+   * this process and are stopped when the session ends.
+   */
+  readonly subagents?: NativeSessionSubagents | boolean;
+}
+
+export interface NativeSessionSubagents {
+  /** Deepest subagent level; the session itself is depth 0. Defaults to 3. */
+  readonly maxDepth?: number;
+  /** Running children one agent may have at once. Defaults to 8. */
+  readonly maxRunningChildren?: number;
+  /** Resolve the model a spawn asks for. Without it, children can only use the session's model. */
+  readonly resolveModel?: (reference: string) => Model | undefined;
+  /** Base system prompt for children. Defaults to the subagent prompt from `@generic-ai/subagents`. */
+  readonly systemPrompt?: string;
+  /** Give children the session's capability tools. Defaults to true. */
+  readonly inheritTools?: boolean;
+  /**
+   * API key for a child's provider. Defaults to the session's `apiKey` for the session's provider,
+   * and to the provider's own environment variable otherwise.
+   */
+  readonly getApiKey?: (provider: string) => string | undefined;
 }
 
 export interface NativeSessionExtensions {
@@ -169,6 +199,52 @@ async function loadSessionExtensions(
     commands: loaded.runner.getCommands().map((command) => command.invocationName),
   });
   return loaded.runner;
+}
+
+function createSessionSubagentRoot(
+  options: RunCapabilityNativeAgentSessionOptions,
+  input: {
+    readonly sessionId: string;
+    readonly capabilityTools: readonly AgentTool[];
+    readonly apiKey?: string;
+    readonly onEvent: (event: SubagentEvent) => void;
+  },
+): AgentNode | undefined {
+  if (options.subagents === undefined || options.subagents === false) {
+    return undefined;
+  }
+  const config: NativeSessionSubagents = options.subagents === true ? {} : options.subagents;
+  const apiKey = input.apiKey;
+  const getApiKey =
+    config.getApiKey ??
+    ((provider: string) => (provider === options.model.provider ? apiKey : undefined));
+  const baseTools = config.inheritTools === false ? [] : input.capabilityTools;
+  return createSubagentRoot({
+    id: input.sessionId,
+    name: options.rootAgentId ?? "main",
+    ...(config.maxDepth === undefined ? {} : { maxDepth: config.maxDepth }),
+    ...(config.maxRunningChildren === undefined
+      ? {}
+      : { maxRunningChildren: config.maxRunningChildren }),
+    onEvent: input.onEvent,
+    factory: createAgentChildSessionFactory({
+      model: options.model,
+      tools: baseTools,
+      convertToLlm,
+      ...(config.resolveModel === undefined ? {} : { resolveModel: config.resolveModel }),
+      ...(config.systemPrompt === undefined
+        ? {}
+        : {
+            systemPrompt: (request) =>
+              `${config.systemPrompt}\n\nYou are the subagent "${request.name}". Current working directory: ${
+                request.cwd ?? options.cwd
+              }`,
+          }),
+      ...(options.thinkingLevel === undefined ? {} : { thinkingLevel: options.thinkingLevel }),
+      ...(options.streamFn === undefined ? {} : { streamFn: options.streamFn }),
+      getApiKey,
+    }),
+  });
 }
 
 /**
@@ -291,10 +367,21 @@ export async function runCapabilityNativeAgentSession(
     ...toolRegistry.tools,
     ...toolRegistry.customTools,
   ] as unknown as AgentTool[];
-  const tools =
-    turnMode === "single-turn"
-      ? capabilityTools
-      : [...capabilityTools, createNativeStopTool(stopState)];
+  const sessionManager = options.sessionManager ?? SessionManager.inMemory(options.cwd);
+  const sessionId = sessionManager.getSessionId();
+  const apiKey = options.apiKey?.trim();
+  let emitSubagentEvent: (event: SubagentEvent) => void = () => {};
+  const subagentRoot = createSessionSubagentRoot(options, {
+    sessionId,
+    capabilityTools,
+    ...(apiKey === undefined || apiKey.length === 0 ? {} : { apiKey }),
+    onEvent: (event) => emitSubagentEvent(event),
+  });
+  const tools = [
+    ...capabilityTools,
+    ...(subagentRoot === undefined ? [] : (createSubagentTools(subagentRoot) as AgentTool[])),
+    ...(turnMode === "single-turn" ? [] : [createNativeStopTool(stopState)]),
+  ];
   const systemPrompt = buildNativeSystemPrompt({
     ...(options.systemPrompt === undefined ? {} : { base: options.systemPrompt }),
     cwd: options.cwd,
@@ -303,9 +390,6 @@ export async function runCapabilityNativeAgentSession(
       ? {}
       : { skillsPrompt: toolRegistry.skillSnapshot.prompt }),
   });
-  const sessionManager = options.sessionManager ?? SessionManager.inMemory(options.cwd);
-  const sessionId = sessionManager.getSessionId();
-  const apiKey = options.apiKey?.trim();
   const agent = new Agent({
     initialState: {
       model: options.model,
@@ -374,6 +458,11 @@ export async function runCapabilityNativeAgentSession(
         data: { type, ...data },
       }),
     );
+
+  emitSubagentEvent = (event) => {
+    void emitRuntimeEvent(`subagent_${event.type}`, { ...event });
+  };
+  const unbindSubagents = subagentRoot?.bindAgent(agent);
 
   const extensions = await loadSessionExtensions(options, emitRuntimeEvent);
   const unbindExtensions = extensions?.bindAgent(agent);
@@ -448,6 +537,8 @@ export async function runCapabilityNativeAgentSession(
     readonly outputText?: string;
     readonly terminalStatus?: StopAndRespondState["status"];
   }): Promise<RunCapabilityNativeAgentSessionResult> => {
+    await subagentRoot?.children.shutdown();
+    unbindSubagents?.();
     await extensions?.emit({ type: "session_shutdown" });
     unbindExtensions?.();
     unsubscribe();

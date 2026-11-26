@@ -30,7 +30,7 @@ Agent's Rust tests are used as behavioural specifications, since its runtime is 
 | Project | License | What it allows |
 | --- | --- | --- |
 | pi (`badlogic/pi-mono`) | MIT, Copyright (c) 2026 Earendil Inc. | Copy, adapt, and ship code and tests, including commercially, as long as the copyright and permission notice travel with them. Ported files carry a header and each package ships `THIRD_PARTY_NOTICES.md`. |
-| Prime Agent | MIT, Copyright (c) 2025-2026 Prime Intellect Ltd. | Same terms. Nothing from it is copied yet; when code or test fixtures are adapted, the notice is added the same way. |
+| Prime Agent | MIT, Copyright (c) 2025-2026 Prime Intellect Ltd. | Same terms. `@generic-ai/subagents` adapts its agent-messaging, progress-note and child-roster rules and tests; ported files carry a header and the package ships `THIRD_PARTY_NOTICES.md`. |
 
 ## Architecture
 
@@ -132,8 +132,10 @@ tests are used as behavioural specs for that thread.
 
 | Feature | Status | Spec source |
 | --- | --- | --- |
-| Real subagents: spawn, await, run in background, retain (`rlm.spawn`) | ○ | `pa-agent` subagent tests |
-| Agent-to-agent messaging and orchestration | ○ | `pa-daemon` messaging tests |
+| Real subagents: spawn, await, run in background, retain (`rlm.spawn`, `rlm.collect`, `list_subagents`, `delete_subagent`, `rename`) | ✓ | `@generic-ai/subagents`: roster text and collect rules from `rlm_child_model` and `rlm_children` tests; in-process, so children stop with their session; `native.subagents` harness option |
+| Agent-to-agent messaging and orchestration (parent, sibling, child; broadcast; capacity guard) | ✓ | `@generic-ai/subagents`: `message_ids_and_validation`, `target_and_capacity_guards`, `message_prompts_and_id_parsing`, `message_host_handler_round_trip` ported |
+| Progress notes and the inbox | ✓ | `progress_note_throttles_and_stores` ported; inbox kinds `agent-message`, `child-exited`, `child-failed` |
+| Agent observation (`agent_observe`: live activity, recent message previews), messaging pause and resume | ○ | `pa-core` agent_observe tests |
 | Daemon-backed sessions that survive disconnects and can be reattached | ○ | `pa-daemon` |
 | Persistent goals (`/goal`), heartbeats, schedules | ○ | `pa-core` goal/schedule tests |
 | Bounded autonomous mode | ○ | `pa-core` autonomy tests |
@@ -159,8 +161,9 @@ Each slice is a reviewable PR that keeps every existing test green.
    skill loader and prompt templates, moves `plugin-agent-skills` onto it, and expands
    `/skill:name` and `/template` instructions in harness runs on both backends. 4b (in review)
    adds `@generic-ai/extensions` and loads extensions into native sessions (`native.extensions`).
-5. **Subagents and messaging**: native subagent spawning and agent-to-agent messages, wired to the
-   topology scheduler.
+5. **Subagents and messaging** (in review): `@generic-ai/subagents` with Prime Agent's spawn,
+   collect, delete and rename rules, family messaging, inbox and progress notes, turned on in
+   native harness sessions with `native.subagents`.
 6. **Long-running agents**: daemon sessions, goals, heartbeats and schedules, autonomous mode, on
    the durable queue.
 7. **Continual harness**: evidence-backed refinement of supplemental harness state.
@@ -170,5 +173,5 @@ Each slice is a reviewable PR that keeps every existing test green.
 ## Running the parity suites
 
 ```bash
-npx vitest run packages/ai packages/agent packages/tools packages/session packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts
+npx vitest run packages/ai packages/agent packages/tools packages/session packages/resources packages/extensions packages/subagents packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts
 ```

@@ -460,4 +460,66 @@ describe("native harness adapter", () => {
       true,
     );
   });
+
+  it("lets native sessions spawn subagents on their own models and collect their answers", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const childModels: string[] = [];
+    let rootTools: string[] = [];
+    let rootCalls = 0;
+    const respond = (context: Context, _options: unknown, _state: unknown, model: Model) => {
+      if (context.systemPrompt?.includes('subagent named "builder"') === true) {
+        childModels.push(model.id);
+        return fauxAssistantMessage("Built the widget.");
+      }
+      rootCalls += 1;
+      if (rootCalls === 1) {
+        rootTools = toolNames(context);
+        return fauxAssistantMessage(
+          [
+            fauxToolCall("spawn_agent", {
+              prompt: "Build the widget.",
+              name: "builder",
+              model: "faux/builder-model",
+            }),
+          ],
+          { stopReason: "toolUse" },
+        );
+      }
+      if (rootCalls === 2) {
+        return fauxAssistantMessage([fauxToolCall("collect_agents", { timeout_ms: 5_000 })], {
+          stopReason: "toolUse",
+        });
+      }
+      const last = context.messages.at(-1);
+      return fauxAssistantMessage(
+        last?.role === "toolResult" ? JSON.stringify(last.content) : "missing",
+      );
+    };
+    provider.setResponses(Array.from({ length: 6 }, () => respond));
+    const harness = createAgentHarness(
+      {
+        id: "native-subagents",
+        adapter: "native",
+        model: "faux/root-model",
+        execution: { turnMode: "single-turn" },
+      },
+      { native: { resolveModel, subagents: true } },
+    );
+    const result = await harness.run({
+      instruction: "Get the widget built",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+    });
+    expect(result.status).toBe("succeeded");
+    expect(rootTools).toEqual(
+      expect.arrayContaining(["spawn_agent", "collect_agents", "send_agent_message"]),
+    );
+    expect(rootTools).not.toContain("progress_note");
+    expect(childModels).toEqual(["builder-model"]);
+    expect(result.outputText).toContain("Built the widget.");
+    const names = result.events.map((event) => event.name);
+    expect(names.some((name) => name.endsWith("native.subagent_spawned"))).toBe(true);
+    expect(names.some((name) => name.endsWith("native.subagent_settled"))).toBe(true);
+  });
 });
