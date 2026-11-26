@@ -579,6 +579,7 @@ async function runConfiguredConsoleHarness(input: {
     artifactDir,
     ...(rootAgentId === undefined ? {} : { rootAgentId }),
     capabilities: createReadOnlyHarnessCapabilities(input.workspaceRoot),
+    ...(input.request.actor === undefined ? {} : { actor: input.request.actor }),
   })) as AgentHarnessRunResult;
 
   return {
@@ -881,6 +882,10 @@ export async function createStarterExampleServer(
               (await authenticateOwnerRequest(starterAuth.auth, request)) === undefined
                 ? unauthorizedResponse()
                 : undefined,
+            resolveActor: async (request: Request) => {
+              const context = await authenticateOwnerRequest(starterAuth.auth, request);
+              return context === undefined ? undefined : toRunActor(context);
+            },
           }),
     },
   });
@@ -907,7 +912,7 @@ export async function createStarterExampleServer(
     stop: async () => {
       await runtime.close?.();
       await bootstrap.stop();
-      starterAuth?.close();
+      await starterAuth?.close();
     },
   });
 }

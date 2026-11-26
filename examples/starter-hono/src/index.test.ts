@@ -596,4 +596,145 @@ describe("@generic-ai/example-starter-hono", () => {
       }),
     ).toThrow(/at least 16 characters/);
   });
+
+  it("records who started console chat runs", async () => {
+    const startDir = await mkdtemp(path.join(tmpdir(), "generic-ai-console-actor-"));
+    await cp(
+      path.join(STARTER_DEFAULT_START_DIR, ".generic-ai"),
+      path.join(startDir, ".generic-ai"),
+      { recursive: true },
+    );
+    const harnessActors: unknown[] = [];
+    const createHarness: typeof createAgentHarness = vi.fn((config) => ({
+      config,
+      adapter: {
+        id: `${config.id}:fake`,
+        kind: "pi",
+        run: async () => {
+          throw new Error("unused");
+        },
+      },
+      run: async (input: HarnessRunInput) => {
+        harnessActors.push(input.actor);
+        return {
+          harnessId: config.id,
+          adapter: "pi",
+          status: "succeeded",
+          outputText: "done",
+          envelope: {} as never,
+          events: [],
+          projections: [],
+          artifacts: [],
+          policyDecisions: [],
+        };
+      },
+    })) as never;
+
+    const starter = await createStarterExampleServer({
+      env: {
+        GENERIC_AI_OWNER_AUTH: "1",
+        GENERIC_AI_AUTH_DB: ":memory:",
+        GENERIC_AI_PROVIDER_API_KEY: "test-key",
+      },
+      startDir,
+      createRuntime: async () => createFakeRuntime("runtime fallback"),
+      createHarness,
+      log: () => undefined,
+    });
+
+    try {
+      const auth = starter.auth?.auth;
+      if (auth === undefined) {
+        throw new Error("Expected owner auth to be enabled.");
+      }
+      const created = await auth.createApiToken({ name: "console" });
+      const headers = {
+        authorization: `Bearer ${created.token}`,
+        "content-type": "application/json",
+        "x-generic-ai-web-ui-token": starter.webUi.sessionToken,
+      };
+      const apply = await starter.app.request(
+        localAppRequest("/console/api/templates/pipeline/apply", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ dryRun: false, idempotencyKey: "console-actor-test" }),
+        }),
+      );
+      expect(apply.status).toBe(200);
+
+      const posted = await starter.app.request(
+        localAppRequest("/console/api/chat/threads/actor/messages", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ content: "Who am I?" }),
+        }),
+      );
+      expect(posted.status).toBe(200);
+      const actor = {
+        subjectId: "owner",
+        actorType: "human",
+        credentialSource: "bearer",
+        displayName: "Owner",
+        credentialId: `token:${created.record.id}`,
+      };
+      expect(harnessActors).toEqual([actor]);
+      const detail = (await posted.json()) as {
+        readonly messages: readonly { readonly role: string; readonly actor?: unknown }[];
+        readonly events: readonly { readonly type: string; readonly data: { actor?: unknown } }[];
+      };
+      expect(detail.messages.find((message) => message.role === "user")?.actor).toEqual(actor);
+      expect(detail.events.find((event) => event.type === "run.started")?.data.actor).toEqual(actor);
+      expect(JSON.stringify(detail)).not.toContain(created.token);
+    } finally {
+      await starter.stop();
+      await rm(startDir, { recursive: true, force: true });
+    }
+  });
+
+  it("stores owner auth in Postgres when DATABASE_URL is set", async () => {
+    const databaseUrl = process.env["GENERIC_AI_TEST_POSTGRES_URL"];
+    if (databaseUrl === undefined || databaseUrl.length === 0) {
+      return;
+    }
+    const env = {
+      GENERIC_AI_OWNER_AUTH: "1",
+      DATABASE_URL: databaseUrl,
+      GENERIC_AI_PROVIDER_API_KEY: "test-key",
+    };
+    expect(loadStarterExampleEnvironment(env).auth.store).toBe("postgres");
+
+    const first = await createStarterExampleServer({
+      env,
+      createRuntime: async () => createFakeRuntime("pg"),
+      log: () => undefined,
+    });
+    let token: string;
+    try {
+      const auth = first.auth?.auth;
+      if (auth === undefined) {
+        throw new Error("Expected owner auth to be enabled.");
+      }
+      token = (await auth.createApiToken({ name: `pg-${Date.now()}` })).token;
+    } finally {
+      await first.stop();
+    }
+
+    // A fresh server (as after a redeploy) still accepts the token.
+    const second = await createStarterExampleServer({
+      env,
+      createRuntime: async () => createFakeRuntime("pg"),
+      log: () => undefined,
+    });
+    try {
+      const run = await second.app.request("/starter/run", {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+        body: JSON.stringify({ input: "hello" }),
+      });
+      expect(run.status).toBe(200);
+    } finally {
+      await second.stop();
+    }
+  });
 });
+
