@@ -5,3 +5,7 @@ export * from "./goal-driver.js";
 export * from "./goals.js";
 export * from "./shell-gates.js";
 export * from "./tools.js";
+export * from "./schedule.js";
+export * from "./schedule-runner.js";
+export * from "./schedule-tools.js";
+export * from "./schedules.js";

@@ -1,7 +1,8 @@
 # Third-Party Notices
 
-The thread-goal state, prompts and continuation driver, and the autonomous-mode limits, quality gates
-and follow-up decisions in this package follow Prime Agent
+The thread-goal state, prompts and continuation driver, the autonomous-mode limits, quality gates
+and follow-up decisions, and the schedule parser, cron job store, heartbeat rules and scheduler in
+this package follow Prime Agent
 (https://github.com/PrimeIntellect-ai/prime-agent). Files that adapt Prime Agent code or tests carry
 an "Adapted from Prime Agent" header and keep the notice below.
 

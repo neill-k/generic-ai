@@ -209,3 +209,7 @@ goal behaves the same whichever of the three pursues it:
 A topology run does not hand its goal to every actor as a thread goal: the
 goal belongs to the team, and the topology runner checks it once per attempt
 with the same runner.
+
+A session can also schedule its own future work, such as a heartbeat that
+checks on a long-running goal every few minutes, and a stored session resumes
+from the durable queue when a job comes due. See `docs/schedules.md`.

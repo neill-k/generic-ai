@@ -1,6 +1,7 @@
 export * from "./capability-runtime.js";
 export * from "./llm.js";
 export * from "./native.js";
+export * from "./native-schedules.js";
 export * from "./native-session.js";
 export * from "./openai-codex.js";
 export * from "./pi.js";

@@ -23,7 +23,12 @@ import {
   runWithRetry,
   SessionManager,
 } from "@generic-ai/session";
-import { type AutonomousStatus, autonomousStatus, type GoalState } from "@generic-ai/autonomy";
+import {
+  type AutonomousStatus,
+  autonomousStatus,
+  type GoalState,
+  type ScheduledJob,
+} from "@generic-ai/autonomy";
 import {
   goalTraceFromCanonicalEvents,
   type RunEnvelope,
@@ -58,6 +63,7 @@ import {
   type NativeSessionAutonomous,
   type NativeSessionGoal,
 } from "./native-long-run.js";
+import { createSessionSchedules, type NativeSessionSchedules } from "./native-schedules.js";
 import {
   type AgentTurnMode,
   STOP_AND_RESPOND_TOOL_NAME,
@@ -138,6 +144,12 @@ export interface RunCapabilityNativeAgentSessionOptions {
    * the failure when they fail.
    */
   readonly autonomous?: NativeSessionAutonomous | boolean;
+  /**
+   * Scheduled prompts and a heartbeat (see `docs/schedules.md`). `true` gives the agent the schedule
+   * tools. Jobs are saved in the session; due jobs reach the agent while it works, and a
+   * `service` runs the ones that come due after the session ends.
+   */
+  readonly schedules?: NativeSessionSchedules | boolean;
 }
 
 export type { NativeSessionAutonomous, NativeSessionGoal } from "./native-long-run.js";
@@ -190,6 +202,8 @@ export interface RunCapabilityNativeAgentSessionResult {
   readonly goal?: GoalState;
   /** Autonomous mode's counters and gate results, when it was on. */
   readonly autonomous?: AutonomousStatus;
+  /** The session's active and paused scheduled jobs when it ended, when it has schedules. */
+  readonly schedules?: readonly ScheduledJob[];
 }
 
 const DEFAULT_NATIVE_SYSTEM_PROMPT =
@@ -436,10 +450,23 @@ export async function runCapabilityNativeAgentSession(
       });
     },
   });
+  const schedules = createSessionSchedules({
+    sessionManager,
+    schedules: options.schedules,
+    onFire: (job, delivery) => {
+      void emitRuntimeEvent("schedule_fired", {
+        jobId: job.id,
+        source: job.source,
+        delivery,
+      });
+    },
+  });
+  const scheduleOptions = typeof options.schedules === "object" ? options.schedules : undefined;
   const tools = [
     ...capabilityTools,
     ...(subagentRoot === undefined ? [] : (createSubagentTools(subagentRoot) as AgentTool[])),
     ...(longRun?.tools ?? []),
+    ...(schedules?.tools ?? []),
     ...(turnMode === "single-turn" ? [] : [createNativeStopTool(stopState)]),
   ];
   const systemPrompt = buildNativeSystemPrompt({
@@ -529,6 +556,24 @@ export async function runCapabilityNativeAgentSession(
   };
   const unbindSubagents = subagentRoot?.bindAgent(agent);
   const unbindLongRun = longRun?.bindAgent(agent);
+  let compacting = false;
+  const runningCommands = new Set<string>();
+  const unwatchCommands = agent.subscribe((event) => {
+    if (event.type === "tool_execution_start" && event.toolName === "bash") {
+      runningCommands.add(event.toolCallId);
+    } else if (event.type === "tool_execution_end") {
+      runningCommands.delete(event.toolCallId);
+    }
+  });
+  const unbindSchedules = schedules?.bindAgent(agent, () => ({
+    isCompacting: compacting,
+    isBashRunning: runningCommands.size > 0,
+  }));
+  const scheduleSessionFile = sessionManager.getSessionFile();
+  const releaseScheduledSession =
+    scheduleSessionFile === undefined
+      ? undefined
+      : scheduleOptions?.service?.markOpen(scheduleSessionFile);
 
   const extensions = await loadSessionExtensions(options, emitRuntimeEvent);
   const unbindExtensions = extensions?.bindAgent(agent);
@@ -549,6 +594,7 @@ export async function runCapabilityNativeAgentSession(
 
   const runModelPrompt = async (text: string) => {
     if (options.compaction !== false) {
+      compacting = true;
       const compaction = await compactIfNeeded(agent, sessionManager, {
         model: options.model,
         settings: options.compaction,
@@ -562,6 +608,8 @@ export async function runCapabilityNativeAgentSession(
                 extensions.emitBeforeCompact({ type: "session_before_compact", ...info }),
             }
           : {}),
+      }).finally(() => {
+        compacting = false;
       });
       if (compaction !== undefined) {
         if (compaction.usage !== undefined) {
@@ -623,6 +671,16 @@ export async function runCapabilityNativeAgentSession(
     await subagentRoot?.children.shutdown();
     unbindSubagents?.();
     unbindLongRun?.();
+    await unbindSchedules?.();
+    unwatchCommands();
+    releaseScheduledSession?.();
+    if (scheduleSessionFile !== undefined && scheduleOptions?.service !== undefined) {
+      try {
+        await scheduleOptions.service.sync(scheduleSessionFile, sessionManager);
+      } catch (error) {
+        await emitRuntimeEvent("schedule_sync_failed", { error: toErrorMessage(error) });
+      }
+    }
     await extensions?.emit({ type: "session_shutdown" });
     unbindExtensions?.();
     unsubscribe();
@@ -670,6 +728,7 @@ export async function runCapabilityNativeAgentSession(
       ...(longRun?.autonomous === undefined
         ? {}
         : { autonomous: autonomousStatus(longRun.autonomous.state) }),
+      ...(schedules === undefined ? {} : { schedules: schedules.book.list() }),
       envelope: createRunEnvelope({
         runId,
         rootScopeId: scopeId,
@@ -705,6 +764,13 @@ export async function runCapabilityNativeAgentSession(
     return undefined;
   };
 
+  /** Delivers scheduled prompts that were queued after the agent's last turn ended. */
+  const drainScheduled = async () => {
+    while (schedules !== undefined && agent.hasQueuedMessages() && !signal?.aborted) {
+      await agent.continue();
+    }
+  };
+
   try {
     const submitted =
       (await options.lifecycleHooks?.onUserPromptSubmit(eventContext, options.prompt)) ??
@@ -728,6 +794,7 @@ export async function runCapabilityNativeAgentSession(
         }
         await runModelPrompt(next);
       }
+      await drainScheduled();
       await options.lifecycleHooks?.onStop?.(eventContext);
       const outputText = assistantText(latestAssistant(agent.state.messages));
       return await finish(outputText === undefined ? {} : { outputText });
@@ -754,6 +821,7 @@ export async function runCapabilityNativeAgentSession(
         runPrompt: (text) => runModelPrompt(text),
       });
     }
+    await drainScheduled();
     if (loop.stopped && loop.status !== undefined && loop.status !== "completed") {
       longRun?.goal?.pause(`Agent stopped with status "${loop.status}".`);
     }
