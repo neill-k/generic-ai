@@ -26,6 +26,7 @@
     "@generic-ai/plugin-delegation": "0.0.0",
     "@generic-ai/plugin-hono": "0.0.0",
     "@generic-ai/plugin-mcp": "0.0.0",
+    "@generic-ai/plugin-secrets": "0.0.0",
     "@generic-ai/plugin-memory-files": "0.0.0",
     "@generic-ai/plugin-messaging": "0.0.0",
     "@generic-ai/plugin-storage-memory": "0.0.0",

@@ -8,6 +8,8 @@ Secrets must not be committed. `.gitignore` blocks `.env` and `.env.*` while all
 
 Do not add real provider keys, npm tokens, Docker registry tokens, or GitHub tokens to examples, docs, tests, or snapshots. Use named environment variables and document how to set them locally.
 
+At runtime, agents get credentials through `@generic-ai/plugin-secrets` (ADR 0055): they write `{{secret:NAME}}` in a tool input, the value is filled in only if their role's `secrets` grant covers it, and every known secret value is replaced with `[REDACTED:NAME]` in tool results, events, traces and artifacts. Hosts set secrets as `GENERIC_AI_SECRET_<NAME>` environment variables, Docker secret files, or the encrypted store (`GENERIC_AI_SECRETS_KEY`). `DATABASE_URL`, `GENERIC_AI_SECRETS_KEY`, `GENERIC_AI_AUTH_TOKEN` and `GENERIC_AI_OWNER_SETUP_TOKEN` are host-only: redacted everywhere and never resolvable by an agent.
+
 ## Dependency Updates
 
 Dependabot is configured in `.github/dependabot.yml` for:
