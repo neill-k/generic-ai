@@ -17,6 +17,8 @@ export type CompanyEventType =
   | "task.succeeded"
   | "task.failed"
   | "task.cancelled"
+  | "tool.effect.replayed"
+  | "tool.effect.uncertain"
   | "thread.updated"
   | "runtime.error";
 
