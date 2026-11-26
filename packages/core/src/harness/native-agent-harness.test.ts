@@ -11,7 +11,7 @@ import {
   type Model,
   registerFauxProvider,
 } from "@generic-ai/ai";
-import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
+import { createMemoryToolEffectJournal, withAgentHarnessToolEffects } from "@generic-ai/sdk";
 import { defineTool } from "@generic-ai/sdk/pi";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
@@ -159,6 +159,119 @@ describe("native harness adapter", () => {
       true,
     );
     expect(result.artifacts.map((artifact) => artifact.id)).toContain("policy-decisions");
+  });
+
+  it("replays an outward call on a retried run that shares the effect journal", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const outbox: string[] = [];
+    const sendMessage = withAgentHarnessToolEffects(
+      defineTool({
+        name: "send_message",
+        label: "Send Message",
+        description: "Send a message to a customer.",
+        parameters: Type.Object({ to: Type.String(), text: Type.String() }),
+        async execute(_toolCallId, params) {
+          outbox.push(`${params.to}: ${params.text}`);
+          return { content: [{ type: "text" as const, text: "sent" }], details: {} };
+        },
+      }),
+      ["message.send"],
+    );
+    const script = () => [
+      () =>
+        fauxAssistantMessage(
+          [fauxToolCall("delegate_agent", { roleId: "builder", task: "Message Ann." })],
+          { stopReason: "toolUse" },
+        ),
+      () =>
+        fauxAssistantMessage([fauxToolCall("send_message", { to: "ann", text: "hello" })], {
+          stopReason: "toolUse",
+        }),
+      () => stop("Sent."),
+      () => stop("Done."),
+    ];
+    const harness = createAgentHarness(
+      {
+        id: "native-journal",
+        adapter: "native",
+        model: "faux/root-model",
+        policyProfile: "local-dev-full",
+        roles: [
+          { id: "root", kind: "root", description: "Coordinates the work." },
+          { id: "builder", kind: "builder", description: "Does the work." },
+        ],
+      },
+      { native: { resolveModel } },
+    );
+    const journal = createMemoryToolEffectJournal("task:turn-0");
+    for (const attempt of [1, 2]) {
+      provider.setResponses(script());
+      const result = await harness.run({
+        instruction: "Say hello to Ann",
+        workspaceRoot,
+        runId: `task:turn-0:attempt-${attempt}`,
+        artifactDir: join(workspaceRoot, `artifacts-${attempt}`),
+        capabilities: { customTools: [sendMessage] },
+        effectJournal: journal,
+      });
+      expect(result.status).toBe("succeeded");
+    }
+    expect(outbox).toEqual(["ann: hello"]);
+    expect(journal.records()).toHaveLength(1);
+    expect(journal.records()[0]?.status).toBe("completed");
+  });
+
+  it("lets the model call runtime-neutral host tools", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const calls: unknown[] = [];
+    const seen: string[][] = [];
+    provider.setResponses([
+      (context) => {
+        seen.push(toolNames(context));
+        return fauxAssistantMessage(
+          [fauxToolCall("delegate_task", { tasks: [{ to: "analyst", task: "Count chairs" }] })],
+          { stopReason: "toolUse" },
+        );
+      },
+      () => stop("Handed off."),
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "native-host-tools",
+        adapter: "native",
+        model: "faux/root-model",
+        policyProfile: "local-dev-full",
+      },
+      { native: { resolveModel } },
+    );
+    const result = await harness.run({
+      instruction: "Get the chairs counted",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+      hostTools: [
+        {
+          name: "delegate_task",
+          description: "Hand work to another agent.",
+          parameters: {
+            type: "object",
+            properties: { tasks: { type: "array", items: { type: "object" } } },
+            required: ["tasks"],
+          },
+          effects: ["handoff.write"],
+          execute(params) {
+            calls.push(params);
+            return { text: "Recorded." };
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toBe("Handed off.");
+    expect(seen[0]).toContain("delegate_task");
+    expect(calls).toEqual([{ tasks: [{ to: "analyst", task: "Count chairs" }] }]);
   });
 
   it("reports a failed run when the model stops as blocked", async () => {
@@ -521,5 +634,49 @@ describe("native harness adapter", () => {
     const names = result.events.map((event) => event.name);
     expect(names.some((name) => name.endsWith("native.subagent_spawned"))).toBe(true);
     expect(names.some((name) => name.endsWith("native.subagent_settled"))).toBe(true);
+  });
+
+  it("runs a primary agent declared as a builder role under its own policy", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const recordNote = withAgentHarnessToolEffects(
+      defineTool({
+        name: "record_note",
+        label: "Record Note",
+        description: "Record a build note.",
+        parameters: Type.Object({ note: Type.String() }),
+        async execute() {
+          return { content: [{ type: "text" as const, text: "noted" }], details: {} };
+        },
+      }),
+      ["fs.write"],
+    );
+    let tools: string[] = [];
+    provider.setResponses([
+      (context) => {
+        tools = toolNames(context);
+        return stop("Built it.");
+      },
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "persistent-agent",
+        adapter: "native",
+        model: "faux/builder-model",
+        primaryAgent: "engineer",
+        roles: [{ id: "engineer", kind: "builder", description: "A persistent engineer." }],
+      },
+      { native: { resolveModel } },
+    );
+    const result = await harness.run({
+      instruction: "Build",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+      capabilities: { customTools: [recordNote] },
+    });
+    expect(result.status).toBe("succeeded");
+    // A builder primary keeps its write tools and has nobody to delegate to.
+    expect(tools).toContain("record_note");
+    expect(tools).not.toContain("delegate_agent");
   });
 });
