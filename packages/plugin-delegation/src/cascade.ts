@@ -14,6 +14,7 @@ import type {
   QueueWorkerJobContext,
   QueueWorkerOptions,
   RunStoreContract,
+  ToolEffectRecord,
 } from "@generic-ai/sdk";
 import {
   createQueueWorker,
@@ -24,6 +25,7 @@ import {
 } from "@generic-ai/sdk";
 
 import type { AgentDirectory, PersistentAgentRecord } from "./agents.js";
+import { createRunStoreToolEffectJournal } from "./effect-journal.js";
 import {
   collectGoalEvidence,
   prepareTaskGoal,
@@ -119,7 +121,30 @@ export type DelegationCascadeEvent =
   | { readonly type: "task.succeeded"; readonly task: AgentTaskRecord }
   | { readonly type: "task.failed"; readonly task: AgentTaskRecord }
   | { readonly type: "task.cancelled"; readonly task: AgentTaskRecord }
+  | {
+      /** A retried turn returned a recorded outward call's result instead of running it again. */
+      readonly type: "tool.effect.replayed";
+      readonly taskId: string;
+      readonly record: ToolEffectRecord;
+    }
+  | {
+      /** A retried turn refused to repeat an outward call whose outcome was never recorded. */
+      readonly type: "tool.effect.uncertain";
+      readonly taskId: string;
+      readonly record: ToolEffectRecord;
+    }
   | { readonly type: "error"; readonly error: unknown; readonly taskId?: string };
+
+interface TurnCheckpoint {
+  readonly outputText: string;
+  readonly attemptRunId: string;
+  readonly runIds: readonly string[];
+}
+
+/** Session id of the saved answer for one round of a task. */
+export function turnCheckpointSessionId(taskId: string, round: number): string {
+  return `${taskId}:turn-${round}:outcome`;
+}
 
 export interface CreateDelegationCascadeOptions {
   readonly runStore: RunStoreContract;
@@ -643,8 +668,37 @@ export function createDelegationCascade(
     await directory.ensureWorkspace(agent.id);
 
     const resuming = initial.status === "waiting";
+    const turnScopeId = `${taskId}:turn-${round}`;
+    const checkpoint = await readTurnCheckpoint(taskId, round);
+    if (checkpoint !== undefined) {
+      // The model already answered this round and its answer was saved, but the worker stopped
+      // before acting on it. Act on the saved answer instead of running the model again.
+      const task = await update(taskId, () => ({ status: "running" }));
+      await logEvent(
+        task,
+        "session.completed",
+        { round, fromCheckpoint: true, attemptRunId: checkpoint.attemptRunId },
+        checkpoint.attemptRunId,
+      );
+      emit({ type: "task.resumed", task });
+      return finishTurn(
+        job,
+        task,
+        agent,
+        round,
+        checkpoint.attemptRunId,
+        resuming,
+        {
+          status: "succeeded",
+          outputText: checkpoint.outputText,
+          ...(checkpoint.runIds.length === 0 ? {} : { runIds: checkpoint.runIds }),
+        },
+        signal,
+      );
+    }
+
     const attemptNumber = initial.attempts + 1;
-    const attemptRunId = `${taskId}:turn-${round}:attempt-${attemptNumber}`;
+    const attemptRunId = `${turnScopeId}:attempt-${attemptNumber}`;
     const task = await update(taskId, (current) => ({
       status: "running",
       attempts: current.attempts + 1,
@@ -658,6 +712,37 @@ export function createDelegationCascade(
       attemptRunId,
     );
     emit({ type: resuming ? "task.resumed" : "task.started", task });
+
+    const effectJournal = createRunStoreToolEffectJournal(store, {
+      runId: taskId,
+      scopeId: turnScopeId,
+      agentId: agent.id,
+      onEvent: async (event) => {
+        if (event.type === "recorded") {
+          return;
+        }
+        await logEvent(
+          task,
+          event.type === "replayed"
+            ? "plugin.delegation.tool-effect-replayed"
+            : "plugin.delegation.tool-effect-uncertain",
+          {
+            round,
+            attempt: attemptNumber,
+            toolName: event.record.toolName,
+            callKey: event.record.callKey,
+            recordedStatus: event.record.status,
+            startedAt: event.record.startedAt,
+          },
+          attemptRunId,
+        );
+        emit({
+          type: event.type === "replayed" ? "tool.effect.replayed" : "tool.effect.uncertain",
+          taskId,
+          record: event.record,
+        });
+      },
+    });
 
     const prompt = await buildPrompt(task, agent);
     let result: AgentTaskExecutionResult;
@@ -675,6 +760,7 @@ export function createDelegationCascade(
         prompt,
         workspaceRoot: agent.homePath,
         ...(task.actor === undefined ? {} : { actor: task.actor }),
+        effectJournal,
         signal,
         metadata: { round, attempt: attemptNumber, depth: task.depth },
       });
@@ -686,6 +772,35 @@ export function createDelegationCascade(
       };
     }
 
+    if (result.status === "succeeded" && !signal.aborted) {
+      // Save the answer before acting on it, so a crash from here on resumes from it.
+      await saveTurnCheckpoint(taskId, agent.id, round, attemptRunId, result);
+    }
+    return finishTurn(
+      job,
+      task,
+      agent,
+      round,
+      attemptRunId,
+      resuming,
+      result,
+      signal,
+      attemptNumber,
+    );
+  }
+
+  async function finishTurn(
+    job: DurableQueueLease<AgentTaskJobPayload>,
+    task: AgentTaskRecord,
+    agent: PersistentAgentRecord,
+    round: number,
+    attemptRunId: string,
+    resuming: boolean,
+    result: AgentTaskExecutionResult,
+    signal: AbortSignal,
+    attemptNumber?: number,
+  ): Promise<AgentTaskJobResult> {
+    const { taskId } = task;
     const afterTurn = await load(taskId);
     if (afterTurn === undefined || isTerminalTaskStatus(afterTurn.status)) {
       return { taskId, round, outcome: "cancelled" };
@@ -695,17 +810,19 @@ export function createDelegationCascade(
         runIds: [...new Set([...current.runIds, ...(result.runIds ?? [])])],
       }));
     }
-    await logEvent(
-      task,
-      result.status === "succeeded" ? "session.completed" : "session.failed",
-      {
-        round,
-        attempt: attemptNumber,
-        ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
-        ...(result.costUsd === undefined ? {} : { costUsd: result.costUsd }),
-      },
-      attemptRunId,
-    );
+    if (attemptNumber !== undefined) {
+      await logEvent(
+        task,
+        result.status === "succeeded" ? "session.completed" : "session.failed",
+        {
+          round,
+          attempt: attemptNumber,
+          ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
+          ...(result.costUsd === undefined ? {} : { costUsd: result.costUsd }),
+        },
+        attemptRunId,
+      );
+    }
 
     if (signal.aborted) {
       throw new Error("Turn was interrupted before it finished.");
@@ -784,6 +901,66 @@ export function createDelegationCascade(
   }
 
   // ---------------------------------------------------------------------------
+  // Turn checkpoints
+  // ---------------------------------------------------------------------------
+
+  async function readTurnCheckpoint(
+    taskId: string,
+    round: number,
+  ): Promise<TurnCheckpoint | undefined> {
+    const session = await store.getSession(turnCheckpointSessionId(taskId, round));
+    const state = session?.state as
+      | {
+          readonly outputText?: unknown;
+          readonly attemptRunId?: unknown;
+          readonly runIds?: unknown;
+        }
+      | null
+      | undefined;
+    if (
+      session?.status !== "succeeded" ||
+      typeof state !== "object" ||
+      state === null ||
+      typeof state.outputText !== "string" ||
+      typeof state.attemptRunId !== "string"
+    ) {
+      return undefined;
+    }
+    const runIds = Array.isArray(state.runIds) ? (state.runIds as unknown[]) : [];
+    return {
+      outputText: state.outputText,
+      attemptRunId: state.attemptRunId,
+      runIds: runIds.filter((value): value is string => typeof value === "string"),
+    };
+  }
+
+  async function saveTurnCheckpoint(
+    taskId: string,
+    agentId: string,
+    round: number,
+    attemptRunId: string,
+    result: AgentTaskExecutionResult,
+  ): Promise<void> {
+    try {
+      await store.saveSession({
+        sessionId: turnCheckpointSessionId(taskId, round),
+        runId: taskId,
+        agentId,
+        status: "succeeded",
+        state: {
+          outputText: result.outputText,
+          attemptRunId,
+          runIds: [...(result.runIds ?? [])],
+        },
+        metadata: { kind: "turn-checkpoint", round },
+      });
+    } catch (error) {
+      // Without the checkpoint a crash re-runs the turn; the effect journal still guards it.
+      emit({ type: "error", error, taskId });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Validation
   // ---------------------------------------------------------------------------
 
@@ -799,7 +976,17 @@ export function createDelegationCascade(
       sealed = sealStoredGoal(task.goal);
     } catch (error) {
       // A tampered or unreadable goal can never be satisfied; fail closed.
-      return { passed: false, feedback: error instanceof Error ? error.message : String(error) };
+      const feedback = error instanceof Error ? error.message : String(error);
+      await logEvent(task, "plugin.delegation.goal.failed", {
+        round: task.round,
+        ...(task.goal?.spec?.id === undefined ? {} : { goalId: task.goal.spec.id }),
+        ...(task.goal?.fingerprint === undefined ? {} : { goalFingerprint: task.goal.fingerprint }),
+        status: "INCOMPLETE",
+        complete: false,
+        reason: "goal_integrity",
+        feedback,
+      });
+      return { passed: false, feedback };
     }
     if (sealed !== undefined) {
       const evidence = await collectGoalEvidence(
@@ -812,7 +999,22 @@ export function createDelegationCascade(
         signal,
         ...(task.goal?.fingerprint === undefined ? {} : { fingerprint: task.goal.fingerprint }),
       });
-      await update(task.taskId, () => ({ lastGoalReport: summarizeGoalReport(report) }));
+      const summary = summarizeGoalReport(report);
+      await update(task.taskId, () => ({ lastGoalReport: summary }));
+      // The in-run verdict, for goal evals (ADR 0058) to cross-check against a re-run.
+      await logEvent(task, "plugin.delegation.goal.validated", {
+        round: task.round,
+        goalId: report.goalId,
+        goalFingerprint: report.goalFingerprint,
+        status: report.status,
+        complete: report.complete,
+        required: summary.required,
+        passed: summary.passed,
+        failed: summary.failed,
+        errored: summary.errored,
+        turnRunIds: [...turnRunIds],
+        evaluatedAt: report.evaluatedAt,
+      });
       if (!report.complete) {
         return { passed: false, feedback: report.feedback };
       }

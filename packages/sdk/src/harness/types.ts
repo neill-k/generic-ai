@@ -1,6 +1,7 @@
 import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
 import type { CanonicalEvent } from "../events/index.js";
 import type { RunEnvelope } from "../run-envelope/index.js";
+import type { ToolEffectJournal } from "./effect-journal.js";
 import type { RunActor } from "../contracts/identity.js";
 import type { GoalSpec } from "../goals/types.js";
 import type {
@@ -283,6 +284,11 @@ export interface AgentHarnessRunInput<TCapabilities = unknown> {
   readonly metadata?: JsonObject;
   /** Redaction-safe identity of whoever started the run; stamped on every run event. */
   readonly actor?: RunActor;
+  /**
+   * Durable record of outward tool calls for this turn. When set, the harness journals every tool
+   * with an outward effect so a retried attempt replays finished calls instead of repeating them.
+   */
+  readonly effectJournal?: ToolEffectJournal;
 }
 
 export interface AgentHarnessToolDescriptor {
