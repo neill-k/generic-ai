@@ -76,6 +76,7 @@ import {
   type NativeSessionSubagents,
   runCapabilityNativeAgentSession,
 } from "../runtime/native-session.js";
+import type { NativeSessionSchedules } from "../runtime/native-schedules.js";
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 import { createUsageMeter, type UsageMeter } from "../usage/index.js";
@@ -151,6 +152,11 @@ export interface NativeAgentHarnessOptions {
    * limit is reached. Gate commands run in the clean agent-command environment.
    */
   readonly autonomous?: NativeSessionAutonomous | boolean;
+  /**
+   * Give every native session the schedule and heartbeat tools. With a `service` and a
+   * `sessionDir`, jobs that come due after a run resume its session from the durable queue.
+   */
+  readonly schedules?: NativeSessionSchedules | boolean;
 }
 
 export interface CreateAgentHarnessOptions<
@@ -1406,6 +1412,7 @@ function createNativeSessionBackend(
         ...(subagents === undefined ? {} : { subagents }),
         ...(options.goal === undefined ? {} : { goal: options.goal }),
         ...(options.autonomous === undefined ? {} : { autonomous: options.autonomous }),
+        ...(options.schedules === undefined ? {} : { schedules: options.schedules }),
       });
       return {
         sessionId: result.sessionId,
