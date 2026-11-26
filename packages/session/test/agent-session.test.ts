@@ -100,6 +100,33 @@ describe("retry on transient errors", () => {
     expect(provider.state.callCount).toBe(1);
   });
 
+  it("does not report a retry when the run is already aborted", async () => {
+    const { provider, agent } = setup();
+    provider.setResponses([
+      fauxAssistantMessage([], { stopReason: "error", errorMessage: "529 overloaded_error" }),
+      fauxAssistantMessage("Should not be reached."),
+    ]);
+    const controller = new AbortController();
+    const notices: number[] = [];
+    const retries = await runWithRetry(
+      agent,
+      async () => {
+        await agent.prompt("Hello");
+        controller.abort();
+      },
+      {
+        policy: { enabled: true, maxRetries: 2, baseDelayMs: 1 },
+        signal: controller.signal,
+        onRetry: (notice) => {
+          notices.push(notice.attempt);
+        },
+      },
+    );
+    expect(retries).toBe(0);
+    expect(notices).toEqual([]);
+    expect(provider.state.callCount).toBe(1);
+  });
+
   it("stops after maxRetries", async () => {
     const { provider, agent } = setup();
     const overloaded = () =>

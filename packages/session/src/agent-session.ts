@@ -109,6 +109,9 @@ export async function runWithRetry(
     ) {
       return attempt;
     }
+    if (options.signal?.aborted) {
+      return attempt;
+    }
     attempt += 1;
     const delayMs = retryDelayMs(policy, attempt);
     await options.onRetry?.({
