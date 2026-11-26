@@ -1,0 +1,135 @@
+name: Reliability gate (live template evals)
+
+# Roadmap R19. Runs every company template's goal eval suite on the templates'
+# real models with a model judge, and fails when any suite's gate fails. The
+# report gives pass rate and pass^k over repeated tries, and tokens and dollars
+# per completed goal.
+#
+# Every run spends money on the provider account behind ANTHROPIC_API_KEY, so:
+# - it only runs when started by hand, or on the weekly schedule once the
+#   repository variable TEMPLATE_EVALS_SCHEDULE is set to "on" (off by default);
+# - without the ANTHROPIC_API_KEY secret it skips cleanly and spends nothing;
+# - the whole run stops at a dollar cap and a token cap (the per-run budgets in
+#   the harness), and attempts that would start after the cap count as failures.
+#
+# The offline replay of the same suites runs on every pull request in the
+# Quality Gate workflow and needs no key.
+
+on:
+  workflow_dispatch:
+    inputs:
+      template:
+        description: "Template to evaluate (blank for every template)"
+        required: false
+        default: ""
+      trials:
+        description: "Attempts per case (blank for each suite's own count, 5)"
+        required: false
+        default: ""
+      max_usd:
+        description: "Dollar cap for the whole run, judge included"
+        required: false
+        default: "50"
+      max_tokens:
+        description: "Token cap for the whole run (cache reads count)"
+        required: false
+        default: "40000000"
+  schedule:
+    # Mondays 06:00 UTC. Does nothing unless vars.TEMPLATE_EVALS_SCHEDULE is "on".
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  # One live run at a time, so two runs never spend in parallel.
+  group: template-evals-live
+  cancel-in-progress: false
+
+jobs:
+  live-evals:
+    name: live template evals
+    if: github.event_name != 'schedule' || vars.TEMPLATE_EVALS_SCHEDULE == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      # Optional: web search for the research goals. Without one, goals that
+      # require a web search fail their "researched" check.
+      BRAVE_API_KEY: ${{ secrets.BRAVE_API_KEY }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+    steps:
+      - name: Check for the provider key
+        id: key
+        run: |
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            message="Skipped: the ANTHROPIC_API_KEY repository secret is not set, so no live evals ran and nothing was spent. Add it under Settings > Secrets and variables > Actions to enable this gate."
+            echo "::notice title=Live template evals skipped::${message}"
+            {
+              echo "## Live template evals skipped"
+              echo
+              echo "${message}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out repository
+        if: steps.key.outputs.present == 'true'
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        if: steps.key.outputs.present == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Use pinned npm
+        if: steps.key.outputs.present == 'true'
+        run: npm install --global npm@11.12.1
+
+      - name: Install dependencies
+        if: steps.key.outputs.present == 'true'
+        run: npm ci
+
+      - name: Build
+        if: steps.key.outputs.present == 'true'
+        run: npm run build
+
+      - name: Run live template evals
+        if: steps.key.outputs.present == 'true'
+        env:
+          TEMPLATE: ${{ inputs.template }}
+          TRIALS: ${{ inputs.trials }}
+          MAX_USD: ${{ inputs.max_usd || '50' }}
+          MAX_TOKENS: ${{ inputs.max_tokens || '40000000' }}
+        run: |
+          args=(--live --out "$RUNNER_TEMP/template-evals" --max-usd "$MAX_USD" --max-tokens "$MAX_TOKENS")
+          if [ -n "$TEMPLATE" ]; then args+=(--template "$TEMPLATE"); fi
+          if [ -n "$TRIALS" ]; then args+=(--trials "$TRIALS"); fi
+          set +e
+          npm run evals -w @generic-ai/app-generic-corp -- "${args[@]}" | tee "$RUNNER_TEMP/template-evals.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          {
+            echo "## Live template evals"
+            echo
+            for report in "$RUNNER_TEMP"/template-evals/*.md; do
+              [ -f "$report" ] && cat "$report" && echo
+            done
+            echo '```'
+            tail -n 4 "$RUNNER_TEMP/template-evals.log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload reports
+        if: always() && steps.key.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: template-evals-live
+          path: ${{ runner.temp }}/template-evals
+          if-no-files-found: ignore
+          retention-days: 30

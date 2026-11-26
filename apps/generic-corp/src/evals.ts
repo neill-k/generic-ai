@@ -8,6 +8,8 @@ import {
   fauxAssistantMessage,
   fauxToolCall,
   type Model,
+  PROVIDER_API_KEY_ENV,
+  parseModelRef,
   registerFauxProvider,
 } from "@generic-ai/ai";
 import { createMemoryAuthStore } from "@generic-ai/plugin-auth-identity";
@@ -27,11 +29,13 @@ import { parse as parseYaml } from "yaml";
 import {
   type CompanyConfig,
   CompanyConfigError,
+  companyAgentSeeds,
   companyGoal,
   DEFAULT_TIER_MODELS,
 } from "./company.js";
 import { collectCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { createGenericCorpServer } from "./server.js";
+import type { SpendCap } from "./spend.js";
 import { loadTemplateEvalSuite, type TemplateEvalSuite } from "./templates.js";
 import { createCompanyToolkit } from "./toolkit.js";
 
@@ -180,8 +184,18 @@ export interface CompanyEvalExecutorOptions {
   readonly resolveModel?: (ref: string) => Model;
   /** Live mode: replaces the model judge. */
   readonly judge?: GoalJudge;
+  /**
+   * A token and dollar cap over every attempt. Each agent turn starts with what is left as its
+   * harness budget, and attempts that would start after the cap is reached are not run.
+   */
+  readonly spendCap?: SpendCap;
+  /** Called for each attempt skipped because the spend cap was reached. */
+  readonly onSkipped?: (caseId: string) => void;
   readonly log?: (message: string) => void;
 }
+
+/** The failure message of an attempt that never started because the spend cap was reached. */
+export const NOT_RUN_PREFIX = "Not run:" as const;
 
 /**
  * Runs one eval attempt in a fresh company: new data directory, new agents, no shared state
@@ -198,6 +212,12 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
     ]
       .filter((part): part is string => part !== undefined && part.trim().length > 0)
       .join("\n\n");
+
+    const capped = options.spendCap?.reason();
+    if (capped !== undefined) {
+      options.onSkipped?.(caseId);
+      return { runStatus: "cancelled", failureMessage: `${NOT_RUN_PREFIX} ${capped}`, events: [] };
+    }
 
     let replay: TemplateReplay | undefined;
     let model: ReplayModel | undefined;
@@ -234,6 +254,17 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
             });
       const resolveModel = model?.resolveModel ?? options.resolveModel;
       const judge = replay === undefined ? options.judge : replayJudge(replay);
+      const spendCap = options.spendCap;
+      const executorOptions = {
+        ...(resolveModel === undefined ? {} : { native: { resolveModel } }),
+        ...(spendCap === undefined
+          ? {}
+          : {
+              budget: () => spendCap.turnBudget(),
+              onTurnUsage: (_input: unknown, totals: Parameters<SpendCap["record"]>[0]) =>
+                spendCap.record(totals),
+            }),
+      };
       const server = await createGenericCorpServer({
         environment: {
           host: "127.0.0.1",
@@ -246,7 +277,7 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
         env: replay === undefined ? (options.env ?? process.env) : {},
         company: options.company,
         ...(toolkit === undefined ? {} : { toolkit }),
-        ...(resolveModel === undefined ? {} : { executorOptions: { native: { resolveModel } } }),
+        ...(Object.keys(executorOptions).length === 0 ? {} : { executorOptions }),
         ...(judge === undefined ? {} : { goals: { judges: judge } }),
         authStore: createMemoryAuthStore(),
         log,
@@ -321,6 +352,8 @@ export interface RunTemplateEvalsOptions {
   readonly env?: NodeJS.ProcessEnv;
   readonly resolveModel?: (ref: string) => Model;
   readonly judge?: GoalJudge;
+  /** Token and dollar cap over the whole run, judge calls included. Share one across templates. */
+  readonly spendCap?: SpendCap;
   readonly log?: (message: string) => void;
 }
 
@@ -328,6 +361,49 @@ export interface TemplateEvalRun {
   readonly template: TemplateEvalSuite;
   readonly report: GoalEvalReport;
   readonly markdown: string;
+  /** Attempts not started because the spend cap was reached. They count as failed trials. */
+  readonly notRun: number;
+}
+
+/**
+ * Wraps a judge so it refuses to grade once the cap is reached. A refused grade is an error,
+ * which fails the validator rather than passing it.
+ */
+function cappedJudge(judge: GoalJudge, spendCap: SpendCap | undefined): GoalJudge {
+  if (spendCap === undefined) {
+    return judge;
+  }
+  return (request) => {
+    const reason = spendCap.reason();
+    if (reason !== undefined) {
+      throw new Error(reason);
+    }
+    return judge(request);
+  };
+}
+
+/**
+ * Environment variables a live run of the company needs: for each provider its models use, the
+ * provider's key variables, none of which is set. Empty when every provider has a key.
+ */
+export function missingProviderKeys(
+  company: CompanyConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): readonly { readonly provider: string; readonly variables: readonly string[] }[] {
+  const refs = new Set<string>([
+    ...companyAgentSeeds(company).flatMap((seed) => (seed.model === undefined ? [] : [seed.model])),
+    company.models?.vp ?? DEFAULT_TIER_MODELS.vp,
+  ]);
+  const providers = new Set([...refs].map((ref) => parseModelRef(ref).provider));
+  return [...providers]
+    .sort()
+    .map((provider) => ({
+      provider,
+      variables: PROVIDER_API_KEY_ENV[provider] ?? [
+        `${provider.toUpperCase().replace(/[^A-Z0-9]/g, "_")}_API_KEY`,
+      ],
+    }))
+    .filter(({ variables }) => !variables.some((name) => (env[name] ?? "").length > 0));
 }
 
 /** Runs a template's goal eval suite and returns the report; `report.gate.passed` is the verdict. */
@@ -341,7 +417,22 @@ export async function runTemplateEvals(options: RunTemplateEvalsOptions): Promis
           trials: { ...template.suite.trials, count: options.trials },
           cases: template.suite.cases.map(({ trials: _trials, ...rest }) => rest),
         };
-  const judge = options.mode === "replay" ? undefined : options.judge;
+  // Live runs grade with one judge, the same the company would use, metered against the cap.
+  const judge =
+    options.mode === "replay"
+      ? undefined
+      : cappedJudge(
+          options.judge ??
+            createModelJudge({
+              model: template.company.models?.vp ?? DEFAULT_TIER_MODELS.vp,
+              ...(options.resolveModel === undefined ? {} : { resolveModel: options.resolveModel }),
+              ...(options.spendCap === undefined
+                ? {}
+                : { onUsage: (usage) => options.spendCap?.recordModelUsage(usage) }),
+            }),
+          options.spendCap,
+        );
+  let notRun = 0;
   const report = await runGoalEvalSuite({
     suite,
     execute: createCompanyEvalExecutor({
@@ -351,20 +442,17 @@ export async function runTemplateEvals(options: RunTemplateEvalsOptions): Promis
       ...(options.env === undefined ? {} : { env: options.env }),
       ...(options.resolveModel === undefined ? {} : { resolveModel: options.resolveModel }),
       ...(judge === undefined ? {} : { judge }),
+      ...(options.spendCap === undefined ? {} : { spendCap: options.spendCap }),
+      onSkipped: () => {
+        notRun += 1;
+      },
       ...(options.log === undefined ? {} : { log: options.log }),
     }),
     // The eval re-runs every validator on the evidence. Replays bring their own recorded
     // judgments; live runs grade with the same judge the company uses.
-    judges:
-      options.mode === "replay"
-        ? replayJudgesFor(template)
-        : (judge ??
-          createModelJudge({
-            model: template.company.models?.vp ?? DEFAULT_TIER_MODELS.vp,
-            ...(options.resolveModel === undefined ? {} : { resolveModel: options.resolveModel }),
-          })),
+    judges: judge ?? replayJudgesFor(template),
   });
-  return { template, report, markdown: renderGoalEvalMarkdown(report) };
+  return { template, report, markdown: renderGoalEvalMarkdown(report), notRun };
 }
 
 /** Judges the eval's own re-scoring uses in replay mode: each case's recorded judgments. */
