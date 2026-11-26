@@ -27,6 +27,7 @@ const packageAliases = [
   "plugin-mcp",
   "plugin-agent-skills",
   "plugin-delegation",
+  "plugin-approvals",
   "plugin-interaction",
   "plugin-logging-otel",
   "plugin-messaging",

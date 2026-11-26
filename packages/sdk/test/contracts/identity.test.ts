@@ -37,7 +37,12 @@ describe("identity contracts", () => {
     expect(hasAuthScope(context, "runs:execute")).toBe(true);
     expect(hasAuthScope(context, "tokens:manage")).toBe(false);
     expect(hasAuthScope(undefined, "runs:execute")).toBe(false);
-    expect(ALL_AUTH_SCOPES).toEqual(["runs:execute", "runs:read", "tokens:manage"]);
+    expect(ALL_AUTH_SCOPES).toEqual([
+      "runs:execute",
+      "runs:read",
+      "tokens:manage",
+      "approvals:decide",
+    ]);
   });
 
   it("parses untrusted run actors", () => {
