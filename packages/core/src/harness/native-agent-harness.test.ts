@@ -388,6 +388,79 @@ describe("native harness adapter", () => {
     expect(userText).toContain("for v2");
   });
 
+  it("loads extensions into native sessions: tools, hooks, and system prompt", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const lifecycle: string[] = [];
+    let systemPrompt = "";
+    let tools: string[] = [];
+    provider.setResponses([
+      (context) => {
+        systemPrompt = context.systemPrompt ?? "";
+        tools = toolNames(context);
+        return fauxAssistantMessage([fauxToolCall("ticket_lookup", { id: "T-1" })], {
+          stopReason: "toolUse",
+        });
+      },
+      (context) => {
+        const last = context.messages.at(-1);
+        return fauxAssistantMessage(
+          last?.role === "toolResult" ? JSON.stringify(last.content) : "missing",
+        );
+      },
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "native-extensions",
+        adapter: "native",
+        model: "faux/root-model",
+        execution: { turnMode: "single-turn" },
+      },
+      {
+        native: {
+          resolveModel,
+          extensions: {
+            factories: [
+              (api) => {
+                api.registerTool({
+                  name: "ticket_lookup",
+                  label: "Ticket lookup",
+                  description: "Look up a ticket.",
+                  parameters: Type.Object({ id: Type.String() }),
+                  execute: async () => ({
+                    content: [{ type: "text", text: "ticket open" }],
+                    details: {},
+                  }),
+                });
+                api.on("session_start", () => void lifecycle.push("start"));
+                api.on("session_shutdown", () => void lifecycle.push("shutdown"));
+                api.on("before_agent_start", (event) => ({
+                  systemPrompt: `${event.systemPrompt}\n\nAlways cite ticket ids.`,
+                }));
+                api.on("tool_result", (event) => ({
+                  content: [{ type: "text", text: `${event.toolName}: ticket open (checked)` }],
+                }));
+              },
+            ],
+          },
+        },
+      },
+    );
+    const result = await harness.run({
+      instruction: "Check T-1",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+    });
+    expect(result.status).toBe("succeeded");
+    expect(tools).toContain("ticket_lookup");
+    expect(systemPrompt).toContain("Always cite ticket ids.");
+    expect(result.outputText).toContain("ticket_lookup: ticket open (checked)");
+    expect(lifecycle).toEqual(["start", "shutdown"]);
+    expect(result.events.some((event) => event.name.endsWith("native.extensions_loaded"))).toBe(
+      true,
+    );
+  });
+
   it("runs a primary agent declared as a builder role under its own policy", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
     const { provider, resolveModel } = fauxModels();
