@@ -2,6 +2,7 @@ import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
 import type { CanonicalEvent } from "../events/index.js";
 import type { RunEnvelope } from "../run-envelope/index.js";
 import type { RunActor } from "../contracts/identity.js";
+import type { GoalSpec } from "../goals/types.js";
 import type {
   AgentLifecycleHookDecisionRecord,
   AgentLifecycleHooksConfig,
@@ -851,6 +852,12 @@ export interface MissionSpec {
     readonly requiredSubstrings?: readonly string[];
     readonly requiredArtifacts?: readonly string[];
   };
+  /**
+   * A verifiable definition of done. When set, benchmark runners re-run its
+   * validators on each trial's output and trace, and a trial only counts as
+   * `task_success` when the goal is COMPLETE. See `docs/goals.md`.
+   */
+  readonly goal?: GoalSpec;
   readonly providerPolicy?: {
     readonly adapter?: string;
     readonly model?: string;
