@@ -32,6 +32,7 @@ export function createGenericCorpPreset(
 export * from "./api.js";
 export * from "./company.js";
 export * from "./costs.js";
+export * from "./dashboard.js";
 export * from "./events.js";
 export * from "./executor.js";
 export * from "./runtime.js";

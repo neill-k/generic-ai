@@ -50,6 +50,7 @@ describe("company config: tools and secret grants", () => {
   it("accepts web search, MCP connectors and per-agent secret grants", () => {
     const parsed = parseCompanyConfig({
       tools: {
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: a config placeholder.
         webSearch: { provider: "brave", apiKey: "${BRAVE_API_KEY}" },
         mcp: { servers: [{ id: "web", connector: "browser" }] },
       },

@@ -128,7 +128,12 @@ export async function startFetchServer(
     port: address.port,
     close: () =>
       new Promise<void>((resolve, reject) => {
+        // Live event streams never end on their own, so after a short grace period cut every
+        // connection; otherwise a shutdown waits until the platform kills the process.
+        const force = setTimeout(() => server.closeAllConnections(), 2_000);
+        force.unref();
         server.close((error) => {
+          clearTimeout(force);
           if (error) {
             reject(error);
             return;
@@ -136,6 +141,7 @@ export async function startFetchServer(
 
           resolve();
         });
+        server.closeIdleConnections();
       }),
   });
 }
