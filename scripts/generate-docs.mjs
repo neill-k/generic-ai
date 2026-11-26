@@ -41,6 +41,7 @@ function packageRow(dir) {
 
 const packages = workspaceDirs("packages").map(packageRow);
 const examples = workspaceDirs("examples").map(packageRow);
+const apps = workspaceDirs("apps").map(packageRow);
 
 const lines = [
   "# Generated Package Index",
@@ -52,6 +53,15 @@ const lines = [
   "| Name | Path | Publish | Description | Docs |",
   "| --- | --- | --- | --- | --- |",
   ...packages.map(
+    (pkg) =>
+      `| \`${pkg.name}\` | \`${pkg.path}\` | ${pkg.publishStatus} | ${pkg.description} | ${pkg.readmeLink} |`,
+  ),
+  "",
+  "## Apps",
+  "",
+  "| Name | Path | Publish | Description | Docs |",
+  "| --- | --- | --- | --- | --- |",
+  ...apps.map(
     (pkg) =>
       `| \`${pkg.name}\` | \`${pkg.path}\` | ${pkg.publishStatus} | ${pkg.description} | ${pkg.readmeLink} |`,
   ),

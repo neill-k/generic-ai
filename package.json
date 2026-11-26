@@ -11,7 +11,8 @@
   "packageManager": "npm@11.12.1",
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*",
+    "apps/*"
   ],
   "overrides": {
     "@mariozechner/pi-ai": {
@@ -26,7 +27,7 @@
     "pretypecheck:tests": "node scripts/check-node-version.mjs",
     "build": "tsc -b",
     "prebuild": "node scripts/check-node-version.mjs",
-    "typecheck": "npm run typecheck:build && npm run typecheck:tests && rimraf --glob \"packages/*/dist\" \"packages/*/*.tsbuildinfo\" \"examples/*/dist\" \"examples/*/*.tsbuildinfo\"",
+    "typecheck": "npm run typecheck:build && npm run typecheck:tests && rimraf --glob \"packages/*/dist\" \"packages/*/*.tsbuildinfo\" \"examples/*/dist\" \"examples/*/*.tsbuildinfo\" \"apps/*/dist\" \"apps/*/*.tsbuildinfo\"",
     "typecheck:build": "tsc -b --pretty",
     "typecheck:tests": "tsc -p tsconfig.test.json --pretty",
     "pretest": "node scripts/check-node-version.mjs",
@@ -34,12 +35,12 @@
     "prelint": "node scripts/check-node-version.mjs",
     "check:boundaries": "node scripts/check-package-boundaries.mjs",
     "check:biome-helper-ignores": "node scripts/check-biome-helper-ignores.mjs",
-    "lint": "npm run check:boundaries && npm run check:biome-helper-ignores && biome lint README.md CONTRIBUTING.md RELEASING.md biome.json package.json tsconfig.json tsconfig.base.json tsconfig.test.json vitest.config.ts docs packages examples scripts",
+    "lint": "npm run check:boundaries && npm run check:biome-helper-ignores && biome lint README.md CONTRIBUTING.md RELEASING.md biome.json package.json tsconfig.json tsconfig.base.json tsconfig.test.json vitest.config.ts docs packages examples apps scripts",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "docs": "node scripts/generate-docs.mjs",
     "docs:check": "node scripts/generate-docs.mjs --check",
-    "clean": "rimraf --glob \"packages/*/dist\" \"packages/*/*.tsbuildinfo\" \"examples/*/dist\" \"examples/*/*.tsbuildinfo\" node_modules",
+    "clean": "rimraf --glob \"packages/*/dist\" \"packages/*/*.tsbuildinfo\" \"examples/*/dist\" \"examples/*/*.tsbuildinfo\" \"apps/*/dist\" \"apps/*/*.tsbuildinfo\" node_modules",
     "changeset": "changeset",
     "changeset:status": "changeset status",
     "changeset:version": "changeset version && npm install --package-lock-only",
