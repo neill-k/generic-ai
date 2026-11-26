@@ -39,6 +39,8 @@ export interface UsageRecordedEventData {
   readonly goalId?: string;
   readonly responseId?: string;
   readonly stopReason?: string;
+  /** Why the call was made, when it is not an agent turn (for example `compaction`). */
+  readonly purpose?: string;
   readonly [key: string]: unknown;
 }
 
