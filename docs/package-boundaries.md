@@ -201,7 +201,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: embedded MCP support exposed as a plugin so MCP is never a kernel hard requirement.
 - Allowed deps: `@generic-ai/sdk`, `pi`, MCP client libraries.
 - Not responsible for: replacing MCP as a protocol. The kernel and SDK must remain MCP-agnostic.
-- Notes: server trust, approval flow, and transport-specific governance are deferred to the roadmap in `docs/runtime-governance.md`.
+- Notes: connects to configured stdio/HTTP/SSE servers and hands their tools to the harness through the `mcp` capability's `harnessTools()`, tagged with `mcp.read`/`mcp.write` effects so core role policies filter them. Server trust tiers and approval flow are deferred to the roadmap in `docs/runtime-governance.md`.
 
 ### `@generic-ai/plugin-agent-skills`
 
@@ -211,10 +211,10 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/plugin-delegation`
 
-- Role: simple delegation capability that defines the delegation business model.
-- Allowed deps: `@generic-ai/sdk`, `pi`.
-- Not responsible for: child-session lifecycle or result collection. Those belong to the kernel.
-- Notes: the package exports delegation capability markers and shared contract types. Kernel session helpers own child-session lifecycle plumbing.
+- Role: the delegation business model. Owns persistent agents (durable org-chart records with a memory file and a workspace or git worktree each), the cross-run delegation cascade (durable agent tasks, `delegate_task` and `finish_task` directives, parents waiting in the store while children run on the durable queue, results bubbling up), and run persistence for any `AgentHarnessAdapter`.
+- Allowed deps: `@generic-ai/sdk`, `pi`. Tests may use the SQLite and Postgres storage plugins as dev dependencies to exercise real durable backends.
+- Not responsible for: in-run child-session lifecycle (kernel), storage or queue implementations (storage plugins), or running agent turns (any SDK `AgentHarnessAdapter` or `AgentTaskExecutor`, such as core's `createTopologyTaskExecutor`).
+- Notes: the cascade talks to storage only through `RunStoreContract` and `DurableQueueContract`, and to runtimes only through `AgentTaskExecutor`, so it runs on Pi or the native runtime and on SQLite or Postgres. See `docs/decisions/0044-persistent-agents-and-delegation-cascade.md`.
 
 ### `@generic-ai/plugin-interaction`
 

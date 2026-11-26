@@ -11,6 +11,7 @@ import {
   canonicalSessionLifecycleNames,
   canonicalTerminalCommandLifecycleNames,
   canonicalToolCallLifecycleNames,
+  canonicalUsageLifecycleNames,
   createCanonicalEvent,
   createPluginEvent,
   getCanonicalEventFamily,
@@ -36,6 +37,7 @@ describe("core canonical event taxonomy", () => {
     expect(canonicalPolicyLifecycleNames).toEqual(["policy.decision"]);
     expect(canonicalHookLifecycleNames).toContain("hook.decision");
     expect(canonicalArtifactLifecycleNames).toEqual(["artifact.created"]);
+    expect(canonicalUsageLifecycleNames).toEqual(["usage.recorded", "usage.budget.exceeded"]);
     expect(canonicalCoreEventNames).toHaveLength(
       canonicalRunLifecycleNames.length +
         canonicalSessionLifecycleNames.length +
@@ -45,7 +47,8 @@ describe("core canonical event taxonomy", () => {
         canonicalTerminalCommandLifecycleNames.length +
         canonicalPolicyLifecycleNames.length +
         canonicalHookLifecycleNames.length +
-        canonicalArtifactLifecycleNames.length,
+        canonicalArtifactLifecycleNames.length +
+        canonicalUsageLifecycleNames.length,
     );
   });
 
