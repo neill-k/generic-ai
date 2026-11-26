@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://generic-ai.dev/contracts/goals/goal-validation-report.schema.json",
+  "title": "GoalValidationReport",
+  "type": "object",
+  "required": [
+    "kind",
+    "goalId",
+    "goalFingerprint",
+    "status",
+    "complete",
+    "results",
+    "summary",
+    "feedback",
+    "evaluatedAt"
+  ],
+  "properties": {
+    "kind": {
+      "const": "goal-validation-report"
+    },
+    "goalId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "goalFingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "status": {
+      "enum": [
+        "COMPLETE",
+        "INCOMPLETE"
+      ]
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "validatorId",
+          "kind",
+          "required",
+          "status",
+          "message",
+          "durationMs"
+        ],
+        "properties": {
+          "validatorId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "numeric",
+              "rubric",
+              "trace",
+              "output_schema",
+              "check"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "fix": {
+            "type": "string"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "details": {
+            "type": "object"
+          },
+          "durationMs": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "required",
+        "passed",
+        "failed",
+        "errored",
+        "advisoryFailed"
+      ],
+      "properties": {
+        "required": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "passed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "errored": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "advisoryFailed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "feedback": {
+      "type": "string"
+    },
+    "evaluatedAt": {
+      "type": "string"
+    }
+  }
+}
