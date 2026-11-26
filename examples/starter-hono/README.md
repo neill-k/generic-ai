@@ -29,7 +29,11 @@ The server reads these values before it starts:
 - `GENERIC_AI_WORKSPACE_ROOT` optional workspace root override
 - `GENERIC_AI_HOST` or `HOST` optional host, default `127.0.0.1`
 - `GENERIC_AI_PORT` or `PORT` optional port, default `3000`
-- `GENERIC_AI_AUTH_TOKEN` optional bearer token for `/starter/run` and `/starter/run/stream`
+- `GENERIC_AI_PUBLIC_URL` optional public origin, for example `https://my-app.up.railway.app`. It turns on owner auth and fixes the passkey relying party. On Railway, `RAILWAY_PUBLIC_DOMAIN` is used when this is unset.
+- `GENERIC_AI_OWNER_SETUP_TOKEN` optional one-time secret (16+ characters) for registering the first owner passkey. If owner auth is on and no passkey exists, the server prints a fresh one at startup instead.
+- `GENERIC_AI_AUTH_DB` optional SQLite file for owner auth records, default `~/.generic-ai/auth.sqlite`. It must be outside the agent workspace. On Railway, point it at a mounted volume such as `/data/auth.sqlite`.
+- `GENERIC_AI_OWNER_AUTH` optional; set to `1` to turn owner auth on locally without the variables above
+- `GENERIC_AI_AUTH_TOKEN` optional break-glass owner bearer token (16+ characters) for every protected route
 - `GENERIC_AI_UNSAFE_EXPOSE` optional remote-exposure override; set to `1` only for deliberate unauthenticated exposure
 
 Default model behavior:
@@ -47,8 +51,10 @@ Default model behavior:
 Security posture:
 
 - local development binds to `127.0.0.1` by default
-- non-loopback hosts such as `0.0.0.0`, LAN IPs, or public hostnames fail fast unless `GENERIC_AI_AUTH_TOKEN` is configured or `GENERIC_AI_UNSAFE_EXPOSE=1` is set
-- when `GENERIC_AI_AUTH_TOKEN` is set, call run endpoints with `Authorization: Bearer <token>` or `x-generic-ai-token: <token>`
+- non-loopback hosts such as `0.0.0.0`, LAN IPs, or public hostnames fail fast unless owner auth is configured or `GENERIC_AI_UNSAFE_EXPOSE=1` is set
+- with owner auth on, the console redirects to `/auth/login`; the owner signs in with a passkey, and the same page creates, lists, and revokes API tokens
+- scripts call run endpoints with `Authorization: Bearer <api token>` (or the break-glass `GENERIC_AI_AUTH_TOKEN`); `x-generic-ai-token: <token>` is still accepted
+- every run envelope and run event records who started it as `actor` (owner, credential source, and token id), never the credential itself
 - unauthenticated health output is intentionally minimal and does not expose workspace paths or full bootstrap internals
 - `GENERIC_AI_UNSAFE_EXPOSE=1` leaves command/file/MCP-capable runtime endpoints reachable without example-level auth; use it only in isolated, trusted environments
 
@@ -83,18 +89,25 @@ Open `http://127.0.0.1:3000/` for the playground UI. It includes:
 - optional bearer-token entry for protected remote runs
 - a sandboxed HTML preview, raw HTML view, downloadable artifact, and run-event log
 
-Remote exposure with a token:
+Remote exposure with owner login (passkey) and API tokens:
 
 ```bash
 export GENERIC_AI_PROVIDER_API_KEY="<provider-key>"
 export GENERIC_AI_HOST="0.0.0.0"
-export GENERIC_AI_AUTH_TOKEN="<long-random-token>"
+export GENERIC_AI_PUBLIC_URL="https://<your-domain>"
+export GENERIC_AI_AUTH_DB="/data/auth.sqlite"
 npm run -w @generic-ai/example-starter-hono start
+# The log prints a one-time setup token. Open https://<your-domain>/auth/login,
+# paste it, and create the owner passkey. Then create API tokens on that page.
 ```
+
+Passkeys need a secure context: use https for any host other than `localhost`.
+Register a second passkey (or keep `GENERIC_AI_AUTH_TOKEN` set) so losing one
+device does not lock you out.
 
 ```bash
 curl -X POST http://<server-host>:3000/starter/run \
-  -H "authorization: Bearer <long-random-token>" \
+  -H "authorization: Bearer <api-token>" \
   -H "content-type: application/json" \
   -d '{"input":"Explain what the Generic AI starter stack is."}'
 ```

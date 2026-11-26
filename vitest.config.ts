@@ -30,6 +30,7 @@ const packageAliases = [
   "plugin-output-default",
   "plugin-queue-memory",
   "plugin-hono",
+  "plugin-auth-identity",
   "plugin-storage-sqlite",
   "plugin-storage-postgres",
   "plugin-tools-web",

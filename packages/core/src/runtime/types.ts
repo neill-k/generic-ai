@@ -1,3 +1,5 @@
+import type { UsageBudgetLimits, UsageTotals } from "@generic-ai/sdk";
+
 export const DEFAULT_GENERIC_AI_RUNTIME_ADAPTER = "openai-codex" as const;
 export const DEFAULT_OPENAI_CODEX_MODEL = "gpt-5.5" as const;
 
@@ -8,6 +10,11 @@ export interface GenericAILlmRunOptions {
   readonly signal?: AbortSignal;
   readonly turnMode?: GenericAIAgentTurnMode;
   readonly maxTurns?: number;
+  /**
+   * Token and dollar caps for this run. When a cap is reached the run stops after the response that
+   * reached it and rejects with a `UsageBudgetExceededError`. Supported by the native adapter.
+   */
+  readonly budget?: UsageBudgetLimits;
 }
 
 export interface GenericAILlmRunResult {
@@ -15,6 +22,8 @@ export interface GenericAILlmRunResult {
   readonly model: string;
   readonly outputText: string;
   readonly requestId?: string;
+  /** Tokens and dollars spent by this run, when the adapter reports them (native does). */
+  readonly usage?: UsageTotals;
 }
 
 export interface GenericAILlmRuntimeEvent {

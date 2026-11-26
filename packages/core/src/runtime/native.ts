@@ -6,6 +6,8 @@ import {
   resolveModel,
   type ThinkingLevel,
 } from "@generic-ai/ai";
+import type { UsageTotals } from "@generic-ai/sdk";
+import { createUsageMeter } from "../usage/meter.js";
 import {
   STOP_AND_RESPOND_TOOL_NAME,
   type StopAndRespondState,
@@ -152,9 +154,23 @@ export function createNativeRuntime(
     const unsubscribe = onEvent === undefined ? undefined : agent.subscribe(onEvent);
     const abort = () => agent.abort();
     options?.signal?.addEventListener("abort", abort, { once: true });
+    // Meter every response of this run; a reached cap aborts the agent like a caller abort would.
+    const meter = createUsageMeter(options?.budget === undefined ? {} : { budget: options.budget });
+    const usageContext = {
+      scopeId: "runtime",
+      runId: "native-runtime",
+      rootSessionId: "native-runtime",
+      sessionId: "native-runtime",
+    };
+    const unmeter = meter.bindAgent(agent, usageContext);
+    meter.signal.addEventListener("abort", abort, { once: true });
+    const usage = (): UsageTotals => meter.totals(usageContext.runId);
 
     const runPrompt = async (text: string) => {
       await agent.prompt(text);
+      if (meter.exceeded !== undefined && !stopState.stopped) {
+        throw meter.exceeded;
+      }
       const last = latestAssistant(agent);
       if (last?.stopReason === "aborted" || options?.signal?.aborted) {
         throw new Error("native runtime aborted.");
@@ -168,7 +184,7 @@ export function createNativeRuntime(
       if (turnMode === "single-turn") {
         await runPrompt(prompt);
         const last = latestAssistant(agent);
-        return toResult(modelRef, assistantText(last), last?.responseId);
+        return toResult(modelRef, assistantText(last), last?.responseId, usage());
       }
       const loop = await runStopToolLoop({
         prompt,
@@ -181,9 +197,11 @@ export function createNativeRuntime(
           `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop.turnCount} turn(s).`,
         );
       }
-      return toResult(modelRef, loop.outputText, latestAssistant(agent)?.responseId);
+      return toResult(modelRef, loop.outputText, latestAssistant(agent)?.responseId, usage());
     } finally {
       options?.signal?.removeEventListener("abort", abort);
+      meter.signal.removeEventListener("abort", abort);
+      unmeter();
       unsubscribe?.();
     }
   }
@@ -252,11 +270,13 @@ function toResult(
   model: string,
   outputText: string,
   requestId: string | undefined,
+  usage: UsageTotals,
 ): GenericAILlmRunResult {
   return Object.freeze({
     adapter: "native" as const,
     model,
     outputText,
     ...(requestId === undefined ? {} : { requestId }),
+    usage,
   });
 }
