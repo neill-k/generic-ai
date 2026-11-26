@@ -30,7 +30,7 @@ docs/                planning pack, decision records, and framework documentatio
 
 Generic AI has a small number of layers. Dependency direction is strictly downward:
 
-0. **Native runtime** — `@generic-ai/ai` (provider-neutral model layer), `@generic-ai/agent` (agent loop), `@generic-ai/tools` (coding tools), `@generic-ai/session` (sessions and compaction), `@generic-ai/resources` (skills and prompt templates), `@generic-ai/extensions` (extension hooks), `@generic-ai/subagents` (subagents and agent messaging), `@generic-ai/autonomy` (thread goals, autonomous mode, schedules and heartbeats), and `@generic-ai/continual` (the continual harness)
+0. **Native runtime** — `@generic-ai/ai` (provider-neutral model layer), `@generic-ai/agent` (agent loop), `@generic-ai/tools` (coding tools), `@generic-ai/session` (sessions and compaction), `@generic-ai/resources` (skills and prompt templates), `@generic-ai/extensions` (extension hooks), `@generic-ai/subagents` (subagents and agent messaging), `@generic-ai/autonomy` (thread goals, autonomous mode, schedules and heartbeats), `@generic-ai/continual` (the continual harness), and `@generic-ai/auth` (credential storage, OAuth sign-in and token refresh)
 1. **Kernel** — `@generic-ai/core`
 2. **SDK** — `@generic-ai/sdk`
 3. **Plugins and package extensions** - everything matching `@generic-ai/plugin-*` plus future documented protocol/grader/report/policy package layers
@@ -41,7 +41,7 @@ Generic AI has a small number of layers. Dependency direction is strictly downwa
 
 The layering rules:
 
-- The native runtime packages depend only on third-party libraries (the official provider SDKs) and on each other (`@generic-ai/agent` depends on `@generic-ai/ai`; `@generic-ai/tools` on both; `@generic-ai/session` on all three; `@generic-ai/resources` on `@generic-ai/tools`; `@generic-ai/extensions` on `@generic-ai/ai`, `@generic-ai/agent` and `@generic-ai/tools`; `@generic-ai/subagents` on `@generic-ai/ai` and `@generic-ai/agent`; `@generic-ai/autonomy` on `@generic-ai/ai`, `@generic-ai/agent` and `@generic-ai/tools`; `@generic-ai/continual` on `@generic-ai/ai` and `@generic-ai/agent`). They must not depend on the kernel, the SDK, plugins, or presets. They are the replacement for `pi` underneath the existing adapter boundary; see `docs/planning/native-harness-parity.md`.
+- The native runtime packages depend only on third-party libraries (the official provider SDKs) and on each other (`@generic-ai/agent` depends on `@generic-ai/ai`; `@generic-ai/tools` on both; `@generic-ai/session` on all three; `@generic-ai/resources` on `@generic-ai/tools`; `@generic-ai/extensions` on `@generic-ai/ai`, `@generic-ai/agent` and `@generic-ai/tools`; `@generic-ai/subagents` on `@generic-ai/ai` and `@generic-ai/agent`; `@generic-ai/autonomy` on `@generic-ai/ai`, `@generic-ai/agent` and `@generic-ai/tools`; `@generic-ai/continual` on `@generic-ai/ai` and `@generic-ai/agent`; `@generic-ai/auth` on nothing). They must not depend on the kernel, the SDK, plugins, or presets. They are the replacement for `pi` underneath the existing adapter boundary; see `docs/planning/native-harness-parity.md`.
 - The kernel may depend on `pi` and on `@generic-ai/sdk` where that helps it expose its own contracts cleanly. It must not depend on any plugin or preset package.
 - The SDK may depend on `pi`. It must not depend on the kernel or any plugin.
 - Plugins may depend on `@generic-ai/sdk` and on `pi`. They must not import from `@generic-ai/core`. Plugins may depend on other plugins only when the dependency is part of the documented intent for that plugin (for example, `plugin-memory-files` and `plugin-tools-files` depending on `plugin-workspace-fs`, or `plugin-messaging` depending on a storage plugin through the storage contract rather than through a specific implementation whenever possible).
@@ -128,6 +128,13 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Allowed deps: `@generic-ai/ai`, `@generic-ai/agent`.
 - Not responsible for: deciding where the stores live, serializing the conversation, or delivering notices into a session (core does those), and the base system prompt, which no refinement can edit.
 - Publishes as: `@generic-ai/continual` — public, independent versioning, `publishConfig.access: public`, provenance on.
+
+### `@generic-ai/auth`
+
+- Role: credentials for the native runtime: the `CredentialStore` contract with an in-memory store and a JSON file store (mode 0600, atomic replace, a cross-process lock); auth resolution where a stored credential owns its provider and the fallback (environment variables) applies only when nothing is stored; locked OAuth refresh that runs once across concurrent requests and processes and always persists a rotated token; the OAuth building blocks (PKCE, a loopback callback server raced against a pasted redirect URL, RFC 8628 device-code polling, URL checks); OpenRouter's PKCE sign-in; and `createApiKeyResolver`, which plugs into `AgentOptions.getApiKey`. Follows pi's `auth` module under MIT.
+- Allowed deps: none (Node built-ins only).
+- Not responsible for: where the credential file lives, the sign-in UI (apps supply the `AuthInteraction`), or sign-ins that borrow another product's OAuth client.
+- Publishes as: `@generic-ai/auth` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/core`
 

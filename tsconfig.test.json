@@ -22,6 +22,7 @@
       "@generic-ai/subagents": ["./packages/subagents/src/index.ts"],
       "@generic-ai/autonomy": ["./packages/autonomy/src/index.ts"],
       "@generic-ai/continual": ["./packages/continual/src/index.ts"],
+      "@generic-ai/auth": ["./packages/auth/src/index.ts"],
       "@generic-ai/core": ["./packages/core/src/index.ts"],
       "@generic-ai/observability": ["./packages/observability/src/index.ts"],
       "@generic-ai/plugin-agent-skills": ["./packages/plugin-agent-skills/src/index.ts"],

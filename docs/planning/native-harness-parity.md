@@ -87,7 +87,8 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Mistral native (thinking chunks, 9-character tool-call ids, `reasoning_effort` level maps and Magistral `prompt_mode`, prompt-cache key and affinity, cached-token usage, raw stop reasons, SSE split across chunks, retries) | ✓ | `mistral.ts` over `fetch`; cases from pi `mistral-*` suites in `mistral.test.ts` |
 | Amazon Bedrock Converse (SigV4 and API-key auth, region and endpoint resolution, Claude adaptive and budget thinking with block binding, signed and encrypted reasoning replay, cache points, grouped tool results, OpenAI and flat reasoning efforts, prefixed exceptions, SDK retries) | ✓ | `bedrock.ts` on `@aws-sdk/client-bedrock-runtime`; cases from pi `bedrock-*` suites in `bedrock.test.ts`, driving the real SDK over replayed event-stream frames |
 | Cloudflare Workers AI | ○ | not planned for v1 |
-| OAuth login flows (Claude, ChatGPT, Copilot) and credential storage | ○ | pi `oauth*`, `*-oauth.test.ts` |
+| Credential storage, locked token refresh, OAuth building blocks (PKCE, loopback callback, device code) and OpenRouter sign-in | ✓ | `packages/auth/test` (ports pi `oauth-callback-server`, `oauth-device-code`, `openrouter-oauth`; fake `fetch` and a local callback server only) |
+| Subscription sign-ins that reuse another product's OAuth client (Claude Pro/Max, ChatGPT/Codex, GitHub Copilot) | decision pending | pi `anthropic`, `openai-codex`, `github-copilot` |
 | Context-overflow detection, max-token clamping, compact-and-retry on overflow | ✓ | pi `overflow.test.ts` ported whole, `clamp-max-tokens` cases; `runWithRetry` `onContextOverflow`, used by native sessions |
 | Cross-provider handoff matrix | ○ | pi `cross-provider-handoff` (needs live keys) |
 | Deferred (batch) responses, images API, classifiers | ○ | pi `faux-provider` deferred cases, `images*`, `classifier-*` |
@@ -187,13 +188,14 @@ Each slice is a reviewable PR that keeps every existing test green.
    global and a session-local store of prompt notes, memories, skills and subagent specs that the
    agent refines from evidence, with history and rollback, shown in the system prompt ranked by
    relevance (`native.continual`, ADR 0067).
-8. **More providers and auth**: 8a (in review) adds Google Gemini, Vertex AI and Azure OpenAI, and
-   context-overflow detection with compact-and-retry; 8b Bedrock and native Mistral; 8c OAuth
-   logins.
+8. **More providers and auth**: 8a adds Google Gemini, Vertex AI and Azure OpenAI, and
+   context-overflow detection with compact-and-retry; 8b Bedrock and native Mistral; 8c (in review)
+   `@generic-ai/auth`: credential stores, locked token refresh, the OAuth building blocks and
+   OpenRouter's sign-in. Sign-ins that reuse another product's OAuth client wait on a decision.
 9. **Make native the default and remove pi**: once the harness suite passes on the native adapter.
 
 ## Running the parity suites
 
 ```bash
-npx vitest run packages/ai packages/agent packages/tools packages/session packages/resources packages/extensions packages/subagents packages/autonomy packages/continual packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts packages/core/src/runtime/native-session-long-run.test.ts
+npx vitest run packages/ai packages/agent packages/tools packages/session packages/resources packages/extensions packages/subagents packages/autonomy packages/continual packages/auth packages/core/test/runtime/native-runtime.test.ts packages/core/src/harness/native-agent-harness.test.ts packages/core/src/runtime/native-session-long-run.test.ts
 ```
