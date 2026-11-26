@@ -6,10 +6,10 @@ This document is the operational companion for `CTL-02`.
 
 Every pull request to `main` should pass:
 
-- `Quality Gate / typecheck`
-- `Quality Gate / lint`
-- `Quality Gate / test`
-- `Quality Gate / build`
+- `baseline-quality-gate / baseline-typecheck`
+- `baseline-quality-gate / baseline-lint`
+- `baseline-quality-gate / baseline-test`
+- `baseline-quality-gate / baseline-build`
 - `Docs as Code / docs-check`
 
 The four baseline quality-gate jobs match the first four local commands in `CONTRIBUTING.md`:
@@ -21,7 +21,20 @@ npm run test
 npm run build
 ```
 
+`baseline-test` runs against a Postgres service, and `baseline-build` also replays every company template's goal evals offline.
+
 `Docs as Code / docs-check` runs `npm run docs:check` and verifies generated documentation is current.
+
+## Keeping Actions minutes down
+
+Each check runs once per push. The rules that keep it that way:
+
+- Every workflow cancels its run for a PR when a newer commit is pushed.
+- `Quality Gate / e2e` and `generic-corp-image / image-smoke` are the slow jobs (a browser, a Docker build). They run only when `apps/generic-corp/**`, `packages/**`, the lockfile or their own workflow changes, on PRs and on `main`.
+- `Security Baseline / dependency-audit` runs on PRs and weekly, not again on every merge to `main`.
+- Live model runs (the reliability gate) never run on PRs. Run them locally with `npm run reliability -w @generic-ai/app-generic-corp`; see `apps/generic-corp/README.md`.
+
+Do not add a workflow that repeats the baseline jobs.
 
 ## Branch Protection
 

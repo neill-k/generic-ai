@@ -197,29 +197,45 @@ reliability gate runs), `--template <id>` to pick one, `--trials <n>` and
 `--out <dir>` for reports. A replay that drifts from the recorded path (an
 agent asks for a turn the recording does not have) fails the attempt.
 
-Reliability gate (R19). `.github/workflows/template-evals-live.yml` runs the
-same suites with `--live` and fails when any gate fails; the job summary shows
-each suite's pass rate, pass^k, and tokens and dollars per completed goal, and
-the reports are uploaded as an artifact. Because every run spends money:
+Reliability gate (R19). The same suites with `--live`, failing when any gate
+fails. Run it on your own machine with the key in your environment, so the key
+never has to go to GitHub:
 
-- it runs only when started by hand (Actions, "Reliability gate", Run
-  workflow), or weekly once the repository variable `TEMPLATE_EVALS_SCHEDULE`
-  is `on` (it is off by default);
-- it needs the `ANTHROPIC_API_KEY` Actions secret, and without it skips with a
-  notice and spends nothing. `BRAVE_API_KEY` or `TAVILY_API_KEY` is optional
-  but the research goals fail their search check without one;
-- the whole run stops at `--max-usd` (default 50) and `--max-tokens` (default
-  40,000,000, cache reads included). Each agent turn starts with what is left
-  of the cap as its harness budget, so the turn in flight stops with
-  `budget_exceeded`; rubric judgments count against the cap too; attempts that
-  would start after it are not run and count as failures. Locally the CLI
-  applies the same defaults to `--live`, exits 3 when the provider key is
-  missing, and with `--out` writes `summary.json` with the verdict and spend.
+```bash
+export ANTHROPIC_API_KEY=...        # required
+export BRAVE_API_KEY=...            # optional (or TAVILY_API_KEY); research goals need one
+npm run reliability -w @generic-ai/app-generic-corp              # quick run
+npm run reliability -w @generic-ai/app-generic-corp -- --full    # the real gate
+npm run reliability -w @generic-ai/app-generic-corp -- --docker  # inside the production image
+```
 
-A full run is 5 goals with 5 attempts each. At list prices a single attempt is
-expected to cost roughly $1 to $2 (mostly Sonnet 5.5 turns, with prompt caching),
-so about $25 to $50 for a full run. Start with `trials: 1` (about $5 to $10) to
-calibrate before a full run.
+| Mode | Models | Attempts | Cap | Estimated cost |
+| --- | --- | --- | --- | --- |
+| quick (default) | CEO on Sonnet 5.5, VPs and ICs on Haiku 5.5, judge on each template's VP model | 1 per goal | $5, 5M tokens | about $1 to $3 |
+| `--full` | each template's own models (Opus 5.5 CEO, Sonnet 5.5 VPs) | each suite's count, 5 | $50, 40M tokens | about $25 to $50 |
+
+Quick mode says whether the cascade, tools and validators work on real models;
+pass^k needs `--full`. `--template <id>`, `--trials <n>`, `--max-usd <n>` and
+`--max-tokens <n>` override either mode, and `--model ceo=<ref>` pins one tier
+(the eval CLI also takes `--economy` directly). Reports, including
+`summary.json` with the verdict and spend, go to `./reliability-report`. The
+script exits 0 when every gate passed, 1 when one failed, and 3 before
+spending anything when no key is set. The estimates are not measured yet: a
+full attempt was expected at $1 to $2 at list prices, mostly Sonnet turns with
+prompt caching, and quick mode moves most turns to Haiku, which lists at a
+twentieth of Sonnet's price.
+
+Caps: the whole run stops at its dollar and token cap. Each agent turn starts
+with what is left of the cap as its harness budget, so the turn in flight stops
+with `budget_exceeded`; rubric judgments count against the cap too; attempts
+that would start after it are not run and count as failures.
+
+The `Reliability gate` workflow (`.github/workflows/template-evals-live.yml`)
+runs the same script in Actions as an option: by hand (quick by default, `full`
+to choose), or weekly in full mode once the repository variable
+`TEMPLATE_EVALS_SCHEDULE` is `on` (off by default). It needs the
+`ANTHROPIC_API_KEY` Actions secret and skips without spending anything when it
+is missing.
 
 To add a template, copy a folder, change `company.yaml`, and record a replay
 for each goal. `templates.test.ts` checks that every goal has a case, a replay,
@@ -229,7 +245,8 @@ and numeric, rubric and trace validators.
 
 `e2e/` holds Playwright tests that start a real server (dashboard, API, cascade,
 approvals gate, durable queue) on a scripted model, so no key is needed and
-nothing is spent. CI runs them in the `e2e` job of the quality gate.
+nothing is spent. CI runs them in the `e2e` job of the Quality Gate workflow when the app or
+packages change.
 
 ```bash
 npm run build

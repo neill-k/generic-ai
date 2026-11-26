@@ -32,6 +32,7 @@ import {
   companyAgentSeeds,
   companyGoal,
   DEFAULT_TIER_MODELS,
+  type OrgTier,
 } from "./company.js";
 import { collectCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { createGenericCorpServer } from "./server.js";
@@ -351,6 +352,11 @@ export interface RunTemplateEvalsOptions {
   readonly trials?: number;
   readonly env?: NodeJS.ProcessEnv;
   readonly resolveModel?: (ref: string) => Model;
+  /**
+   * Live mode: replaces the template's model for an org tier, for example a cheaper model for a
+   * calibration run. The judge keeps the template's own VP model, so grading does not get weaker.
+   */
+  readonly models?: Partial<Readonly<Record<OrgTier, string>>>;
   readonly judge?: GoalJudge;
   /** Token and dollar cap over the whole run, judge calls included. Share one across templates. */
   readonly spendCap?: SpendCap;
@@ -408,7 +414,15 @@ export function missingProviderKeys(
 
 /** Runs a template's goal eval suite and returns the report; `report.gate.passed` is the verdict. */
 export async function runTemplateEvals(options: RunTemplateEvalsOptions): Promise<TemplateEvalRun> {
-  const template = await loadTemplateEvalSuite(options.templateId);
+  const loaded = await loadTemplateEvalSuite(options.templateId);
+  const judgeModel = loaded.company.models?.vp ?? DEFAULT_TIER_MODELS.vp;
+  const template =
+    options.models === undefined || Object.keys(options.models).length === 0
+      ? loaded
+      : {
+          ...loaded,
+          company: { ...loaded.company, models: { ...loaded.company.models, ...options.models } },
+        };
   const suite =
     options.trials === undefined
       ? template.suite
@@ -424,7 +438,7 @@ export async function runTemplateEvals(options: RunTemplateEvalsOptions): Promis
       : cappedJudge(
           options.judge ??
             createModelJudge({
-              model: template.company.models?.vp ?? DEFAULT_TIER_MODELS.vp,
+              model: judgeModel,
               ...(options.resolveModel === undefined ? {} : { resolveModel: options.resolveModel }),
               ...(options.spendCap === undefined
                 ? {}

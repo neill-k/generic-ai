@@ -4,12 +4,23 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import { missingProviderKeys, runTemplateEvals, type TemplateEvalMode } from "./evals.js";
+import { ORG_TIERS, type OrgTier } from "./company.js";
 import { createSpendCap } from "./spend.js";
 import { listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
 
 /** Live runs never go uncapped: these apply when no cap is given. */
 export const DEFAULT_LIVE_MAX_USD = 50;
 export const DEFAULT_LIVE_MAX_TOKENS = 40_000_000;
+
+/**
+ * `--economy`: the cheapest models that still exercise the whole cascade, for calibration runs.
+ * The judge keeps each template's own VP model, so grading stays as strict as a full run.
+ */
+export const ECONOMY_MODELS: Readonly<Record<OrgTier, string>> = Object.freeze({
+  ceo: "anthropic/claude-sonnet-5-5",
+  vp: "anthropic/claude-haiku-5-5",
+  ic: "anthropic/claude-haiku-5-5",
+});
 
 /** Exit code of a live run that could not start because a provider key is missing. */
 export const EXIT_MISSING_KEY = 3;
@@ -22,6 +33,10 @@ Runs company template goal evals and exits 1 when any gate fails.
   --live            Run on the templates' real models with a model judge (needs provider keys).
                     Default: replay the recorded turns offline.
   --trials <n>      Attempts per case. Default: 1 for replays, the suite's count for live runs.
+  --economy         Live: run the CEO on Sonnet 5.5 and VPs and ICs on Haiku 5.5 instead of the
+                    templates' models. The judge keeps each template's VP model.
+  --model <t>=<ref> Live: run org tier t (ceo, vp or ic) on model ref, for example
+                    vp=anthropic/claude-haiku-5-5 (repeatable, applied after --economy).
   --max-usd <n>     Live: stop once the whole run has spent this many dollars, judge included.
                     Default: ${DEFAULT_LIVE_MAX_USD}.
   --max-tokens <n>  Live: stop once the whole run has used this many tokens (cache reads count).
@@ -45,6 +60,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       out: { type: "string" },
       "max-usd": { type: "string" },
       "max-tokens": { type: "string" },
+      economy: { type: "boolean", default: false },
+      model: { type: "string", multiple: true },
       help: { type: "boolean", default: false },
     },
   });
@@ -68,13 +85,20 @@ export async function main(argv: readonly string[]): Promise<number> {
     console.error("--max-usd and --max-tokens must be positive numbers.");
     return 2;
   }
+  const models = modelOverrides(values.economy, values.model ?? []);
+  if (typeof models === "string") {
+    console.error(models);
+    return 2;
+  }
   const templates = values.template ?? listCompanyTemplates();
   if (mode === "live") {
     const missing = new Map<string, readonly string[]>();
     for (const templateId of templates) {
-      for (const { provider, variables } of missingProviderKeys(
-        await loadCompanyTemplate(templateId),
-      )) {
+      const company = await loadCompanyTemplate(templateId);
+      for (const { provider, variables } of missingProviderKeys({
+        ...company,
+        models: { ...company.models, ...models },
+      })) {
         missing.set(provider, variables);
       }
     }
@@ -108,6 +132,7 @@ export async function main(argv: readonly string[]): Promise<number> {
       mode,
       spendCap,
       ...(trials === undefined ? {} : { trials }),
+      ...(mode === "live" && Object.keys(models).length > 0 ? { models } : {}),
     });
     notRun += run.notRun;
     verdicts.push({ template: templateId, passed: run.report.gate.passed, notRun: run.notRun });
@@ -149,6 +174,7 @@ export async function main(argv: readonly string[]): Promise<number> {
         {
           mode,
           passed: failed === 0,
+          ...(mode === "live" && Object.keys(models).length > 0 ? { models } : {}),
           templates: verdicts,
           spent: { tokens: spent.totalTokens, costUsd: spent.costUsd, responses: spent.responses },
           caps: {
@@ -164,6 +190,24 @@ export async function main(argv: readonly string[]): Promise<number> {
     );
   }
   return failed === 0 ? 0 : 1;
+}
+
+/** Tier model overrides from `--economy` and `--model tier=ref`, or an error message. */
+export function modelOverrides(
+  economy: boolean,
+  flags: readonly string[],
+): Partial<Record<OrgTier, string>> | string {
+  const models: Partial<Record<OrgTier, string>> = economy ? { ...ECONOMY_MODELS } : {};
+  for (const flag of flags) {
+    const separator = flag.indexOf("=");
+    const tier = flag.slice(0, Math.max(separator, 0)).trim();
+    const ref = flag.slice(separator + 1).trim();
+    if (separator < 1 || !(ORG_TIERS as readonly string[]).includes(tier) || !ref.includes("/")) {
+      return `--model must look like vp=anthropic/claude-haiku-5-5 (tiers: ${ORG_TIERS.join(", ")}); got "${flag}".`;
+    }
+    models[tier as OrgTier] = ref;
+  }
+  return models;
 }
 
 /** A positive number from a flag; the fallback when absent; NaN when invalid. */
