@@ -9,6 +9,8 @@ build/
 # Test output
 coverage/
 .nyc_output/
+e2e-report/
+e2e-results/
 
 # Logs
 *.log

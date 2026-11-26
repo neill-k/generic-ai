@@ -436,6 +436,26 @@ describe("Generic Corp server", () => {
       }),
     ).toThrow(/loopback/);
   });
+
+  it("reads the turn lease and worker concurrency, and rejects bad values", async () => {
+    const { loadGenericCorpEnvironment } = await import("./server.js");
+    const parsed = loadGenericCorpEnvironment({
+      GENERIC_CORP_TURN_LEASE_MS: "5000",
+      GENERIC_CORP_WORKER_CONCURRENCY: "8",
+    });
+    expect(parsed.turnLeaseMs).toBe(5000);
+    expect(parsed.workerConcurrency).toBe(8);
+    expect(loadGenericCorpEnvironment({}).workerConcurrency).toBeUndefined();
+    expect(() => loadGenericCorpEnvironment({ GENERIC_CORP_TURN_LEASE_MS: "500" })).toThrow(
+      /at least 1000/,
+    );
+    expect(() => loadGenericCorpEnvironment({ GENERIC_CORP_WORKER_CONCURRENCY: "0" })).toThrow(
+      /1 to 64/,
+    );
+    expect(() => loadGenericCorpEnvironment({ GENERIC_CORP_WORKER_CONCURRENCY: "65" })).toThrow(
+      /1 to 64/,
+    );
+  });
 });
 
 describe("dashboard", () => {

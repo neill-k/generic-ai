@@ -11,6 +11,7 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --pretty",
     "test": "vitest run --root ../.. --config vitest.config.ts apps/generic-corp/src",
+    "e2e": "playwright test",
     "lint": "biome lint .",
     "prestart": "node ../../scripts/check-node-version.mjs",
     "start": "node dist/run.js",
@@ -43,6 +44,7 @@
   "license": "MIT",
   "private": true,
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@sinclair/typebox": "0.34.49"
   },
   "files": [
