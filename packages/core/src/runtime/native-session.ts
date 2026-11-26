@@ -3,6 +3,12 @@ import { randomUUID } from "node:crypto";
 import { Agent, type AgentEvent, type AgentTool, type StreamFn } from "@generic-ai/agent";
 import type { AssistantMessage, Model, RetryPolicy, ThinkingLevel } from "@generic-ai/ai";
 import {
+  expandPromptTemplate,
+  expandSkillCommand,
+  type PromptTemplate,
+  type Skill,
+} from "@generic-ai/resources";
+import {
   type CompactionSettings,
   compactIfNeeded,
   convertToLlm,
@@ -76,6 +82,11 @@ export interface RunCapabilityNativeAgentSessionOptions {
   readonly compaction?: Partial<CompactionSettings> | false;
   /** Retry on transient provider errors. Defaults to three retries with exponential backoff; `false` turns it off. */
   readonly retry?: RetryPolicy | false;
+  /**
+   * Prompt templates. A prompt that starts with `/name args` is replaced by template `name` with
+   * its `$1`, `$@` and `${@:N}` placeholders filled from the arguments.
+   */
+  readonly promptTemplates?: readonly PromptTemplate[];
 }
 
 export interface RunCapabilityNativeAgentSessionResult {
@@ -101,6 +112,19 @@ type PromptedTool = {
   readonly promptSnippet?: string;
   readonly promptGuidelines?: readonly string[];
 };
+
+/**
+ * Expand a `/skill:name args` command into the skill's instructions, or a `/template args` command
+ * into its prompt template. Any other text is returned unchanged.
+ */
+export function expandPrompt(
+  text: string,
+  skills: readonly Skill[],
+  templates: readonly PromptTemplate[],
+): string {
+  const expanded = expandSkillCommand(text, skills);
+  return expanded === text ? expandPromptTemplate(text, [...templates]) : expanded;
+}
 
 /** Assemble the system prompt from the base prompt, tool snippets and guidelines, and skills. */
 export function buildNativeSystemPrompt(input: {
@@ -395,9 +419,14 @@ export async function runCapabilityNativeAgentSession(
   };
 
   try {
-    const prompt =
+    const submitted =
       (await options.lifecycleHooks?.onUserPromptSubmit(eventContext, options.prompt)) ??
       options.prompt;
+    const prompt = expandPrompt(
+      submitted,
+      toolRegistry.skillSnapshot?.skills ?? [],
+      options.promptTemplates ?? [],
+    );
     if (options.signal?.aborted) {
       throw options.signal.reason instanceof Error
         ? options.signal.reason

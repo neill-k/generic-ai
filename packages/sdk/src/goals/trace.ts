@@ -320,3 +320,58 @@ export function findProtectedPathViolations(
   }
   return [...unique.values()];
 }
+
+/**
+ * Finds any trace evidence of touching the given paths, read or write: file
+ * tools whose path arguments hit a path, and shell commands that mention one.
+ * Evals use it for answer keys and held-out fixtures the agent must never see.
+ */
+export function findPathAccesses(
+  trace: readonly GoalTraceEntry[],
+  paths: readonly string[],
+): ProtectedPathViolation[] {
+  if (paths.length === 0) {
+    return [];
+  }
+  const unique = new Map<string, ProtectedPathViolation>();
+  const record = (traceEntry: GoalTraceEntry, path: string) => {
+    const toolName = traceEntry.toolName ?? "unknown";
+    const key = `${toolName}\u0000${normalizeWorkspacePath(path)}`;
+    if (unique.has(key)) {
+      return;
+    }
+    unique.set(
+      key,
+      Object.freeze({
+        path,
+        toolName,
+        ...(traceEntry.sequence === undefined ? {} : { sequence: traceEntry.sequence }),
+        ...(traceEntry.eventId === undefined ? {} : { eventId: traceEntry.eventId }),
+      }),
+    );
+  };
+  for (const traceEntry of trace) {
+    const toolName = traceEntry.toolName;
+    if (toolName === undefined) {
+      continue;
+    }
+    if (TERMINAL_TOOLS.has(toolName)) {
+      const command = traceEntry.args?.["command"] ?? traceEntry.args?.["cmd"];
+      if (typeof command !== "string") {
+        continue;
+      }
+      const tokens = command.split(/[\s;|&<>()'"`=]+/).filter((token) => token.length > 0);
+      const hit = tokens.find((token) => isProtectedPath(token, paths));
+      if (hit !== undefined) {
+        record(traceEntry, hit);
+      }
+      continue;
+    }
+    for (const path of pathArgs(traceEntry.args)) {
+      if (isProtectedPath(path, paths)) {
+        record(traceEntry, path);
+      }
+    }
+  }
+  return [...unique.values()];
+}

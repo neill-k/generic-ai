@@ -1,0 +1,26 @@
+{
+  "name": "@generic-ai/plugin-secrets",
+  "version": "0.0.0",
+  "description": "Secrets plugin for Generic AI: env, file and encrypted-store secret sources, per-role grants, {{secret:NAME}} placeholders resolved at tool-call time, and redaction of secret values from tool output, events and traces.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@generic-ai/sdk": "0.0.0"
+  },
+  "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "category": "infra",
+    "method": "secrets-vault.v1"
+  },
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

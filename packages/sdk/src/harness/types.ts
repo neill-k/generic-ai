@@ -2,6 +2,7 @@ import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
 import type { CanonicalEvent } from "../events/index.js";
 import type { RunEnvelope } from "../run-envelope/index.js";
 import type { RunActor } from "../contracts/identity.js";
+import type { GoalSpec } from "../goals/types.js";
 import type {
   AgentLifecycleHookDecisionRecord,
   AgentLifecycleHooksConfig,
@@ -181,6 +182,11 @@ export interface AgentHarnessRole {
   readonly model?: string;
   readonly tools?: readonly string[];
   readonly readOnly?: boolean;
+  /**
+   * Secrets this role may use through `{{secret:NAME}}` placeholders: exact names, `PREFIX_*`
+   * patterns, or `*`. Omit for none. Values never reach the model.
+   */
+  readonly secrets?: readonly string[];
   readonly metadata?: JsonObject;
 }
 
@@ -214,6 +220,8 @@ export interface AgentHarnessConfig {
   readonly tools?: readonly string[];
   readonly allowNetwork?: boolean;
   readonly allowMcp?: boolean;
+  /** Secrets the root (coordinator) agent may use. Roles declare their own on `role.secrets`. */
+  readonly secrets?: readonly string[];
   readonly artifactDir?: string;
   readonly hooks?: AgentLifecycleHooksConfig;
   readonly metadata?: JsonObject;
@@ -854,6 +862,12 @@ export interface MissionSpec {
     readonly requiredSubstrings?: readonly string[];
     readonly requiredArtifacts?: readonly string[];
   };
+  /**
+   * A verifiable definition of done. When set, benchmark runners re-run its
+   * validators on each trial's output and trace, and a trial only counts as
+   * `task_success` when the goal is COMPLETE. See `docs/goals.md`.
+   */
+  readonly goal?: GoalSpec;
   readonly providerPolicy?: {
     readonly adapter?: string;
     readonly model?: string;
@@ -1357,6 +1371,7 @@ export interface ProtocolAction {
     | "claim_work"
     | "delegate_work"
     | "review_artifact"
+    | "validate_goal"
     | "request_approval"
     | "emit_trace"
     | "complete"
@@ -1411,6 +1426,17 @@ export interface ProtocolReduceInput {
   readonly binding?: ProtocolBindingSpec;
   /** The user-facing task the topology is working on. */
   readonly instruction?: string;
+  /**
+   * The sealed goal the runner will check `validate_goal` actions against,
+   * when one was supplied. Protocols use it to decide whether to ask for
+   * validator checks; the runner owns the goal itself and the validators.
+   */
+  readonly goal?: ProtocolGoalRef;
+}
+
+export interface ProtocolGoalRef {
+  readonly id: string;
+  readonly fingerprint: string;
 }
 
 export interface ProtocolPlugin {

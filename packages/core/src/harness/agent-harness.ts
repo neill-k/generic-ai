@@ -27,6 +27,7 @@ import {
   type AgentHarnessRunResult,
   type CanonicalEvent,
   getAgentHarnessToolEffects,
+  goalTraceFromCanonicalEvents,
   type JsonObject,
   type PolicyDecisionRecord,
   type ResourceSelector,
@@ -49,6 +50,7 @@ import {
   type CompactionSettings,
   SessionManager as NativeSessionManager,
 } from "@generic-ai/session";
+import type { PromptTemplate } from "@generic-ai/resources";
 import { Type } from "@sinclair/typebox";
 
 import { createCanonicalEventStream, type CanonicalEventStream } from "../events/index.js";
@@ -61,8 +63,13 @@ import {
 } from "../runtime/capability-runtime.js";
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
-import { runCapabilityNativeAgentSession } from "../runtime/native-session.js";
+import { expandPrompt, runCapabilityNativeAgentSession } from "../runtime/native-session.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
+import {
+  secretAccessPolicyDecision,
+  secretsPromptGuidance,
+  wrapCapabilitiesWithSecrets,
+} from "./secrets.js";
 import {
   type HarnessTopologyRunResult,
   resolveTopologyActorRole,
@@ -116,6 +123,12 @@ export interface CreateAgentHarnessOptions<
   readonly factories?: PiRuntimeFactories;
   readonly sessionInputs?: PiSessionInputs;
   readonly native?: NativeAgentHarnessOptions;
+  /**
+   * Prompt templates (see `loadPromptTemplates` in `@generic-ai/resources`). A run instruction
+   * that starts with `/name args` expands to template `name`. An instruction that starts with
+   * `/skill:name args` expands to that skill from the `skills` capability.
+   */
+  readonly promptTemplates?: readonly PromptTemplate[];
   readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
   readonly policy?: AgentHarnessPolicyEvaluator;
   readonly adapters?: AgentHarnessAdapterRegistry<TCapabilities, TOutput>;
@@ -829,6 +842,7 @@ function applyProfilePolicy(
     ...(capabilities.skills === undefined ? {} : { skills: capabilities.skills }),
     ...(capabilities.messaging === undefined ? {} : { messaging: capabilities.messaging }),
     ...(capabilities.memory === undefined ? {} : { memory: capabilities.memory }),
+    ...(capabilities.secrets === undefined ? {} : { secrets: capabilities.secrets }),
   };
 }
 
@@ -1314,6 +1328,27 @@ async function runRoleSession(input: {
     policy: input.policy,
   });
   input.recordPolicyDecisions(rolePolicyResult.policyDecisions);
+  const secrets = input.capabilities.secrets;
+  const roleSecretsCapabilities = wrapCapabilitiesWithSecrets({
+    capabilities: rolePolicyResult.capabilities,
+    secrets,
+    actorId: role.id,
+    grants: role.secrets,
+    runId: input.runId,
+    onAccess: async (record) => {
+      const decision = secretAccessPolicyDecision(record);
+      input.recordPolicyDecisions([decision]);
+      const sessionId = input.rootSessionId ?? input.runId;
+      await emitPolicyDecision(input.eventStream, {
+        runId: input.runId,
+        scopeId: input.rootScopeId,
+        rootSessionId: sessionId,
+        sessionId: input.parentSessionId ?? sessionId,
+        decision,
+      });
+    },
+  });
+  const rolePrompt = `${input.prompt}${await secretsPromptGuidance(secrets, role.secrets)}`;
   const roleHookContext = {
     runId: input.runId,
     scopeId: input.rootScopeId,
@@ -1325,7 +1360,7 @@ async function runRoleSession(input: {
     roleId: role.id,
   };
   const roleCapabilities = wrapCapabilitiesWithHooks({
-    capabilities: rolePolicyResult.capabilities,
+    capabilities: roleSecretsCapabilities,
     executor: input.hookExecutor,
     context: roleHookContext,
   });
@@ -1337,7 +1372,7 @@ async function runRoleSession(input: {
     cwd: input.workspaceRoot,
     role,
     capabilities: roleCapabilities,
-    prompt: input.prompt,
+    prompt: rolePrompt,
     ...(input.turnMode === undefined ? {} : { turnMode: input.turnMode }),
     ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
     runId: input.runId,
@@ -1696,6 +1731,7 @@ export function createAgentHarness<TCapabilities = PiCapabilityBindings, TOutput
 ): AgentHarness<TCapabilities, TOutput> {
   const sessionAdapterOptions: CreateAgentHarnessOptions = {
     ...(options.hookHandlers === undefined ? {} : { hookHandlers: options.hookHandlers }),
+    ...(options.promptTemplates === undefined ? {} : { promptTemplates: options.promptTemplates }),
   };
   const adapters = {
     pi: createSessionAgentHarnessAdapter(
@@ -1833,9 +1869,27 @@ function failedHarnessResult(input: {
   });
 }
 
+/**
+ * Expand a run instruction that is a skill command (`/skill:name args`) or a prompt template
+ * (`/name args`). Other instructions are returned unchanged.
+ */
+async function expandHarnessInstruction(
+  instruction: string,
+  capabilities: PiCapabilityBindings,
+  templates: readonly PromptTemplate[] | undefined,
+): Promise<string> {
+  if (!instruction.startsWith("/")) {
+    return instruction;
+  }
+  const skills = instruction.startsWith("/skill:")
+    ? ((await capabilities.skills?.load())?.skills ?? [])
+    : [];
+  return expandPrompt(instruction, skills, templates ?? []);
+}
+
 function createSessionAgentHarnessAdapter(
   config: AgentHarnessConfig,
-  options: Pick<CreateAgentHarnessOptions, "hookHandlers">,
+  options: Pick<CreateAgentHarnessOptions, "hookHandlers" | "promptTemplates">,
   backend: HarnessSessionBackend,
 ): AgentHarnessAdapter<PiCapabilityBindings, unknown> {
   return Object.freeze({
@@ -1877,9 +1931,12 @@ function createSessionAgentHarnessAdapter(
         });
       }
       const runSignal = createDeadlineSignal(context);
-      const eventStream = createCanonicalEventStream(
-        input.actor === undefined ? {} : { actor: input.actor },
-      );
+      const secrets = input.capabilities?.secrets;
+      await secrets?.prepare();
+      const eventStream = createCanonicalEventStream({
+        ...(input.actor === undefined ? {} : { actor: input.actor }),
+        ...(secrets === undefined ? {} : { redactData: (data) => secrets.redact(data) }),
+      });
       const hookExecutor = createAgentLifecycleHookExecutor(input.hooks ?? input.harness.hooks, {
         eventStream,
         ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
@@ -1887,6 +1944,11 @@ function createSessionAgentHarnessAdapter(
       const roles = resolveRoles(input.harness);
       const baseCapabilities = await expandMcpCapabilityTools(
         applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
+      );
+      const instruction = await expandHarnessInstruction(
+        input.instruction,
+        baseCapabilities,
+        options.promptTemplates,
       );
       const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp });
       const profilePolicyDecisions = createPolicyDecisions({
@@ -1925,7 +1987,7 @@ function createSessionAgentHarnessAdapter(
                     rootScopeId,
                     rootAgentId,
                     workspaceRoot: input.workspaceRoot,
-                    instruction: input.instruction,
+                    instruction,
                     ...(turnMode === undefined ? {} : { turnMode }),
                     ...(maxTurns === undefined ? {} : { maxTurns }),
                     roles,
@@ -1951,8 +2013,29 @@ function createSessionAgentHarnessAdapter(
         policy: context.policy,
       });
       policyDecisions.push(...rootPolicyResult.policyDecisions);
-      const rootCapabilities = wrapCapabilitiesWithHooks({
+      const rootGrants = rootRole?.secrets ?? input.harness.secrets;
+      const rootSecretsCapabilities = wrapCapabilitiesWithSecrets({
         capabilities: rootPolicyResult.capabilities,
+        secrets,
+        actorId: rootAgentId,
+        grants: rootGrants,
+        runId,
+        onAccess: async (record) => {
+          const decision = secretAccessPolicyDecision(record);
+          policyDecisions.push(decision);
+          const sessionId = rootRuntimeSessionId ?? runId;
+          await emitPolicyDecision(eventStream, {
+            runId,
+            scopeId: rootScopeId,
+            rootSessionId: sessionId,
+            sessionId,
+            decision,
+          });
+        },
+      });
+      const rootSecretsGuidance = await secretsPromptGuidance(secrets, rootGrants);
+      const rootCapabilities = wrapCapabilitiesWithHooks({
+        capabilities: rootSecretsCapabilities,
         executor: hookExecutor,
         context: rootHookContext,
       });
@@ -1966,12 +2049,12 @@ function createSessionAgentHarnessAdapter(
           cwd: input.workspaceRoot,
           ...(rootRole === undefined ? {} : { role: rootRole }),
           capabilities: rootCapabilities,
-          prompt: buildRootPrompt({
-            instruction: input.instruction,
+          prompt: `${buildRootPrompt({
+            instruction,
             roles,
             policyProfile: profile,
             ...(turnMode === undefined ? {} : { turnMode }),
-          }),
+          })}${rootSecretsGuidance}`,
           ...(turnMode === undefined ? {} : { turnMode }),
           ...(maxTurns === undefined ? {} : { maxTurns }),
           runId,
@@ -2002,7 +2085,8 @@ function createSessionAgentHarnessAdapter(
         .finally(() => {
           runSignal.cleanup();
         });
-      const outputText = result.outputText;
+      const outputText =
+        secrets === undefined ? result.outputText : secrets.redactText(result.outputText);
       const events = result.events;
       const projections = Object.freeze(events.map(projectEvent));
       const status = result.failureMessage === undefined ? "succeeded" : "failed";
@@ -2188,10 +2272,13 @@ export async function runAgentHarnessTopology(
       name: "handoff.accepted",
       data: { roleId: role.id },
     });
-    const delegatedTask =
-      invocation.context.length > 0
-        ? `${invocation.task}\n\nContext from other agents:\n${invocation.context}`
-        : invocation.task;
+    const delegatedTask = [
+      invocation.task,
+      ...(invocation.goalBrief === undefined ? [] : ["", invocation.goalBrief]),
+      ...(invocation.context.length > 0
+        ? ["", "Context from other agents:", invocation.context]
+        : []),
+    ].join("\n");
     let roleResult: RoleSessionResult;
     try {
       roleResult = await runRoleSession({
@@ -2267,6 +2354,16 @@ export async function runAgentHarnessTopology(
     ...(rest.approve === undefined ? {} : { approve: rest.approve }),
     ...(rest.onTraceEvent === undefined ? {} : { onTraceEvent: rest.onTraceEvent }),
     ...(rest.onOutcome === undefined ? {} : { onOutcome: rest.onOutcome }),
+    ...(rest.resumeFrom === undefined ? {} : { resumeFrom: rest.resumeFrom }),
+    ...(rest.goal === undefined ? {} : { goal: rest.goal }),
+    ...(rest.goalValidators === undefined ? {} : { goalValidators: rest.goalValidators }),
+    collectGoalEvidence: async (evidenceInput) => {
+      const custom = await rest.collectGoalEvidence?.(evidenceInput);
+      return {
+        trace: goalTraceFromCanonicalEvents(eventStream.snapshot()),
+        ...(custom ?? {}),
+      };
+    },
   }).finally(() => {
     runSignal.cleanup();
   });
