@@ -2,7 +2,7 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
-import { defineTool, type ToolDefinition } from "@generic-ai/sdk/pi";
+import { defineTool, type ToolDefinition } from "@generic-ai/sdk";
 import {
   createWorkspaceLayout,
   resolveSafeWorkspacePath,

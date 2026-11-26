@@ -14,7 +14,7 @@ import type {
   JsonObject,
   JsonValue,
 } from "@generic-ai/sdk";
-import type { ToolDefinition } from "@generic-ai/sdk/pi";
+import type { ToolDefinition } from "@generic-ai/sdk";
 
 import { getAgentCommandEnv } from "@generic-ai/tools";
 

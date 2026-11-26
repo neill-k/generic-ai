@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
+  defineTool,
   type RunEnvelope,
   type RunEnvelopeMode,
   type SecretsBinding,
+  type ToolDefinition,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
@@ -10,9 +12,7 @@ import {
   type CreateAgentSessionOptions,
   type CreateAgentSessionResult,
   DefaultResourceLoader,
-  defineTool,
   type PromptOptions,
-  type ToolDefinition,
 } from "@generic-ai/sdk/pi";
 import { getAgentDir, type ResourceDiagnostic, type Skill } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";

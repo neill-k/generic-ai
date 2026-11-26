@@ -9,7 +9,7 @@ import {
   type PolicyDecisionRecord,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
-import { defineTool } from "@generic-ai/sdk/pi";
+import { defineTool } from "@generic-ai/sdk";
 import { Type } from "@sinclair/typebox";
 import { describe, expect, it } from "vitest";
 
