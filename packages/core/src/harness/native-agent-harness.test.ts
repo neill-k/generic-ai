@@ -222,6 +222,58 @@ describe("native harness adapter", () => {
     expect(journal.records()[0]?.status).toBe("completed");
   });
 
+  it("lets the model call runtime-neutral host tools", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const calls: unknown[] = [];
+    const seen: string[][] = [];
+    provider.setResponses([
+      (context) => {
+        seen.push(toolNames(context));
+        return fauxAssistantMessage(
+          [fauxToolCall("delegate_task", { tasks: [{ to: "analyst", task: "Count chairs" }] })],
+          { stopReason: "toolUse" },
+        );
+      },
+      () => stop("Handed off."),
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "native-host-tools",
+        adapter: "native",
+        model: "faux/root-model",
+        policyProfile: "local-dev-full",
+      },
+      { native: { resolveModel } },
+    );
+    const result = await harness.run({
+      instruction: "Get the chairs counted",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+      hostTools: [
+        {
+          name: "delegate_task",
+          description: "Hand work to another agent.",
+          parameters: {
+            type: "object",
+            properties: { tasks: { type: "array", items: { type: "object" } } },
+            required: ["tasks"],
+          },
+          effects: ["handoff.write"],
+          execute(params) {
+            calls.push(params);
+            return { text: "Recorded." };
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toBe("Handed off.");
+    expect(seen[0]).toContain("delegate_task");
+    expect(calls).toEqual([{ tasks: [{ to: "analyst", task: "Count chairs" }] }]);
+  });
+
   it("reports a failed run when the model stops as blocked", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
     const { provider, resolveModel } = fauxModels();

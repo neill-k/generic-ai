@@ -62,13 +62,26 @@ Give a task a checkable goal with `goal: { spec }` (an SDK goal spec, see
 `COMPLETE`; otherwise the agent gets the validators' feedback and another turn.
 Register rubric judges and host checks with the cascade's `goals` option.
 
-An agent turn either replies with its result, gives up with
-`{"finish_task": {"status": "failed", "reason": "..."}}`, or delegates by ending
-with a fenced JSON block:
+An agent turn either replies with its result, gives up, or delegates. Each turn
+gets two tools (`AgentTaskExecutionInput.tools`, passed to the harness as
+`hostTools` by `createAdapterTaskExecutor`, so they work on pi and the native
+runtime):
+
+- `delegate_task({ tasks: [{ to, task, definitionOfDone?, goal? }] })` records
+  hand-offs. It checks the target, the org chart and the limits right away, so
+  the agent can fix a bad hand-off in the same turn. It is only offered when the
+  agent has someone to delegate to.
+- `finish_task({ reason })` gives up on a task that cannot be done.
+
+Executors that cannot add tools can ignore them; the agent can instead end its
+reply with a fenced JSON block, which the cascade still reads:
 
 ```json
 {"delegate_task": [{"to": "vp-research", "task": "Size the market", "definitionOfDone": "Three sources"}]}
 ```
+
+or `{"finish_task": {"status": "failed", "reason": "..."}}`. Directives recorded
+by the tools win over the reply text, and are saved with the turn's checkpoint.
 
 Children run as their own queued turns (one at a time per agent). The parent
 waits in the store, then gets a new turn with every child's result. Delegation
