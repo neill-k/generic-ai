@@ -40,6 +40,7 @@ export type {
   GenericAIRuntimeStarter,
   GenericAIRuntimeStarterInput,
   GenericAIRuntimeStartResult,
+  GenericAIRunOptions,
   GenericAIRunTask,
   GenericAIStreamChunk,
 } from "./types.js";

@@ -7,6 +7,7 @@ import type {
   OutputFinalizeInput,
   OutputPluginContract,
   PluginConfig,
+  RunActor,
   RunEnvelope,
 } from "@generic-ai/sdk";
 import { createCanonicalEventStream } from "../events/index.js";
@@ -46,6 +47,7 @@ import type {
   GenericAIPluginInitPlan,
   GenericAIResolvedConfig,
   GenericAIRunContext,
+  GenericAIRunOptions,
   GenericAIRuntimePlan,
   GenericAIRuntimeSettingsPlan,
   GenericAIRuntimeStarterInput,
@@ -351,6 +353,7 @@ function createRunEventInput(
     readonly runId: string;
     readonly rootScopeId: string;
     readonly rootSessionId: string;
+    readonly actor: RunActor | undefined;
   },
   data: Record<string, unknown>,
 ) {
@@ -360,6 +363,7 @@ function createRunEventInput(
     scopeId: context.rootScopeId,
     rootSessionId: context.rootSessionId,
     sessionId: context.rootSessionId,
+    ...(context.actor === undefined ? {} : { actor: context.actor }),
     origin: {
       namespace: "core" as const,
       subsystem: "bootstrap",
@@ -951,8 +955,10 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
 
   async function executeRun<TOutput>(
     task: GenericAIRunTask<TOutput>,
+    options: GenericAIRunOptions = {},
   ): Promise<RunEnvelope<TOutput>> {
     await ensureStarted();
+    const actor = options.actor;
 
     const runId = createRunId();
     const scope = createRootScope({
@@ -969,7 +975,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
     await eventStream.emit(
       createRunEventInput(
         "run.created",
-        { runId, rootScopeId: scope.rootId, rootSessionId },
+        { runId, rootScopeId: scope.rootId, rootSessionId, actor },
         { presetId: preset.id },
       ),
     );
@@ -977,7 +983,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
     await eventStream.emit(
       createRunEventInput(
         "run.started",
-        { runId, rootScopeId: scope.rootId, rootSessionId },
+        { runId, rootScopeId: scope.rootId, rootSessionId, actor },
         { pluginOrder: composition.surfaces.pluginOrder },
       ),
     );
@@ -985,6 +991,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       runId,
       rootScopeId: scope.rootId,
       rootAgentId: BOOTSTRAP_ROOT_AGENT_ID,
+      ...(actor === undefined ? {} : { actor }),
       mode: "async",
       status: "running",
       timestamps: { createdAt, startedAt },
@@ -998,6 +1005,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
     try {
       const result = await evaluateTask(task, {
         runId,
+        ...(actor === undefined ? {} : { actor }),
         scope,
         runtime,
         surfaces: composition.surfaces,
@@ -1006,7 +1014,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       await eventStream.emit(
         createRunEventInput(
           "run.completed",
-          { runId, rootScopeId: scope.rootId, rootSessionId },
+          { runId, rootScopeId: scope.rootId, rootSessionId, actor },
           { outputPluginId: outputPlugin.manifest.id },
         ),
       );
@@ -1034,7 +1042,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       await eventStream.emit(
         createRunEventInput(
           "run.failed",
-          { runId, rootScopeId: scope.rootId, rootSessionId },
+          { runId, rootScopeId: scope.rootId, rootSessionId, actor },
           failure,
         ),
       );
@@ -1061,8 +1069,10 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
 
   async function* streamRun<TOutput>(
     task: GenericAIRunTask<TOutput>,
+    options: GenericAIRunOptions = {},
   ): AsyncIterable<GenericAIStreamChunk<TOutput>> {
     await ensureStarted();
+    const actor = options.actor;
 
     const runId = createRunId();
     const scope = createRootScope({
@@ -1079,7 +1089,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
     const created = await eventStream.emit(
       createRunEventInput(
         "run.created",
-        { runId, rootScopeId: scope.rootId, rootSessionId },
+        { runId, rootScopeId: scope.rootId, rootSessionId, actor },
         { presetId: preset.id },
       ),
     );
@@ -1089,7 +1099,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
     const started = await eventStream.emit(
       createRunEventInput(
         "run.started",
-        { runId, rootScopeId: scope.rootId, rootSessionId },
+        { runId, rootScopeId: scope.rootId, rootSessionId, actor },
         { pluginOrder: composition.surfaces.pluginOrder },
       ),
     );
@@ -1099,6 +1109,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       runId,
       rootScopeId: scope.rootId,
       rootAgentId: BOOTSTRAP_ROOT_AGENT_ID,
+      ...(actor === undefined ? {} : { actor }),
       mode: "async",
       status: "running",
       timestamps: { createdAt, startedAt },
@@ -1112,6 +1123,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
     try {
       const result = await evaluateTask(task, {
         runId,
+        ...(actor === undefined ? {} : { actor }),
         scope,
         runtime,
         surfaces: composition.surfaces,
@@ -1120,7 +1132,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       const completed = await eventStream.emit(
         createRunEventInput(
           "run.completed",
-          { runId, rootScopeId: scope.rootId, rootSessionId },
+          { runId, rootScopeId: scope.rootId, rootSessionId, actor },
           { outputPluginId: outputPlugin.manifest.id },
         ),
       );
@@ -1150,7 +1162,7 @@ export function createGenericAI(options: GenericAIOptions = {}): GenericAIBootst
       const failed = await eventStream.emit(
         createRunEventInput(
           "run.failed",
-          { runId, rootScopeId: scope.rootId, rootSessionId },
+          { runId, rootScopeId: scope.rootId, rootSessionId, actor },
           failure,
         ),
       );
