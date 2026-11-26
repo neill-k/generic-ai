@@ -32,7 +32,7 @@ Each check runs once per push. The rules that keep it that way:
 - Every workflow cancels its run for a PR when a newer commit is pushed.
 - `Quality Gate / e2e` and `generic-corp-image / image-smoke` are the slow jobs (a browser, a Docker build). They run only when `apps/generic-corp/**`, `packages/**`, the lockfile or their own workflow changes, on PRs and on `main`.
 - `Security Baseline / dependency-audit` runs on PRs and weekly, not again on every merge to `main`.
-- Live model runs (the reliability gate) never run on PRs. Run them locally with `npm run reliability -w @generic-ai/app-generic-corp`; see `apps/generic-corp/README.md`.
+- No workflow calls a real model. Live runs are manual and local: `npm run reliability -w @generic-ai/app-generic-corp` and `npm run test:live -- <file>`. See `CONTRIBUTING.md`.
 
 Do not add a workflow that repeats the baseline jobs.
 

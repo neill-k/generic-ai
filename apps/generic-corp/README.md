@@ -198,7 +198,7 @@ reliability gate runs), `--template <id>` to pick one, `--trials <n>` and
 agent asks for a turn the recording does not have) fails the attempt.
 
 Reliability gate (R19). The same suites with `--live`, failing when any gate
-fails. Run it on your own machine with the key in your environment, so the key
+fails. It is manual only. Run it on your own machine with the key in your environment, so the key
 never has to go to GitHub:
 
 ```bash
@@ -230,12 +230,9 @@ with what is left of the cap as its harness budget, so the turn in flight stops
 with `budget_exceeded`; rubric judgments count against the cap too; attempts
 that would start after it are not run and count as failures.
 
-The `Reliability gate` workflow (`.github/workflows/template-evals-live.yml`)
-runs the same script in Actions as an option: by hand (quick by default, `full`
-to choose), or weekly in full mode once the repository variable
-`TEMPLATE_EVALS_SCHEDULE` is `on` (off by default). It needs the
-`ANTHROPIC_API_KEY` Actions secret and skips without spending anything when it
-is missing.
+There is no Actions workflow for this on purpose: automated runs never call a
+real model, so the reliability gate only runs when you start it by hand, and the
+provider key stays on your machine.
 
 To add a template, copy a folder, change `company.yaml`, and record a replay
 for each goal. `templates.test.ts` checks that every goal has a case, a replay,

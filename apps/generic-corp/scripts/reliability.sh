@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Reliability gate (R19) on your own machine: the live template goal evals that the
-# "Reliability gate" workflow runs, with the provider key read from your environment.
-# The key never goes to GitHub.
+# Reliability gate (R19), by hand only: the live template goal evals on real models, with the
+# provider key read from your environment. Automated runs never call a real model, so this
+# refuses to run in CI and no workflow calls it. The key never goes to GitHub.
 #
 #   export ANTHROPIC_API_KEY=...            # required
 #   export BRAVE_API_KEY=...                # optional, or TAVILY_API_KEY; research goals need one
@@ -26,7 +26,8 @@
 #   --no-build           skip the build (local mode only)
 #   anything else is passed to the eval CLI as is (see: npm run evals -w @generic-ai/app-generic-corp -- --help)
 #
-# Exit codes: 0 every gate passed, 1 a gate failed, 2 bad arguments, 3 no provider key.
+# Exit codes: 0 every gate passed, 1 a gate failed, 2 bad arguments, 3 no provider key,
+# 4 refused because it is running in CI.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -51,11 +52,16 @@ while [ "$#" -gt 0 ]; do
     --trials) trials="$2"; shift ;;
     --max-usd) max_usd="$2"; shift ;;
     --max-tokens) max_tokens="$2"; shift ;;
-    -h|--help) sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) extra+=("$1") ;;
   esac
   shift
 done
+
+if [ "${GITHUB_ACTIONS:-}" = "true" ] || [ "${CI:-}" = "true" ]; then
+  echo "Live evals call real models and only run by hand, never in CI. Nothing was run." >&2
+  exit 4
+fi
 
 if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${ANTHROPIC_AUTH_TOKEN:-}" ]; then
   echo "Set ANTHROPIC_API_KEY in your environment first. Nothing was run and nothing was spent." >&2

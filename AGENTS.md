@@ -68,7 +68,7 @@ npm run -w @generic-ai/example-terminal-bench terminal-bench:run -- --profile sm
 npm run -w @generic-ai/example-terminal-bench terminal-bench:import -- --job-dir examples/terminal-bench/jobs/<job-name>
 ```
 
-Provider-backed live smoke is opt-in and can incur real provider cost; run it only with trusted credentials or Pi auth configured:
+Provider-backed live smoke is opt-in and can incur real provider cost; run it only by hand, with trusted credentials or Pi auth configured. Never call a real model from `npm test`, CI or a workflow (see "No live model calls in automated tests" in `CONTRIBUTING.md`):
 
 ```powershell
 $env:GENERIC_AI_ENABLE_LIVE_SMOKE = "1"; npm run -w @generic-ai/example-starter-hono test:live
