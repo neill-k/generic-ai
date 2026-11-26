@@ -5,8 +5,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentMessage } from "@generic-ai/agent";
 import type { AssistantMessage, Usage } from "@generic-ai/ai";
-import { getModel } from "@generic-ai/ai";
-import { beforeEach, describe, expect, it } from "vitest";
+import {
+  type FauxProviderRegistration,
+  fauxAssistantMessage,
+  registerFauxProvider,
+} from "@generic-ai/ai";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   type CompactionSettings,
   calculateContextTokens,
@@ -623,67 +627,62 @@ describe("Large session fixture", () => {
 });
 
 // ============================================================================
-// LLM integration tests (skipped without API key)
+// Summarization through the faux provider (no live model calls in tests)
 // ============================================================================
 
-describe.skipIf(!process.env["ANTHROPIC_OAUTH_TOKEN"])("LLM summarization", () => {
+describe("LLM summarization (faux provider)", () => {
+  const registrations: FauxProviderRegistration[] = [];
+  const SUMMARY =
+    "## Goal\nRefactor the session layer.\n\n## Progress\n- Read the session files and mapped the compaction flow.\n- Kept the recent turns intact.\n\n## Next steps\n- Finish the remaining edits.";
+
+  afterEach(() => {
+    for (const registration of registrations.splice(0)) registration.unregister();
+  });
+
+  function fauxModel() {
+    const provider = registerFauxProvider({ models: [{ id: "compaction-model" }] });
+    registrations.push(provider);
+    provider.setResponses(Array.from({ length: 4 }, () => fauxAssistantMessage(SUMMARY)));
+    return provider.getModel();
+  }
+
   it("should generate a compaction result for the large session", async () => {
     const entries = loadLargeSessionEntries();
-    const model = getModel("anthropic", "claude-sonnet-4-5")!;
+    const model = fauxModel();
 
     const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
     expect(preparation).toBeDefined();
 
-    const compactionResult = await compact(
-      preparation!,
-      model,
-      process.env["ANTHROPIC_OAUTH_TOKEN"]!,
-    );
+    const compactionResult = await compact(preparation!, model, "faux-key");
 
+    expect(compactionResult.summary).toContain("Refactor the session layer.");
     expect(compactionResult.summary.length).toBeGreaterThan(100);
     expect(compactionResult.firstKeptEntryId).toBeTruthy();
     expect(compactionResult.tokensBefore).toBeGreaterThan(0);
-
-    console.log("Summary length:", compactionResult.summary.length);
-    console.log("First kept entry ID:", compactionResult.firstKeptEntryId);
-    console.log("Tokens before:", compactionResult.tokensBefore);
-    console.log("\n--- SUMMARY ---\n");
-    console.log(compactionResult.summary);
-  }, 60000);
+  });
 
   it("should produce valid session after compaction", async () => {
     const entries = loadLargeSessionEntries();
     const loaded = buildSessionContext(entries);
-    const model = getModel("anthropic", "claude-sonnet-4-5")!;
+    const model = fauxModel();
 
     const preparation = prepareCompaction(entries, DEFAULT_COMPACTION_SETTINGS);
     expect(preparation).toBeDefined();
 
-    const compactionResult = await compact(
-      preparation!,
-      model,
-      process.env["ANTHROPIC_OAUTH_TOKEN"]!,
-    );
+    const compactionResult = await compact(preparation!, model, "faux-key");
 
-    // Simulate appending compaction to entries by creating a proper entry
     const lastEntry = nth(entries, entries.length - 1);
-    const parentId = lastEntry.id;
     const compactionEntry: CompactionEntry = {
       type: "compaction",
       id: "compaction-test-id",
-      parentId,
+      parentId: lastEntry.id,
       timestamp: new Date().toISOString(),
       ...compactionResult,
     };
-    const newEntries = [...entries, compactionEntry];
-    const reloaded = buildSessionContext(newEntries);
+    const reloaded = buildSessionContext([...entries, compactionEntry]);
 
-    // Should have summary + kept messages
     expect(reloaded.messages.length).toBeLessThan(loaded.messages.length);
     expect(reloaded.messages[0]?.role).toBe("compactionSummary");
     expect((reloaded.messages[0] as any).summary).toContain(compactionResult.summary);
-
-    console.log("Original messages:", loaded.messages.length);
-    console.log("After compaction:", reloaded.messages.length);
-  }, 60000);
+  });
 });
