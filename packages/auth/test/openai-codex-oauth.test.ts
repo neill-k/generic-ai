@@ -577,3 +577,18 @@ describe("OpenAI Codex OAuth", () => {
     }
   });
 });
+
+describe("openaiCodexOAuth toAuth", () => {
+  it("sends the ChatGPT account id as a header", async () => {
+    const access = createAccessToken("acct-9");
+    const base = { type: "oauth" as const, access, refresh: "r", expires: Date.now() + 60_000 };
+    expect(await openaiCodexOAuth.toAuth({ ...base, accountId: "acct-stored" })).toEqual({
+      apiKey: access,
+      headers: { "chatgpt-account-id": "acct-stored" },
+    });
+    expect(await openaiCodexOAuth.toAuth(base)).toEqual({
+      apiKey: access,
+      headers: { "chatgpt-account-id": "acct-9" },
+    });
+  });
+});

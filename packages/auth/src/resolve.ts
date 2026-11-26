@@ -193,6 +193,16 @@ export function createApiKeyResolver(
   return async (providerId) => (await resolveAuth(providerId, options))?.auth.apiKey;
 }
 
+/**
+ * Like `createApiKeyResolver`, but returns the full request auth (key, headers and base URL), which
+ * the GitHub Copilot and ChatGPT sign-ins need. Pass it as `getAuth` to an `@generic-ai/agent` Agent.
+ */
+export function createModelAuthResolver(
+  options: CredentialResolverOptions,
+): (providerId: string) => Promise<ModelAuth | undefined> {
+  return async (providerId) => (await resolveAuth(providerId, options))?.auth;
+}
+
 /** Run an OAuth sign-in and store the credential it produces. */
 export async function login(
   store: CredentialStore,

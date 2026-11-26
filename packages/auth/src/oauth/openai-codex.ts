@@ -457,6 +457,12 @@ export const openaiCodexOAuth: OAuthProvider = {
   refresh: (credential, signal) => refreshOpenAICodexToken(credential.refresh, signal),
 
   async toAuth(credential) {
-    return { apiKey: credential.access };
+    const accountId = credential["accountId"] ?? getAccountId(credential.access);
+    return {
+      apiKey: credential.access,
+      ...(typeof accountId === "string" && accountId
+        ? { headers: { "chatgpt-account-id": accountId } }
+        : {}),
+    };
   },
 };

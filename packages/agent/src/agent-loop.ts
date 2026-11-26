@@ -267,14 +267,18 @@ async function streamAssistantResponse(
     ? await config.transformContext(context.messages, signal)
     : context.messages;
   const llmMessages = await config.convertToLlm(messages);
+  const auth = config.getAuth ? await config.getAuth(config.model.provider) : undefined;
   const apiKey =
-    (config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
+    auth?.apiKey ||
+    (config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) ||
+    config.apiKey;
   const {
-    model,
+    model: configModel,
     thinkingLevel,
     convertToLlm: _convert,
     transformContext: _transform,
     getApiKey: _getApiKey,
+    getAuth: _getAuth,
     finishTurn: _finishTurn,
     prepareRequest: _prepareRequest,
     prepareNextTurn: _prepareNextTurn,
@@ -285,6 +289,11 @@ async function streamAssistantResponse(
     afterToolCall: _after,
     ...streamOptions
   } = config;
+  const model = auth?.baseUrl ? { ...configModel, baseUrl: auth.baseUrl } : configModel;
+  const headers =
+    auth?.headers || streamOptions.headers
+      ? { ...(auth?.headers ?? {}), ...(streamOptions.headers ?? {}) }
+      : undefined;
   const response = await streamFn(
     model,
     {
@@ -302,6 +311,7 @@ async function streamAssistantResponse(
     },
     {
       ...streamOptions,
+      ...(headers ? { headers } : {}),
       ...(apiKey ? { apiKey } : {}),
       ...(thinkingLevel && thinkingLevel !== "off" ? { reasoning: thinkingLevel } : {}),
       ...(signal ? { signal } : {}),

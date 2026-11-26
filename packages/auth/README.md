@@ -24,7 +24,10 @@ are refreshed, and the building blocks for OAuth sign-in.
   API key, Codex's access token plus the ChatGPT account id, and Copilot's token with its base URL
   and editor headers (`getGitHubCopilotBaseUrl`, `GITHUB_COPILOT_HEADERS`). These reuse those
   products' own OAuth clients, the same way pi does, so check each product's terms before using
-  them.
+  them. Use `createModelAuthResolver` (key, headers and base URL) rather than
+  `createApiKeyResolver` for these, and pass it as `getAuth` to an `@generic-ai/agent` `Agent` or
+  as `native.getAuth` to the core harness. The model references are `anthropic/<model>`,
+  `openai-codex/<model>` and `github-copilot/<model>`.
 
 ```ts
 import { createApiKeyResolver, FileCredentialStore, login, openRouterOAuth } from "@generic-ai/auth";

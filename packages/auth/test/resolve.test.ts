@@ -3,6 +3,7 @@ import { AuthError } from "../src/errors.js";
 import { InMemoryCredentialStore } from "../src/memory-store.js";
 import {
   createApiKeyResolver,
+  createModelAuthResolver,
   login,
   logout,
   refreshStoredOAuthCredential,
@@ -129,6 +130,34 @@ describe("resolveAuth", () => {
       throw new Error("disk gone");
     };
     await expect(resolveAuth("p", { store })).rejects.toMatchObject({ code: "store" });
+  });
+});
+
+describe("createModelAuthResolver", () => {
+  it("returns headers and base URL from the sign-in, not only the key", async () => {
+    const store = new InMemoryCredentialStore();
+    await store.modify("github-copilot", async () => ({
+      type: "oauth",
+      access: "copilot-token",
+      refresh: "gh",
+      expires: Date.now() + 60 * MINUTE,
+    }));
+    const oauth = fakeOAuth({
+      async toAuth(credential) {
+        return {
+          apiKey: credential.access,
+          baseUrl: "https://api.enterprise.githubcopilot.com",
+          headers: { "Editor-Version": "vscode/1.107.0" },
+        };
+      },
+    });
+    const getAuth = createModelAuthResolver({ store, oauth: { "github-copilot": oauth } });
+    expect(await getAuth("github-copilot")).toEqual({
+      apiKey: "copilot-token",
+      baseUrl: "https://api.enterprise.githubcopilot.com",
+      headers: { "Editor-Version": "vscode/1.107.0" },
+    });
+    expect(await getAuth("other")).toBeUndefined();
   });
 });
 

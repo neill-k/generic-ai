@@ -1,3 +1,5 @@
+import { GITHUB_COPILOT_BASE_URL, githubCopilotApi } from "./providers/github-copilot.js";
+import { DEFAULT_CODEX_BASE_URL } from "./providers/openai-codex-responses.js";
 import type { Api, Model, ProviderId } from "./types.js";
 
 /**
@@ -34,6 +36,10 @@ export const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   // Model ids are Bedrock ids or inference profiles (`us.anthropic.claude-opus-5-5-v1:0`, ARNs).
   // The region comes from AWS_REGION or the profile; set a base URL for a VPC endpoint or proxy.
   "amazon-bedrock": { api: "bedrock-converse-stream", baseUrl: "" },
+  // ChatGPT Plus/Pro sign-in (openaiCodexOAuth in @generic-ai/auth).
+  "openai-codex": { api: "openai-codex-responses", baseUrl: DEFAULT_CODEX_BASE_URL },
+  // GitHub Copilot sign-in (githubCopilotOAuth); the API depends on the model, see githubCopilotApi.
+  "github-copilot": { api: "openai-completions", baseUrl: GITHUB_COPILOT_BASE_URL },
 };
 
 function claude(id: string, name: string, input: number, output: number, cacheRead: number): Model {
@@ -140,12 +146,16 @@ export function resolveModel(
   return {
     id,
     name: id,
-    api: defaults?.api ?? "openai-completions",
+    api:
+      provider === "github-copilot"
+        ? githubCopilotApi(id)
+        : (defaults?.api ?? "openai-completions"),
     provider,
     baseUrl: defaults?.baseUrl ?? "",
     reasoning:
       provider === "anthropic" ||
       provider === "openai" ||
+      provider === "openai-codex" ||
       provider === "azure-openai" ||
       gemini ||
       magistral,
