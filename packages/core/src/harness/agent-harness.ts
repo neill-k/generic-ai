@@ -163,6 +163,9 @@ const MUTATING_EFFECTS: readonly AgentHarnessCapabilityEffect[] = Object.freeze(
   "memory.write",
   "secret.read",
   "sandbox.create",
+  "message.send",
+  "external.write",
+  "payment.spend",
 ]);
 
 const OPENAI_CODEX_PI_PROVIDER = "openai-codex";
@@ -974,6 +977,10 @@ function profileDeniedEffects(input: {
   }
   if (input.profile === BENCHMARK_CONTAINER_POLICY_PROFILE) {
     effects.add("sandbox.create");
+    // Benchmarks never reach real people, external records or money.
+    effects.add("message.send");
+    effects.add("external.write");
+    effects.add("payment.spend");
   }
   return effects;
 }

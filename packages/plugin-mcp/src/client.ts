@@ -715,7 +715,9 @@ export function createMcpClientManager(options: McpClientManagerOptions): McpCli
       for (const server of registry.list()) {
         const status = connections.get(server.id)?.status();
         lines.push(
-          `- ${server.id} (${server.transport}, ${status?.state ?? "idle"}${
+          `- ${server.id} (${server.transport}${
+            server.connector === undefined ? "" : `, ${server.connector} connector`
+          }, ${status?.state ?? "idle"}${
             status !== undefined && status.toolCount > 0 ? `, ${status.toolCount} tools` : ""
           }): ${server.description ?? "No description"}`,
         );

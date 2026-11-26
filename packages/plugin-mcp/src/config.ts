@@ -6,6 +6,7 @@ import {
 } from "@generic-ai/sdk";
 
 import type { McpReconnectOptions, McpRetryOnDisconnect } from "./client.js";
+import { isMcpConnectorKind, MCP_CONNECTOR_KINDS, MCP_CONNECTOR_PRESETS } from "./connectors.js";
 import {
   McpRegistryError,
   type McpServerDefinition,
@@ -31,10 +32,11 @@ const POSITIVE_INTEGER_SCHEMA = { type: "integer", minimum: 1 };
 
 const SERVER_SCHEMA = {
   type: "object",
-  required: ["id", "transport"],
+  required: ["id"],
   properties: {
     id: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9._-]*$" },
     transport: { type: "string", enum: ["stdio", "http", "sse"] },
+    connector: { type: "string", enum: [...MCP_CONNECTOR_KINDS] },
     description: { type: "string" },
     command: { type: "string", minLength: 1 },
     args: { type: "array", items: { type: "string" } },
@@ -171,9 +173,23 @@ export function parseMcpServerDefinition(input: unknown, index = 0): McpServerDe
   }
 
   const id = optionalString(input["id"], `${label}.id`) ?? fail(`${label}.id is required.`);
-  const transport = optionalString(input["transport"], `${label}.transport`);
+  const connector = optionalString(input["connector"], `${label}.connector`);
+  if (connector !== undefined && !isMcpConnectorKind(connector)) {
+    fail(`${label}.connector must be one of ${MCP_CONNECTOR_KINDS.join(", ")}.`);
+  }
+  const transport =
+    optionalString(input["transport"], `${label}.transport`) ??
+    (connector === undefined || input["command"] !== undefined || input["url"] !== undefined
+      ? undefined
+      : MCP_CONNECTOR_PRESETS[connector].launch?.transport);
   if (transport !== "stdio" && transport !== "http" && transport !== "sse") {
-    fail(`${label}.transport must be stdio, http or sse.`);
+    fail(
+      `${label}.transport must be stdio, http or sse${
+        connector === undefined
+          ? ""
+          : ` (connector "${connector}" has no default launch, so set transport with command or url)`
+      }.`,
+    );
   }
   const include =
     tools === undefined ? undefined : stringArray(tools["include"], `${label}.tools.include`);
@@ -190,6 +206,7 @@ export function parseMcpServerDefinition(input: unknown, index = 0): McpServerDe
         );
 
   const fields = {
+    connector,
     description: optionalString(input["description"], `${label}.description`),
     command: optionalString(input["command"], `${label}.command`),
     args: stringArray(input["args"], `${label}.args`),

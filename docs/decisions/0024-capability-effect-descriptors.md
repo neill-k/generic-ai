@@ -26,6 +26,9 @@ SDK tool metadata includes declared capability effects such as:
 - `lsp.read`
 - `secret.read`
 - `sandbox.create`
+- `message.send` (reaches people outside the agent system: email, chat, posts, invites)
+- `external.write` (creates, changes or deletes records in an external system)
+- `payment.spend` (spends money or commits to a purchase)
 
 Plugins attach effect metadata to tool descriptors. Core role policy filters by declared effects, not tool names. Tools without declared effects are denied in harness roles for P1 so missing metadata fails closed.
 

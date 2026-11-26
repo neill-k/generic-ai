@@ -70,6 +70,7 @@ ADRs must be written when:
 - [`0046-generic-corp-app-on-generic-ai.md`](0046-generic-corp-app-on-generic-ai.md) - Generic AI is the framework and Generic Corp is the flagship app in `apps/generic-corp`; records product decisions D1 to D6 and the NOVA framing.
 - [`0050-goals-and-validators.md`](0050-goals-and-validators.md) - SDK goal specs with a definition of done, sealed tamper-evident validators, and a validator runner that returns actionable `COMPLETE`/`INCOMPLETE` feedback.
 - [`0053-usage-and-cost-accounting.md`](0053-usage-and-cost-accounting.md) - `usage.recorded` and `usage.budget.exceeded` events, per-run/agent/goal/model usage rollups led by tokens per completed goal, and token and dollar caps that stop runs at response boundaries.
+- [`0057-generic-work-toolkit.md`](0057-generic-work-toolkit.md) - outward capability effects (`message.send`, `external.write`, `payment.spend`), MCP `connector` kinds that classify email, calendar, chat, documents, payments and browser tools, and Brave, Tavily and SearXNG web search providers.
 
 ## Planning Baseline
 
