@@ -30,7 +30,7 @@ docs/                planning pack, decision records, and framework documentatio
 
 Generic AI has a small number of layers. Dependency direction is strictly downward:
 
-0. **Native runtime** — `@generic-ai/ai` (provider-neutral model layer), `@generic-ai/agent` (agent loop), `@generic-ai/tools` (coding tools), `@generic-ai/session` (sessions and compaction), `@generic-ai/resources` (skills and prompt templates), `@generic-ai/extensions` (extension hooks), `@generic-ai/subagents` (subagents and agent messaging), and `@generic-ai/autonomy` (thread goals and autonomous mode)
+0. **Native runtime** — `@generic-ai/ai` (provider-neutral model layer), `@generic-ai/agent` (agent loop), `@generic-ai/tools` (coding tools), `@generic-ai/session` (sessions and compaction), `@generic-ai/resources` (skills and prompt templates), `@generic-ai/extensions` (extension hooks), `@generic-ai/subagents` (subagents and agent messaging), and `@generic-ai/autonomy` (thread goals, autonomous mode, schedules and heartbeats)
 1. **Kernel** — `@generic-ai/core`
 2. **SDK** — `@generic-ai/sdk`
 3. **Plugins and package extensions** - everything matching `@generic-ai/plugin-*` plus future documented protocol/grader/report/policy package layers
@@ -117,9 +117,9 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/autonomy`
 
-- Role: long-running work for native sessions: a persistent thread goal with a token budget, continuation prompts, a no-progress cap and backoff, and goal tools whose completion claims host-owned checks can refuse; autonomous mode with continuation, turn, token and time limits and shell quality gates that run in the clean agent-command environment; and a controller that decides what follows each turn. Follows Prime Agent's goal driver and autonomous gates under MIT.
+- Role: long-running work for native sessions: a persistent thread goal with a token budget, continuation prompts, a no-progress cap and backoff, and goal tools whose completion claims host-owned checks can refuse; autonomous mode with continuation, turn, token and time limits and shell quality gates that run in the clean agent-command environment; a controller that decides what follows each turn; and per-session schedules: schedule parsing (one-shot, interval, five-field cron in UTC), a schedule book with heartbeats and failure backoff, schedule tools, and a wake-timer runner. Follows Prime Agent's goal driver, autonomous gates and cron module under MIT.
 - Allowed deps: `@generic-ai/ai`, `@generic-ai/agent`, `@generic-ai/tools`.
-- Not responsible for: daemon sessions, schedules or heartbeats, the durable queue, the SDK's goal specs and validators (the host passes those in as a `verify` hook), or deciding which gates a deployment runs.
+- Not responsible for: the durable queue or resuming stored sessions (core's `createScheduledSessionService` does that on the SDK queue), the SDK's goal specs and validators (the host passes those in as a `verify` hook), or deciding which gates a deployment runs.
 - Publishes as: `@generic-ai/autonomy` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/core`
