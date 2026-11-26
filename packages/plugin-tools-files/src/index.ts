@@ -186,7 +186,8 @@ export class WorkspaceBoundaryError extends Error {
  * into other agents' homes. Every `path` argument is resolved, symlinks included, and refused when
  * it lands outside the root. The tool then gets the resolved path rather than the agent's, which
  * narrows (but cannot close) the window in which an agent's shell could swap a directory for a
- * symlink between the check and the read; running agent commands as another OS user closes it.
+ * symlink between the check and the read. Closing it needs the kernel to resolve the path
+ * (`openat2` with `RESOLVE_BENEATH`), which Node does not expose.
  */
 function confineToWorkspace<T extends { execute: (...args: never[]) => unknown }>(
   tool: T,
