@@ -201,6 +201,14 @@ function cascadeEventData(event: DelegationCascadeEvent): Readonly<Record<string
       message: event.error instanceof Error ? event.error.message : String(event.error),
     };
   }
+  if (event.type === "tool.effect.replayed" || event.type === "tool.effect.uncertain") {
+    return {
+      taskId: event.taskId,
+      toolName: event.record.toolName,
+      effects: event.record.effects,
+      status: event.record.status,
+    };
+  }
   return {
     task: summarizeTask(event.task),
     ...(event.type === "task.delegated" ? { children: event.children.map(summarizeTask) } : {}),
@@ -229,6 +237,9 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
       return;
     }
     events.publish(event.type, cascadeEventData(event));
+    if (event.type === "tool.effect.replayed" || event.type === "tool.effect.uncertain") {
+      return;
+    }
     const threadId = event.task.metadata?.["threadId"];
     if (event.task.depth === 0 && typeof threadId === "string") {
       events.publish("thread.updated", {
