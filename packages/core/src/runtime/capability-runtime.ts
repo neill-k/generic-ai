@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   type RunEnvelope,
   type RunEnvelopeMode,
+  type SecretsBinding,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
@@ -187,6 +188,11 @@ export interface PiCapabilityBindings {
   readonly skills?: PiCapabilitySkills;
   readonly messaging?: PiCapabilityMessaging;
   readonly memory?: PiCapabilityMemory;
+  /**
+   * Secrets binding. The harness wraps each role's tools with it (placeholders resolve against the
+   * role's grants, results are scrubbed) and redacts every event. The runtime never reads it.
+   */
+  readonly secrets?: SecretsBinding;
 }
 
 export type PiCapabilityResourceLoaderOptions = Omit<

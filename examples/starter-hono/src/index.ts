@@ -19,6 +19,7 @@ import {
   createOwnerAuthenticate,
   unauthorizedResponse,
 } from "@generic-ai/plugin-auth-identity";
+import { createSecretsFromEnvironment, type SecretsBroker } from "@generic-ai/plugin-secrets";
 import { createHonoPlugin, type HonoPlugin, type HonoRunContext } from "@generic-ai/plugin-hono";
 import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
 import { createHonoWebUiTransport, createWebUiPlugin } from "@generic-ai/plugin-web-ui/server";
@@ -109,6 +110,8 @@ export interface StarterExampleServer {
   readonly workspaceRoot: string;
   /** Owner auth service, present when `environment.auth.mode` is `owner`. */
   readonly auth?: StarterAuth;
+  /** Secrets broker bound to every console harness run (placeholders, grants, redaction). */
+  readonly secrets: SecretsBroker;
   readonly stop: () => Promise<void>;
 }
 
@@ -122,6 +125,8 @@ export interface StarterExampleServerOptions {
   readonly createHarness?: typeof createAgentHarness;
   /** Overrides the SQLite owner auth store, mainly for tests. */
   readonly authStore?: AuthStore;
+  /** Overrides the secrets broker. Defaults to env vars, `/run/secrets` files, and no store. */
+  readonly secrets?: SecretsBroker;
   /** Receives operator-facing notices such as the one-time setup token. */
   readonly log?: (message: string) => void;
 }
@@ -533,6 +538,7 @@ async function runConfiguredConsoleHarness(input: {
   readonly runtime: GenericAILlmRuntime;
   readonly workspaceRoot: string;
   readonly createHarness: typeof createAgentHarness;
+  readonly secrets: SecretsBroker;
 }): Promise<WebUiHarnessRunnerResult> {
   if (input.request.harness === undefined) {
     const result = await input.runtime.run(input.request.message.content, {
@@ -578,7 +584,10 @@ async function runConfiguredConsoleHarness(input: {
     workspaceRoot: input.workspaceRoot,
     artifactDir,
     ...(rootAgentId === undefined ? {} : { rootAgentId }),
-    capabilities: createReadOnlyHarnessCapabilities(input.workspaceRoot),
+    capabilities: {
+      ...createReadOnlyHarnessCapabilities(input.workspaceRoot),
+      secrets: input.secrets,
+    },
     ...(input.request.actor === undefined ? {} : { actor: input.request.actor }),
   })) as AgentHarnessRunResult;
 
@@ -781,6 +790,13 @@ export async function createStarterExampleServer(
   const environment = loadStarterExampleEnvironment(options.env, startDir);
   const createRuntime = options.createRuntime ?? createGenericAILlmRuntime;
   const createHarness = options.createHarness ?? createAgentHarness;
+  const secrets = options.secrets ?? createSecretsFromEnvironment({ env: options.env ?? process.env });
+  await secrets.prepare();
+  for (const weakName of secrets.weakNames()) {
+    (options.log ?? console.warn)(
+      `Secret ${weakName} is shorter than 4 characters, so it cannot be redacted from agent output. Use a longer value.`,
+    );
+  }
   const bootstrap = await createStarterHonoBootstrapFromYaml<GenericAILlmRuntime>({
     startDir,
     startRuntime: (input) => {
@@ -868,6 +884,7 @@ export async function createStarterExampleServer(
         runtime,
         workspaceRoot,
         createHarness,
+        secrets,
       }),
   });
   const webUiTransport = createHonoWebUiTransport(webUi, {
@@ -909,6 +926,7 @@ export async function createStarterExampleServer(
     environment,
     workspaceRoot,
     ...(starterAuth === undefined ? {} : { auth: starterAuth }),
+    secrets,
     stop: async () => {
       await runtime.close?.();
       await bootstrap.stop();

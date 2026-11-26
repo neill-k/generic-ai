@@ -57,8 +57,8 @@ Anything outside these rules needs an entry in `docs/decisions/` explaining the 
 
 Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and `apps/*`, and the repo root itself, are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
-- **Public (27 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
-- **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. `apps/generic-corp/` (`@generic-ai/app-generic-corp`) is `"private": true` and listed in the same `ignore` array. Any new workspace under `examples/*` or `apps/*` inherits this private-by-default rule.
+- **Public (30 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
+- **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. Any new workspace under `examples/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
 
@@ -260,6 +260,13 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Allowed deps: `@generic-ai/sdk`, `hono`, `@simplewebauthn/server`. `@generic-ai/plugin-hono` only as a dev dependency for tests; the transport adapter is structurally typed.
 - Not responsible for: tenants, signup, roles beyond scopes, billing, or provider-specific OIDC (a later adapter). Persistence goes through its small `AuthKeyValueStore` port; it does not pick a database.
 - Notes: see `docs/identity-auth.md` and `docs/decisions/0045-owner-auth-identity.md`.
+
+### `@generic-ai/plugin-secrets`
+
+- Role: secrets vault. Owns secret sources (allow-listed environment variables, Docker secret files, an AES-256-GCM encrypted store over any SDK `StorageContract`), role grants, `{{secret:NAME}}` resolution at tool-call time, and redaction of secret values from tool output, events and logs. Implements the SDK `SecretsBinding` the harness consumes as `capabilities.secrets`.
+- Allowed deps: `@generic-ai/sdk` and Node built-ins only.
+- Not responsible for: picking a database (the host passes storage), tenants, an HTTP or UI surface for managing secrets (app work), or provider-specific key lookup inside runtimes.
+- Notes: see `docs/decisions/0055-secrets-vault.md`.
 
 ### `@generic-ai/plugin-web-ui`
 

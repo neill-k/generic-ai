@@ -1833,3 +1833,40 @@ describe("@generic-ai/plugin-tools-terminal-sandbox", () => {
     });
   });
 });
+
+describe.skipIf(process.platform === "win32")("Docker CLI env handling", () => {
+  it("passes container env by name so values never appear on the Docker command line", async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "generic-ai-fake-docker-"));
+    try {
+      const log = path.join(dir, "log.txt");
+      const fakeDocker = path.join(dir, "docker");
+      await writeFile(
+        fakeDocker,
+        `#!/bin/sh\nprintf 'ARGS %s\\n' "$*" >> "${log}"\nprintf 'VALUE %s\\n' "$FAKE_SECRET" >> "${log}"\necho container-1\n`,
+        { mode: 0o755 },
+      );
+      const operations = createDockerCliSandboxOperations(fakeDocker);
+      await operations.createContainer({
+        image: "example/image",
+        sessionId: "s1",
+        mounts: [],
+        env: { FAKE_SECRET: "fake-secret-value-123" },
+      });
+      await operations.exec({
+        containerId: "container-1",
+        command: "true",
+        env: { FAKE_SECRET: "fake-secret-value-123" },
+      });
+      const lines = (await readFile(log, "utf8")).trim().split("\n");
+      const argLines = lines.filter((line) => line.startsWith("ARGS "));
+      expect(argLines).toHaveLength(2);
+      for (const line of argLines) {
+        expect(line).toContain("--env FAKE_SECRET");
+        expect(line).not.toContain("fake-secret-value-123");
+      }
+      expect(lines.filter((line) => line === "VALUE fake-secret-value-123")).toHaveLength(2);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});

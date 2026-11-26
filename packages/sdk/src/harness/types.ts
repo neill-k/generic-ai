@@ -181,6 +181,11 @@ export interface AgentHarnessRole {
   readonly model?: string;
   readonly tools?: readonly string[];
   readonly readOnly?: boolean;
+  /**
+   * Secrets this role may use through `{{secret:NAME}}` placeholders: exact names, `PREFIX_*`
+   * patterns, or `*`. Omit for none. Values never reach the model.
+   */
+  readonly secrets?: readonly string[];
   readonly metadata?: JsonObject;
 }
 
@@ -214,6 +219,8 @@ export interface AgentHarnessConfig {
   readonly tools?: readonly string[];
   readonly allowNetwork?: boolean;
   readonly allowMcp?: boolean;
+  /** Secrets the root (coordinator) agent may use. Roles declare their own on `role.secrets`. */
+  readonly secrets?: readonly string[];
   readonly artifactDir?: string;
   readonly hooks?: AgentLifecycleHooksConfig;
   readonly metadata?: JsonObject;

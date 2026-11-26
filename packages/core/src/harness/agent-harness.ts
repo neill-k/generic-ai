@@ -60,6 +60,11 @@ import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
 import { runCapabilityNativeAgentSession } from "../runtime/native-session.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 import {
+  secretAccessPolicyDecision,
+  secretsPromptGuidance,
+  wrapCapabilitiesWithSecrets,
+} from "./secrets.js";
+import {
   type HarnessTopologyRunResult,
   resolveTopologyActorRole,
   type RunHarnessTopologyOptions,
@@ -816,6 +821,7 @@ function applyProfilePolicy(
     ...(capabilities.skills === undefined ? {} : { skills: capabilities.skills }),
     ...(capabilities.messaging === undefined ? {} : { messaging: capabilities.messaging }),
     ...(capabilities.memory === undefined ? {} : { memory: capabilities.memory }),
+    ...(capabilities.secrets === undefined ? {} : { secrets: capabilities.secrets }),
   };
 }
 
@@ -1296,6 +1302,27 @@ async function runRoleSession(input: {
     policy: input.policy,
   });
   input.recordPolicyDecisions(rolePolicyResult.policyDecisions);
+  const secrets = input.capabilities.secrets;
+  const roleSecretsCapabilities = wrapCapabilitiesWithSecrets({
+    capabilities: rolePolicyResult.capabilities,
+    secrets,
+    actorId: role.id,
+    grants: role.secrets,
+    runId: input.runId,
+    onAccess: async (record) => {
+      const decision = secretAccessPolicyDecision(record);
+      input.recordPolicyDecisions([decision]);
+      const sessionId = input.rootSessionId ?? input.runId;
+      await emitPolicyDecision(input.eventStream, {
+        runId: input.runId,
+        scopeId: input.rootScopeId,
+        rootSessionId: sessionId,
+        sessionId: input.parentSessionId ?? sessionId,
+        decision,
+      });
+    },
+  });
+  const rolePrompt = `${input.prompt}${await secretsPromptGuidance(secrets, role.secrets)}`;
   const roleHookContext = {
     runId: input.runId,
     scopeId: input.rootScopeId,
@@ -1307,7 +1334,7 @@ async function runRoleSession(input: {
     roleId: role.id,
   };
   const roleCapabilities = wrapCapabilitiesWithHooks({
-    capabilities: rolePolicyResult.capabilities,
+    capabilities: roleSecretsCapabilities,
     executor: input.hookExecutor,
     context: roleHookContext,
   });
@@ -1319,7 +1346,7 @@ async function runRoleSession(input: {
     cwd: input.workspaceRoot,
     role,
     capabilities: roleCapabilities,
-    prompt: input.prompt,
+    prompt: rolePrompt,
     ...(input.turnMode === undefined ? {} : { turnMode: input.turnMode }),
     ...(input.maxTurns === undefined ? {} : { maxTurns: input.maxTurns }),
     runId: input.runId,
@@ -1406,7 +1433,9 @@ function createDelegateTool(input: {
         const delegationId = `${input.runId}:delegation:${randomUUID()}`;
         const rootSessionId = input.getRootSessionId();
         if (rootSessionId === undefined) {
-          throw new Error(`Cannot delegate before the root ${input.backend.label} session is ready.`);
+          throw new Error(
+            `Cannot delegate before the root ${input.backend.label} session is ready.`,
+          );
         }
         const eventContext = {
           runId: input.runId,
@@ -1822,9 +1851,12 @@ function createSessionAgentHarnessAdapter(
         });
       }
       const runSignal = createDeadlineSignal(context);
-      const eventStream = createCanonicalEventStream(
-        input.actor === undefined ? {} : { actor: input.actor },
-      );
+      const secrets = input.capabilities?.secrets;
+      await secrets?.prepare();
+      const eventStream = createCanonicalEventStream({
+        ...(input.actor === undefined ? {} : { actor: input.actor }),
+        ...(secrets === undefined ? {} : { redactData: (data) => secrets.redact(data) }),
+      });
       const hookExecutor = createAgentLifecycleHookExecutor(input.hooks ?? input.harness.hooks, {
         eventStream,
         ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
@@ -1884,8 +1916,30 @@ function createSessionAgentHarnessAdapter(
         policy: context.policy,
       });
       policyDecisions.push(...rootPolicyResult.policyDecisions);
-      const rootCapabilities = wrapCapabilitiesWithHooks({
+      const rootRole = roles.find((role) => role.id === rootAgentId);
+      const rootGrants = rootRole?.secrets ?? input.harness.secrets;
+      const rootSecretsCapabilities = wrapCapabilitiesWithSecrets({
         capabilities: rootPolicyResult.capabilities,
+        secrets,
+        actorId: rootAgentId,
+        grants: rootGrants,
+        runId,
+        onAccess: async (record) => {
+          const decision = secretAccessPolicyDecision(record);
+          policyDecisions.push(decision);
+          const sessionId = rootRuntimeSessionId ?? runId;
+          await emitPolicyDecision(eventStream, {
+            runId,
+            scopeId: rootScopeId,
+            rootSessionId: sessionId,
+            sessionId,
+            decision,
+          });
+        },
+      });
+      const rootSecretsGuidance = await secretsPromptGuidance(secrets, rootGrants);
+      const rootCapabilities = wrapCapabilitiesWithHooks({
+        capabilities: rootSecretsCapabilities,
         executor: hookExecutor,
         context: rootHookContext,
       });
@@ -1894,18 +1948,17 @@ function createSessionAgentHarnessAdapter(
         context: rootHookContext,
       });
 
-      const rootRole = roles.find((role) => role.id === rootAgentId);
       const result = await backend
         .run({
           cwd: input.workspaceRoot,
           ...(rootRole === undefined ? {} : { role: rootRole }),
           capabilities: rootCapabilities,
-          prompt: buildRootPrompt({
+          prompt: `${buildRootPrompt({
             instruction: input.instruction,
             roles,
             policyProfile: profile,
             ...(turnMode === undefined ? {} : { turnMode }),
-          }),
+          })}${rootSecretsGuidance}`,
           ...(turnMode === undefined ? {} : { turnMode }),
           ...(maxTurns === undefined ? {} : { maxTurns }),
           runId,
@@ -1936,7 +1989,8 @@ function createSessionAgentHarnessAdapter(
         .finally(() => {
           runSignal.cleanup();
         });
-      const outputText = result.outputText;
+      const outputText =
+        secrets === undefined ? result.outputText : secrets.redactText(result.outputText);
       const events = result.events;
       const projections = Object.freeze(events.map(projectEvent));
       const status = result.failureMessage === undefined ? "succeeded" : "failed";
