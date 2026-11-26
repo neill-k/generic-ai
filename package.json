@@ -37,9 +37,11 @@
     "test": "vitest run",
     "prelint": "node scripts/check-node-version.mjs",
     "check:boundaries": "node scripts/check-package-boundaries.mjs",
+    "check:package-metadata": "node scripts/package-metadata.mjs",
+    "package:metadata": "node scripts/package-metadata.mjs --write",
     "check:biome-helper-ignores": "node scripts/check-biome-helper-ignores.mjs",
     "audit:prod": "node scripts/check-audit.mjs",
-    "lint": "npm run check:boundaries && npm run check:biome-helper-ignores && biome lint README.md CONTRIBUTING.md RELEASING.md biome.json package.json tsconfig.json tsconfig.base.json tsconfig.test.json vitest.config.ts docs packages examples apps scripts",
+    "lint": "npm run check:boundaries && npm run check:package-metadata && npm run check:biome-helper-ignores && biome lint README.md CONTRIBUTING.md RELEASING.md biome.json package.json tsconfig.json tsconfig.base.json tsconfig.test.json vitest.config.ts docs packages examples apps scripts",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "docs": "node scripts/generate-docs.mjs",
@@ -48,7 +50,10 @@
     "changeset": "changeset",
     "changeset:status": "changeset status",
     "changeset:version": "changeset version && npm install --package-lock-only",
-    "changeset:publish": "npm run build && changeset publish"
+    "changeset:publish": "npm run build && changeset publish",
+    "release:check": "node scripts/check-pack.mjs",
+    "release:list": "node scripts/release-publish.mjs --list",
+    "release:dry-run": "node scripts/release-publish.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.13",

@@ -170,3 +170,6 @@ jobs:
 
       - name: Build project references
         run: npm run build
+
+      - name: Packed tarballs install and work in a clean project
+        run: npm run release:check
