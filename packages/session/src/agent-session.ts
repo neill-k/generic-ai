@@ -133,6 +133,21 @@ export interface AutoCompactionOptions {
   readonly signal?: AbortSignal | undefined;
   readonly thinkingLevel?: AgentThinkingLevel | undefined;
   readonly retry?: RetryPolicy | undefined;
+  /**
+   * Called when the context needs compacting, before the summary is made. Return `cancel` to skip
+   * this compaction, or `customInstructions` to steer the summary.
+   */
+  readonly beforeCompact?:
+    | ((info: {
+        readonly tokens: number;
+        readonly contextWindow: number;
+      }) => Promise<BeforeCompactDecision | undefined> | BeforeCompactDecision | undefined)
+    | undefined;
+}
+
+export interface BeforeCompactDecision {
+  readonly cancel?: boolean | undefined;
+  readonly customInstructions?: string | undefined;
 }
 
 /** The context size the agent would send next: the last provider usage plus an estimate of later messages. */
@@ -160,7 +175,17 @@ export async function compactIfNeeded(
   if (!shouldCompact(tokens, contextWindow, settings)) {
     return undefined;
   }
-  return compactNow(agent, manager, { ...options, settings });
+  const decision = await options.beforeCompact?.({ tokens, contextWindow });
+  if (decision?.cancel === true) {
+    return undefined;
+  }
+  return compactNow(agent, manager, {
+    ...options,
+    settings,
+    ...(decision?.customInstructions === undefined
+      ? {}
+      : { customInstructions: decision.customInstructions }),
+  });
 }
 
 /** Compact the session's current branch now, whatever its size. */

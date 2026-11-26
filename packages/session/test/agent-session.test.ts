@@ -139,6 +139,48 @@ describe("auto-compaction", () => {
     expect(agent.state.messages.length).toBeLessThan(6);
   });
 
+  it("lets beforeCompact cancel a compaction or steer its summary", async () => {
+    const { provider, model, agent } = setup(4_000);
+    const manager = SessionManager.inMemory("/tmp/work");
+    persistAgentMessages(agent, manager);
+    const filler = "x".repeat(4_000);
+    let summaryPrompt = "";
+    provider.setResponses([
+      fauxAssistantMessage(`One ${filler}`),
+      fauxAssistantMessage(`Two ${filler}`),
+      fauxAssistantMessage(`Three ${filler}`),
+      (context) => {
+        summaryPrompt = JSON.stringify(context.messages);
+        return fauxAssistantMessage("Summary.");
+      },
+    ]);
+    await agent.prompt(`First ${filler}`);
+    await agent.prompt(`Second ${filler}`);
+    await agent.prompt(`Third ${filler}`);
+    const settings = { reserveTokens: 1_000, keepRecentTokens: 1_500 };
+
+    const infos: number[] = [];
+    const cancelled = await compactIfNeeded(agent, manager, {
+      model,
+      settings,
+      beforeCompact: (info) => {
+        infos.push(info.contextWindow);
+        return { cancel: true };
+      },
+    });
+    expect(cancelled).toBeUndefined();
+    expect(infos).toEqual([4_000]);
+    expect(manager.getEntries().some((entry) => entry.type === "compaction")).toBe(false);
+
+    const result = await compactIfNeeded(agent, manager, {
+      model,
+      settings,
+      beforeCompact: () => ({ customInstructions: "Keep the word PINEAPPLE." }),
+    });
+    expect(result?.summary).toContain("Summary.");
+    expect(summaryPrompt).toContain("Keep the word PINEAPPLE.");
+  });
+
   it("does nothing while the context fits", async () => {
     const { provider, model, agent } = setup(200_000);
     const manager = SessionManager.inMemory("/tmp/work");

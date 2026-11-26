@@ -115,7 +115,9 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Skills: discovery, validation, collisions, prompt block, `/skill:name` commands | ✓ | ported `skills` into `@generic-ai/resources`; `plugin-agent-skills` now uses it; `native-agent-harness.test.ts` covers `/skill:` runs |
 | Prompt templates: loading, `argument-hint`, `$1` / `$@` / `${@:N}` / defaults, `/name` commands | ✓ | ported `prompt-templates`; `promptTemplates` harness option |
 | System prompt assembly (pi's full builder, context files such as `AGENTS.md`) | ○ | `system-prompt*` |
-| Extensions and event bus | ○ | `extensions-*` |
+| Extensions: events (`input`, `before_agent_start`, `context`, `tool_call`, `tool_result`, turn/message/agent/session events, `session_before_compact`), tools, commands, discovery and loading | ✓ | `@generic-ai/extensions`: discovery cases adapted from `extensions-discovery`, runner cases from `extensions-runner` and `extensions-input-event`; `native.extensions` harness option |
+| Extension UI: widgets, dialogs, keybindings, renderers, flags, editor and autocomplete hooks | — | out of scope: no TUI |
+| Extension provider hooks (`before_provider_request`, headers, stream events), model/thinking selection events, user bash | ○ | `extensions-runner` provider cases |
 | MCP client and OAuth | ○ | `mcp-*` (Generic AI already has `plugin-mcp`; port only what it lacks) |
 | RPC / print modes | ○ | `rpc*`, `print-mode` |
 | Interactive TUI, themes, clipboard, HTML export | — | out of scope: Generic AI's surfaces are the web UI and Hono transport |
@@ -155,8 +157,8 @@ Each slice is a reviewable PR that keeps every existing test green.
    compacts before a prompt that would overflow, and retries transient provider errors.
 4. **Skills, prompt templates, extensions**: 4a (in review) adds `@generic-ai/resources` with pi's
    skill loader and prompt templates, moves `plugin-agent-skills` onto it, and expands
-   `/skill:name` and `/template` instructions in harness runs on both backends. 4b ports pi's
-   extension hooks that Generic AI lacks.
+   `/skill:name` and `/template` instructions in harness runs on both backends. 4b (in review)
+   adds `@generic-ai/extensions` and loads extensions into native sessions (`native.extensions`).
 5. **Subagents and messaging**: native subagent spawning and agent-to-agent messages, wired to the
    topology scheduler.
 6. **Long-running agents**: daemon sessions, goals, heartbeats and schedules, autonomous mode, on

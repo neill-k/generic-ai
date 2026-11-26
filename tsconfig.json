@@ -6,6 +6,7 @@
     { "path": "packages/tools" },
     { "path": "packages/session" },
     { "path": "packages/resources" },
+    { "path": "packages/extensions" },
     { "path": "packages/core" },
     { "path": "packages/sdk" },
     { "path": "packages/observability" },

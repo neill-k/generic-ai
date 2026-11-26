@@ -62,7 +62,11 @@ import {
 } from "../runtime/capability-runtime.js";
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
-import { expandPrompt, runCapabilityNativeAgentSession } from "../runtime/native-session.js";
+import {
+  expandPrompt,
+  type NativeSessionExtensions,
+  runCapabilityNativeAgentSession,
+} from "../runtime/native-session.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 import {
   type HarnessTopologyRunResult,
@@ -108,6 +112,11 @@ export interface NativeAgentHarnessOptions {
   readonly compaction?: Partial<CompactionSettings> | false;
   /** Retry policy for transient provider errors; `false` turns retry off. */
   readonly retry?: RetryPolicy | false;
+  /**
+   * Extensions loaded into every native session (see `@generic-ai/extensions`). Each session gets
+   * its own instances. Extension tools are added as given: role effect policies do not filter them.
+   */
+  readonly extensions?: NativeSessionExtensions;
 }
 
 export interface CreateAgentHarnessOptions<
@@ -1267,6 +1276,7 @@ function createNativeSessionBackend(
           : { sessionManager: NativeSessionManager.create(rest.cwd, options.sessionDir) }),
         ...(options.compaction === undefined ? {} : { compaction: options.compaction }),
         ...(options.retry === undefined ? {} : { retry: options.retry }),
+        ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
       });
       return {
         sessionId: result.sessionId,
