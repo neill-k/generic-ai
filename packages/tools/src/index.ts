@@ -32,6 +32,7 @@ export {
   getAgentCommandEnv,
 } from "./env.js";
 export { withFileMutationQueue } from "./file-mutation-queue.js";
+export { getShellConfig, killProcessTree, type ShellConfig } from "./shell.js";
 export {
   createFindTool,
   createFindToolDefinition,
