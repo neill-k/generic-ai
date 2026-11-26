@@ -37,7 +37,7 @@ Generic AI has a small number of layers. Dependency direction is strictly downwa
 4. **Presets** — `@generic-ai/preset-*`
 5. **Surface packages** — documented public user-facing packages such as `@generic-ai/observability` and future `@generic-ai/web-ui`
 6. **Examples** — `examples/*`
-7. **Apps** — `apps/*`, production applications such as `apps/generic-corp` (ADR 0050)
+7. **Apps** — `apps/*`, production applications such as `apps/generic-corp` (ADR 0046)
 
 The layering rules:
 
@@ -48,7 +48,7 @@ The layering rules:
 - Presets may depend on `@generic-ai/core`, `@generic-ai/sdk`, and any plugins they wire up. Presets are the normal package type that composes kernel and plugins together. Approved exception: `@generic-ai/core` may keep the mirrored starter bootstrap descriptor used by bare `createGenericAI()` calls, but that exception is limited to bootstrap metadata and must not introduce plugin or preset package imports into the kernel.
 - Surface packages may depend on `@generic-ai/sdk`, third-party UI/server libraries, and documented plugin packages through their public contracts. They must not import `@generic-ai/core` or `@generic-ai/preset-*`. Surface packages must keep their public entrypoints isolated so client/React imports do not pull server-only code and server imports do not pull React DOM.
 - Examples may depend on any public package they need to demonstrate framework usage. Examples must not be depended on by any package inside `packages/`.
-- Apps may depend on any public package, including the kernel and presets. Nothing under `packages/` or `examples/` may depend on an app. App concepts (for Generic Corp: CEO, org chart, board, company templates) stay in the app unless an ADR promotes a general form into the SDK or a plugin; see `docs/decisions/0050-generic-corp-app-on-generic-ai.md`.
+- Apps may depend on any public package, including the kernel and presets. Nothing under `packages/` or `examples/` may depend on an app. App concepts (for Generic Corp: CEO, org chart, board, company templates) stay in the app unless an ADR promotes a general form into the SDK or a plugin; see `docs/decisions/0046-generic-corp-app-on-generic-ai.md`.
 - Harness DSL and Generic Agent IR contracts belong in the SDK and specs. Runtime helpers in core may consume compiled harnesses, but loose DSL parsing and package-owned protocol/policy/grader semantics must not become kernel business logic.
 
 Anything outside these rules needs an entry in `docs/decisions/` explaining the trade-off.

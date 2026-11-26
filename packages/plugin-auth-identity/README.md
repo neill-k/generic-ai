@@ -63,9 +63,21 @@ scopes it does not hold.
 Cookie-authenticated requests that change state must come from the expected
 origin. Bearer requests are not subject to that check.
 
+## Sign-in rate limiting
+
+Failed setup-token and passkey attempts are counted per client (5 per 15
+minutes by default) and across all clients (50), and answered with `429` and
+`Retry-After` once over budget. A completed sign-in clears the client's count.
+At most 100 sign-in challenges may be open at once. The client key is the TCP
+peer address the starter's Node server attaches; pass `trustProxyHeaders: true`
+behind a proxy you control to use the last `X-Forwarded-For` hop, or supply
+`clientKey`. Pass `rateLimiter: false` to turn it off, or your own
+`createAuthRateLimiter(...)`. State is in process memory.
+
 ## Storage
 
 The plugin persists through `AuthKeyValueStore` (get, set, delete, list per
 collection). Adapters ship for memory (`createMemoryAuthStore`) and any SDK
-`StorageContract` (`createStorageContractAuthStore`). Keep the store outside
-any directory agents can write to.
+`StorageContract` (`createStorageContractAuthStore`), which covers
+`@generic-ai/plugin-storage-postgres` (`openPostgresStorage().storage`). Keep
+the store outside any directory agents can write to.

@@ -1,12 +1,10 @@
-# 0050: Generic Corp Is The Flagship App Built On Generic AI
+# 0046: Generic Corp Is The Flagship App Built On Generic AI
 
 - Status: accepted
 - Date: 2026-11-26
 - Supersedes: the "Core Product Decision" in
   [`docs/planning/01-scope-and-decisions.md`](../planning/01-scope-and-decisions.md)
   that Generic AI is "not a reimplementation of the full Generic Corp product".
-- Numbered 0050 to stay clear of records being added in parallel by other
-  workstreams.
 
 ## Context
 

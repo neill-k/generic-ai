@@ -16,7 +16,7 @@ export const GENERIC_CORP_DESCRIPTION =
  *
  * This is a scaffold: it reuses the starter preset's default plugin stack unchanged and only
  * gives the app its own identity. Product features (CEO, org chart, delegation cascade, board,
- * dashboard) arrive in later work. See docs/decisions/0050-generic-corp-app-on-generic-ai.md.
+ * dashboard) arrive in later work. See docs/decisions/0046-generic-corp-app-on-generic-ai.md.
  */
 export function createGenericCorpPreset(
   options: StarterHonoPresetOptions = {},

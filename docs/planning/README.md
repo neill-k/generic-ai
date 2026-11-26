@@ -6,7 +6,7 @@ research harness.
 Generic AI is the framework for building complex multi-agent systems that
 pursue a goal, without today's complexity. Generic Corp, in
 `apps/generic-corp`, is the flagship production app built on it
-([ADR 0050](../decisions/0050-generic-corp-app-on-generic-ai.md)). The
+([ADR 0046](../decisions/0046-generic-corp-app-on-generic-ai.md)). The
 composable agents-as-code research harness for specifying, running, tracing,
 evaluating, and comparing agentic system architectures stays as the framework's
 evaluation layer, with Architecture Lab as its validation demo.

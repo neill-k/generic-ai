@@ -7,7 +7,7 @@ the conversation, the org chart, the board, agent activity, costs and
 approvals. Agents do generic work, not only software work.
 
 The decision to build it here, and the product decisions behind it, are in
-[`docs/decisions/0050-generic-corp-app-on-generic-ai.md`](../../docs/decisions/0050-generic-corp-app-on-generic-ai.md).
+[`docs/decisions/0046-generic-corp-app-on-generic-ai.md`](../../docs/decisions/0046-generic-corp-app-on-generic-ai.md).
 
 ## Status
 

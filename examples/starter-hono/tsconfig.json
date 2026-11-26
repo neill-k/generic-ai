@@ -25,6 +25,7 @@
     { "path": "../../packages/plugin-hono" },
     { "path": "../../packages/plugin-auth-identity" },
     { "path": "../../packages/plugin-storage-sqlite" },
+    { "path": "../../packages/plugin-storage-postgres" },
     { "path": "../../packages/plugin-web-ui" }
   ]
 }

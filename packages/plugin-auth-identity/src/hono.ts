@@ -7,6 +7,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 
 import { renderOwnerAuthPage } from "./login-page.js";
 import { type OwnerAuth, OwnerAuthError } from "./owner-auth.js";
+import { type AuthRateLimiter, clientKeyFromRequest, createAuthRateLimiter } from "./rate-limit.js";
 
 const DEFAULT_ROUTE_PREFIX = "/auth";
 const DEFAULT_COOKIE_NAME = "gai_session";
@@ -30,6 +31,18 @@ export interface OwnerAuthHttpOptions {
   readonly afterLoginPath?: string;
   /** Page title shown on the login page. */
   readonly appName?: string;
+  /**
+   * Limiter for failed sign-in and setup attempts. Defaults to 5 failures per
+   * client and 50 overall per 15 minutes. Pass `false` to disable.
+   */
+  readonly rateLimiter?: AuthRateLimiter | false;
+  /** Derives the client key used for rate limiting. */
+  readonly clientKey?: (request: Request) => string;
+  /**
+   * Trust the last `X-Forwarded-For` entry for the default client key. Enable
+   * only behind a reverse proxy you control, such as Railway's edge.
+   */
+  readonly trustProxyHeaders?: boolean;
 }
 
 interface ResolvedHttpOptions {
@@ -237,8 +250,18 @@ export function requireOwnerAuth(
   };
 }
 
-function errorStatus(error: OwnerAuthError): 400 | 401 | 403 | 404 | 409 {
+const COUNTED_FAILURES = new Set<OwnerAuthError["code"]>([
+  "SETUP_TOKEN_INVALID",
+  "PASSKEY_UNKNOWN",
+  "PASSKEY_VERIFICATION_FAILED",
+  "CHALLENGE_INVALID",
+  "FORBIDDEN",
+]);
+
+function errorStatus(error: OwnerAuthError): 400 | 401 | 403 | 404 | 409 | 429 {
   switch (error.code) {
+    case "RATE_LIMITED":
+      return 429;
     case "SETUP_TOKEN_INVALID":
     case "PASSKEY_UNKNOWN":
     case "PASSKEY_VERIFICATION_FAILED":
@@ -334,6 +357,54 @@ export function createOwnerAuthRoutes(
     return { context } as const;
   };
 
+  const limiter =
+    options.rateLimiter === false ? undefined : (options.rateLimiter ?? createAuthRateLimiter());
+  const clientKey =
+    options.clientKey ??
+    ((request: Request) =>
+      clientKeyFromRequest(request, { trustProxyHeaders: options.trustProxyHeaders === true }));
+
+  /** Same-origin check plus the sign-in rate limit. */
+  const guardSignIn = (c: Context): Response | undefined => {
+    const blocked = requireSameOrigin(c);
+    if (blocked !== undefined) {
+      return blocked;
+    }
+    const decision = limiter?.check(clientKey(c.req.raw));
+    if (decision !== undefined && !decision.allowed) {
+      return jsonResponse(
+        429,
+        { error: "Too many failed sign-in attempts. Try again later.", code: "RATE_LIMITED" },
+        { "retry-after": String(decision.retryAfterSeconds) },
+      );
+    }
+    return undefined;
+  };
+
+  /**
+   * Runs a sign-in step, counting credential failures against the client.
+   * Only a completed sign-in (`resetOnSuccess`) clears the client's count.
+   */
+  const attempt = async <T>(
+    c: Context,
+    step: () => Promise<T>,
+    resetOnSuccess = false,
+  ): Promise<T> => {
+    const key = clientKey(c.req.raw);
+    try {
+      const result = await step();
+      if (resetOnSuccess) {
+        limiter?.recordSuccess(key);
+      }
+      return result;
+    } catch (error) {
+      if (error instanceof OwnerAuthError && COUNTED_FAILURES.has(error.code)) {
+        limiter?.recordFailure(key);
+      }
+      throw error;
+    }
+  };
+
   const requireSameOrigin = (c: Context): Response | undefined =>
     isSameOriginRequest(auth, c.req.raw)
       ? undefined
@@ -395,23 +466,25 @@ export function createOwnerAuthRoutes(
   });
 
   app.post(`${prefix}/passkeys/register/options`, async (c) => {
-    const blocked = requireSameOrigin(c);
+    const blocked = guardSignIn(c);
     if (blocked !== undefined) {
       return blocked;
     }
     const body = await readJson(c);
     const context = await authenticated(c.req.raw);
     const setupToken = readSetupToken(c, body);
-    const started = await auth.startPasskeyRegistration({
-      request: c.req.raw,
-      ...(context === undefined ? {} : { auth: context }),
-      ...(setupToken === undefined ? {} : { setupToken }),
-    });
+    const started = await attempt(c, () =>
+      auth.startPasskeyRegistration({
+        request: c.req.raw,
+        ...(context === undefined ? {} : { auth: context }),
+        ...(setupToken === undefined ? {} : { setupToken }),
+      }),
+    );
     return jsonResponse(200, started);
   });
 
   app.post(`${prefix}/passkeys/register/verify`, async (c) => {
-    const blocked = requireSameOrigin(c);
+    const blocked = guardSignIn(c);
     if (blocked !== undefined) {
       return blocked;
     }
@@ -419,16 +492,21 @@ export function createOwnerAuthRoutes(
     const context = await authenticated(c.req.raw);
     const setupToken = readSetupToken(c, body);
     const name = optionalString(body["name"]);
-    const result = await auth.finishPasskeyRegistration({
-      request: c.req.raw,
-      ...(context === undefined ? {} : { auth: context }),
-      ...(setupToken === undefined ? {} : { setupToken }),
-      challengeId: optionalString(body["challengeId"]) ?? "",
-      response: body["response"] as Parameters<
-        OwnerAuth["finishPasskeyRegistration"]
-      >[0]["response"],
-      ...(name === undefined ? {} : { name }),
-    });
+    const result = await attempt(
+      c,
+      () =>
+        auth.finishPasskeyRegistration({
+          request: c.req.raw,
+          ...(context === undefined ? {} : { auth: context }),
+          ...(setupToken === undefined ? {} : { setupToken }),
+          challengeId: optionalString(body["challengeId"]) ?? "",
+          response: body["response"] as Parameters<
+            OwnerAuth["finishPasskeyRegistration"]
+          >[0]["response"],
+          ...(name === undefined ? {} : { name }),
+        }),
+      true,
+    );
     issueSessionCookie(c, result.session.secret, result.session.expiresAt);
     return c.json({ passkey: result.passkey, expiresAt: result.session.expiresAt }, 200, {
       "cache-control": "no-store",
@@ -436,26 +514,34 @@ export function createOwnerAuthRoutes(
   });
 
   app.post(`${prefix}/passkeys/login/options`, async (c) => {
-    const blocked = requireSameOrigin(c);
+    const blocked = guardSignIn(c);
     if (blocked !== undefined) {
       return blocked;
     }
-    return jsonResponse(200, await auth.startPasskeyAuthentication({ request: c.req.raw }));
+    return jsonResponse(
+      200,
+      await attempt(c, () => auth.startPasskeyAuthentication({ request: c.req.raw })),
+    );
   });
 
   app.post(`${prefix}/passkeys/login/verify`, async (c) => {
-    const blocked = requireSameOrigin(c);
+    const blocked = guardSignIn(c);
     if (blocked !== undefined) {
       return blocked;
     }
     const body = await readJson(c);
-    const session = await auth.finishPasskeyAuthentication({
-      request: c.req.raw,
-      challengeId: optionalString(body["challengeId"]) ?? "",
-      response: body["response"] as Parameters<
-        OwnerAuth["finishPasskeyAuthentication"]
-      >[0]["response"],
-    });
+    const session = await attempt(
+      c,
+      () =>
+        auth.finishPasskeyAuthentication({
+          request: c.req.raw,
+          challengeId: optionalString(body["challengeId"]) ?? "",
+          response: body["response"] as Parameters<
+            OwnerAuth["finishPasskeyAuthentication"]
+          >[0]["response"],
+        }),
+      true,
+    );
     issueSessionCookie(c, session.secret, session.expiresAt);
     return c.json({ expiresAt: session.expiresAt }, 200, { "cache-control": "no-store" });
   });

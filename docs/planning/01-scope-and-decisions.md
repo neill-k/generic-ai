@@ -34,7 +34,7 @@ production app built on it, inside this monorepo at `apps/generic-corp`.
 This replaces the earlier stance that the harness was "not a reimplementation
 of the full Generic Corp product". The change and the owner's product
 decisions D1 to D6 are recorded in
-[ADR 0050](../decisions/0050-generic-corp-app-on-generic-ai.md):
+[ADR 0046](../decisions/0046-generic-corp-app-on-generic-ai.md):
 
 - D1: generic-ai is the framework, Generic Corp is an app on it.
 - D2: the app lives in this monorepo, so npm publishing is not a prerequisite.

@@ -12,7 +12,7 @@ org chart and results come back up, and a dashboard shows the conversation,
 the org chart, the board, costs and approvals. Generic Corp is the first
 consumer of every framework feature, so the framework is shaped by a real
 production app. The decision is recorded in
-[`ADR 0050`](docs/decisions/0050-generic-corp-app-on-generic-ai.md).
+[`ADR 0046`](docs/decisions/0046-generic-corp-app-on-generic-ai.md).
 
 ## Design Principles
 
@@ -253,7 +253,7 @@ Notes elsewhere in the repo are not planning source-of-truth material unless the
 ## Repository Layout
 
 - `packages/` — framework source. Holds `@generic-ai/core`, `@generic-ai/sdk`, every base plugin, and the starter preset. One directory per package.
-- `apps/` — production applications built on the framework. `apps/generic-corp/` is the Generic Corp app ([ADR 0050](docs/decisions/0050-generic-corp-app-on-generic-ai.md)).
+- `apps/` — production applications built on the framework. `apps/generic-corp/` is the Generic Corp app ([ADR 0046](docs/decisions/0046-generic-corp-app-on-generic-ai.md)).
 - `examples/` — runnable reference usage of the framework. `examples/starter-hono/` is the `TRN-03` reference example that exercises the full starter stack.
 - `contracts/` — frozen interface contracts produced by kernel and config work (KRN-01, CFG-01, and later).
 - `specs/` - specifications consumed by docs-as-code and contract-testing workflows, including Harness DSL v0.1.
