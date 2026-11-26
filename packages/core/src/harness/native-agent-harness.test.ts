@@ -222,6 +222,58 @@ describe("native harness adapter", () => {
     expect(journal.records()[0]?.status).toBe("completed");
   });
 
+  it("lets the model call runtime-neutral host tools", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const calls: unknown[] = [];
+    const seen: string[][] = [];
+    provider.setResponses([
+      (context) => {
+        seen.push(toolNames(context));
+        return fauxAssistantMessage(
+          [fauxToolCall("delegate_task", { tasks: [{ to: "analyst", task: "Count chairs" }] })],
+          { stopReason: "toolUse" },
+        );
+      },
+      () => stop("Handed off."),
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "native-host-tools",
+        adapter: "native",
+        model: "faux/root-model",
+        policyProfile: "local-dev-full",
+      },
+      { native: { resolveModel } },
+    );
+    const result = await harness.run({
+      instruction: "Get the chairs counted",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+      hostTools: [
+        {
+          name: "delegate_task",
+          description: "Hand work to another agent.",
+          parameters: {
+            type: "object",
+            properties: { tasks: { type: "array", items: { type: "object" } } },
+            required: ["tasks"],
+          },
+          effects: ["handoff.write"],
+          execute(params) {
+            calls.push(params);
+            return { text: "Recorded." };
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toBe("Handed off.");
+    expect(seen[0]).toContain("delegate_task");
+    expect(calls).toEqual([{ tasks: [{ to: "analyst", task: "Count chairs" }] }]);
+  });
+
   it("reports a failed run when the model stops as blocked", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
     const { provider, resolveModel } = fauxModels();
@@ -520,5 +572,49 @@ describe("native harness adapter", () => {
     expect(result.events.some((event) => event.name.endsWith("native.extensions_loaded"))).toBe(
       true,
     );
+  });
+
+  it("runs a primary agent declared as a builder role under its own policy", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const recordNote = withAgentHarnessToolEffects(
+      defineTool({
+        name: "record_note",
+        label: "Record Note",
+        description: "Record a build note.",
+        parameters: Type.Object({ note: Type.String() }),
+        async execute() {
+          return { content: [{ type: "text" as const, text: "noted" }], details: {} };
+        },
+      }),
+      ["fs.write"],
+    );
+    let tools: string[] = [];
+    provider.setResponses([
+      (context) => {
+        tools = toolNames(context);
+        return stop("Built it.");
+      },
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "persistent-agent",
+        adapter: "native",
+        model: "faux/builder-model",
+        primaryAgent: "engineer",
+        roles: [{ id: "engineer", kind: "builder", description: "A persistent engineer." }],
+      },
+      { native: { resolveModel } },
+    );
+    const result = await harness.run({
+      instruction: "Build",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+      capabilities: { customTools: [recordNote] },
+    });
+    expect(result.status).toBe("succeeded");
+    // A builder primary keeps its write tools and has nobody to delegate to.
+    expect(tools).toContain("record_note");
+    expect(tools).not.toContain("delegate_agent");
   });
 });

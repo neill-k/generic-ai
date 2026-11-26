@@ -26,6 +26,7 @@ import {
   type AgentHarnessRunErrorCategory,
   type AgentHarnessRunResult,
   type CanonicalEvent,
+  type AgentHarnessHostTool,
   createToolEffectGuard,
   getAgentHarnessToolEffects,
   goalTraceFromCanonicalEvents,
@@ -855,6 +856,52 @@ function applyProfilePolicy(
     ...(capabilities.messaging === undefined ? {} : { messaging: capabilities.messaging }),
     ...(capabilities.memory === undefined ? {} : { memory: capabilities.memory }),
     ...(capabilities.secrets === undefined ? {} : { secrets: capabilities.secrets }),
+  };
+}
+
+/**
+ * Turns runtime-neutral host tools (ADR 0060) into tools both the pi and native runtimes run, with
+ * their declared effects so role policy treats them like any other tool.
+ */
+export function toHarnessToolDefinition(tool: AgentHarnessHostTool): ToolDefinition {
+  return withAgentHarnessToolEffects(
+    defineTool({
+      name: tool.name,
+      label: tool.label ?? tool.name,
+      description: tool.description,
+      ...(tool.promptSnippet === undefined ? {} : { promptSnippet: tool.promptSnippet }),
+      ...(tool.promptGuidelines === undefined
+        ? {}
+        : { promptGuidelines: [...tool.promptGuidelines] }),
+      parameters: Type.Unsafe<Record<string, unknown>>(tool.parameters),
+      async execute(toolCallId, params, signal) {
+        const result = await tool.execute((params ?? {}) as JsonObject, {
+          toolCallId,
+          ...(signal === undefined ? {} : { signal }),
+        });
+        if (result.isError === true) {
+          throw new Error(result.text);
+        }
+        return {
+          content: [{ type: "text" as const, text: result.text }],
+          details: result.details ?? {},
+        };
+      },
+    }),
+    [...tool.effects],
+  ) as ToolDefinition;
+}
+
+function withHostTools(
+  capabilities: PiCapabilityBindings,
+  hostTools: readonly AgentHarnessHostTool[] | undefined,
+): PiCapabilityBindings {
+  if (hostTools === undefined || hostTools.length === 0) {
+    return capabilities;
+  }
+  return {
+    ...capabilities,
+    customTools: [...(capabilities.customTools ?? []), ...hostTools.map(toHarnessToolDefinition)],
   };
 }
 
@@ -1805,6 +1852,41 @@ export function createAgentHarness<TCapabilities = PiCapabilityBindings, TOutput
   });
 }
 
+export interface CreateAgentHarnessRunContextOptions {
+  readonly runId: string;
+  /** Directory for the run's artifacts. */
+  readonly artifactDir: string;
+  /** Actor recorded on default policy decisions. Defaults to `root`. */
+  readonly actorId?: string;
+  /** Policy evaluator. Defaults to the allow-all harness evaluator. */
+  readonly policy?: AgentHarnessPolicyEvaluator;
+  readonly signal?: AbortSignal;
+  readonly deadline?: Date;
+}
+
+/**
+ * Builds the run context `createAgentHarness().run()` uses (local artifact
+ * store, in-memory event sink, policy evaluator), for hosts that call an
+ * adapter directly, such as a durable task executor that passes each turn's
+ * abort signal through.
+ */
+export function createAgentHarnessRunContext(
+  options: CreateAgentHarnessRunContextOptions,
+): AgentHarnessAdapterRunContext {
+  return Object.freeze({
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.deadline === undefined ? {} : { deadline: options.deadline }),
+    events: createEventSink().sink,
+    artifacts: createLocalArtifactStore({
+      runId: options.runId,
+      artifactDir: resolve(options.artifactDir),
+    }),
+    policy:
+      options.policy ??
+      createPolicyEvaluator({ runId: options.runId, actorId: options.actorId ?? "root" }),
+  });
+}
+
 function createDefaultRunContext<TCapabilities>(
   input: AgentHarnessRunInput<TCapabilities>,
   options: { readonly policy?: AgentHarnessPolicyEvaluator } = {},
@@ -1943,8 +2025,11 @@ function createSessionAgentHarnessAdapter(
         ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
       });
       const roles = resolveRoles(input.harness);
-      const expandedCapabilities = await expandMcpCapabilityTools(
-        applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
+      const expandedCapabilities = withHostTools(
+        await expandMcpCapabilityTools(
+          applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
+        ),
+        input.hostTools,
       );
       const baseCapabilities =
         input.effectJournal === undefined
@@ -1974,42 +2059,53 @@ function createSessionAgentHarnessAdapter(
         actorId: rootAgentId,
         roleId: rootAgentId,
       };
+      const rootRole = roles.find((role) => role.id === rootAgentId);
+      // A primary agent declared as a non-root role (a persistent agent's single-role turn)
+      // works under its own role's policy; otherwise the primary is the coordinator.
+      const rootRolePolicy: AgentHarnessRolePolicy =
+        rootRole === undefined || rootRole.kind === "root"
+          ? "coordinator"
+          : policyForRole(rootRole, false);
+      const delegateRoles = roles.filter((role) => role.id !== rootAgentId);
       const rootPolicyResult = await applyRolePolicy({
         capabilities: {
           ...baseCapabilities,
           customTools: [
             ...(baseCapabilities.customTools ?? []),
-            createDelegateTool({
-              runId,
-              rootScopeId,
-              rootAgentId,
-              workspaceRoot: input.workspaceRoot,
-              instruction,
-              ...(turnMode === undefined ? {} : { turnMode }),
-              ...(maxTurns === undefined ? {} : { maxTurns }),
-              roles,
-              capabilities: baseCapabilities,
-              deniedEffects,
-              hookExecutor,
-              policy: context.policy,
-              ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
-              eventStream,
-              getRootSessionId: () => rootRuntimeSessionId,
-              recordPolicyDecisions: (decisions) => {
-                policyDecisions.push(...decisions);
-              },
-              backend,
-            }),
+            ...(delegateRoles.length === 0 && rootRolePolicy !== "coordinator"
+              ? []
+              : [
+                  createDelegateTool({
+                    runId,
+                    rootScopeId,
+                    rootAgentId,
+                    workspaceRoot: input.workspaceRoot,
+                    instruction,
+                    ...(turnMode === undefined ? {} : { turnMode }),
+                    ...(maxTurns === undefined ? {} : { maxTurns }),
+                    roles,
+                    capabilities: baseCapabilities,
+                    deniedEffects,
+                    hookExecutor,
+                    policy: context.policy,
+                    ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
+                    eventStream,
+                    getRootSessionId: () => rootRuntimeSessionId,
+                    recordPolicyDecisions: (decisions) => {
+                      policyDecisions.push(...decisions);
+                    },
+                    backend,
+                  }),
+                ]),
           ],
         },
-        rolePolicy: "coordinator",
+        rolePolicy: rootRolePolicy,
         runId,
         actorId: rootAgentId,
         deniedEffects,
         policy: context.policy,
       });
       policyDecisions.push(...rootPolicyResult.policyDecisions);
-      const rootRole = roles.find((role) => role.id === rootAgentId);
       const rootGrants = rootRole?.secrets ?? input.harness.secrets;
       const rootSecretsCapabilities = wrapCapabilitiesWithSecrets({
         capabilities: rootPolicyResult.capabilities,

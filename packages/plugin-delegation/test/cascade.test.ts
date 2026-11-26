@@ -1047,3 +1047,96 @@ describe("safe resume of interrupted turns", () => {
     expect(log.some((event) => event.data?.["fromCheckpoint"] === true)).toBe(true);
   });
 });
+
+describe("delegate_task and finish_task tools", () => {
+  async function call(
+    input: AgentTaskExecutionInput,
+    name: string,
+    params: Record<string, unknown>,
+  ): Promise<{ text: string; isError?: boolean }> {
+    const tool = input.tools?.find((candidate) => candidate.name === name);
+    if (tool === undefined) {
+      throw new Error(`no ${name} tool`);
+    }
+    return tool.execute(params as never, { toolCallId: `${name}-call` });
+  }
+
+  it("delegates through the tool and checks hand-offs during the turn", async () => {
+    const replies: Array<{ text: string; isError?: boolean }> = [];
+    const { executor, calls } = scriptedExecutor({});
+    const wrapped: AgentTaskExecutor = async (input) => {
+      const scripted = await executor(input);
+      if (input.agentId !== "ceo" || calls.filter((c) => c.agentId === "ceo").length > 1) {
+        return scripted;
+      }
+      replies.push(await call(input, "delegate_task", { tasks: [{ to: "nobody", task: "x" }] }));
+      replies.push(await call(input, "delegate_task", { tasks: [{ to: "analyst", task: "x" }] }));
+      replies.push(
+        await call(input, "delegate_task", {
+          tasks: [{ to: "vp-ops", task: "Book a venue", definitionOfDone: "A signed contract" }],
+        }),
+      );
+      // The prose reply is ignored once the tool recorded a delegation.
+      return { status: "succeeded", outputText: "Handed the venue to operations." };
+    };
+    const { cascade } = await openHarness(wrapped);
+    await cascade.submit({ agentId: "ceo", instruction: "Plan the offsite", taskId: "offsite" });
+    await cascade.drain();
+
+    expect(replies[0]?.isError).toBe(true);
+    expect(replies[0]?.text).toContain('no agent "nobody"');
+    expect(replies[1]?.isError).toBe(true);
+    expect(replies[1]?.text).toContain("does not report to you");
+    expect(replies[2]?.isError).toBeUndefined();
+    const root = await cascade.get("offsite");
+    expect(root?.status).toBe("succeeded");
+    expect(root?.childTaskIds).toEqual(["offsite.0.1"]);
+    const child = await cascade.get("offsite.0.1");
+    expect(child?.agentId).toBe("vp-ops");
+    expect(child?.goal?.definitionOfDone).toBe("A signed contract");
+    expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual(["delegate_task", "finish_task"]);
+    expect(calls[0]?.prompt).toContain("call the delegate_task tool");
+  });
+
+  it("offers only finish_task to agents with nobody to delegate to", async () => {
+    const { executor, calls } = scriptedExecutor({});
+    const wrapped: AgentTaskExecutor = async (input) => {
+      await executor(input);
+      await call(input, "finish_task", { reason: "The data source is gone." });
+      return { status: "succeeded", outputText: "Sorry." };
+    };
+    const { cascade } = await openHarness(wrapped);
+    await cascade.submit({ agentId: "analyst", instruction: "Pull data", taskId: "pull" });
+    await cascade.drain();
+
+    expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual(["finish_task"]);
+    const task = await cascade.get("pull");
+    expect(task?.status).toBe("failed");
+    expect(task?.failureMessage).toBe("The data source is gone.");
+  });
+
+  it("saves tool directives in the turn checkpoint", async () => {
+    let turns = 0;
+    const executor: AgentTaskExecutor = async (input) => {
+      if (input.agentId !== "ceo") {
+        return { status: "succeeded", outputText: "Venue booked." };
+      }
+      turns += 1;
+      if (turns === 1) {
+        await call(input, "delegate_task", { tasks: [{ to: "vp-ops", task: "Book a venue" }] });
+        return { status: "succeeded", outputText: "Delegated." };
+      }
+      return { status: "succeeded", outputText: "Offsite planned." };
+    };
+    const { cascade, runStore } = await openHarness(executor);
+    await cascade.submit({ agentId: "ceo", instruction: "Plan the offsite", taskId: "offsite" });
+    await cascade.drain();
+
+    const checkpoint = await runStore.getSession(turnCheckpointSessionId("offsite", 0));
+    expect((checkpoint?.state as { directives?: unknown } | undefined)?.directives).toEqual({
+      delegate_task: [{ to: "vp-ops", task: "Book a venue" }],
+    });
+    expect((await cascade.get("offsite"))?.status).toBe("succeeded");
+    expect(turns).toBe(2);
+  });
+});

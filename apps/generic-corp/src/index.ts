@@ -14,9 +14,9 @@ export const GENERIC_CORP_DESCRIPTION =
 /**
  * Composes the Generic Corp app on top of the starter preset.
  *
- * This is a scaffold: it reuses the starter preset's default plugin stack unchanged and only
- * gives the app its own identity. Product features (CEO, org chart, delegation cascade, board,
- * dashboard) arrive in later work. See docs/decisions/0046-generic-corp-app-on-generic-ai.md.
+ * The preset gives the app its identity on the starter plugin stack. The running app (company,
+ * agents, delegation cascade, chat, board, costs, API) is composed by `createGenericCorpServer`.
+ * See docs/decisions/0046-generic-corp-app-on-generic-ai.md.
  */
 export function createGenericCorpPreset(
   options: StarterHonoPresetOptions = {},
@@ -28,3 +28,13 @@ export function createGenericCorpPreset(
     description: options.description ?? GENERIC_CORP_DESCRIPTION,
   });
 }
+
+export * from "./api.js";
+export * from "./company.js";
+export * from "./costs.js";
+export * from "./events.js";
+export * from "./executor.js";
+export * from "./runtime.js";
+export * from "./server.js";
+export * from "./storage.js";
+export * from "./threads.js";
