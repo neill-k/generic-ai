@@ -783,7 +783,7 @@ npm run docs:check  # generate-docs.mjs --check
 | Workflow | Trigger | Jobs |
 |---|---|---|
 | `baseline-quality-gate.yml` | PR/push to main, merge_group | parallel `baseline-typecheck`, `baseline-lint`, `baseline-test`, `baseline-build` (Node 24, npm 11.12.1) |
-| `quality-gate.yml` | PR/push/main, dispatch | sequential typecheck → lint → test → build |
+| `quality-gate.yml` | PR/push to main when app or packages change, dispatch | `e2e` (Playwright golden flows, crash, load) |
 | `docs.yml` | PR/push/main, dispatch | `npm run docs:check` |
 | `dependency-audit.yml` | PR/push/main, weekly cron Mon 13:22 UTC | `npm run audit:prod`: production `npm audit` at moderate with a reviewed allowlist (`security/audit-allowlist.json`) |
 | `live-provider-smoke.yml` | manual | runs `live-smoke.test.ts` against pi openai-codex |

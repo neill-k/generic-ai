@@ -18,6 +18,14 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "apps/generic-corp/**"
+      - "packages/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".dockerignore"
+      - "railway.toml"
+      - ".github/workflows/generic-corp-image.yml"
   workflow_dispatch:
 
 permissions:

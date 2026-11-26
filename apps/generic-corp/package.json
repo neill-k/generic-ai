@@ -15,7 +15,8 @@
     "lint": "biome lint .",
     "prestart": "node ../../scripts/check-node-version.mjs",
     "start": "node dist/run.js",
-    "evals": "node dist/evals-cli.js"
+    "evals": "node dist/evals-cli.js",
+    "reliability": "bash scripts/reliability.sh"
   },
   "dependencies": {
     "@generic-ai/ai": "0.0.0",
