@@ -16,6 +16,15 @@ are refreshed, and the building blocks for OAuth sign-in.
   sessions); `pollOAuthDeviceCodeFlow` (RFC 8628); `trustedHttpUrl`.
 - **Providers.** `openRouterOAuth` / `createOpenRouterOAuth`: OpenRouter's PKCE flow for
   third-party apps, which mints a permanent API key.
+- **Subscription sign-ins**, ported from pi: `anthropicOAuth` (Claude Pro/Max, PKCE with a loopback
+  callback on port 53692 or a pasted code), `openaiCodexOAuth` (ChatGPT Plus/Pro through Codex, a
+  browser flow on port 1455 or a device code; `login(..., { agentName })` sets the `originator`) and
+  `githubCopilotOAuth` (GitHub device flow, then a short-lived Copilot token; GitHub Enterprise
+  domains are supported). Each `toAuth` returns what a request needs: Claude's access token as the
+  API key, Codex's access token plus the ChatGPT account id, and Copilot's token with its base URL
+  and editor headers (`getGitHubCopilotBaseUrl`, `GITHUB_COPILOT_HEADERS`). These reuse those
+  products' own OAuth clients, the same way pi does, so check each product's terms before using
+  them.
 
 ```ts
 import { createApiKeyResolver, FileCredentialStore, login, openRouterOAuth } from "@generic-ai/auth";

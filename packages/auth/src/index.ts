@@ -1,6 +1,7 @@
 export { AuthError, type AuthErrorCode } from "./errors.js";
 export { FileCredentialStore, type FileCredentialStoreOptions } from "./file-store.js";
 export { InMemoryCredentialStore } from "./memory-store.js";
+export { anthropicOAuth } from "./oauth/anthropic.js";
 export {
   type OAuthCallbackServer,
   type OAuthCallbackServerOptions,
@@ -13,6 +14,13 @@ export {
   type OAuthDeviceCodePollResult,
   pollOAuthDeviceCodeFlow,
 } from "./oauth/device-code.js";
+export {
+  GITHUB_COPILOT_HEADERS,
+  getGitHubCopilotBaseUrl,
+  githubCopilotOAuth,
+  isKnownGitHubCopilotModel,
+} from "./oauth/github-copilot.js";
+export { openaiCodexOAuth } from "./oauth/openai-codex.js";
 export {
   createOpenRouterOAuth,
   OAUTH_CALLBACK_HOST_ENV,
@@ -41,6 +49,7 @@ export type {
   Credential,
   CredentialInfo,
   CredentialStore,
+  LoginOptions,
   ModelAuth,
   OAuthCredential,
   OAuthCredentials,

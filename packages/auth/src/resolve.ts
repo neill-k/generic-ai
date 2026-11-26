@@ -6,6 +6,7 @@ import type {
   AuthInteraction,
   Credential,
   CredentialStore,
+  LoginOptions,
   ModelAuth,
   OAuthCredential,
   OAuthProvider,
@@ -198,12 +199,13 @@ export async function login(
   providerId: string,
   oauth: OAuthProvider,
   interaction: AuthInteraction,
+  options?: LoginOptions,
 ): Promise<OAuthCredential> {
   const signal = operationSignal(interaction.signal);
   signal.throwIfAborted();
   let credential: OAuthCredential;
   try {
-    credential = await oauth.login({ ...interaction, signal });
+    credential = await oauth.login({ ...interaction, signal }, options);
   } catch (error) {
     if (signal.aborted) {
       throw error;
