@@ -1,0 +1,36 @@
+{
+  "name": "@generic-ai/agent",
+  "version": "0.0.0",
+  "description": "Native agent loop for Generic AI: streaming turns, parallel or sequential tool execution with hooks, steering and follow-up queues, and an Agent state container.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "@generic-ai/ai": "0.0.0"
+  },
+  "devDependencies": {
+    "@sinclair/typebox": "0.34.49"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

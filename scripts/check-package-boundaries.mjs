@@ -5,10 +5,28 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packagesDir = path.join(repoRoot, "packages");
 
-const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+const dependencyFields = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+];
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".mts", ".cts"]);
 
+// The native runtime packages sit below the kernel: they own the model and agent loop and know
+// nothing about the framework around them.
+const runtimePackages = new Set(["@generic-ai/ai", "@generic-ai/agent"]);
+const runtimeRules = [
+  "@generic-ai/core",
+  "@generic-ai/sdk",
+  "@generic-ai/plugin-",
+  "@generic-ai/preset-",
+];
+
 function packageKind(packageName) {
+  if (runtimePackages.has(packageName)) {
+    return "runtime";
+  }
   if (packageName === "@generic-ai/core") {
     return "core";
   }
@@ -134,15 +152,17 @@ for (const workspacePackage of workspacePackages) {
   }
 
   const dependencyRules =
-    workspacePackage.kind === "core"
-      ? ["@generic-ai/plugin-", "@generic-ai/preset-"]
-      : workspacePackage.kind === "sdk"
-        ? ["@generic-ai/core", "@generic-ai/plugin-", "@generic-ai/preset-"]
-        : workspacePackage.kind === "plugin"
-          ? ["@generic-ai/core", "@generic-ai/preset-"]
-          : workspacePackage.kind === "surface"
+    workspacePackage.kind === "runtime"
+      ? runtimeRules
+      : workspacePackage.kind === "core"
+        ? ["@generic-ai/plugin-", "@generic-ai/preset-"]
+        : workspacePackage.kind === "sdk"
+          ? ["@generic-ai/core", "@generic-ai/plugin-", "@generic-ai/preset-"]
+          : workspacePackage.kind === "plugin"
             ? ["@generic-ai/core", "@generic-ai/preset-"]
-            : [];
+            : workspacePackage.kind === "surface"
+              ? ["@generic-ai/core", "@generic-ai/preset-"]
+              : [];
 
   for (const { field, dependencyName } of internalDeps) {
     if (
@@ -157,15 +177,17 @@ for (const workspacePackage of workspacePackages) {
   }
 
   const importRules =
-    workspacePackage.kind === "core"
-      ? ["@generic-ai/plugin-", "@generic-ai/preset-"]
-      : workspacePackage.kind === "sdk"
-        ? ["@generic-ai/core", "@generic-ai/plugin-", "@generic-ai/preset-"]
-        : workspacePackage.kind === "plugin"
-          ? ["@generic-ai/core", "@generic-ai/preset-"]
-          : workspacePackage.kind === "surface"
+    workspacePackage.kind === "runtime"
+      ? runtimeRules
+      : workspacePackage.kind === "core"
+        ? ["@generic-ai/plugin-", "@generic-ai/preset-"]
+        : workspacePackage.kind === "sdk"
+          ? ["@generic-ai/core", "@generic-ai/plugin-", "@generic-ai/preset-"]
+          : workspacePackage.kind === "plugin"
             ? ["@generic-ai/core", "@generic-ai/preset-"]
-            : [];
+            : workspacePackage.kind === "surface"
+              ? ["@generic-ai/core", "@generic-ai/preset-"]
+              : [];
 
   const sourceFiles = collectPackageSourceFiles(workspacePackage.directory);
   for (const sourceFile of sourceFiles) {

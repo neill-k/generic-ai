@@ -1,0 +1,136 @@
+import type { Api, Model, ProviderId } from "./types.js";
+
+/**
+ * Built-in model catalog and model references.
+ *
+ * A model reference is `"provider/model-id"` (for example `"anthropic/claude-opus-5-5"` or
+ * `"openrouter/qwen/qwen3-coder"`). Catalog entries carry prices and limits; an id that is not in
+ * the catalog still resolves for a known provider, using the provider's defaults, so new models work
+ * before the catalog learns about them. Config can override any field.
+ */
+
+interface ProviderDefaults {
+  readonly api: Api;
+  readonly baseUrl: string;
+}
+
+export const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
+  anthropic: { api: "anthropic-messages", baseUrl: "https://api.anthropic.com" },
+  openai: { api: "openai-responses", baseUrl: "https://api.openai.com/v1" },
+  openrouter: { api: "openai-completions", baseUrl: "https://openrouter.ai/api/v1" },
+  groq: { api: "openai-completions", baseUrl: "https://api.groq.com/openai/v1" },
+  xai: { api: "openai-completions", baseUrl: "https://api.x.ai/v1" },
+  deepseek: { api: "openai-completions", baseUrl: "https://api.deepseek.com/v1" },
+  mistral: { api: "openai-completions", baseUrl: "https://api.mistral.ai/v1" },
+  ollama: { api: "openai-completions", baseUrl: "http://localhost:11434/v1" },
+};
+
+function claude(id: string, name: string, input: number, output: number, cacheRead: number): Model {
+  return {
+    id,
+    name,
+    api: "anthropic-messages",
+    provider: "anthropic",
+    baseUrl: PROVIDER_DEFAULTS["anthropic"]?.baseUrl ?? "",
+    reasoning: true,
+    thinkingMode: "adaptive",
+    input: ["text", "image"],
+    // Cache writes (5 minute TTL) cost 1.25x input.
+    cost: { input, output, cacheRead, cacheWrite: input * 1.25 },
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+  };
+}
+
+/** Catalog snapshot (prices in USD per million tokens, Anthropic first-party rates as of 2026-11). */
+const CATALOG: Model[] = [
+  claude("claude-opus-5-5", "Claude Opus 5.5", 4, 20, 0.2),
+  claude("claude-sonnet-5-5", "Claude Sonnet 5.5", 2, 10, 0.1),
+  claude("claude-haiku-5-5", "Claude Haiku 5.5", 0.1, 0.5, 0.01),
+  claude("claude-fable-5-2", "Claude Fable 5.2", 8, 40, 0.2),
+  claude("claude-opus-5", "Claude Opus 5", 5, 25, 0.5),
+  claude("claude-sonnet-5", "Claude Sonnet 5", 2, 10, 0.2),
+  claude("claude-opus-4-8", "Claude Opus 4.8", 5, 25, 0.5),
+  claude("claude-sonnet-4-6", "Claude Sonnet 4.6", 3, 15, 0.3),
+  {
+    ...claude("claude-haiku-4-5", "Claude Haiku 4.5", 1, 5, 0.1),
+    thinkingMode: "budget",
+    contextWindow: 200_000,
+    maxTokens: 64_000,
+  },
+];
+
+const customModels = new Map<string, Model>();
+
+function key(provider: string, id: string): string {
+  return `${provider}/${id}`;
+}
+
+/** Add or replace a model in the catalog (for example from config). */
+export function registerModel(model: Model): void {
+  customModels.set(key(model.provider, model.id), model);
+}
+
+export function listModels(provider?: ProviderId): Model[] {
+  const all = new Map<string, Model>();
+  for (const model of CATALOG) {
+    all.set(key(model.provider, model.id), model);
+  }
+  for (const [modelKey, model] of customModels) {
+    all.set(modelKey, model);
+  }
+  return [...all.values()].filter((model) => provider === undefined || model.provider === provider);
+}
+
+/** Look up a catalog model. */
+export function getModel(provider: ProviderId, id: string): Model | undefined {
+  return (
+    customModels.get(key(provider, id)) ??
+    CATALOG.find((model) => model.provider === provider && model.id === id)
+  );
+}
+
+/** Split `"provider/model-id"`. The model id may itself contain slashes. */
+export function parseModelRef(ref: string): { provider: string; id: string } {
+  const separator = ref.indexOf("/");
+  if (separator <= 0 || separator === ref.length - 1) {
+    throw new Error(`Invalid model reference "${ref}": expected "provider/model-id".`);
+  }
+  return { provider: ref.slice(0, separator), id: ref.slice(separator + 1) };
+}
+
+export type ModelOverrides = Partial<Omit<Model, "provider" | "id">>;
+
+/**
+ * Resolve a model reference to a full model: the catalog entry if known, else provider defaults.
+ * `overrides` replace individual fields (base URL for a proxy, prices, limits, compat flags).
+ */
+export function resolveModel(
+  ref: string | { provider: string; id: string },
+  overrides: ModelOverrides = {},
+): Model {
+  const { provider, id } = typeof ref === "string" ? parseModelRef(ref) : ref;
+  const known = getModel(provider, id);
+  if (known) {
+    return { ...known, ...overrides };
+  }
+  const defaults = PROVIDER_DEFAULTS[provider];
+  if (!defaults && (overrides.api === undefined || overrides.baseUrl === undefined)) {
+    throw new Error(
+      `Unknown provider "${provider}" for model "${id}". Known providers: ${Object.keys(PROVIDER_DEFAULTS).join(", ")}; or pass api and baseUrl.`,
+    );
+  }
+  return {
+    id,
+    name: id,
+    api: defaults?.api ?? "openai-completions",
+    provider,
+    baseUrl: defaults?.baseUrl ?? "",
+    reasoning: provider === "anthropic" || provider === "openai",
+    input: ["text", "image"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 32_000,
+    ...overrides,
+  };
+}
