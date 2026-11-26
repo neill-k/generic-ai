@@ -82,7 +82,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/tools`
 
-- Role: the native coding tools (`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`) as `AgentTool`s, with output truncation, a per-file mutation queue, and pluggable operations for remote workspaces. Adapted from pi's coding agent under MIT.
+- Role: the native coding tools (`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`) as `AgentTool`s, with output truncation, a per-file mutation queue, and pluggable operations for remote workspaces. Adapted from pi's coding agent under MIT. Also offloading: `withOffload` saves long tool results to output files and returns a preview, and `tool_batch` runs several independent tool calls in one step (`docs/offloading.md`).
 - Allowed deps: `@generic-ai/ai`, `@generic-ai/agent`, and small third-party libraries (`diff`, `minimatch`, `cross-spawn`, `@sinclair/typebox`).
 - Not responsible for: effect metadata, policy, or capability binding (plugins and core add those).
 - Publishes as: `@generic-ai/tools` — public, independent versioning, `publishConfig.access: public`, provenance on.
