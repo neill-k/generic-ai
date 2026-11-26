@@ -27,7 +27,10 @@ export interface CompanyExecutorOptions {
   readonly artifactsRoot: string;
   /** Native runtime options: model resolution, API key, thinking level, stream override. */
   readonly native?: NativeAgentHarnessOptions;
-  /** Tools for a turn. Defaults to file and terminal tools rooted at the agent's home. */
+  /**
+   * Tools for a turn. Defaults to file and terminal tools rooted at the agent's home; the app
+   * server passes the full generic-work toolkit.
+   */
   readonly capabilities?: (input: AgentTaskExecutionInput) => PiCapabilityBindings;
   /** Policy evaluator for effects (approvals plug in here). */
   readonly policy?: (input: AgentTaskExecutionInput) => AgentHarnessPolicyEvaluator | undefined;
@@ -35,6 +38,8 @@ export interface CompanyExecutorOptions {
   readonly turnTimeoutMs?: number;
   /** Harness config shared by every agent; each turn adds the agent's role and model. */
   readonly harness?: Partial<AgentHarnessConfig>;
+  /** Secrets each agent may use as `{{secret:NAME}}`. */
+  readonly secretGrants?: (agentId: string) => readonly string[] | undefined;
 }
 
 /** Default tools for an agent turn: its home directory's files and a shell there. */
@@ -73,6 +78,10 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
     harness,
     capabilities,
     turnTimeoutMs: options.turnTimeoutMs ?? 20 * 60_000,
+    role: (input) => {
+      const secrets = options.secretGrants?.(input.agentId);
+      return secrets === undefined ? undefined : { secrets };
+    },
     context: (input) => {
       const policy = options.policy?.(input);
       return createAgentHarnessRunContext({

@@ -1,4 +1,6 @@
 import type { PersistentAgentSeed } from "@generic-ai/plugin-delegation";
+import { McpRegistryError, parseMcpPluginConfig } from "@generic-ai/plugin-mcp";
+import type { WebSearchProviderConfig } from "@generic-ai/plugin-tools-web";
 import { parse as parseYaml } from "yaml";
 
 /**
@@ -26,6 +28,29 @@ export interface CompanyAgentConfig {
   readonly roleKind?: string;
   /** Org tier. Derived from the reporting line when omitted. */
   readonly tier?: OrgTier;
+  /**
+   * Secrets this agent may use in tool calls as `{{secret:NAME}}`: exact names, `PREFIX_*`
+   * patterns, or `*`. Values never reach the model. Omit for none.
+   */
+  readonly secrets?: readonly string[];
+}
+
+/**
+ * Tools for generic work (D6), shared by every agent. Role policies decide who may call what,
+ * and outward actions (sending, external writes, payments) wait for the owner's approval.
+ */
+export interface CompanyToolsConfig {
+  /**
+   * The `web_search` backend. Keys go in `${NAME}` placeholders that resolve from the secrets
+   * vault, then the environment. When omitted, a `BRAVE_API_KEY` or `TAVILY_API_KEY` secret
+   * turns search on.
+   */
+  readonly webSearch?: WebSearchProviderConfig;
+  /**
+   * MCP servers and connectors (email, calendar, chat, documents, browser, payments), in the
+   * `@generic-ai/plugin-mcp` config shape.
+   */
+  readonly mcp?: Readonly<Record<string, unknown>>;
 }
 
 export interface CompanyConfig {
@@ -33,6 +58,7 @@ export interface CompanyConfig {
   readonly mission?: string;
   /** Default model per org tier. */
   readonly models?: Partial<Readonly<Record<OrgTier, string>>>;
+  readonly tools?: CompanyToolsConfig;
   readonly agents: readonly CompanyAgentConfig[];
 }
 
@@ -152,6 +178,70 @@ function readTier(value: string | undefined, where: string): OrgTier | undefined
   return value as OrgTier;
 }
 
+const SECRET_GRANT_PATTERN = /^(\*|[A-Za-z_][A-Za-z0-9_]*(_\*|\*)?)$/;
+
+function readSecretGrants(value: unknown, where: string): readonly string[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new CompanyConfigError(`${where} must be a list of secret names.`);
+  }
+  return value.map((entry) => {
+    if (typeof entry !== "string" || !SECRET_GRANT_PATTERN.test(entry.trim())) {
+      throw new CompanyConfigError(
+        `${where} entries must be secret names such as GITHUB_TOKEN, patterns such as SEARCH_*, or *.`,
+      );
+    }
+    return entry.trim();
+  });
+}
+
+const WEB_SEARCH_PROVIDERS: ReadonlySet<string> = new Set(["brave", "tavily", "searxng"]);
+
+function readTools(value: unknown): CompanyToolsConfig | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!isRecord(value)) {
+    throw new CompanyConfigError("company.tools must be an object.");
+  }
+  const webSearch = value["webSearch"];
+  if (webSearch !== undefined) {
+    if (!isRecord(webSearch) || !WEB_SEARCH_PROVIDERS.has(String(webSearch["provider"]))) {
+      throw new CompanyConfigError(
+        "company.tools.webSearch.provider must be brave, tavily or searxng.",
+      );
+    }
+    const required = webSearch["provider"] === "searxng" ? "baseUrl" : "apiKey";
+    if (typeof webSearch[required] !== "string" || webSearch[required].trim().length === 0) {
+      throw new CompanyConfigError(
+        `company.tools.webSearch.${required} is required for ${String(webSearch["provider"])}.`,
+      );
+    }
+  }
+  const mcp = value["mcp"];
+  if (mcp !== undefined) {
+    if (!isRecord(mcp)) {
+      throw new CompanyConfigError("company.tools.mcp must be an object with a servers list.");
+    }
+    try {
+      parseMcpPluginConfig(mcp);
+    } catch (error) {
+      if (error instanceof McpRegistryError) {
+        throw new CompanyConfigError(`company.tools.mcp: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+  return {
+    ...(webSearch === undefined
+      ? {}
+      : { webSearch: webSearch as unknown as WebSearchProviderConfig }),
+    ...(mcp === undefined ? {} : { mcp: mcp as Record<string, unknown> }),
+  };
+}
+
 /** Validates an untrusted company definition (for example parsed YAML). */
 export function parseCompanyConfig(input: unknown): CompanyConfig {
   if (!isRecord(input)) {
@@ -197,6 +287,7 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
     const model = optionalString(raw, "model", where);
     const roleKind = optionalString(raw, "roleKind", where);
     const tier = readTier(optionalString(raw, "tier", where), where);
+    const secrets = readSecretGrants(raw["secrets"], `${where}.secrets`);
     return {
       id,
       role,
@@ -206,13 +297,16 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
       ...(model === undefined ? {} : { model }),
       ...(roleKind === undefined ? {} : { roleKind }),
       ...(tier === undefined ? {} : { tier }),
+      ...(secrets === undefined ? {} : { secrets }),
     };
   });
+  const tools = readTools(input["tools"]);
 
   const company: CompanyConfig = {
     name,
     ...(mission === undefined ? {} : { mission }),
     ...(models === undefined ? {} : { models }),
+    ...(tools === undefined ? {} : { tools }),
     agents,
   };
   validateOrgChart(company);

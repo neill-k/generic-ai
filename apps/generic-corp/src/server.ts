@@ -12,7 +12,8 @@ import {
   type OwnerAuth,
   unauthorizedResponse,
 } from "@generic-ai/plugin-auth-identity";
-import { ALL_AUTH_SCOPES, type AgentTaskExecutor, type AuthContext } from "@generic-ai/sdk";
+import { createSecretsFromEnvironment, type SecretsBroker } from "@generic-ai/plugin-secrets";
+import { type AgentTaskExecutor, ALL_AUTH_SCOPES, type AuthContext } from "@generic-ai/sdk";
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
@@ -20,6 +21,7 @@ import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
+import { type CompanyToolkit, createCompanyToolkit } from "./toolkit.js";
 
 /**
  * Composes the Generic Corp server from the environment: storage (Postgres
@@ -178,6 +180,10 @@ export interface CreateGenericCorpServerOptions {
   readonly executor?: AgentTaskExecutor;
   readonly executorOptions?: Omit<CompanyExecutorOptions, "runStore" | "artifactsRoot">;
   readonly authStore?: AuthStore;
+  /** The secrets vault. Defaults to environment, files and the encrypted store in storage. */
+  readonly secrets?: SecretsBroker;
+  /** Replaces the generic-work toolkit, for tests. */
+  readonly toolkit?: CompanyToolkit;
   readonly log?: (message: string) => void;
 }
 
@@ -192,10 +198,23 @@ export async function createGenericCorpServer(
     sqlitePath: path.join(environment.dataDir, "company.sqlite"),
   });
 
+  let toolkit: CompanyToolkit | undefined;
   try {
+    const secrets =
+      options.secrets ??
+      createSecretsFromEnvironment({ env: options.env ?? process.env, storage: storage.kv });
+    for (const name of secrets.weakNames()) {
+      log(`Secret ${name} is too short to redact reliably. Use a longer value.`);
+    }
+    toolkit =
+      options.toolkit ??
+      createCompanyToolkit({ company, secrets, env: options.env ?? process.env });
+    const companyToolkit = toolkit;
     const executor =
       options.executor ??
       createCompanyTaskExecutor({
+        capabilities: (input) => companyToolkit.capabilities(input),
+        secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
         ...options.executorOptions,
         runStore: storage.runStore,
         artifactsRoot: path.join(environment.dataDir, "artifacts"),
@@ -264,6 +283,7 @@ export async function createGenericCorpServer(
     app.route(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
+        toolkit: companyToolkit,
         authenticate: async (request) => {
           if (ownerAuth === undefined) {
             return LOCAL_OWNER;
@@ -286,10 +306,12 @@ export async function createGenericCorpServer(
       ...(auth === undefined ? {} : { auth }),
       async stop() {
         await runtime.stop();
+        await companyToolkit.close();
         await storage.close();
       },
     };
   } catch (error) {
+    await toolkit?.close();
     await storage.close();
     throw error;
   }
