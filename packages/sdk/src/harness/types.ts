@@ -26,6 +26,7 @@ export const AGENT_HARNESS_CAPABILITY_EFFECTS = [
   "process.spawn",
   "network.egress",
   "mcp.read",
+  "mcp.write",
   "mcp.launch",
   "memory.read",
   "memory.write",

@@ -91,6 +91,12 @@ export interface PiCapabilityMcp {
     envOverrides?: Readonly<Record<string, string>>,
   ): PiCapabilityMcpLaunchDefinition;
   describeForPrompt(): string;
+  /**
+   * Tools the MCP servers expose, as harness tools carrying effect metadata. The agent harness
+   * resolves them once per run and adds them to `customTools`, so role effect policies, lifecycle
+   * hooks and every runtime adapter treat them like any other tool.
+   */
+  harnessTools?(): Promise<readonly PiRuntimeTool[]>;
 }
 
 export interface PiCapabilityAgentMessage {
@@ -836,9 +842,39 @@ function toErrorMessage(error: unknown): string {
   return String(error);
 }
 
-export async function resolveCapabilityPiToolRegistry(
+/**
+ * Resolve the MCP capability's server tools into `customTools`. The returned bindings keep the
+ * `mcp` registry view but drop `harnessTools`, so expanding twice never adds the tools twice.
+ */
+export async function expandMcpCapabilityTools(
   capabilities: PiCapabilityBindings,
+): Promise<PiCapabilityBindings> {
+  const mcp = capabilities.mcp;
+  if (mcp?.harnessTools === undefined) {
+    return capabilities;
+  }
+
+  const mcpTools = (await mcp.harnessTools()) as unknown as readonly ToolDefinition[];
+  const registryView: PiCapabilityMcp = {
+    list: () => mcp.list(),
+    get: (id) => mcp.get(id),
+    resolveLaunch: (id, envOverrides) => mcp.resolveLaunch(id, envOverrides),
+    describeForPrompt: () => mcp.describeForPrompt(),
+  };
+
+  return {
+    ...capabilities,
+    mcp: registryView,
+    ...(mcpTools.length === 0
+      ? {}
+      : { customTools: [...(capabilities.customTools ?? []), ...mcpTools] }),
+  };
+}
+
+export async function resolveCapabilityPiToolRegistry(
+  input: PiCapabilityBindings,
 ): Promise<PiCapabilityToolRegistry> {
+  const capabilities = await expandMcpCapabilityTools(input);
   const tools: PiRuntimeTool[] = [];
   const customTools: ToolDefinition[] = [];
 

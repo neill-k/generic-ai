@@ -258,6 +258,131 @@ describe("createAgentHarness", () => {
     );
   });
 
+  it("exposes MCP server tools to roles by effect: reads everywhere, writes only to builders", async () => {
+    const runMcpHarness = async (harnessOptions: {
+      readonly policyProfile?: "local-dev-full" | "benchmark-container";
+      readonly allowMcp?: boolean;
+    }) => {
+      const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-mcp-"));
+      const toolSets: string[][] = [];
+      let harnessToolCalls = 0;
+      let sessionIndex = 0;
+      const mcpTool = (name: string, effects: readonly ("mcp.read" | "mcp.write")[]) =>
+        withAgentHarnessToolEffects(
+          {
+            name,
+            label: name,
+            description: name,
+            parameters: { type: "object", properties: {} },
+            execute: async () => ({ content: [{ type: "text", text: name }], details: {} }),
+          },
+          [...effects],
+        );
+      const harness = createAgentHarness(
+        { id: "mcp-harness", adapter: "pi", model: "fake-model", ...harnessOptions },
+        {
+          sessionInputs: {
+            agentDir: root,
+            authStorage: {} as never,
+            modelRegistry: {} as never,
+            model: {} as never,
+            sessionManager: SessionManager.inMemory(),
+            settingsManager: SettingsManager.inMemory(),
+          },
+          factories: {
+            createAgentSession: async (options) => {
+              if (options === undefined) {
+                throw new Error("Expected createAgentSession options.");
+              }
+              const sessionId = `session-${++sessionIndex}`;
+              toolSets.push([...(options.tools ?? [])]);
+              return {
+                session: {
+                  sessionId,
+                  messages: [],
+                  subscribe: () => () => undefined,
+                  async prompt(prompt: string) {
+                    if (prompt.includes("root coordinator")) {
+                      const delegate = options.customTools?.find(
+                        (tool) => tool.name === "delegate_agent",
+                      );
+                      for (const roleId of ["planner", "builder", "verifier"]) {
+                        await delegate?.execute(
+                          `delegate-${roleId}`,
+                          { roleId, task: "use the MCP tools" },
+                          undefined,
+                          undefined,
+                          {} as never,
+                        );
+                      }
+                      await callStopTool(options, "root done");
+                    } else {
+                      await callStopTool(options, "role done");
+                    }
+                  },
+                },
+              } as never;
+            },
+          },
+        },
+      );
+
+      const result = await harness.run({
+        instruction: "Use MCP.",
+        workspaceRoot: root,
+        capabilities: {
+          mcp: {
+            list: () => [],
+            get: () => undefined,
+            resolveLaunch: () => ({ transport: "stdio" }),
+            describeForPrompt: () => "Available MCP servers:",
+            async harnessTools() {
+              harnessToolCalls += 1;
+              return [
+                mcpTool("mcp__docs__search", ["mcp.read"]),
+                mcpTool("mcp__docs__update", ["mcp.read", "mcp.write"]),
+              ];
+            },
+          },
+        },
+      });
+      return { result, toolSets, harnessToolCalls };
+    };
+
+    const local = await runMcpHarness({});
+    expect(local.result.status).toBe("succeeded");
+    expect(local.harnessToolCalls).toBe(1);
+    const [rootTools, plannerTools, builderTools, verifierTools] = local.toolSets;
+    for (const readOnlyRole of [rootTools, plannerTools, verifierTools]) {
+      expect(readOnlyRole).toContain("mcp__docs__search");
+      expect(readOnlyRole).not.toContain("mcp__docs__update");
+    }
+    expect(builderTools).toEqual(
+      expect.arrayContaining(["mcp__docs__search", "mcp__docs__update", "mcp_registry"]),
+    );
+    expect(local.result.policyDecisions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          actorId: "planner",
+          action: "bind_tool",
+          decision: "denied",
+          reason: expect.stringContaining("mcp.write"),
+        }),
+      ]),
+    );
+
+    const mcpDenied = await runMcpHarness({ allowMcp: false });
+    for (const tools of mcpDenied.toolSets) {
+      expect(tools.some((tool) => tool.startsWith("mcp__"))).toBe(false);
+    }
+
+    const benchmark = await runMcpHarness({ policyProfile: "benchmark-container" });
+    expect(benchmark.harnessToolCalls).toBe(0);
+    for (const tools of benchmark.toolSets) {
+      expect(tools.some((tool) => tool.startsWith("mcp__"))).toBe(false);
+    }
+  });
+
   it("honors a caller-provided policy evaluator during tool binding", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-policy-"));
     const toolSets: string[][] = [];
