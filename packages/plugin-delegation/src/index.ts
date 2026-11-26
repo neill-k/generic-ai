@@ -12,6 +12,7 @@ export type {
 
 export * from "./agents.js";
 export * from "./cascade.js";
+export * from "./effect-journal.js";
 export * from "./executor.js";
 export * from "./run-persistence.js";
 export * from "./tasks.js";

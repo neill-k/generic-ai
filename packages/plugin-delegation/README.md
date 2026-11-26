@@ -83,3 +83,16 @@ See `docs/decisions/0044-persistent-agents-and-delegation-cascade.md`.
 
 Boundaries: this package depends on `@generic-ai/sdk` only and must not import
 `@generic-ai/core`.
+
+## Safe resume
+
+Each turn gets a durable journal (`AgentTaskExecutionInput.effectJournal`) that
+`createAdapterTaskExecutor` hands to the harness. Tools with an outward effect
+(`message.send`, `external.write`, `payment.spend`) are journaled: if a worker
+dies and the turn runs again, finished calls return their recorded result, and a
+call that started but never reported back is refused with a message telling the
+agent to check first. The model's answer is also saved as soon as the turn
+succeeds, so a crash before the cascade acts on it does not call the model
+again. Goal validations are logged as `plugin.delegation.goal.validated` events
+for goal evals. See ADR 0059.
+

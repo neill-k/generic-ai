@@ -73,6 +73,7 @@ ADRs must be written when:
 - [`0053-usage-and-cost-accounting.md`](0053-usage-and-cost-accounting.md) - `usage.recorded` and `usage.budget.exceeded` events, per-run/agent/goal/model usage rollups led by tokens per completed goal, and token and dollar caps that stop runs at response boundaries.
 - [`0057-generic-work-toolkit.md`](0057-generic-work-toolkit.md) - outward capability effects (`message.send`, `external.write`, `payment.spend`), MCP `connector` kinds that classify email, calendar, chat, documents, payments and browser tools, and Brave, Tavily and SearXNG web search providers.
 - [`0058-goal-evals.md`](0058-goal-evals.md) - goal eval suites scored from run traces: NOVA's three checks, pass^k, tokens per completed goal, held-out validators and integrity findings, real topology runs in benchmarks, and a corrected pass^k estimator.
+- [`0059-safe-resume-of-interrupted-turns.md`](0059-safe-resume-of-interrupted-turns.md) - outward tool calls journaled per turn so a retried turn replays finished calls and refuses unrecorded ones, a checkpoint of the model's answer, and `goal.validated` events from the delegation cascade.
 
 ## Planning Baseline
 
