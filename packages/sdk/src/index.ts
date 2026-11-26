@@ -3,6 +3,7 @@ export const name = "@generic-ai/sdk";
 export * as config from "./config/index.js";
 export * from "./contracts/index.js";
 export * from "./events/index.js";
+export * from "./goals/index.js";
 export * from "./harness/index.js";
 export * from "./preset.js";
 export * from "./run-envelope/index.js";
@@ -20,6 +21,7 @@ export type {
 } from "./config/types.js";
 
 export * as contracts from "./contracts/index.js";
+export * as goals from "./goals/index.js";
 export * as helpers from "./helpers/index.js";
 export * as harness from "./harness/index.js";
 export * as scope from "./scope/index.js";

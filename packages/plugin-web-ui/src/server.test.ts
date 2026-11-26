@@ -202,6 +202,42 @@ describe("@generic-ai/plugin-web-ui server", () => {
     expect(second.value?.type).toBe("message.created");
   });
 
+  it("records the resolved actor on the user message, run.started, and the runner input", async () => {
+    const root = await seedWorkspace();
+    const seen: unknown[] = [];
+    const plugin = createWebUiPlugin({
+      workspaceRoot: root,
+      sessionToken: "test-token",
+      harnessRunner: ({ actor }) => {
+        seen.push(actor);
+        return { content: "ok" };
+      },
+    });
+    const actor = { subjectId: "owner", actorType: "human", credentialSource: "cookie" } as const;
+    const transport = createHonoWebUiTransport(plugin, {
+      security: { resolveActor: () => actor },
+    });
+
+    const posted = await transport.app.request(
+      localRequest("/console/api/chat/threads/who/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-generic-ai-web-ui-token": "test-token",
+        },
+        body: JSON.stringify({ content: "hello", actor: { subjectId: "spoofed" } }),
+      }),
+    );
+    expect(posted.status).toBe(200);
+    const detail = (await posted.json()) as {
+      messages: { role: string; actor?: unknown }[];
+      events: { type: string; data: { actor?: unknown } }[];
+    };
+    expect(seen).toEqual([actor]);
+    expect(detail.messages.find((message) => message.role === "user")?.actor).toEqual(actor);
+    expect(detail.events.find((event) => event.type === "run.started")?.data.actor).toEqual(actor);
+  });
+
   it("allocates unique event sequence IDs under concurrent thread activity", async () => {
     const root = await seedWorkspace();
     const plugin = createWebUiPlugin({

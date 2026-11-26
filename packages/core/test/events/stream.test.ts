@@ -77,4 +77,24 @@ describe("core canonical event stream", () => {
     stream.close();
     expect(stream.closed).toBe(true);
   });
+
+  it("stamps a configured actor on events that do not carry one", async () => {
+    const actor = {
+      subjectId: "owner",
+      actorType: "human" as const,
+      credentialSource: "cookie" as const,
+    };
+    const stream = createCanonicalEventStream({ actor });
+    const base = { runId: "run-1", scopeId: "scope", rootSessionId: "s", sessionId: "s" };
+    const stamped = await stream.emit({ ...base, name: "run.started" });
+    expect(stamped.actor).toEqual(actor);
+
+    const other = { ...actor, subjectId: "agent", actorType: "agent" as const };
+    const explicit = await stream.emit({ ...base, name: "run.completed", actor: other });
+    expect(explicit.actor).toEqual(other);
+
+    const plain = await createCanonicalEventStream().emit({ ...base, name: "run.started" });
+    expect(plain).not.toHaveProperty("actor");
+  });
 });
+
