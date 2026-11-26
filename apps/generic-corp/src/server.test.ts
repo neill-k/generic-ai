@@ -16,6 +16,7 @@ import {
   type ChatThreadView,
   type CompanyConfig,
   type CompanyCosts,
+  type CompanyToolkitDescription,
   createGenericCorpServer,
   type GenericCorpEnvironment,
   type GenericCorpServer,
@@ -191,6 +192,20 @@ describe("Generic Corp server", () => {
 
     const ready = await server.fetch(new Request("http://127.0.0.1/ready"));
     expect(ready.status).toBe(200);
+
+    // Every agent gets the generic-work toolkit.
+    const tools = await api<CompanyToolkitDescription>(server, "/api/tools");
+    const names = tools.body.tools.map((tool) => tool.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "bash",
+        "web_search",
+        "web_fetch",
+        "document_read",
+        "document_write",
+      ]),
+    );
+    expect(tools.body.connectors).toEqual([]);
   });
 
   it("runs an owner message through the delegation cascade and answers in the thread", async () => {

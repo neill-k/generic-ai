@@ -177,6 +177,43 @@ describe("createAdapterTaskExecutor", () => {
     expect(input?.actor?.subjectId).toBe("owner");
   });
 
+  it("adds per-agent role settings such as secret grants, keeping id, kind and model", async () => {
+    const seen: AgentHarnessRunInput[] = [];
+    const executor = createAdapterTaskExecutor({
+      adapter: createMockRuntimeAdapter({
+        run: async (input, runContext) => {
+          seen.push(input);
+          return createMockRuntimeAdapter().run(input, runContext);
+        },
+      }),
+      harness: { id: "company" },
+      context,
+      role: (input) =>
+        input.agentId === "researcher"
+          ? ({ secrets: ["BRAVE_*"], id: "spoofed", kind: "root" } as never)
+          : undefined,
+    });
+    const base = {
+      taskId: "t",
+      attemptRunId: "a",
+      rootTaskId: "t",
+      role: "r",
+      roleKind: "builder",
+      model: "anthropic/claude-sonnet",
+      prompt: "p",
+      workspaceRoot: "/w",
+    };
+    await executor({ ...base, agentId: "researcher" });
+    await executor({ ...base, agentId: "engineer" });
+    expect(seen[0]?.harness.roles?.[0]).toMatchObject({
+      id: "researcher",
+      kind: "builder",
+      model: "anthropic/claude-sonnet",
+      secrets: ["BRAVE_*"],
+    });
+    expect(seen[1]?.harness.roles?.[0]?.secrets).toBeUndefined();
+  });
+
   it("maps role kinds and routes executors per turn", async () => {
     expect(resolveAgentRoleKind("verifier")).toBe("verifier");
     expect(resolveAgentRoleKind("root")).toBe("builder");
