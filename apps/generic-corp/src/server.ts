@@ -28,15 +28,24 @@ import {
   type ApprovalServiceContract,
   type AuthContext,
   DEFAULT_APPROVAL_POLICY,
+  type GoalCheck,
+  type GoalJudge,
 } from "@generic-ai/sdk";
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
-import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
+import {
+  type CompanyConfig,
+  DEFAULT_COMPANY,
+  DEFAULT_TIER_MODELS,
+  parseCompanyYaml,
+} from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
+import { createCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
+import { DEFAULT_TEMPLATE, listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
 import { type CompanyToolkit, companySecretReferences, createCompanyToolkit } from "./toolkit.js";
 
 /**
@@ -49,6 +58,7 @@ export const ENV = Object.freeze({
   port: "PORT",
   dataDir: "GENERIC_CORP_DATA_DIR",
   companyFile: "GENERIC_CORP_COMPANY_FILE",
+  template: "GENERIC_CORP_TEMPLATE",
   databaseUrl: "DATABASE_URL",
   publicUrl: "GENERIC_AI_PUBLIC_URL",
   railwayDomain: "RAILWAY_PUBLIC_DOMAIN",
@@ -73,6 +83,8 @@ export interface GenericCorpEnvironment {
   readonly port: number;
   readonly dataDir: string;
   readonly companyFile?: string;
+  /** Company template to start from when there is no company file. */
+  readonly template?: string;
   readonly databaseUrl?: string;
   readonly publicOrigin?: string;
   readonly setupToken?: string;
@@ -141,12 +153,14 @@ export function loadGenericCorpEnvironment(env: NodeJS.ProcessEnv): GenericCorpE
     );
   }
   const companyFile = read(env, ENV.companyFile);
+  const template = read(env, ENV.template);
   const databaseUrl = read(env, ENV.databaseUrl);
   return {
     host,
     port,
     dataDir,
     ...(companyFile === undefined ? {} : { companyFile: path.resolve(companyFile) }),
+    ...(template === undefined ? {} : { template }),
     ...(databaseUrl === undefined ? {} : { databaseUrl }),
     ...(publicOrigin === undefined ? {} : { publicOrigin }),
     ...(setupToken === undefined ? {} : { setupToken }),
@@ -157,11 +171,20 @@ export function loadGenericCorpEnvironment(env: NodeJS.ProcessEnv): GenericCorpE
   };
 }
 
+/**
+ * The company to run: the company file when one is set, else the named template, else the
+ * default Generic Corp template.
+ */
 export async function loadCompany(environment: GenericCorpEnvironment): Promise<CompanyConfig> {
-  if (environment.companyFile === undefined) {
-    return DEFAULT_COMPANY;
+  if (environment.companyFile !== undefined) {
+    return parseCompanyYaml(await readFile(environment.companyFile, "utf8"));
   }
-  return parseCompanyYaml(await readFile(environment.companyFile, "utf8"));
+  if (environment.template !== undefined) {
+    return loadCompanyTemplate(environment.template);
+  }
+  return listCompanyTemplates().includes(DEFAULT_TEMPLATE)
+    ? loadCompanyTemplate(DEFAULT_TEMPLATE)
+    : DEFAULT_COMPANY;
 }
 
 /** The local owner used when auth is off on loopback. */
@@ -204,6 +227,14 @@ export interface CreateGenericCorpServerOptions {
   readonly secretsWritable?: boolean;
   /** Replaces the generic-work toolkit, for tests. */
   readonly toolkit?: CompanyToolkit;
+  /**
+   * Judges and checks for goals. Rubrics default to a model judge on the company's VP model;
+   * without a key for it, rubric checks report an error and the goal stays incomplete.
+   */
+  readonly goals?: {
+    readonly judges?: GoalJudge | Readonly<Record<string, GoalJudge>>;
+    readonly checks?: Readonly<Record<string, GoalCheck>>;
+  };
   readonly log?: (message: string) => void;
 }
 
@@ -252,14 +283,37 @@ export async function createGenericCorpServer(
         runStore: storage.runStore,
         artifactsRoot: path.join(environment.dataDir, "artifacts"),
       });
+    // A goal on the CEO's task is the company's goal: it is checked against the whole team's
+    // work and the deliverable the CEO names (see goals.ts).
+    let runtimeRef: CompanyRuntime | undefined;
+    const started = () => {
+      if (runtimeRef === undefined) {
+        throw new Error("The company is not running yet.");
+      }
+      return runtimeRef;
+    };
     const runtime = createCompanyRuntime({
       company,
       storage,
       agentsRoot: path.join(environment.dataDir, "agents"),
       executor,
-      cascade: { approvals },
+      cascade: {
+        approvals,
+        goals: {
+          judges:
+            options.goals?.judges ??
+            createModelJudge({ model: company.models?.vp ?? DEFAULT_TIER_MODELS.vp }),
+          ...(options.goals?.checks === undefined ? {} : { checks: options.goals.checks }),
+          evidence: createCompanyGoalEvidence({
+            runStore: storage.runStore,
+            cascade: () => started().cascade,
+            directory: () => started().directory,
+          }),
+        },
+      },
       log,
     });
+    runtimeRef = runtime;
     await runtime.initialize();
 
     let auth: OwnerAuth | undefined;

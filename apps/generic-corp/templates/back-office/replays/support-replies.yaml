@@ -1,0 +1,84 @@
+# Recorded turns for the support-replies case.
+judgments:
+  replies-quality:
+    summary: Each reply follows the policy and answers the question in a warm, plain voice.
+    criteria:
+      - { criterionId: policy, score: 1, rationale: "Refund for Ana, exchange for Ben, no shipping refund promised." }
+      - { criterionId: answers, score: 1, rationale: Each reply answers its customer's question. }
+      - { criterionId: tone, score: 0.9, rationale: Warm and short. }
+
+agents:
+  manager:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: head-support
+            task: >-
+              Draft replies to three customers, following the policy: refunds within 30 days,
+              exchanges within 60, never refund shipping. Do not send. Ana (12 days): lamp
+              arrived with a cracked base, wants her money back. Ben (45 days): jacket too small,
+              wants a refund. Chloe (5 days): order shows shipped a week ago, where is it?
+            definitionOfDone: Three drafts in a file, each following the policy, nothing sent.
+    - call: stop_and_respond
+      args: { response: Support is drafting the replies. }
+    - call: stop_and_respond
+      args:
+        response: |-
+          The three replies are drafted and waiting for you; nothing has been sent. Ana gets a
+          full refund for the cracked lamp. Ben is past the 30-day refund window, so he is
+          offered an exchange for a larger size. Chloe gets an apology and a promise of a
+          tracking update within a day.
+
+          ```json
+          {"deliverable": {"agent": "support-agent", "path": "workspace/replies.md"}, "drafts": 3}
+          ```
+
+  head-support:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: support-agent
+            task: >-
+              Draft replies in workspace/replies.md for Ana (12 days, cracked lamp base, wants a
+              refund), Ben (45 days, jacket too small, wants a refund) and Chloe (5 days, order
+              shows shipped a week ago). Policy: refunds within 30 days, exchanges within 60,
+              never refund shipping. Do not send.
+            definitionOfDone: Three drafts that follow the policy.
+    - call: stop_and_respond
+      args: { response: The support agent is drafting. }
+    - call: stop_and_respond
+      args:
+        response: >-
+          Reviewed support-agent:workspace/replies.md against the policy. Refund for Ana,
+          exchange for Ben, tracking follow-up for Chloe, no shipping refund promised.
+          Review: pass.
+
+  support-agent:
+    - call: write
+      args:
+        path: workspace/replies.md
+        content: |-
+          # Draft replies (not sent)
+
+          ## To Ana
+
+          Hi Ana, I'm sorry your lamp arrived with a cracked base. That's not how it should
+          reach you. Since you bought it 12 days ago, you're well within our 30-day refund
+          window, so we'll refund the full price of the lamp. You don't need to send it back.
+          The refund will reach your card within five working days.
+
+          ## To Ben
+
+          Hi Ben, thanks for letting us know the jacket is too small. It's been 45 days since
+          your order, which is past our 30-day refund window, but you're still within the
+          60 days for an exchange. Reply with the size you'd like and we'll send it as soon as
+          the jacket is back with us.
+
+          ## To Chloe
+
+          Hi Chloe, I'm sorry your order hasn't arrived yet. I've asked the courier where it
+          is and will send you an update with tracking details within one working day. If it
+          turns out to be lost, we'll send a replacement straight away.
+    - call: stop_and_respond
+      args:
+        response: Three drafts are in workspace/replies.md, following the policy. Nothing sent.

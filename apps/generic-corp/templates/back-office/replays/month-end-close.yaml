@@ -1,0 +1,139 @@
+# Recorded turns for the month-end-close case. The bookkeeper's script really runs in the
+# replay, so the totals the trace shows come from code, not from the recording.
+judgments:
+  note-quality:
+    summary: Clear totals, one well-explained flag, and the method is stated.
+    criteria:
+      - { criterionId: figures, score: 1, rationale: Total and every category total are shown. }
+      - { criterionId: flags, score: 1, rationale: The CloudCo duplicate is flagged with what to do. }
+      - { criterionId: method, score: 1, rationale: Names the script and how to rerun it. }
+
+agents:
+  manager:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: head-finance
+            task: >-
+              Close March's expenses from the eight transactions the owner sent: total, totals
+              by category, and flag anything that looks wrong. CloudCo bills once a month, on
+              the 4th. Transactions: 2 Mar Northwind Office Supply Office 184.20; 4 Mar CloudCo
+              Software 420.00; 9 Mar Rail Europe Travel 236.50; 11 Mar CloudCo Software 420.00;
+              15 Mar Cafe Lumen Meals 58.30; 18 Mar Hotel Brightwater Travel 612.00; 22 Mar
+              Northwind Office Supply Office 96.75; 27 Mar PrintHub Marketing 310.00.
+            definitionOfDone: Totals correct to the cent from a script, flags with reasons, a close note.
+    - call: stop_and_respond
+      args: { response: Finance is closing March. }
+    - call: stop_and_respond
+      args:
+        response: |-
+          March is closed. Expenses were EUR 2,337.75. Travel was the largest category at
+          EUR 848.50, then Software at EUR 840.00. One thing needs you: CloudCo charged us
+          twice, on the 4th and again on the 11th, so EUR 420.00 looks like a duplicate. I
+          suggest asking CloudCo for a refund.
+
+          ```json
+          {"deliverable": {"agent": "bookkeeper", "path": "workspace/march-close.md"}, "total": 2337.75, "byCategory": {"Office": 280.95, "Software": 840.0, "Travel": 848.5, "Meals": 58.3, "Marketing": 310.0}, "flagged": [{"vendor": "CloudCo", "date": "11 Mar", "amount": 420.0, "reason": "Second CloudCo charge in March; CloudCo bills once a month on the 4th."}]}
+          ```
+
+  head-finance:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: bookkeeper
+            task: >-
+              Put these eight March transactions in workspace/march-expenses.csv, write a script
+              that prints the total, the totals by category and any second charge from a vendor
+              that bills monthly (CloudCo, on the 4th), run it, and write workspace/march-close.md.
+              2 Mar Northwind Office Supply Office 184.20; 4 Mar CloudCo Software 420.00; 9 Mar
+              Rail Europe Travel 236.50; 11 Mar CloudCo Software 420.00; 15 Mar Cafe Lumen Meals
+              58.30; 18 Mar Hotel Brightwater Travel 612.00; 22 Mar Northwind Office Supply
+              Office 96.75; 27 Mar PrintHub Marketing 310.00.
+            definitionOfDone: The script's output and a close note with totals and flags.
+    - call: stop_and_respond
+      args: { response: The bookkeeper is running the numbers. }
+    - call: stop_and_respond
+      args:
+        response: >-
+          Checked the bookkeeper's close note at bookkeeper:workspace/march-close.md. The
+          category totals add up to the EUR 2,337.75 total. The second CloudCo charge on 11 Mar
+          is the only flag; the two Northwind orders differ in amount and are normal. Review: pass.
+
+  bookkeeper:
+    - call: write
+      args:
+        path: workspace/march-expenses.csv
+        content: |-
+          date,vendor,category,amount
+          2026-03-02,Northwind Office Supply,Office,184.20
+          2026-03-04,CloudCo,Software,420.00
+          2026-03-09,Rail Europe,Travel,236.50
+          2026-03-11,CloudCo,Software,420.00
+          2026-03-15,Cafe Lumen,Meals,58.30
+          2026-03-18,Hotel Brightwater,Travel,612.00
+          2026-03-22,Northwind Office Supply,Office,96.75
+          2026-03-27,PrintHub,Marketing,310.00
+    - call: write
+      args:
+        path: workspace/scripts/close-month.mjs
+        content: |-
+          // Usage: node workspace/scripts/close-month.mjs <expenses.csv> [monthly-vendor ...]
+          // Prints the total, totals by category and second charges from monthly vendors, as JSON.
+          import { readFileSync } from "node:fs";
+          const [file, ...monthly] = process.argv.slice(2);
+          const rows = readFileSync(file, "utf8").trim().split("\n").slice(1).map((line) => {
+            const [date, vendor, category, amount] = line.split(",");
+            return { date, vendor, category, cents: Math.round(Number(amount) * 100) };
+          });
+          const byCategory = {};
+          let total = 0;
+          for (const row of rows) {
+            total += row.cents;
+            byCategory[row.category] = (byCategory[row.category] ?? 0) + row.cents;
+          }
+          const seen = new Set();
+          const flagged = [];
+          for (const row of rows) {
+            if (!monthly.includes(row.vendor)) continue;
+            if (seen.has(row.vendor)) flagged.push({ vendor: row.vendor, date: row.date, amount: row.cents / 100 });
+            seen.add(row.vendor);
+          }
+          const euros = Object.fromEntries(Object.entries(byCategory).map(([k, v]) => [k, v / 100]));
+          console.log(JSON.stringify({ total: total / 100, byCategory: euros, flagged }));
+    - call: bash
+      args: { command: "node workspace/scripts/close-month.mjs workspace/march-expenses.csv CloudCo" }
+    - call: write
+      args:
+        path: workspace/march-close.md
+        content: |-
+          # March close
+
+          **Total: EUR 2,337.75** across eight transactions.
+
+          | Category | Total (EUR) |
+          | --- | --- |
+          | Travel | 848.50 |
+          | Software | 840.00 |
+          | Marketing | 310.00 |
+          | Office | 280.95 |
+          | Meals | 58.30 |
+
+          ## Flagged
+
+          - **CloudCo, 11 Mar, EUR 420.00.** CloudCo bills once a month, on the 4th, and was
+            already paid on 4 Mar. This looks like a duplicate charge. Ask CloudCo to refund it.
+
+          The two Northwind Office Supply orders (2 and 22 Mar) are different amounts and look
+          like normal separate orders.
+
+          ## Method
+
+          Totals come from `workspace/scripts/close-month.mjs`, run on
+          `workspace/march-expenses.csv`. Next month, save the new CSV and run
+          `node workspace/scripts/close-month.mjs <file> CloudCo`.
+    - call: stop_and_respond
+      args:
+        response: >-
+          Closed March. The script printed a total of 2337.75, Travel 848.5, Software 840,
+          Marketing 310, Office 280.95, Meals 58.3, and flagged the CloudCo charge on 11 Mar.
+          Note at workspace/march-close.md; script kept at workspace/scripts/close-month.mjs.

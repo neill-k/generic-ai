@@ -1,0 +1,191 @@
+# Generic Corp: the default company. A CEO, three VPs and one individual contributor under
+# each. Deliberately not software-only: research, operations and engineering all report to
+# the CEO. This is what runs when neither GENERIC_CORP_COMPANY_FILE nor GENERIC_CORP_TEMPLATE
+# is set.
+name: Generic Corp
+mission: We care deeply about our employees. Our employees pursue the owner's goals.
+
+models:
+  ceo: anthropic/claude-opus-5-5
+  vp: anthropic/claude-sonnet-5-5
+  ic: anthropic/claude-sonnet-5-5
+
+agents:
+  - id: ceo
+    role: ceo
+    title: Chief Executive Officer
+    instructions: >-
+      You run Generic Corp for its owner. Turn each request from the owner into a clear goal
+      with a definition of done, delegate the work to the VP who owns that area, review what
+      comes back, and answer the owner plainly. Do small things yourself. When the answer is a
+      document, end your reply with a fenced JSON block naming it, for example
+      {"deliverable": {"agent": "researcher", "path": "workspace/brief.md"}}, so the owner and
+      the goal checks can open it.
+
+  - id: vp-research
+    role: vp-research
+    title: VP of Research
+    reportsTo: ceo
+    instructions: >-
+      You own research: finding, reading and summarising information from the web and from
+      documents. Break work into tasks for your team and check their sources.
+
+  - id: vp-operations
+    role: vp-operations
+    title: VP of Operations
+    reportsTo: ceo
+    instructions: >-
+      You own operations: plans, schedules, correspondence drafts, spreadsheets and reports.
+      Anything that leaves the company waits for the owner's approval.
+
+  - id: vp-engineering
+    role: vp-engineering
+    title: VP of Engineering
+    reportsTo: ceo
+    instructions: >-
+      You own software work: code, scripts, automation and data processing. Prefer a script
+      that can be rerun over doing repetitive work by hand.
+
+  - id: researcher
+    role: researcher
+    title: Research Analyst
+    reportsTo: vp-research
+
+  - id: operations-associate
+    role: operations-associate
+    title: Operations Associate
+    reportsTo: vp-operations
+
+  - id: engineer
+    role: engineer
+    title: Software Engineer
+    reportsTo: vp-engineering
+
+goals:
+  - id: launch-plan
+    title: Launch plan
+    description: A dated, owned checklist for launching something new.
+    request: >-
+      We are launching a paid newsletter on the first Monday of next month. Put together a
+      launch plan: every task from now to launch day with a date and an owner, and what could
+      go wrong.
+    goal:
+      objective: A launch plan the owner can run from without asking follow-up questions.
+      definitionOfDone:
+        - The plan is a Markdown file with at least eight dated tasks, each with one owner.
+        - Tasks are in date order and end on launch day.
+        - It lists at least three risks, each with a fallback.
+      maxAttempts: 3
+      validators:
+        - id: plan-named
+          kind: output_schema
+          description: The final reply names the plan and how many tasks and risks it has.
+          schema:
+            type: object
+            required: [deliverable, tasks, risks]
+            properties:
+              deliverable:
+                type: object
+                required: [agent, path]
+                properties:
+                  agent: { type: string }
+                  path: { type: string, pattern: "\\.md$" }
+              tasks: { type: integer }
+              risks: { type: integer }
+        - id: enough-tasks
+          kind: numeric
+          description: At least eight tasks.
+          source: { outputPath: tasks }
+          operator: gte
+          value: 8
+        - id: enough-risks
+          kind: numeric
+          description: At least three risks.
+          source: { outputPath: risks }
+          operator: gte
+          value: 3
+        - id: plan-length
+          kind: numeric
+          description: The plan has real content, at least 15 non-blank lines.
+          source: { metric: deliverableLines }
+          operator: gte
+          value: 15
+        - id: plan-quality
+          kind: rubric
+          target: "artifact:deliverable"
+          passThreshold: 0.75
+          criteria:
+            - id: dated-and-owned
+              description: Every task has a date and exactly one owner.
+              required: true
+              weight: 2
+            - id: ordered
+              description: Tasks run in date order and end on launch day.
+            - id: risks
+              description: Each risk has a concrete fallback.
+            - id: runnable
+              description: Someone could run the launch from this plan alone.
+        - id: operations-did-it
+          kind: trace
+          description: The CEO handed the plan to operations, and operations wrote it.
+          require:
+            - { tool: delegate_task, role: ceo }
+            - { tool: write, role: operations-associate }
+
+  - id: tool-comparison
+    title: Tool comparison
+    description: A sourced comparison of options for a decision.
+    request: >-
+      Compare three project management tools for a team of five and recommend one. I care
+      about price, ease of use and whether it works offline.
+    goal:
+      objective: A sourced comparison that ends in one clear recommendation.
+      definitionOfDone:
+        - A Markdown file compares exactly three tools on price, ease of use and offline use.
+        - Each claim about a tool links to the page it came from.
+        - It ends with one recommendation and the reason for it.
+      maxAttempts: 3
+      validators:
+        - id: comparison-named
+          kind: output_schema
+          schema:
+            type: object
+            required: [deliverable, recommendation, toolsCompared]
+            properties:
+              deliverable:
+                type: object
+                required: [agent, path]
+              recommendation: { type: string, minLength: 1 }
+              toolsCompared: { type: integer }
+        - id: three-tools
+          kind: numeric
+          description: Exactly three tools are compared.
+          source: { outputPath: toolsCompared }
+          operator: eq
+          value: 3
+        - id: linked
+          kind: numeric
+          description: At least three distinct sources are linked.
+          source: { metric: deliverableLinks }
+          operator: gte
+          value: 3
+        - id: comparison-quality
+          kind: rubric
+          target: "artifact:deliverable"
+          passThreshold: 0.75
+          criteria:
+            - id: criteria-covered
+              description: Price, ease of use and offline use are covered for every tool.
+              required: true
+              weight: 2
+            - id: sourced
+              description: Claims link to the page they came from.
+              required: true
+            - id: recommendation
+              description: Ends with one recommendation and a reason tied to the owner's criteria.
+        - id: researched
+          kind: trace
+          description: The research team searched the web and opened the pages it cites.
+          require:
+            - { tool: web_search, role: researcher }
+            - { tool: web_fetch, role: researcher, minCount: 3 }

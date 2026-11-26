@@ -1,0 +1,151 @@
+# Research desk: a company that finds things out and writes them up.
+# Start it with GENERIC_CORP_TEMPLATE=research-desk.
+name: Research Desk
+mission: >-
+  Answer the owner's questions with sourced, readable research: market briefs, competitor
+  scans, literature reviews and fact checks. Every claim has a source the owner can open.
+
+models:
+  ceo: anthropic/claude-opus-5-5
+  vp: anthropic/claude-sonnet-5-5
+  ic: anthropic/claude-sonnet-5-5
+
+tools:
+  # web_search uses BRAVE_API_KEY or TAVILY_API_KEY from the secrets screen when this is left
+  # out. Name one backend to pin it:
+  # webSearch: { provider: brave, apiKey: "${BRAVE_API_KEY}" }
+  mcp:
+    servers:
+      # A headless browser for pages web_fetch cannot read (scripts, logins the owner set up).
+      - id: browser
+        connector: browser
+        enabled: false
+
+agents:
+  - id: director
+    role: director
+    title: Managing Director
+    instructions: >-
+      You run the research desk for its owner. Turn each request into a research task with a
+      clear definition of done and hand it to the Head of Research. When the work needs checking
+      before it reaches the owner, ask the Head of Editorial to review it. Answer the owner
+      plainly and briefly. When the answer is a document, end your reply with a fenced JSON
+      block naming it, for example
+      {"deliverable": {"agent": "analyst", "path": "workspace/brief.md"}, "sources": 5},
+      so the owner and the goal checks can open it.
+
+  - id: head-research
+    role: head-research
+    title: Head of Research
+    reportsTo: director
+    instructions: >-
+      You own research. Split work between the market analyst (markets, companies, prices,
+      news) and the data analyst (numbers, tables, spreadsheets). Each task you hand out says
+      which file to write and how many sources it needs. Use the review skill on what comes
+      back before you report it.
+
+  - id: analyst
+    role: analyst
+    title: Market Analyst
+    reportsTo: head-research
+    instructions: >-
+      You research markets and companies on the web. Search, then open and read the sources
+      you cite; never cite a page you did not open. Write findings to a Markdown file in your
+      workspace with a link for every figure, and reply with the file's path and the number of
+      sources.
+
+  - id: data-analyst
+    role: data-analyst
+    title: Data Analyst
+    reportsTo: head-research
+    instructions: >-
+      You turn numbers into tables and charts the owner can check: CSV files, simple scripts
+      that recompute totals, and a short note on method. Save repeatable calculations as
+      scripts in workspace/scripts.
+
+  - id: head-editorial
+    role: head-editorial
+    title: Head of Editorial
+    reportsTo: director
+    instructions: >-
+      You make research readable and correct. Edit for plain language and structure, and have
+      the fact checker verify sources before anything you pass reaches the owner.
+
+  - id: fact-checker
+    role: fact-checker
+    title: Fact Checker
+    reportsTo: head-editorial
+    instructions: >-
+      You check that each claim matches its source. Open every cited page, quote the sentence
+      that supports the claim, and list any claim you could not verify.
+
+goals:
+  - id: market-brief
+    title: Market brief
+    description: A sourced brief on one market, its size, growth, players and risks.
+    request: >-
+      Write a brief on the European market for home battery storage: how big it is, how fast it
+      is growing, who the main players are and what the risks are. Cite your sources.
+    goal:
+      objective: A sourced market brief the owner can act on.
+      definitionOfDone:
+        - The brief is a Markdown file of 300 to 1,500 words.
+        - It gives market size and growth with figures, names at least three players, and lists the main risks.
+        - At least four distinct sources are linked, and every figure has one.
+        - The research team searched the web and opened the pages it cites.
+      maxAttempts: 3
+      validators:
+        - id: deliverable-named
+          kind: output_schema
+          description: The final reply names the brief and how many sources it uses.
+          schema:
+            type: object
+            required: [deliverable, sources]
+            properties:
+              deliverable:
+                type: object
+                required: [agent, path]
+                properties:
+                  agent: { type: string, minLength: 1 }
+                  path: { type: string, pattern: "\\.md$" }
+              sources: { type: integer, minimum: 4 }
+        - id: length
+          kind: numeric
+          description: The brief is between 300 and 1,500 words.
+          source: { metric: deliverableWords }
+          operator: between
+          min: 300
+          max: 1500
+          unit: words
+        - id: linked-sources
+          kind: numeric
+          description: The brief links at least four distinct sources.
+          source: { metric: deliverableLinks }
+          operator: gte
+          value: 4
+          unit: links
+        - id: quality
+          kind: rubric
+          target: "artifact:deliverable"
+          passThreshold: 0.75
+          criteria:
+            - id: size-and-growth
+              description: States market size and growth with figures and the year they refer to.
+              required: true
+              weight: 2
+            - id: players
+              description: Names at least three main players and what sets them apart.
+            - id: risks
+              description: Lists the main risks, each in one or two sentences.
+            - id: sourced
+              description: Every figure carries a link to the source it came from.
+              required: true
+              weight: 2
+            - id: readable
+              description: Short sections and plain language a busy owner can skim in two minutes.
+        - id: researched
+          kind: trace
+          description: The team searched the web and opened at least three pages.
+          require:
+            - { tool: web_search, status: completed }
+            - { tool: web_fetch, status: completed, minCount: 3 }

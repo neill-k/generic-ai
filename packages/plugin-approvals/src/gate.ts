@@ -424,20 +424,45 @@ export function createApprovalGate(options: CreateApprovalGateOptions): Approval
   });
 }
 
-/** Keeps the MCP capability's other methods bound to the original object. */
+/**
+ * Keeps the MCP capability's other methods bound to the original object. The proxy's target is
+ * an empty shim, not the capability itself: plugin-mcp freezes its capability, and a proxy over
+ * a frozen object may not return a different `harnessTools` than the one it holds.
+ */
 function bindMcp<TMcp extends object>(
   mcp: TMcp,
   harnessTools: () => Promise<readonly unknown[]>,
 ): TMcp {
-  return new Proxy(mcp, {
-    get(target, property, receiver) {
-      if (property === "harnessTools") {
-        return harnessTools;
-      }
-      const value = Reflect.get(target, property, receiver);
-      return typeof value === "function" ? value.bind(target) : value;
+  const HARNESS_TOOLS = "harnessTools";
+  return new Proxy(
+    {},
+    {
+      get(_shim, property) {
+        if (property === HARNESS_TOOLS) {
+          return harnessTools;
+        }
+        const value = Reflect.get(mcp, property);
+        return typeof value === "function" ? value.bind(mcp) : value;
+      },
+      has(_shim, property) {
+        return property === HARNESS_TOOLS || Reflect.has(mcp, property);
+      },
+      ownKeys() {
+        const keys = Reflect.ownKeys(mcp);
+        return keys.includes(HARNESS_TOOLS) ? keys : [...keys, HARNESS_TOOLS];
+      },
+      getOwnPropertyDescriptor(_shim, property) {
+        if (property === HARNESS_TOOLS) {
+          return { value: harnessTools, writable: false, enumerable: true, configurable: true };
+        }
+        const descriptor = Reflect.getOwnPropertyDescriptor(mcp, property);
+        return descriptor === undefined ? undefined : { ...descriptor, configurable: true };
+      },
+      getPrototypeOf() {
+        return Reflect.getPrototypeOf(mcp);
+      },
     },
-  });
+  ) as TMcp;
 }
 
 /** The requester for one turn of a delegated task. */
