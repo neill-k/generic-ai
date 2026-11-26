@@ -13,15 +13,25 @@ without rediscovering where identity belongs.
 
 ## Current posture
 
-- The kernel has no user, tenant, role, session-cookie, token, or provider
-  concept. It owns scope/session orchestration only.
-- `@generic-ai/plugin-hono` owns the current HTTP transport routes and can carry
-  request metadata into run handlers, but it does not authenticate requests.
-- `@generic-ai/preset-starter-hono` includes Hono by default and exposes
-  programmatic composition slots, but it does not yet expose an auth slot.
-- The starter example is suitable for local development and now protects
-  accidental remote exposure, but hosted deployments still need an explicit
-  operator-owned auth layer before exposing run routes.
+The first slice shipped for single-owner hosted deployments (roadmap R10, ADR
+`docs/decisions/0045-owner-auth-identity.md`):
+
+- `@generic-ai/sdk` exports `AuthSubject`, `AuthContext`, the redaction-safe
+  `RunActor`, scope helpers, and the baseline scopes `runs:execute`,
+  `runs:read`, and `tokens:manage`.
+- `@generic-ai/core` stays identity-agnostic. `bootstrap.run(task, { actor })`
+  and `bootstrap.stream(task, { actor })` copy a `RunActor` onto the run
+  envelope, the bootstrap run events, and the task context.
+- `@generic-ai/plugin-hono` has an `authenticate` hook that runs before the
+  body is read and hands the normalized `AuthContext` to run handlers.
+- `@generic-ai/plugin-auth-identity` provides passkey owner login, revocable
+  hashed API tokens, cookie sessions, a self-contained `/auth/login` page, and
+  Hono adapters (`createOwnerAuthenticate`, `requireOwnerAuth`,
+  `createOwnerAuthRoutes`).
+- The starter example turns owner auth on when `GENERIC_AI_PUBLIC_URL`,
+  `RAILWAY_PUBLIC_DOMAIN`, `GENERIC_AI_OWNER_SETUP_TOKEN`,
+  `GENERIC_AI_AUTH_TOKEN`, or `GENERIC_AI_OWNER_AUTH=1` is set. Loopback
+  development without any of these stays unauthenticated, as before.
 
 ## Boundary decision
 
@@ -31,7 +41,7 @@ contracts, not a kernel responsibility.
 - `@generic-ai/sdk` should eventually define the stable identity contract:
   authenticated subject, optional actor type, claims, scopes, credential source,
   auth strength, expiration, and redaction-safe audit metadata.
-- `@generic-ai/plugin-auth-identity` should own identity-provider integration,
+- `@generic-ai/plugin-auth-identity` owns identity-provider integration,
   token/session validation, principal normalization, auth context propagation,
   and auth-related event/audit payloads.
 - `@generic-ai/plugin-hono` should remain transport-owned. It may expose adapter
@@ -143,7 +153,11 @@ Expected integration points:
 
 ## Resume order
 
-When the deferred track is resumed, split it into these slices:
+Slices 1, 2, and the owner-auth part of 5 shipped with ADR 0045. Slice 3 is
+covered by the starter example's environment wiring rather than a preset slot,
+and slice 4 covers run envelopes and bootstrap run events so far. Remaining
+work: an OIDC adapter, login rate limiting, session rotation, and threading the
+actor through web console harness runs and the durable run store.
 
 1. **SDK and ADR foundation**
    - Add the auth contracts to `@generic-ai/sdk`.

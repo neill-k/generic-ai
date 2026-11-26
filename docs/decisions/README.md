@@ -63,6 +63,9 @@ ADRs must be written when:
 - [`0038-tool-overuse-budget-evaluator.md`](0038-tool-overuse-budget-evaluator.md) - optional SDK tool-use discipline profiles and report summaries for benchmark harnesses.
 - [`0039-contextual-integrity-privacy-harness.md`](0039-contextual-integrity-privacy-harness.md) - optional SDK contextual-integrity privacy profiles and report summaries for workspace-agent benchmarks.
 - [`0041-structured-tool-error-recovery.md`](0041-structured-tool-error-recovery.md) - SDK structured tool-error envelopes, timeout budgets, and report summaries for recovery evidence.
+- [`0042-protocol-topology-runner.md`](0042-protocol-topology-runner.md) - stateful SDK protocol reducers plus the core topology runner that executes pipeline, verifier-loop, hierarchy, and squad harnesses.
+- [`0043-durable-run-store-and-queue.md`](0043-durable-run-store-and-queue.md) - SDK run store and durable queue contracts, queue worker, conformance suites, and the Postgres and SQLite backends.
+- [`0045-owner-auth-identity.md`](0045-owner-auth-identity.md) - single-owner auth: SDK identity contracts and run actor, Hono `authenticate` hook, passkey owner login, and revocable hashed API tokens.
 - [`0050-generic-corp-app-on-generic-ai.md`](0050-generic-corp-app-on-generic-ai.md) - Generic AI is the framework and Generic Corp is the flagship app in `apps/generic-corp`; records product decisions D1 to D6 and the NOVA framing.
 
 ## Planning Baseline

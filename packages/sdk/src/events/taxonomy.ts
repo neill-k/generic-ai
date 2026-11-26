@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { RunActor } from "../contracts/identity.js";
 
 export const canonicalEventFamilies = [
   "run",
@@ -128,6 +129,8 @@ export interface CanonicalEventContext {
   readonly sessionId: string;
   readonly parentSessionId?: string;
   readonly delegationId?: string;
+  /** Redaction-safe identity of whoever started the run, when known. */
+  readonly actor?: RunActor;
 }
 
 export type CanonicalEventData = Readonly<Record<string, unknown>>;
@@ -249,6 +252,7 @@ export function createCanonicalEvent<
     sessionId: input.sessionId,
     parentSessionId: input.parentSessionId,
     delegationId: input.delegationId,
+    ...(input.actor === undefined ? {} : { actor: input.actor }),
     origin,
     data,
   }) as CanonicalEvent<TName, TData>;

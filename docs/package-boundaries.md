@@ -57,7 +57,7 @@ Anything outside these rules needs an entry in `docs/decisions/` explaining the 
 
 Every directory under `packages/*` is a **public** package, published to npm under the `@generic-ai/` scope. Every directory under `examples/*` and `apps/*`, and the repo root itself, are **internal**, never published. Decision record: `docs/decisions/0003-release-and-publishing.md`. Playbook: `RELEASING.md`.
 
-- **Public (26 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
+- **Public (27 packages under `packages/*`).** Each carries `"private": false` plus `"publishConfig": { "access": "public", "provenance": true }` so the scoped package publishes publicly and requests an npm provenance attestation when published from a trusted CI environment. Versioning is independent per package via changesets.
 - **Internal / never published.** The root `@generic-ai/monorepo` is `"private": true`. `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is `"private": true` and additionally listed in `.changeset/config.json`'s `ignore` array. `contracts/` and `specs/` are top-level directories, not workspaces, and are not part of the npm publish surface. `apps/generic-corp/` (`@generic-ai/app-generic-corp`) is `"private": true` and listed in the same `ignore` array. Any new workspace under `examples/*` or `apps/*` inherits this private-by-default rule.
 
 The per-package "Publishes as" field in each row below records this classification explicitly so contributors adding a new package have a template to copy.
@@ -133,9 +133,15 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/plugin-storage-sqlite`
 
-- Role: durable SQLite-backed storage implementation. Default local persistence path for the starter preset.
+- Role: durable SQLite-backed storage implementation. Default local persistence path for the starter preset. Also ships `SqliteRunStore` (`RunStoreContract`) and `SqliteQueue` (`DurableQueueContract`) for local and single-node durable runs.
 - Allowed deps: `@generic-ai/sdk`, `pi`, SQLite library of choice.
 - Not responsible for: non-SQLite backends or messaging and memory data shapes (those belong to their own plugins).
+
+### `@generic-ai/plugin-storage-postgres`
+
+- Role: production storage on Postgres. Provides key-value `StorageContract`, the `RunStoreContract` (runs, sessions, canonical event logs), a `DurableQueueContract` job queue, versioned schema migrations, and a readiness health check.
+- Allowed deps: `@generic-ai/sdk`, `pg`.
+- Not responsible for: choosing what to persist (core and app code decide that), worker scheduling (`createQueueWorker` in the SDK), or messaging and memory data shapes.
 
 ### `@generic-ai/plugin-queue-memory`
 
@@ -239,6 +245,14 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: official-but-optional Hono integration plugin.
 - Allowed deps: `@generic-ai/sdk`, `pi`, `hono`.
 - Not responsible for: being part of the kernel or making Hono mandatory at the core layer.
+- Notes: exposes `authorize` (allow/deny) and `authenticate` (allow with a normalized SDK `AuthContext`) hooks that run before the request body is read. It does not implement any credential scheme itself.
+
+### `@generic-ai/plugin-auth-identity`
+
+- Role: single-owner auth and identity plugin. Owns passkey (WebAuthn) owner login, revocable hashed API tokens, cookie sessions, the `/auth` HTTP surface and login page, and adapters that turn requests into an SDK `AuthContext`.
+- Allowed deps: `@generic-ai/sdk`, `hono`, `@simplewebauthn/server`. `@generic-ai/plugin-hono` only as a dev dependency for tests; the transport adapter is structurally typed.
+- Not responsible for: tenants, signup, roles beyond scopes, billing, or provider-specific OIDC (a later adapter). Persistence goes through its small `AuthKeyValueStore` port; it does not pick a database.
+- Notes: see `docs/identity-auth.md` and `docs/decisions/0045-owner-auth-identity.md`.
 
 ### `@generic-ai/plugin-web-ui`
 
