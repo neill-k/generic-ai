@@ -20,7 +20,28 @@ export const OUTWARD_TOOL_EFFECTS: readonly AgentHarnessCapabilityEffect[] = Obj
 
 const OUTWARD = new Set<string>(OUTWARD_TOOL_EFFECTS);
 
-export type ToolEffectRecordStatus = "started" | "completed" | "failed";
+/**
+ * `not-performed` means the tool ran but declined to perform its effect, for example because the
+ * owner's approval is still pending (ADR 0061). A retry runs such a call again instead of
+ * replaying it.
+ */
+export type ToolEffectRecordStatus = "started" | "completed" | "failed" | "not-performed";
+
+/**
+ * Key a tool sets to `true` in its result's `details` when it did not perform its effect, such as
+ * an approval gate that only filed a request. The journal then records the call as
+ * `not-performed` rather than `completed`.
+ */
+export const TOOL_EFFECT_NOT_PERFORMED_KEY = "effectNotPerformed";
+
+export function isToolEffectNotPerformed(result: unknown): boolean {
+  const details = (result as { readonly details?: unknown } | null | undefined)?.details;
+  return (
+    typeof details === "object" &&
+    details !== null &&
+    (details as Record<string, unknown>)[TOOL_EFFECT_NOT_PERFORMED_KEY] === true
+  );
+}
 
 /** One outward tool call, as the journal remembers it. */
 export interface ToolEffectRecord {
@@ -90,6 +111,8 @@ export function toolEffectCallKey(toolName: string, argsHash: string, occurrence
  *
  * - a call whose earlier attempt completed returns the recorded result without running again;
  * - a call whose earlier attempt failed throws the recorded error again;
+ * - a call whose earlier attempt declined to act (`not-performed`, such as a pending approval) runs
+ *   again, so the gate in front of the effect decides afresh;
  * - a call whose earlier attempt started but never reported back is not run. The agent gets an
  *   error saying the action may already have happened and should be checked first. Calling the
  *   tool again with the same arguments after that runs it, because that is a new call.
@@ -216,7 +239,7 @@ export function createToolEffectGuard(
         }
         const completed: ToolEffectRecord = {
           ...started,
-          status: "completed",
+          status: isToolEffectNotPerformed(result) ? "not-performed" : "completed",
           completedAt: now().toISOString(),
           result: toJsonValue(result),
         };
