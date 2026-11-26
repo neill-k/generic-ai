@@ -60,6 +60,15 @@ Current runtime bridge:
 - Agent lifecycle hooks can inject prompt context, observe permission decisions,
   wrap supported tool calls, and record `hook.*` events plus hook-decision
   artifacts.
+- `runHarnessTopology(options)` executes a compiled harness's protocol binding
+  (pipeline, verifier-loop, hierarchy, squad, or a package protocol) by looping
+  the protocol reducer with bounded concurrency, retries, step/deadline
+  budgets, cancellation, approvals, and a causal trace. Actor execution is an
+  injected `TopologyActorRunner`; `createAdapterTopologyActorRunner(options)`
+  runs actors through any `AgentHarnessAdapter` with per-role models.
+- `runAgentHarnessTopology(options)` runs the same topology with each actor as
+  a policy-scoped Pi role session, sharing role policies, hooks, canonical
+  events, and artifacts with `AgentHarness`.
 - `runHarnessBenchmark(options)` compiles Harness DSL contracts from the SDK,
   then runs trials through the configured runtime helper for benchmark fixtures
 
