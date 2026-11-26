@@ -1,3 +1,4 @@
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import type { PiCapabilityBindings } from "@generic-ai/core";
@@ -232,6 +233,26 @@ function createLazySearchProvider(
   };
 }
 
+/** Where the company's skills are mirrored inside an agent's home. */
+export const COMPANY_SKILLS_MIRROR = path.join(".agents", "company-skills");
+
+/**
+ * Copies the company's skills into the agent's home before each turn. File tools only reach
+ * the agent's own home, so the skill files must live there for the agent to read them; the copy
+ * is replaced every turn, so an agent's edits to a company skill never stick.
+ */
+function mirrorCompanySkills(skillDirs: readonly string[], home: string): string {
+  const mirror = path.join(home, COMPANY_SKILLS_MIRROR);
+  rmSync(mirror, { recursive: true, force: true });
+  mkdirSync(mirror, { recursive: true });
+  for (const dir of skillDirs) {
+    if (existsSync(dir)) {
+      cpSync(dir, mirror, { recursive: true, force: true });
+    }
+  }
+  return mirror;
+}
+
 export function createCompanyToolkit(options: CreateCompanyToolkitOptions): CompanyToolkit {
   const env = options.env ?? process.env;
   const secrets = options.secrets;
@@ -276,7 +297,10 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
         // clash the company's version wins, so an agent cannot rewrite a shared procedure.
         skills: createAgentSkillsPlugin({
           root: input.workspaceRoot,
-          skillDirs: [...skillDirs, path.join(input.workspaceRoot, ".agents", "skills")],
+          skillDirs: [
+            mirrorCompanySkills(skillDirs, input.workspaceRoot),
+            path.join(input.workspaceRoot, ".agents", "skills"),
+          ],
           includeProject: false,
           includeUser: false,
           includeGlobal: false,

@@ -124,6 +124,30 @@ describe("company templates", () => {
     expect(toolkit.describe().skills.map((skill) => skill.name)).toEqual(
       expect.arrayContaining(["standup", "review", "compound-learning"]),
     );
+
+    // File tools only reach the agent's home, so the skills are mirrored there each turn.
+    const home = tempDir();
+    const bindings = toolkit.capabilities({
+      taskId: "t",
+      attemptRunId: "a",
+      rootTaskId: "t",
+      agentId: "researcher",
+      role: "researcher",
+      prompt: "p",
+      workspaceRoot: home,
+    }) as unknown as {
+      skills: { load(): Promise<{ skills: Array<{ name: string; filePath: string }> }> };
+      fileTools: {
+        piTools: Array<{ name: string; execute(id: string, params: unknown): Promise<unknown> }>;
+      };
+    };
+    const { skills } = await bindings.skills.load();
+    const review = skills.find((skill) => skill.name === "review");
+    expect(review?.filePath.startsWith(home)).toBe(true);
+    const read = bindings.fileTools.piTools.find((tool) => tool.name === "read");
+    expect(JSON.stringify(await read?.execute("c", { path: review?.filePath }))).toContain(
+      "# Review",
+    );
   });
 
   it("starts the company from GENERIC_CORP_TEMPLATE, and rejects unknown templates", async () => {
