@@ -103,7 +103,7 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Tools: read, write, edit (diff), bash, grep, find, ls, file-mutation queue, output truncation | ✓ | ported `tools`, `edit-tool-legacy-input`, `edit-diff-window`, `grep-operations`, `find-abort-before-spawn`, `file-mutation-queue`, `path-utils`, `truncate-surrogates` in `packages/tools/test` (renderer and bash-executor cases dropped; BMP case adapted) |
 | `find` without fd: built-in search with fd's glob rules (no `.gitignore`) | ✓ | `find-fallback.test.ts` |
 | Image resize and conversion in `read`, tool binary downloads | ○ | pi `read-*`, `tools-manager` (Generic AI attaches PNG/JPEG/GIF/WebP as-is and uses `rg`/`fd` from `PATH`) |
-| `plugin-tools-files` and `plugin-tools-terminal` on `@generic-ai/tools` | ○ | existing plugin tests |
+| `plugin-tools-files` and `plugin-tools-terminal` on `@generic-ai/tools` (no pi tools left in either plugin) | ✓ | existing plugin tests |
 | Sessions on disk: JSONL tree, branching, resume, tree navigation | ○ | `session-manager`, `agent-session-branching`, `agent-session-tree-navigation` |
 | Compaction and branch summaries, auto-compaction queue | ○ | `compaction*`, `branch-summarization`, `agent-session-compaction`, `agent-session-auto-compaction-queue` |
 | Retry on transient errors, usage totals, cache stats | ○ | `agent-session-retry`, `usage-totals`, `cache-stats` |
@@ -140,9 +140,8 @@ Each slice is a reviewable PR that keeps every existing test green.
    native loop through a `HarnessSessionBackend`, sharing policy, hooks, delegation, events and
    artifacts with the pi backend.
 2b. **Native coding tools** (in review with slice 2): `@generic-ai/tools` ports read, write, edit,
-   bash, grep, find and ls with pi's tool tests. Switching `plugin-tools-files` and
-   `plugin-tools-terminal` to them is the next step; until then the native adapter runs whatever
-   tools the plugins bind, which still come from pi.
+   bash, grep, find and ls with pi's tool tests, and `plugin-tools-files` and
+   `plugin-tools-terminal` now bind them, so both adapters run the native tools.
 3. **Sessions, compaction, retry**: on-disk sessions through the durable store contract,
    compaction and summaries, transient-error retry.
 4. **Skills, prompt templates, extensions**: reuse `plugin-agent-skills`; port pi's extension hooks

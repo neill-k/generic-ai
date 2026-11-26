@@ -5,5 +5,9 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "references": [{ "path": "../sdk" }, { "path": "../plugin-workspace-fs" }]
+  "references": [
+    { "path": "../sdk" },
+    { "path": "../tools" },
+    { "path": "../plugin-workspace-fs" }
+  ]
 }
