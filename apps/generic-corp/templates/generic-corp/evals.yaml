@@ -1,0 +1,35 @@
+title: Generic Corp goal evals
+description: >-
+  Replays the default company's goals through the whole org chart, from the CEO to the
+  individual contributors, and scores numeric outcomes, rubric grades and required actions.
+# Live runs: five attempts per case, and three in a row must pass at least half the time.
+# The offline replay is deterministic, so CI runs it once per case.
+trials:
+  count: 5
+  passK: 3
+gate:
+  minPassRate: 0.8
+  minPassK: 0.5
+  maxIntegrityViolations: 0
+cases:
+  - id: launch-plan
+    goal: launch-plan
+    replay: replays/launch-plan.yaml
+    holdoutValidators:
+      - id: ceo-did-not-write
+        kind: trace
+        description: The CEO delegated instead of writing the plan.
+        forbid:
+          - { tool: write, role: ceo }
+  - id: tool-comparison
+    goal: tool-comparison
+    replay: replays/tool-comparison.yaml
+    holdoutValidators:
+      - id: one-recommendation
+        kind: output_schema
+        description: The recommendation names a single tool.
+        schema:
+          type: object
+          required: [recommendation]
+          properties:
+            recommendation: { type: string, maxLength: 40 }

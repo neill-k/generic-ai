@@ -7,7 +7,13 @@
   "include": ["src"],
   "references": [
     {
+      "path": "../../packages/ai"
+    },
+    {
       "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/plugin-agent-skills"
     },
     {
       "path": "../../packages/plugin-approvals"
@@ -44,6 +50,9 @@
     },
     {
       "path": "../../packages/preset-starter-hono"
+    },
+    {
+      "path": "../../packages/resources"
     },
     {
       "path": "../../packages/sdk"

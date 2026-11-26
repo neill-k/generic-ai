@@ -1,7 +1,13 @@
 import type { PersistentAgentSeed } from "@generic-ai/plugin-delegation";
 import { McpRegistryError, parseMcpPluginConfig } from "@generic-ai/plugin-mcp";
 import type { WebSearchProviderConfig } from "@generic-ai/plugin-tools-web";
-import { type ApprovalPolicy, parseApprovalPolicy } from "@generic-ai/sdk";
+import {
+  type ApprovalPolicy,
+  type GoalSpec,
+  GoalSpecError,
+  parseApprovalPolicy,
+  parseGoalSpec,
+} from "@generic-ai/sdk";
 import { parse as parseYaml } from "yaml";
 
 /**
@@ -54,8 +60,25 @@ export interface CompanyToolsConfig {
   readonly mcp?: Readonly<Record<string, unknown>>;
 }
 
+/**
+ * A goal the company knows how to pursue: what the owner asks for, and the machine-checkable
+ * definition of done the CEO's task is held to. Templates ship a few; the owner starts from one
+ * on the dashboard, and each template's eval suite replays them.
+ */
+export interface CompanyGoalTemplate {
+  readonly id: string;
+  readonly title: string;
+  /** The request as the owner would send it to the CEO. */
+  readonly request: string;
+  readonly description?: string;
+  /** The goal the CEO's task must reach. Its `id` is the template goal's id. */
+  readonly spec: GoalSpec;
+}
+
 export interface CompanyConfig {
   readonly name: string;
+  /** Which template this company came from, when it came from one. */
+  readonly template?: string;
   readonly mission?: string;
   /** Default model per org tier. */
   readonly models?: Partial<Readonly<Record<OrgTier, string>>>;
@@ -65,6 +88,8 @@ export interface CompanyConfig {
    * writing to outside systems, spending money and writing MCP tools all need approval.
    */
   readonly approvals?: ApprovalPolicy;
+  /** Goals the owner can start from. */
+  readonly goals?: readonly CompanyGoalTemplate[];
   readonly agents: readonly CompanyAgentConfig[];
 }
 
@@ -92,7 +117,8 @@ const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 /**
  * The default company: a CEO, three VPs and one individual contributor under
  * each. It is deliberately not software-only (D6): research, operations and
- * engineering all report to the CEO.
+ * engineering all report to the CEO. The `generic-corp` template is the same
+ * org chart in YAML, plus goals; a test keeps the two in step.
  */
 export const DEFAULT_COMPANY: CompanyConfig = Object.freeze({
   name: "Generic Corp",
@@ -105,7 +131,10 @@ export const DEFAULT_COMPANY: CompanyConfig = Object.freeze({
       instructions:
         "You run Generic Corp for its owner. Turn each request from the owner into a clear goal " +
         "with a definition of done, delegate the work to the VP who owns that area, review what " +
-        "comes back, and answer the owner plainly. Do small things yourself.",
+        "comes back, and answer the owner plainly. Do small things yourself. When the answer is a " +
+        "document, end your reply with a fenced JSON block naming it, for example " +
+        '{"deliverable": {"agent": "researcher", "path": "workspace/brief.md"}}, so the owner and ' +
+        "the goal checks can open it.",
     },
     {
       id: "vp-research",
@@ -248,6 +277,62 @@ function readTools(value: unknown): CompanyToolsConfig | undefined {
   };
 }
 
+function readGoals(value: unknown): readonly CompanyGoalTemplate[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new CompanyConfigError("company.goals must be a list of goals.");
+  }
+  const seen = new Set<string>();
+  return value.map((raw, index): CompanyGoalTemplate => {
+    const where = `company.goals[${index}]`;
+    if (!isRecord(raw)) {
+      throw new CompanyConfigError(`${where} must be an object.`);
+    }
+    const id = optionalString(raw, "id", where);
+    if (id === undefined || !ID_PATTERN.test(id)) {
+      throw new CompanyConfigError(
+        `${where}.id must be letters, digits, dots, dashes or underscores.`,
+      );
+    }
+    if (seen.has(id)) {
+      throw new CompanyConfigError(`Goal "${id}" is defined twice.`);
+    }
+    seen.add(id);
+    const title = optionalString(raw, "title", where) ?? id;
+    const request = optionalString(raw, "request", where);
+    if (request === undefined) {
+      throw new CompanyConfigError(`${where}.request must say what the owner asks for.`);
+    }
+    const description = optionalString(raw, "description", where);
+    if (!isRecord(raw["goal"])) {
+      throw new CompanyConfigError(
+        `${where}.goal must be a goal spec: objective, definitionOfDone and validators.`,
+      );
+    }
+    const parsed = parseGoalSpec({ id, title, ...raw["goal"] });
+    if (!parsed.ok) {
+      throw new CompanyConfigError(`${where}.goal: ${new GoalSpecError(parsed.issues).message}`);
+    }
+    return {
+      id,
+      title,
+      request,
+      ...(description === undefined ? {} : { description }),
+      spec: parsed.value,
+    };
+  });
+}
+
+/** A company goal by id. */
+export function companyGoal(
+  company: CompanyConfig,
+  goalId: string,
+): CompanyGoalTemplate | undefined {
+  return company.goals?.find((goal) => goal.id === goalId);
+}
+
 /** Validates an untrusted company definition (for example parsed YAML). */
 export function parseCompanyConfig(input: unknown): CompanyConfig {
   if (!isRecord(input)) {
@@ -255,6 +340,7 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
   }
   const name = optionalString(input, "name", "company") ?? DEFAULT_COMPANY.name;
   const mission = optionalString(input, "mission", "company");
+  const template = optionalString(input, "template", "company");
 
   let models: Partial<Record<OrgTier, string>> | undefined;
   if (input["models"] !== undefined) {
@@ -318,12 +404,16 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
     }
   }
 
+  const goals = readGoals(input["goals"]);
+
   const company: CompanyConfig = {
     name,
+    ...(template === undefined ? {} : { template }),
     ...(mission === undefined ? {} : { mission }),
     ...(models === undefined ? {} : { models }),
     ...(tools === undefined ? {} : { tools }),
     ...(approvals === undefined ? {} : { approvals }),
+    ...(goals === undefined ? {} : { goals }),
     agents,
   };
   validateOrgChart(company);

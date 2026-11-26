@@ -5,6 +5,7 @@
 const state = {
   view: "chat",
   threadId: undefined,
+  goalId: undefined,
   company: undefined,
   refreshTimer: undefined,
 };
@@ -221,12 +222,14 @@ function connectLiveEvents() {
 // ---------------------------------------------------------------------------
 
 async function renderChat() {
-  const [{ threads }, thread] = await Promise.all([
+  const [{ threads }, thread, { goals }] = await Promise.all([
     api("/threads"),
     state.threadId
       ? api(`/threads/${encodeURIComponent(state.threadId)}`).catch(() => undefined)
       : undefined,
+    api("/goals").catch(() => ({ goals: [] })),
   ]);
+  const chosenGoal = goals.find((goal) => goal.id === state.goalId);
   const current = thread?.thread;
   const previousDraft = document.getElementById("composer-text")?.value ?? "";
   const scrolledToEnd = isScrolledToEnd();
@@ -274,6 +277,42 @@ async function renderChat() {
           {},
           "Give the CEO a goal. It is broken down and delegated through the org chart, and the answer comes back here.",
         ),
+        goals.length === 0
+          ? null
+          : h(
+              "div",
+              { class: "goal-picker" },
+              h("h2", {}, "Or start from one of the company's goals"),
+              h(
+                "p",
+                { class: "muted small" },
+                "A goal comes with checks. The CEO's work is only done when every check passes.",
+              ),
+              h(
+                "div",
+                { class: "goal-cards" },
+                goals.map((goal) =>
+                  h(
+                    "button",
+                    {
+                      type: "button",
+                      class: `goal-card${goal.id === state.goalId ? " active" : ""}`,
+                      onClick: () => {
+                        state.goalId = goal.id;
+                        const composer = document.getElementById("composer-text");
+                        if (composer) {
+                          composer.value = goal.request;
+                        }
+                        render();
+                      },
+                    },
+                    h("strong", {}, goal.title),
+                    h("span", {}, goal.description ?? goal.objective),
+                    h("span", { class: "meta" }, `${goal.checks.length} checks`),
+                  ),
+                ),
+              ),
+            ),
       ),
     ]);
   } else {
@@ -313,8 +352,12 @@ async function renderChat() {
           const path = current
             ? `/threads/${encodeURIComponent(current.threadId)}/messages`
             : "/threads";
-          const result = await api(path, { method: "POST", body: JSON.stringify({ text }) });
+          const result = await api(path, {
+            method: "POST",
+            body: JSON.stringify(chosenGoal ? { text, goalId: chosenGoal.id } : { text }),
+          });
           textarea.value = "";
+          state.goalId = undefined;
           state.threadId = result.thread.threadId;
           if (window.location.hash !== `#/chat/${encodeURIComponent(result.thread.threadId)}`) {
             window.location.hash = `#/chat/${encodeURIComponent(result.thread.threadId)}`;
@@ -328,6 +371,25 @@ async function renderChat() {
         }
       },
     },
+    chosenGoal
+      ? h(
+          "div",
+          { class: "goal-chip", title: chosenGoal.definitionOfDone.join("\n") },
+          `Goal: ${chosenGoal.title} · ${chosenGoal.checks.length} checks`,
+          h(
+            "button",
+            {
+              type: "button",
+              "aria-label": "Remove the goal",
+              onClick: () => {
+                state.goalId = undefined;
+                render();
+              },
+            },
+            "×",
+          ),
+        )
+      : null,
     textarea,
     sendButton,
   );
@@ -819,6 +881,26 @@ async function renderTools() {
         h(
           "div",
           { class: "panel" },
+          h("h2", {}, "Skills"),
+          (toolkit.skills ?? []).length === 0
+            ? h("p", { class: "muted" }, "None.")
+            : h(
+                "dl",
+                { class: "tool-list" },
+                toolkit.skills.flatMap((skill) => [
+                  h("dt", {}, h("code", {}, skill.name)),
+                  h("dd", {}, firstSentence(skill.description)),
+                ]),
+              ),
+          h(
+            "p",
+            { class: "muted small" },
+            "Every agent has these. Agents also save their own skills as they learn, in their home folder.",
+          ),
+        ),
+        h(
+          "div",
+          { class: "panel" },
           h("h2", {}, "Connectors"),
           connectors.length === 0
             ? h(
@@ -1278,6 +1360,9 @@ async function start() {
   try {
     state.company = await api("/company");
     document.getElementById("company-name").textContent = state.company.name;
+    if (state.company.mission) {
+      document.getElementById("company-tagline").textContent = firstSentence(state.company.mission);
+    }
     document.title = state.company.name;
   } catch (error) {
     if (error instanceof ApiError && error.status === 401) {

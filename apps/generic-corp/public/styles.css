@@ -365,6 +365,74 @@ h3 {
   max-height: 240px;
 }
 
+.composer {
+  flex-wrap: wrap;
+}
+
+.composer textarea {
+  flex: 1 1 200px;
+}
+
+/* Starting from a company goal */
+.goal-picker {
+  margin: 24px auto 0;
+  max-width: 720px;
+  text-align: left;
+}
+
+.goal-picker h2 {
+  font-size: 15px;
+  color: var(--text);
+  margin: 0 0 4px;
+}
+
+.goal-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.goal-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.goal-card.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.goal-card span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.goal-card .meta {
+  font-size: 12px;
+}
+
+.goal-chip {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.goal-chip button {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--border);
+  padding: 0 8px;
+}
+
 /* Org chart */
 .org {
   overflow: auto;

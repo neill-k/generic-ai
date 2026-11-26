@@ -1,4 +1,8 @@
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import path from "node:path";
+
 import type { PiCapabilityBindings } from "@generic-ai/core";
+import { createAgentSkillsPlugin } from "@generic-ai/plugin-agent-skills";
 import { createMcpPlugin, type McpPlugin, type McpServerStatus } from "@generic-ai/plugin-mcp";
 import type { SecretsBroker } from "@generic-ai/plugin-secrets";
 import { createDocumentTools } from "@generic-ai/plugin-tools-documents";
@@ -10,18 +14,25 @@ import {
 import {
   createWebSearchProvider,
   createWebToolsPlugin,
+  type WebAddressResolver,
+  type WebFetcher,
   type WebSearchProvider,
   type WebSearchProviderConfig,
   WebSearchProviderError,
 } from "@generic-ai/plugin-tools-web";
+import { loadSkillsFromDir } from "@generic-ai/resources";
 import type { AgentTaskExecutionInput } from "@generic-ai/sdk";
 
 import type { CompanyConfig } from "./company.js";
+import { COMPANY_SKILLS_DIR } from "./templates.js";
 
 /**
  * The generic-work toolkit (D6) for every agent turn: files and a shell in the agent's home,
  * web fetch and search, document reading and writing, and the company's MCP connectors (email,
  * calendar, chat, documents, browser, payments).
+ *
+ * Every agent also gets the company's skills (standup, review, compound learning) and any skills
+ * it saved for itself under `.agents/skills/` in its home.
  *
  * Every tool carries effect tags. Role policies decide who sees a tool, and outward effects
  * (`message.send`, `external.write`, `payment.spend`, `mcp.write`) are what the approvals gate
@@ -42,6 +53,12 @@ export interface CompanyToolkitDescription {
   readonly tools: readonly CompanyToolDescription[];
   readonly webSearch: { readonly provider: string; readonly configured: boolean };
   readonly connectors: readonly CompanyConnectorDescription[];
+  readonly skills: readonly CompanySkillDescription[];
+}
+
+export interface CompanySkillDescription {
+  readonly name: string;
+  readonly description: string;
 }
 
 export interface CompanyToolDescription {
@@ -153,6 +170,11 @@ export interface CreateCompanyToolkitOptions {
   readonly searchProvider?: WebSearchProvider;
   /** Lets web tools reach private addresses. Local development only. */
   readonly allowPrivateNetwork?: boolean;
+  /** Replaces `fetch` and DNS for `web_fetch`, for tests and offline eval replays. */
+  readonly fetcher?: WebFetcher;
+  readonly resolver?: WebAddressResolver;
+  /** Skill folders every agent gets. Defaults to the company skills that ship with the app. */
+  readonly skillDirs?: readonly string[];
   /** Runs agent shell commands as another OS user (see `resolveAgentIsolation`). */
   readonly runAs?: TerminalRunAsUser;
 }
@@ -211,6 +233,26 @@ function createLazySearchProvider(
   };
 }
 
+/** Where the company's skills are mirrored inside an agent's home. */
+export const COMPANY_SKILLS_MIRROR = path.join(".agents", "company-skills");
+
+/**
+ * Copies the company's skills into the agent's home before each turn. File tools only reach
+ * the agent's own home, so the skill files must live there for the agent to read them; the copy
+ * is replaced every turn, so an agent's edits to a company skill never stick.
+ */
+function mirrorCompanySkills(skillDirs: readonly string[], home: string): string {
+  const mirror = path.join(home, COMPANY_SKILLS_MIRROR);
+  rmSync(mirror, { recursive: true, force: true });
+  mkdirSync(mirror, { recursive: true });
+  for (const dir of skillDirs) {
+    if (existsSync(dir)) {
+      cpSync(dir, mirror, { recursive: true, force: true });
+    }
+  }
+  return mirror;
+}
+
 export function createCompanyToolkit(options: CreateCompanyToolkitOptions): CompanyToolkit {
   const env = options.env ?? process.env;
   const secrets = options.secrets;
@@ -225,6 +267,7 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
       ? undefined
       : createMcpPlugin(mcpConfig, secrets === undefined ? {} : { secrets }));
   const grants = new Map(options.company.agents.map((agent) => [agent.id, agent.secrets] as const));
+  const skillDirs = options.skillDirs ?? [COMPANY_SKILLS_DIR];
 
   const build = (root: string) => {
     const files = createWorkspaceFileTools({ root });
@@ -236,6 +279,8 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
       root,
       searchProvider,
       ...(options.allowPrivateNetwork === true ? { allowPrivateNetwork: true } : {}),
+      ...(options.fetcher === undefined ? {} : { fetcher: options.fetcher }),
+      ...(options.resolver === undefined ? {} : { resolver: options.resolver }),
     });
     const documents = createDocumentTools({ root });
     return { files, terminal, web, documents };
@@ -248,6 +293,18 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
         fileTools: { piTools: files.piTools },
         terminalTools: { tool: terminal.tool },
         customTools: [...web.piTools, ...documents.piTools],
+        // Company skills first, then the agent's own (`.agents/skills/` in its home). On a name
+        // clash the company's version wins, so an agent cannot rewrite a shared procedure.
+        skills: createAgentSkillsPlugin({
+          root: input.workspaceRoot,
+          skillDirs: [
+            mirrorCompanySkills(skillDirs, input.workspaceRoot),
+            path.join(input.workspaceRoot, ".agents", "skills"),
+          ],
+          includeProject: false,
+          includeUser: false,
+          includeGlobal: false,
+        }),
         ...(mcp === undefined ? {} : { mcp: mcp.capability }),
         ...(secrets === undefined ? {} : { secrets }),
       } as unknown as PiCapabilityBindings;
@@ -282,6 +339,9 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
           const connector = servers.get(status.id)?.connector;
           return connector === undefined ? status : { ...status, connector };
         }),
+        skills: skillDirs
+          .flatMap((dir) => loadSkillsFromDir({ dir, source: "company" }).skills)
+          .map((skill) => ({ name: skill.name, description: skill.description })),
       };
     },
     async close() {

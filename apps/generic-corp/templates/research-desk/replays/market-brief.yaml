@@ -1,0 +1,160 @@
+# Recorded turns for the market-brief case. The sources, figures and companies are fictional
+# fixtures for the offline replay; a live eval run searches the real web instead.
+search:
+  - title: Home battery storage outlook 2026 - Example Energy Institute
+    url: https://energy-institute.example/home-storage-outlook-2026
+    snippet: Residential storage installations in Europe grew again in 2025.
+  - title: Who sells home batteries in Europe - Example Market Watch
+    url: https://market-watch.example/home-battery-vendors
+    snippet: Three vendors hold most of the market.
+  - title: Grid tariffs and home storage - Example Policy Review
+    url: https://policy-review.example/tariffs-home-storage
+    snippet: Changes to feed-in tariffs drive demand.
+  - title: Battery cell prices - Example Commodities Desk
+    url: https://commodities.example/cell-prices-2026
+    snippet: Cell prices fell for a third year.
+
+pages:
+  https://energy-institute.example/home-storage-outlook-2026: >-
+    <html><body><h1>Home battery storage outlook 2026</h1><p>Europe installed 12 GWh of
+    residential battery storage in 2025, worth about EUR 7.5 billion. The institute expects
+    15% a year growth to 2030.</p></body></html>
+  https://market-watch.example/home-battery-vendors: >-
+    <html><body><h1>Who sells home batteries</h1><p>Voltara, Nordcell and Helio Home together
+    sold 58% of residential systems in 2025.</p></body></html>
+  https://policy-review.example/tariffs-home-storage: >-
+    <html><body><h1>Tariffs and storage</h1><p>Lower feed-in tariffs in four countries make
+    storing solar power more valuable than selling it.</p></body></html>
+
+judgments:
+  quality:
+    summary: Clear, sourced brief that covers the market, its players and its risks.
+    criteria:
+      - { criterionId: size-and-growth, score: 1, rationale: Size and growth are given with years and sources. }
+      - { criterionId: players, score: 1, rationale: Three players named with what sets them apart. }
+      - { criterionId: risks, score: 0.8, rationale: Risks are listed; one is thin., improvement: Say how likely the subsidy risk is. }
+      - { criterionId: sourced, score: 1, rationale: Every figure links to a source. }
+      - { criterionId: readable, score: 0.9, rationale: Short sections and plain words. }
+
+agents:
+  director:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: head-research
+            task: >-
+              Write a brief on the European home battery storage market: size, growth, main
+              players and risks, with a link for every figure.
+            definitionOfDone: >-
+              A Markdown file of 300 to 1,500 words with at least four linked sources.
+    - call: stop_and_respond
+      args: { response: Research has the brief. I will send it once it is checked. }
+    - call: stop_and_respond
+      args:
+        response: |-
+          The brief on European home battery storage is ready. The market was about 12 GWh
+          (EUR 7.5 billion) in 2025 and is expected to grow about 15% a year to 2030. Three
+          vendors sell most systems, and the main risks are subsidy cuts, falling export
+          tariffs that could reverse, and installer shortages.
+
+          ```json
+          {"deliverable": {"agent": "analyst", "path": "workspace/home-battery-brief.md"}, "sources": 4}
+          ```
+
+  head-research:
+    - call: delegate_task
+      args:
+        tasks:
+          - to: analyst
+            task: >-
+              Research the European home battery storage market and write
+              workspace/home-battery-brief.md: size and growth with years, the main players,
+              and the risks. Open every page you cite.
+            definitionOfDone: 300 to 1,500 words, at least four distinct linked sources.
+    - call: stop_and_respond
+      args: { response: The analyst is on it. }
+    - call: stop_and_respond
+      args:
+        response: >-
+          Reviewed the analyst's brief at analyst:workspace/home-battery-brief.md. It covers
+          size, growth, players and risks with four linked sources. Review: pass.
+
+  analyst:
+    - call: web_search
+      args: { query: europe residential battery storage market size 2025 growth }
+    - call: web_fetch
+      args: { url: "https://energy-institute.example/home-storage-outlook-2026" }
+    - call: web_fetch
+      args: { url: "https://market-watch.example/home-battery-vendors" }
+    - call: web_fetch
+      args: { url: "https://policy-review.example/tariffs-home-storage" }
+    - call: write
+      args:
+        path: workspace/home-battery-brief.md
+        content: |-
+          # European home battery storage: market brief
+
+          ## In short
+
+          Europe's home battery market is large and still growing. It was about 12 GWh, worth
+          about EUR 7.5 billion, in 2025, and is expected to grow about 15% a year to 2030
+          ([Example Energy Institute](https://energy-institute.example/home-storage-outlook-2026)).
+          Three vendors sell most systems. The biggest risks are policy changes and the supply
+          of installers.
+
+          ## Size and growth
+
+          - Installed in 2025: about 12 GWh of residential storage, worth about EUR 7.5 billion
+            ([Example Energy Institute](https://energy-institute.example/home-storage-outlook-2026)).
+          - Expected growth: about 15% a year to 2030, from the same outlook.
+          - Demand comes mostly from homes that already have solar panels. Lower feed-in tariffs
+            in four countries make storing solar power worth more than selling it
+            ([Example Policy Review](https://policy-review.example/tariffs-home-storage)).
+          - Battery cells keep getting cheaper, which lowers system prices each year
+            ([Example Commodities Desk](https://commodities.example/cell-prices-2026)).
+
+          ## Main players
+
+          Voltara, Nordcell and Helio Home together sold 58% of residential systems in 2025
+          ([Example Market Watch](https://market-watch.example/home-battery-vendors)).
+
+          - **Voltara** sells complete kits through large installers and competes on price.
+          - **Nordcell** sells premium systems with long warranties, mostly in the north.
+          - **Helio Home** bundles batteries with its own solar panels and an energy app.
+
+          The rest of the market is split between many smaller brands and installers who
+          assemble their own systems.
+
+          ## Risks
+
+          1. **Subsidy cuts.** Several countries pay part of the cost of a home battery. If those
+             programmes end early, demand would drop for a year or two while prices adjust.
+          2. **Tariffs could reverse.** The case for storage rests on low feed-in tariffs. A
+             return to higher tariffs would make selling power more attractive than storing it
+             ([Example Policy Review](https://policy-review.example/tariffs-home-storage)).
+          3. **Installer shortages.** Installation, not hardware, already limits growth in some
+             regions. Long waiting times push buyers to delay.
+          4. **Price pressure.** Falling cell prices help buyers but squeeze margins for vendors
+             that compete on price.
+
+          ## What this means
+
+          The market is attractive for a new entrant that can offer installation capacity, not
+          only hardware. Watch subsidy decisions in the largest markets over the next year, since
+          they will move demand more than any product change.
+
+          ## Sources
+
+          - Example Energy Institute, Home battery storage outlook 2026:
+            https://energy-institute.example/home-storage-outlook-2026
+          - Example Market Watch, Who sells home batteries in Europe:
+            https://market-watch.example/home-battery-vendors
+          - Example Policy Review, Grid tariffs and home storage:
+            https://policy-review.example/tariffs-home-storage
+          - Example Commodities Desk, Battery cell prices:
+            https://commodities.example/cell-prices-2026
+    - call: stop_and_respond
+      args:
+        response: >-
+          Done. The brief is at workspace/home-battery-brief.md, about 450 words, with four
+          linked sources.
