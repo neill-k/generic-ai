@@ -11,7 +11,7 @@ import {
   type Model,
   registerFauxProvider,
 } from "@generic-ai/ai";
-import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
+import { createMemoryToolEffectJournal, withAgentHarnessToolEffects } from "@generic-ai/sdk";
 import { defineTool } from "@generic-ai/sdk/pi";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
@@ -159,6 +159,67 @@ describe("native harness adapter", () => {
       true,
     );
     expect(result.artifacts.map((artifact) => artifact.id)).toContain("policy-decisions");
+  });
+
+  it("replays an outward call on a retried run that shares the effect journal", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const outbox: string[] = [];
+    const sendMessage = withAgentHarnessToolEffects(
+      defineTool({
+        name: "send_message",
+        label: "Send Message",
+        description: "Send a message to a customer.",
+        parameters: Type.Object({ to: Type.String(), text: Type.String() }),
+        async execute(_toolCallId, params) {
+          outbox.push(`${params.to}: ${params.text}`);
+          return { content: [{ type: "text" as const, text: "sent" }], details: {} };
+        },
+      }),
+      ["message.send"],
+    );
+    const script = () => [
+      () =>
+        fauxAssistantMessage(
+          [fauxToolCall("delegate_agent", { roleId: "builder", task: "Message Ann." })],
+          { stopReason: "toolUse" },
+        ),
+      () =>
+        fauxAssistantMessage([fauxToolCall("send_message", { to: "ann", text: "hello" })], {
+          stopReason: "toolUse",
+        }),
+      () => stop("Sent."),
+      () => stop("Done."),
+    ];
+    const harness = createAgentHarness(
+      {
+        id: "native-journal",
+        adapter: "native",
+        model: "faux/root-model",
+        policyProfile: "local-dev-full",
+        roles: [
+          { id: "root", kind: "root", description: "Coordinates the work." },
+          { id: "builder", kind: "builder", description: "Does the work." },
+        ],
+      },
+      { native: { resolveModel } },
+    );
+    const journal = createMemoryToolEffectJournal("task:turn-0");
+    for (const attempt of [1, 2]) {
+      provider.setResponses(script());
+      const result = await harness.run({
+        instruction: "Say hello to Ann",
+        workspaceRoot,
+        runId: `task:turn-0:attempt-${attempt}`,
+        artifactDir: join(workspaceRoot, `artifacts-${attempt}`),
+        capabilities: { customTools: [sendMessage] },
+        effectJournal: journal,
+      });
+      expect(result.status).toBe("succeeded");
+    }
+    expect(outbox).toEqual(["ann: hello"]);
+    expect(journal.records()).toHaveLength(1);
+    expect(journal.records()[0]?.status).toBe("completed");
   });
 
   it("reports a failed run when the model stops as blocked", async () => {
@@ -386,5 +447,78 @@ describe("native harness adapter", () => {
     expect(userText).toContain('<skill name=\\"release-notes\\"');
     expect(userText).toContain("Group changes by package.");
     expect(userText).toContain("for v2");
+  });
+
+  it("loads extensions into native sessions: tools, hooks, and system prompt", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const { provider, resolveModel } = fauxModels();
+    const lifecycle: string[] = [];
+    let systemPrompt = "";
+    let tools: string[] = [];
+    provider.setResponses([
+      (context) => {
+        systemPrompt = context.systemPrompt ?? "";
+        tools = toolNames(context);
+        return fauxAssistantMessage([fauxToolCall("ticket_lookup", { id: "T-1" })], {
+          stopReason: "toolUse",
+        });
+      },
+      (context) => {
+        const last = context.messages.at(-1);
+        return fauxAssistantMessage(
+          last?.role === "toolResult" ? JSON.stringify(last.content) : "missing",
+        );
+      },
+    ]);
+    const harness = createAgentHarness(
+      {
+        id: "native-extensions",
+        adapter: "native",
+        model: "faux/root-model",
+        execution: { turnMode: "single-turn" },
+      },
+      {
+        native: {
+          resolveModel,
+          extensions: {
+            factories: [
+              (api) => {
+                api.registerTool({
+                  name: "ticket_lookup",
+                  label: "Ticket lookup",
+                  description: "Look up a ticket.",
+                  parameters: Type.Object({ id: Type.String() }),
+                  execute: async () => ({
+                    content: [{ type: "text", text: "ticket open" }],
+                    details: {},
+                  }),
+                });
+                api.on("session_start", () => void lifecycle.push("start"));
+                api.on("session_shutdown", () => void lifecycle.push("shutdown"));
+                api.on("before_agent_start", (event) => ({
+                  systemPrompt: `${event.systemPrompt}\n\nAlways cite ticket ids.`,
+                }));
+                api.on("tool_result", (event) => ({
+                  content: [{ type: "text", text: `${event.toolName}: ticket open (checked)` }],
+                }));
+              },
+            ],
+          },
+        },
+      },
+    );
+    const result = await harness.run({
+      instruction: "Check T-1",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+    });
+    expect(result.status).toBe("succeeded");
+    expect(tools).toContain("ticket_lookup");
+    expect(systemPrompt).toContain("Always cite ticket ids.");
+    expect(result.outputText).toContain("ticket_lookup: ticket open (checked)");
+    expect(lifecycle).toEqual(["start", "shutdown"]);
+    expect(result.events.some((event) => event.name.endsWith("native.extensions_loaded"))).toBe(
+      true,
+    );
   });
 });

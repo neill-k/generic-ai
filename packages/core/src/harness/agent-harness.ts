@@ -26,6 +26,7 @@ import {
   type AgentHarnessRunErrorCategory,
   type AgentHarnessRunResult,
   type CanonicalEvent,
+  createToolEffectGuard,
   getAgentHarnessToolEffects,
   goalTraceFromCanonicalEvents,
   type JsonObject,
@@ -33,6 +34,8 @@ import {
   type ResourceSelector,
   type RunActor,
   type RunEnvelope,
+  type ToolEffectGuard,
+  type ToolEffectJournal,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
@@ -63,7 +66,11 @@ import {
 } from "../runtime/capability-runtime.js";
 import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
-import { expandPrompt, runCapabilityNativeAgentSession } from "../runtime/native-session.js";
+import {
+  expandPrompt,
+  type NativeSessionExtensions,
+  runCapabilityNativeAgentSession,
+} from "../runtime/native-session.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
 import {
   secretAccessPolicyDecision,
@@ -114,6 +121,11 @@ export interface NativeAgentHarnessOptions {
   readonly compaction?: Partial<CompactionSettings> | false;
   /** Retry policy for transient provider errors; `false` turns retry off. */
   readonly retry?: RetryPolicy | false;
+  /**
+   * Extensions loaded into every native session (see `@generic-ai/extensions`). Each session gets
+   * its own instances. Extension tools are added as given: role effect policies do not filter them.
+   */
+  readonly extensions?: NativeSessionExtensions;
 }
 
 export interface CreateAgentHarnessOptions<
@@ -846,6 +858,29 @@ function applyProfilePolicy(
   };
 }
 
+/**
+ * Journals outward tool calls (ADR 0059) so a retried attempt of the same turn replays finished
+ * calls instead of repeating them. Applied before role policy and hooks, so delegated role
+ * sessions in the same run share the guard and its occurrence counts.
+ */
+export function guardCapabilityEffects(
+  capabilities: PiCapabilityBindings,
+  guard: ToolEffectGuard,
+): PiCapabilityBindings {
+  return {
+    ...capabilities,
+    ...(capabilities.terminalTools === undefined
+      ? {}
+      : { terminalTools: { tool: guard.wrap(capabilities.terminalTools.tool) } }),
+    ...(capabilities.fileTools === undefined
+      ? {}
+      : { fileTools: { piTools: guard.wrapAll(capabilities.fileTools.piTools) } }),
+    ...(capabilities.customTools === undefined
+      ? {}
+      : { customTools: guard.wrapAll(capabilities.customTools) }),
+  };
+}
+
 function wrapCapabilitiesWithHooks(input: {
   readonly capabilities: PiCapabilityBindings;
   readonly executor: AgentLifecycleHookExecutor;
@@ -1274,6 +1309,7 @@ function createNativeSessionBackend(
           : { sessionManager: NativeSessionManager.create(rest.cwd, options.sessionDir) }),
         ...(options.compaction === undefined ? {} : { compaction: options.compaction }),
         ...(options.retry === undefined ? {} : { retry: options.retry }),
+        ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
       });
       return {
         sessionId: result.sessionId,
@@ -1907,9 +1943,16 @@ function createSessionAgentHarnessAdapter(
         ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
       });
       const roles = resolveRoles(input.harness);
-      const baseCapabilities = await expandMcpCapabilityTools(
+      const expandedCapabilities = await expandMcpCapabilityTools(
         applyProfilePolicy(input.capabilities ?? {}, profile, allowMcp),
       );
+      const baseCapabilities =
+        input.effectJournal === undefined
+          ? expandedCapabilities
+          : guardCapabilityEffects(
+              expandedCapabilities,
+              createToolEffectGuard(input.effectJournal),
+            );
       const instruction = await expandHarnessInstruction(
         input.instruction,
         baseCapabilities,
@@ -2120,6 +2163,8 @@ export interface RunAgentHarnessTopologyOptions
   readonly policy?: AgentHarnessPolicyEvaluator;
   /** Redaction-safe identity of whoever started the run; stamped on every run event. */
   readonly actor?: RunActor;
+  /** Journal for outward tool calls, shared by every role session in the topology (ADR 0059). */
+  readonly effectJournal?: ToolEffectJournal;
   /**
    * Replace the role-session runner, for example to route some actors to an
    * external runtime. The replacement still gets the scheduler's retries,
@@ -2163,7 +2208,14 @@ export async function runAgentHarnessTopology(
   });
   const policy =
     options.policy ?? createPolicyEvaluator({ runId, actorId: harness.primaryAgent ?? "topology" });
-  const baseCapabilities = applyProfilePolicy(options.capabilities ?? {}, profile, allowMcp);
+  const profiledCapabilities = applyProfilePolicy(options.capabilities ?? {}, profile, allowMcp);
+  const baseCapabilities =
+    options.effectJournal === undefined
+      ? profiledCapabilities
+      : guardCapabilityEffects(
+          await expandMcpCapabilityTools(profiledCapabilities),
+          createToolEffectGuard(options.effectJournal),
+        );
   const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp });
   const policyDecisions: PolicyDecisionRecord[] = [
     ...createPolicyDecisions({

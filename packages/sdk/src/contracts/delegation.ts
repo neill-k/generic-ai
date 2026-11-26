@@ -1,3 +1,4 @@
+import type { ToolEffectJournal } from "../harness/effect-journal.js";
 import type { RunActor } from "./identity.js";
 import type { Awaitable, JsonValue } from "./shared.js";
 
@@ -67,6 +68,12 @@ export interface AgentTaskExecutionInput {
   readonly workspaceRoot: string;
   /** Who started the work this turn belongs to (the owner, a service, ...). */
   readonly actor?: RunActor;
+  /**
+   * Journal of outward tool calls for this turn, shared by every attempt of it. Pass it to the
+   * harness (`AgentHarnessRunInput.effectJournal`) so a retried attempt never repeats a send,
+   * write or payment without detecting it.
+   */
+  readonly effectJournal?: ToolEffectJournal;
   readonly signal?: AbortSignal;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
 }
