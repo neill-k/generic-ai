@@ -15,6 +15,7 @@ import {
   type AgentHarnessBudget,
   compileHarnessDsl,
   HARNESS_SCHEMA_VERSION,
+  sealGoal,
   type UsageRecordedEventData,
 } from "@generic-ai/sdk";
 import { afterEach, describe, expect, it } from "vitest";
@@ -236,6 +237,28 @@ describe("native harness usage and budgets", () => {
     if (compiled === undefined) {
       throw new Error("fixture failed to compile");
     }
+    const goal = sealGoal({
+      id: "goal.two-steps",
+      objective: "Finish both steps.",
+      definitionOfDone: ["The output says the second step is done."],
+      validators: [
+        {
+          id: "second-done",
+          kind: "check",
+          checkRef: "second-done",
+          description: "Second step reported done",
+          fixHint: "Finish the second step.",
+        },
+      ],
+    });
+    const goalValidators = {
+      checks: {
+        "second-done": ({ evidence }: { evidence: { outputText?: string } }) => ({
+          passed: (evidence.outputText ?? "").includes("second done"),
+          message: "Looked for the second step.",
+        }),
+      },
+    };
     const run = async (budget?: AgentHarnessBudget) => {
       const { provider, resolveModel } = fauxModels();
       const calls: string[] = [];
@@ -247,6 +270,8 @@ describe("native harness usage and budgets", () => {
         workspaceRoot,
         artifactDir: join(workspaceRoot, "artifacts"),
         native: { resolveModel, retry: false },
+        goal,
+        goalValidators,
         ...(budget === undefined ? {} : { budget }),
       });
       return { result, calls };
@@ -256,11 +281,18 @@ describe("native harness usage and budgets", () => {
     expect(unbounded.result.status).toBe("succeeded");
     expect(unbounded.result.usage?.totals.responses).toBe(2);
     expect(unbounded.result.costUsd).toBe(0);
+    // Both actors' spend counts toward the goal, which completed.
+    expect(unbounded.result.usage?.goals).toMatchObject({ goalCount: 1, completedGoals: 1 });
+    expect(unbounded.result.usage?.goals.tokensPerCompletedGoal).toBe(
+      unbounded.result.usage?.totals.totalTokens,
+    );
 
     const capped = await run({ maxTokens: 1 });
     expect(capped.result.status).toBe("failed");
     expect(capped.result.errorCategory).toBe("budget_exceeded");
     expect(capped.calls).toEqual(["root-model"]);
+    expect(capped.result.usage?.byGoal[0]?.outcome).toBe("failed");
+    expect(capped.result.usage?.goals.tokensPerCompletedGoal).toBeNull();
     expect(capped.result.events.map((event) => event.name)).toContain("usage.budget.exceeded");
   });
 });

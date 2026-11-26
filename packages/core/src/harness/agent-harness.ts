@@ -2209,6 +2209,11 @@ export async function runAgentHarnessTopology(
     eventStream,
     ...(options.budget === undefined ? {} : { budget: usageBudgetLimits(options.budget) }),
   });
+  const goalId = options.goal?.spec.id;
+  if (goalId !== undefined) {
+    // Every actor's spend counts toward the goal, so the result reports tokens per completed goal.
+    usageMeter.ledger.assignRunToGoal(runId, goalId);
+  }
   const runSignal = createDeadlineSignal({
     signal: withUsageSignal(options.signal, usageMeter),
     ...(options.deadline === undefined ? {} : { deadline: new Date(options.deadline) }),
@@ -2356,6 +2361,18 @@ export async function runAgentHarnessTopology(
     runSignal.cleanup();
   });
   const budgetStop = usageMeter.exceeded;
+  if (goalId !== undefined) {
+    usageMeter.ledger.setGoalOutcome(
+      goalId,
+      budgetStop !== undefined
+        ? "failed"
+        : topologyResult.status === "succeeded"
+          ? "completed"
+          : topologyResult.status === "cancelled"
+            ? "cancelled"
+            : "failed",
+    );
+  }
   const usage = usageMeter.summary();
   const topology: HarnessTopologyRunResult =
     budgetStop === undefined

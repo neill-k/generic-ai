@@ -54,7 +54,9 @@ that figure as a first-class measure.
   from `AgentHarnessBudget.maxTokens` / `maxCostUsd` (run context first, then
   the run input; `runAgentHarnessTopology` takes `budget`). A reached cap aborts
   every session, the run fails with `errorCategory: "budget_exceeded"`, and the
-  result carries `usage`. A budget abort is never retried. The pi adapter does
+  result carries `usage`. A budget abort is never retried. A topology run with a
+  sealed goal charges every actor's spend to that goal and records its outcome, so
+  `usage.goals.tokensPerCompletedGoal` is filled in. The pi adapter does
   not report usage through the meter yet.
 - Model calls made by context compaction are not metered yet.
 - Tool results that report nested usage are not counted, to avoid double
