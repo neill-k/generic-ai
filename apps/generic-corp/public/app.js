@@ -145,6 +145,7 @@ const VIEWS = {
   board: renderBoard,
   costs: renderCosts,
   tools: renderTools,
+  secrets: renderSecrets,
 };
 
 function route() {
@@ -171,6 +172,10 @@ async function render() {
 
 /** Coalesces bursts of live events into one refresh of the current view. */
 function scheduleRefresh() {
+  // Task events don't change these views, and a refresh would clear a half-typed secret.
+  if (state.view === "secrets" || state.view === "tools") {
+    return;
+  }
   if (state.refreshTimer !== undefined) {
     return;
   }
@@ -795,79 +800,79 @@ async function renderTools() {
       h(
         "div",
         { style: "display: grid; gap: 16px" },
-      h(
-        "div",
-        { class: "panel" },
-        h("h2", {}, "Web search"),
         h(
-          "p",
-          {},
-          search === null
-            ? "Not available."
-            : search.configured
-              ? `Uses ${search.provider}, set in the company file.`
-              : "Turns on when a BRAVE_API_KEY or TAVILY_API_KEY secret is set, or when the company file names a provider.",
+          "div",
+          { class: "panel" },
+          h("h2", {}, "Web search"),
+          h(
+            "p",
+            {},
+            search === null
+              ? "Not available."
+              : search.configured
+                ? `Uses ${search.provider}, set in the company file.`
+                : "Turns on when a BRAVE_API_KEY or TAVILY_API_KEY secret is set, or when the company file names a provider.",
+          ),
         ),
-      ),
-      h(
-        "div",
-        { class: "panel" },
-        h("h2", {}, "Connectors"),
-        connectors.length === 0
-          ? h(
-              "p",
-              { class: "muted" },
-              "No connectors yet. Add email, calendar, chat, documents, browser or payments servers under tools.mcp in the company file.",
-            )
-          : h(
-              "table",
-              {},
-              h(
-                "thead",
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, "Connectors"),
+          connectors.length === 0
+            ? h(
+                "p",
+                { class: "muted" },
+                "No connectors yet. Add email, calendar, chat, documents, browser or payments servers under tools.mcp in the company file.",
+              )
+            : h(
+                "table",
                 {},
                 h(
-                  "tr",
+                  "thead",
                   {},
-                  h("th", {}, "Connector"),
-                  h("th", {}, "Kind"),
-                  h("th", {}, "State"),
-                  h("th", { class: "num" }, "Tools"),
-                ),
-              ),
-              h(
-                "tbody",
-                {},
-                connectors.map((connector) =>
                   h(
                     "tr",
                     {},
+                    h("th", {}, "Connector"),
+                    h("th", {}, "Kind"),
+                    h("th", {}, "State"),
+                    h("th", { class: "num" }, "Tools"),
+                  ),
+                ),
+                h(
+                  "tbody",
+                  {},
+                  connectors.map((connector) =>
                     h(
-                      "td",
-                      {},
-                      connector.id,
-                      connector.lastError
-                        ? h("div", { class: "muted small" }, connector.lastError)
-                        : null,
-                    ),
-                    h("td", {}, connector.connector ?? "generic"),
-                    h(
-                      "td",
+                      "tr",
                       {},
                       h(
-                        "span",
-                        {
-                          class: `status status-${CONNECTOR_STATUS[connector.state] ?? "queued"}`,
-                        },
-                        connector.state,
+                        "td",
+                        {},
+                        connector.id,
+                        connector.lastError
+                          ? h("div", { class: "muted small" }, connector.lastError)
+                          : null,
                       ),
+                      h("td", {}, connector.connector ?? "generic"),
+                      h(
+                        "td",
+                        {},
+                        h(
+                          "span",
+                          {
+                            class: `status status-${CONNECTOR_STATUS[connector.state] ?? "queued"}`,
+                          },
+                          connector.state,
+                        ),
+                      ),
+                      h("td", { class: "num" }, String(connector.toolCount)),
                     ),
-                    h("td", { class: "num" }, String(connector.toolCount)),
                   ),
                 ),
               ),
-            ),
-      ),
-      h("div", { class: "tool-groups" }, groups),
+        ),
+        h("div", { class: "tool-groups" }, groups),
       ),
     ),
   );
@@ -877,6 +882,199 @@ function firstSentence(text) {
   const trimmed = String(text ?? "").trim();
   const end = trimmed.search(/\.(\s|$)/);
   return end === -1 ? trimmed : trimmed.slice(0, end + 1);
+}
+
+// ---------------------------------------------------------------------------
+// Secrets
+// ---------------------------------------------------------------------------
+
+const SECRET_SOURCES = {
+  env: "Server environment",
+  file: "Secret file",
+  "encrypted-store": "Saved here",
+};
+
+async function renderSecrets(message) {
+  const { writable, secrets } = await api("/secrets");
+  const nameInput = h("input", {
+    id: "secret-name",
+    name: "name",
+    autocomplete: "off",
+    spellcheck: "false",
+    placeholder: "CRM_API_KEY",
+    pattern: "[A-Za-z_][A-Za-z0-9_]*",
+    required: true,
+    "aria-label": "Secret name",
+  });
+  const valueInput = h("input", {
+    id: "secret-value",
+    name: "value",
+    type: "password",
+    autocomplete: "new-password",
+    placeholder: "Value",
+    required: true,
+    "aria-label": "Secret value",
+  });
+  const formError = h("p", { class: "form-error", role: "alert", hidden: true });
+  const save = async (event) => {
+    event.preventDefault();
+    const name = nameInput.value.trim();
+    try {
+      await api(`/secrets/${encodeURIComponent(name)}`, {
+        method: "PUT",
+        body: JSON.stringify({ value: valueInput.value }),
+      });
+      valueInput.value = "";
+      await renderSecrets(`Saved ${name}. Agents and connectors use it from their next call.`);
+    } catch (error) {
+      formError.textContent = error.message;
+      formError.hidden = false;
+    }
+  };
+  const edit = (name) => {
+    nameInput.value = name;
+    valueInput.value = "";
+    valueInput.focus();
+  };
+  const remove = async (name) => {
+    try {
+      await api(`/secrets/${encodeURIComponent(name)}`, { method: "DELETE" });
+      await renderSecrets(`Removed ${name}.`);
+    } catch (error) {
+      formError.textContent = error.message;
+      formError.hidden = false;
+    }
+  };
+  const missing = secrets.filter((secret) => !secret.set && !secret.optional);
+
+  setView(
+    h(
+      "div",
+      {},
+      h("h1", {}, "Secrets"),
+      h(
+        "p",
+        { class: "subtitle" },
+        "Keys and tokens your agents and connectors use. Agents use a secret without ever seeing its value, and values are never shown here.",
+      ),
+      h(
+        "div",
+        { style: "display: grid; gap: 16px" },
+        message ? h("div", { class: "notice", role: "status" }, message) : null,
+        missing.length > 0
+          ? h(
+              "div",
+              { class: "error-banner", role: "alert" },
+              `Missing: ${missing.map((secret) => secret.name).join(", ")}. Work that needs them will fail until they are set.`,
+            )
+          : null,
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, "Add or replace a secret"),
+          writable
+            ? h(
+                "form",
+                { class: "secret-form", onSubmit: save },
+                nameInput,
+                valueInput,
+                h("button", { type: "submit" }, "Save"),
+              )
+            : h(
+                "p",
+                { class: "muted" },
+                "Saving secrets here needs a master key. Set GENERIC_AI_SECRETS_KEY on the server (generate one with openssl rand -hex 32) and restart. Until then, set secrets as GENERIC_AI_SECRET_<NAME> variables.",
+              ),
+          formError,
+        ),
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, "Secrets"),
+          secrets.length === 0
+            ? h("p", { class: "muted" }, "No secrets yet, and the company config needs none.")
+            : h(
+                "table",
+                {},
+                h(
+                  "thead",
+                  {},
+                  h(
+                    "tr",
+                    {},
+                    h("th", {}, "Name"),
+                    h("th", {}, "State"),
+                    h("th", {}, "Used by"),
+                    h("th", {}, ""),
+                  ),
+                ),
+                h(
+                  "tbody",
+                  {},
+                  secrets.map((secret) =>
+                    h(
+                      "tr",
+                      {},
+                      h("td", {}, h("code", {}, secret.name)),
+                      h(
+                        "td",
+                        {},
+                        secret.set
+                          ? h(
+                              "span",
+                              { class: "status status-succeeded" },
+                              SECRET_SOURCES[secret.source] ?? secret.source,
+                            )
+                          : h(
+                              "span",
+                              {
+                                class: `status ${secret.optional ? "status-queued" : "status-failed"}`,
+                              },
+                              secret.optional ? "Not set (optional)" : "Missing",
+                            ),
+                        secret.updatedAt
+                          ? h(
+                              "div",
+                              { class: "muted small" },
+                              `Updated ${formatTime(secret.updatedAt)}`,
+                            )
+                          : null,
+                      ),
+                      h(
+                        "td",
+                        { class: "muted" },
+                        secret.usedBy.length === 0 ? "–" : secret.usedBy.join(", "),
+                      ),
+                      h(
+                        "td",
+                        { class: "actions" },
+                        writable && secret.source !== "env" && secret.source !== "file"
+                          ? h(
+                              "button",
+                              { type: "button", class: "ghost", onClick: () => edit(secret.name) },
+                              secret.set ? "Replace" : "Set",
+                            )
+                          : null,
+                        writable && secret.source === "encrypted-store"
+                          ? h(
+                              "button",
+                              {
+                                type: "button",
+                                class: "ghost",
+                                onClick: () => remove(secret.name),
+                              },
+                              "Remove",
+                            )
+                          : null,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+        ),
+      ),
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -649,3 +649,31 @@ pre,
 .small {
   font-size: 12px;
 }
+
+/* Secrets */
+.secret-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 8px;
+}
+@media (max-width: 640px) {
+  .secret-form {
+    grid-template-columns: 1fr;
+  }
+}
+.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.actions button + button {
+  margin-left: 6px;
+}
+.notice {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+.form-error {
+  color: var(--failed);
+  margin: 8px 0 0;
+}

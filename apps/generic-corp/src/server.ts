@@ -12,7 +12,11 @@ import {
   type OwnerAuth,
   unauthorizedResponse,
 } from "@generic-ai/plugin-auth-identity";
-import { createSecretsFromEnvironment, type SecretsBroker } from "@generic-ai/plugin-secrets";
+import {
+  createSecretsFromEnvironment,
+  SECRETS_KEY_ENV,
+  type SecretsBroker,
+} from "@generic-ai/plugin-secrets";
 import { type AgentTaskExecutor, ALL_AUTH_SCOPES, type AuthContext } from "@generic-ai/sdk";
 import { Hono } from "hono";
 
@@ -22,7 +26,7 @@ import { createDashboardRoutes } from "./dashboard.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
-import { type CompanyToolkit, createCompanyToolkit } from "./toolkit.js";
+import { type CompanyToolkit, companySecretReferences, createCompanyToolkit } from "./toolkit.js";
 
 /**
  * Composes the Generic Corp server from the environment: storage (Postgres
@@ -183,6 +187,8 @@ export interface CreateGenericCorpServerOptions {
   readonly authStore?: AuthStore;
   /** The secrets vault. Defaults to environment, files and the encrypted store in storage. */
   readonly secrets?: SecretsBroker;
+  /** Whether `secrets` can store values. Defaults to whether `GENERIC_AI_SECRETS_KEY` is set. */
+  readonly secretsWritable?: boolean;
   /** Replaces the generic-work toolkit, for tests. */
   readonly toolkit?: CompanyToolkit;
   readonly log?: (message: string) => void;
@@ -204,6 +210,9 @@ export async function createGenericCorpServer(
     const secrets =
       options.secrets ??
       createSecretsFromEnvironment({ env: options.env ?? process.env, storage: storage.kv });
+    const secretsWritable =
+      options.secretsWritable ??
+      ((options.env ?? process.env)[SECRETS_KEY_ENV] ?? "").trim().length > 0;
     for (const name of secrets.weakNames()) {
       log(`Secret ${name} is too short to redact reliably. Use a longer value.`);
     }
@@ -285,6 +294,13 @@ export async function createGenericCorpServer(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
         toolkit: companyToolkit,
+        secrets: {
+          writable: secretsWritable,
+          references: companySecretReferences(company),
+          list: () => secrets.list(),
+          set: (name, value, setOptions) => secrets.set(name, value, setOptions),
+          delete: (name) => secrets.delete(name),
+        },
         authenticate: async (request) => {
           if (ownerAuth === undefined) {
             return LOCAL_OWNER;

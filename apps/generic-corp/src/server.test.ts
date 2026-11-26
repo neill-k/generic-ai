@@ -16,6 +16,7 @@ import {
   type ChatThreadView,
   type CompanyConfig,
   type CompanyCosts,
+  type CompanySecretView,
   type CompanyToolkitDescription,
   createGenericCorpServer,
   type GenericCorpEnvironment,
@@ -338,6 +339,78 @@ describe("Generic Corp server", () => {
     expect(text).toContain("event: thread.updated");
     controller.abort();
     await reader.cancel();
+  });
+
+  it("manages secrets without ever returning their values", async () => {
+    const value = "crm-secret-value-0123456789";
+    const company: CompanyConfig = {
+      ...COMPANY,
+      tools: { mcp: { servers: [{ id: "mail", transport: "http", url: "$" + "{MAIL_URL}" }] } },
+      agents: COMPANY.agents.map((agent) =>
+        agent.id === "researcher" ? { ...agent, secrets: ["CRM_API_KEY", "SEARCH_*"] } : agent,
+      ),
+    };
+    const create = (env: Record<string, string>) =>
+      createGenericCorpServer({
+        environment: environment(),
+        env,
+        company,
+        executor: () => ({ status: "succeeded", outputText: "ok" }),
+        authStore: createMemoryAuthStore(),
+        log: () => undefined,
+      });
+
+    // Without a master key the vault is read-only.
+    const readOnly = await create({});
+    cleanups.push(() => readOnly.stop());
+    const listed = await api<{ writable: boolean; secrets: CompanySecretView[] }>(
+      readOnly,
+      "/api/secrets",
+    );
+    expect(listed.body.writable).toBe(false);
+    expect(listed.body.secrets).toEqual(
+      expect.arrayContaining([
+        { name: "BRAVE_API_KEY", set: false, usedBy: ["web search"], optional: true },
+        { name: "CRM_API_KEY", set: false, usedBy: ["agent researcher"] },
+        { name: "MAIL_URL", set: false, usedBy: ["connector mail"] },
+      ]),
+    );
+    expect(listed.body.secrets.some((secret) => secret.name.startsWith("SEARCH"))).toBe(false);
+    const refused = await api(readOnly, "/api/secrets/CRM_API_KEY", {
+      ...post({ value }),
+      method: "PUT",
+    });
+    expect(refused.status).toBe(409);
+
+    // With a master key the owner can save, replace and remove secrets.
+    const server = await create({ GENERIC_AI_SECRETS_KEY: "ab".repeat(32) });
+    cleanups.push(() => server.stop());
+    const saved = await server.fetch(
+      new Request("http://127.0.0.1/api/secrets/CRM_API_KEY", {
+        ...post({ value }),
+        method: "PUT",
+      }),
+    );
+    expect(saved.status).toBe(200);
+    const savedText = await saved.text();
+    expect(savedText).not.toContain(value);
+    expect(JSON.parse(savedText).secret).toMatchObject({
+      name: "CRM_API_KEY",
+      set: true,
+      source: "encrypted-store",
+      updatedBy: "owner",
+    });
+    const after = await server.fetch(new Request("http://127.0.0.1/api/secrets"));
+    expect(await after.text()).not.toContain(value);
+    expect(
+      (await api(server, "/api/secrets/bad name", { ...post({ value }), method: "PUT" })).status,
+    ).toBe(400);
+    expect(
+      (await api(server, "/api/secrets/DATABASE_URL", { ...post({ value }), method: "PUT" }))
+        .status,
+    ).toBe(400);
+    expect((await api(server, "/api/secrets/CRM_API_KEY", { method: "DELETE" })).status).toBe(200);
+    expect((await api(server, "/api/secrets/CRM_API_KEY", { method: "DELETE" })).status).toBe(404);
   });
 
   it("requires an owner credential when auth is on", async () => {
