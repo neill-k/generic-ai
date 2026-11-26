@@ -70,3 +70,79 @@ export function mergeHeaders(
 ): Record<string, string> {
   return { ...base, ...(model.headers ?? {}), ...(options?.headers ?? {}) };
 }
+
+/** HTTP statuses worth retrying: timeouts, conflicts, rate limits and server errors. */
+export function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+function retryAfterMs(response: Response): number | undefined {
+  const header = response.headers.get("retry-after-ms") ?? undefined;
+  if (header !== undefined && Number.isFinite(Number(header))) {
+    return Number(header);
+  }
+  const seconds = response.headers.get("retry-after");
+  if (seconds === null) {
+    return undefined;
+  }
+  const asNumber = Number(seconds);
+  if (Number.isFinite(asNumber)) {
+    return asNumber * 1000;
+  }
+  const date = Date.parse(seconds);
+  return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError(signal));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortError(signal));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * `fetch` with the same retry behavior the SDK-backed providers get: up to `options.maxRetries`
+ * (default 2) retries on network errors and retryable statuses, with exponential backoff that honors
+ * `retry-after`. Aborts are never retried. The final response is returned whatever its status.
+ */
+export async function fetchWithRetry(
+  url: string | URL,
+  init: RequestInit,
+  options: StreamOptions | undefined,
+): Promise<Response> {
+  const doFetch = options?.fetch ?? globalThis.fetch;
+  const maxRetries = Math.max(0, options?.maxRetries ?? 2);
+  for (let attempt = 0; ; attempt += 1) {
+    const backoff = Math.min(8_000, 500 * 2 ** attempt);
+    let response: Response;
+    try {
+      response = await doFetch(url, {
+        ...init,
+        ...(options?.signal ? { signal: options.signal } : {}),
+      });
+    } catch (error) {
+      if (options?.signal?.aborted || attempt >= maxRetries) {
+        throw error;
+      }
+      await sleep(backoff, options?.signal);
+      continue;
+    }
+    if (response.ok || !isRetryableStatus(response.status) || attempt >= maxRetries) {
+      return response;
+    }
+    const wait = Math.min(60_000, retryAfterMs(response) ?? backoff);
+    await response.body?.cancel().catch(() => {});
+    await sleep(wait, options?.signal);
+  }
+}

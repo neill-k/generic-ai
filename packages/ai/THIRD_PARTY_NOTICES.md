@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 Parts of this package are adapted from pi (https://github.com/badlogic/pi-mono): the event and
-message protocol, the agent-loop semantics, the faux provider, the tolerant JSON parsers, the Google and Azure providers, context-overflow detection, and the
+message protocol, the agent-loop semantics, the faux provider, the tolerant JSON parsers, the Google, Azure and Mistral providers, context-overflow detection, and the
 tests under `test/` that carry an "Adapted from pi" header. Those files keep the notice below.
 
 ## pi

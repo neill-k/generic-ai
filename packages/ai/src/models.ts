@@ -21,7 +21,7 @@ export const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   groq: { api: "openai-completions", baseUrl: "https://api.groq.com/openai/v1" },
   xai: { api: "openai-completions", baseUrl: "https://api.x.ai/v1" },
   deepseek: { api: "openai-completions", baseUrl: "https://api.deepseek.com/v1" },
-  mistral: { api: "openai-completions", baseUrl: "https://api.mistral.ai/v1" },
+  mistral: { api: "mistral-conversations", baseUrl: "https://api.mistral.ai" },
   ollama: { api: "openai-completions", baseUrl: "http://localhost:11434/v1" },
   google: {
     api: "google-generative-ai",
@@ -132,6 +132,8 @@ export function resolveModel(
   const gemini =
     (provider === "google" || provider === "google-vertex") &&
     /gemini-(?:2\.5|[3-9]|\d{2,})|gemini-flash(?:-lite)?-latest/.test(id.toLowerCase());
+  // Magistral models reason through `prompt_mode`; others need a `thinkingLevelMap` from config.
+  const magistral = provider === "mistral" && id.toLowerCase().startsWith("magistral");
   return {
     id,
     name: id,
@@ -139,7 +141,11 @@ export function resolveModel(
     provider,
     baseUrl: defaults?.baseUrl ?? "",
     reasoning:
-      provider === "anthropic" || provider === "openai" || provider === "azure-openai" || gemini,
+      provider === "anthropic" ||
+      provider === "openai" ||
+      provider === "azure-openai" ||
+      gemini ||
+      magistral,
     input: ["text", "image"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: gemini ? 1_048_576 : 200_000,

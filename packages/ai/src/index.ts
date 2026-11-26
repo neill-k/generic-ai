@@ -1,6 +1,7 @@
 import { streamAnthropic } from "./providers/anthropic-messages.js";
 import { streamAzureOpenAIResponses } from "./providers/azure-openai.js";
 import { streamGoogle, streamGoogleVertex } from "./providers/google.js";
+import { streamMistral } from "./providers/mistral.js";
 import { streamOpenAICompletions } from "./providers/openai-completions.js";
 import { streamOpenAIResponses } from "./providers/openai-responses.js";
 import { registerApi } from "./registry.js";
@@ -11,6 +12,7 @@ registerApi("openai-completions", streamOpenAICompletions);
 registerApi("azure-openai-responses", streamAzureOpenAIResponses);
 registerApi("google-generative-ai", streamGoogle);
 registerApi("google-vertex", streamGoogleVertex);
+registerApi("mistral-conversations", streamMistral);
 
 export * from "./event-stream.js";
 export * from "./http.js";
@@ -22,10 +24,12 @@ export * from "./providers/azure-openai.js";
 export * from "./providers/env.js";
 export * from "./providers/faux.js";
 export * from "./providers/google.js";
+export * from "./providers/mistral.js";
 export * from "./providers/openai-completions.js";
 export * from "./providers/openai-responses.js";
 export * from "./registry.js";
 export * from "./retry.js";
+export * from "./sse.js";
 export * from "./text.js";
 export * from "./transform-messages.js";
 export type * from "./types.js";

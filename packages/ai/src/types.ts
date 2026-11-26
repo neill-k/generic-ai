@@ -19,6 +19,7 @@ export type KnownApi =
   | "openai-completions"
   | "google-generative-ai"
   | "google-vertex"
+  | "mistral-conversations"
   | "faux";
 export type Api = KnownApi | (string & {});
 
@@ -194,6 +195,12 @@ export interface Model<TApi extends Api = Api> {
    * token budget), or "none". Defaults to "adaptive" when `reasoning` is true.
    */
   thinkingMode?: "adaptive" | "budget" | "none";
+  /**
+   * Provider effort value for each thinking level, `null` where the level is unsupported (an
+   * unsupported level falls to the nearest supported one). Used by the native Mistral API: models
+   * with a map take `reasoning_effort`, other Mistral reasoning models take `prompt_mode`.
+   */
+  thinkingLevelMap?: Partial<Record<ThinkingLevel | "off", string | null>>;
   /** Provider quirks for OpenAI-compatible endpoints. Auto-detected from `baseUrl` when omitted. */
   compat?: OpenAICompletionsCompat;
 }

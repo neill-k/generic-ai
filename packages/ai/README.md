@@ -1,13 +1,15 @@
 # @generic-ai/ai
 
 The provider-neutral model layer of the Generic AI native runtime. One message format and one
-streaming event protocol over six wire APIs, using the official SDKs for transport and retries:
+streaming event protocol over seven wire APIs, using the official SDKs (or plain `fetch` with the same retry policy) for
+transport and retries:
 
 | API | Providers |
 | --- | --- |
 | `anthropic-messages` | Anthropic (API keys and Claude subscription OAuth tokens) |
 | `openai-responses` | OpenAI |
-| `openai-completions` | OpenRouter, Groq, xAI, DeepSeek, Mistral, Ollama, and any OpenAI-compatible server |
+| `openai-completions` | OpenRouter, Groq, xAI, DeepSeek, Ollama, and any OpenAI-compatible server |
+| `mistral-conversations` | Mistral native (`mistral/<model>`, key `MISTRAL_API_KEY`): thinking chunks, 9-character tool-call ids, `reasoning_effort` through a model's `thinkingLevelMap` or `prompt_mode` for Magistral, prompt-cache key and `x-affinity` from the session id |
 | `azure-openai-responses` | Azure OpenAI (`azure-openai/<model>`; endpoint from `AZURE_OPENAI_BASE_URL` or `AZURE_OPENAI_RESOURCE_NAME`, key `AZURE_OPENAI_API_KEY`, optional `AZURE_OPENAI_DEPLOYMENT_NAME_MAP` and `AZURE_OPENAI_API_VERSION`) |
 | `google-generative-ai` | Google Gemini (`google/<model>`, key `GEMINI_API_KEY` or `GOOGLE_API_KEY`) |
 | `google-vertex` | Vertex AI (`google-vertex/<model>`, key `GOOGLE_CLOUD_API_KEY`, or application default credentials with `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`) |

@@ -79,12 +79,13 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Faux provider (scripted responses, usage estimate, simulated prompt cache, pacing, aborts) | ✓ | ported `faux-provider.test.ts` (one test adapted: unknown API is an error event) |
 | Anthropic Messages: streaming, thinking (adaptive and budget), signatures, redacted thinking, tool use, OAuth tokens, cache breakpoints and 1h retention, refusal mapping, cost | ✓ | `providers.test.ts` (recorded SSE through the real SDK) |
 | OpenAI Responses: reasoning summaries, encrypted reasoning replay, function calls, prompt cache key and retention | ✓ | `providers.test.ts` |
-| OpenAI-compatible Chat Completions (OpenRouter, Groq, xAI, DeepSeek, Mistral, Ollama): reasoning fields, tool-call deltas, usage | ✓ | `providers.test.ts` |
+| OpenAI-compatible Chat Completions (OpenRouter, Groq, xAI, DeepSeek, Ollama): reasoning fields, tool-call deltas, usage | ✓ | `providers.test.ts` |
 | Cross-model transcript transforms, tool-call id normalisation, orphaned tool results | ✓ | `transform-messages.test.ts` |
 | Model catalog, `provider/id` refs, overrides | ✓ | `transform-messages.test.ts` |
 | Google Gemini and Vertex (thinking level and budget, thought-signature replay, multimodal tool results, tool schema conversion, finish-reason mapping) | ✓ | `@generic-ai/ai` `google.ts` on `@google/genai`; cases from pi `google-*` suites in `google-azure.test.ts` |
 | Azure OpenAI Responses (endpoint normalisation, deployment map, API version) | ✓ | `azure-openai.ts`; cases from pi `azure-openai-base-url` and `azure-models` |
-| Bedrock, Mistral native, Cloudflare | ○ | pi `bedrock-*`, `mistral-*` suites (slice 8b) |
+| Mistral native (thinking chunks, 9-character tool-call ids, `reasoning_effort` level maps and Magistral `prompt_mode`, prompt-cache key and affinity, cached-token usage, raw stop reasons, SSE split across chunks, retries) | ✓ | `mistral.ts` over `fetch`; cases from pi `mistral-*` suites in `mistral.test.ts` |
+| Bedrock, Cloudflare | ○ | pi `bedrock-*` suites (slice 8b part 2) |
 | OAuth login flows (Claude, ChatGPT, Copilot) and credential storage | ○ | pi `oauth*`, `*-oauth.test.ts` |
 | Context-overflow detection, max-token clamping, compact-and-retry on overflow | ✓ | pi `overflow.test.ts` ported whole, `clamp-max-tokens` cases; `runWithRetry` `onContextOverflow`, used by native sessions |
 | Cross-provider handoff matrix | ○ | pi `cross-provider-handoff` (needs live keys) |
