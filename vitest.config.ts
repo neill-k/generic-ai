@@ -16,6 +16,7 @@ const packageAliases = [
   "plugin-storage-memory",
   "plugin-tools-terminal",
   "plugin-tools-terminal-sandbox",
+  "plugin-tools-documents",
   "plugin-tools-files",
   "plugin-repo-map",
   "plugin-lsp",

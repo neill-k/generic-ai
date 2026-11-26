@@ -182,6 +182,13 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Not responsible for: terminal commands, storage, search beyond the filesystem-level primitives file tools natively provide, or cross-capability governance orchestration.
 - Notes: the deferred hardening plan for this package now lives in `docs/runtime-governance.md`.
 
+### `@generic-ai/plugin-tools-documents`
+
+- Role: document tools for generic work: read PDF, Word, Excel, CSV and HTML files as Markdown, extract long documents to workspace files, and write Markdown, HTML, Word, Excel, CSV and JSON.
+- Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`, and document format libraries (`unpdf`, `mammoth`, `docx`, `fflate`).
+- Not responsible for: documents in cloud drives (those come through MCP `documents` connectors in `@generic-ai/plugin-mcp`), OCR of scanned PDFs, or PDF output.
+- Notes: `document_read` declares only `fs.read`, so read-only roles can use it; `document_extract` and `document_write` declare `fs.write`.
+
 ### `@generic-ai/plugin-repo-map`
 
 - Role: deterministic compact repository map and repo-orientation tool for harness roles.

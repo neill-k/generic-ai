@@ -1,0 +1,32 @@
+{
+  "name": "@generic-ai/plugin-tools-documents",
+  "version": "0.0.0",
+  "description": "Document tools for generic work: read PDF, Word, spreadsheet and web documents as text, and write Markdown, HTML, Word, spreadsheet, CSV and JSON documents.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "dependencies": {
+    "@generic-ai/plugin-workspace-fs": "0.0.0",
+    "@generic-ai/sdk": "0.0.0",
+    "@sinclair/typebox": "^0.34.49",
+    "docx": "^9.16.1",
+    "fflate": "^0.8.3",
+    "mammoth": "^1.13.0",
+    "unpdf": "^2.2.3"
+  },
+  "license": "MIT",
+  "genericAi": {
+    "kind": "plugin",
+    "slot": "tool-policy",
+    "method": "document-tools.v1"
+  },
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
