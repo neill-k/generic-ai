@@ -111,11 +111,11 @@ function normalizeAdapter(value: string | undefined): AgentHarnessAdapterKind {
     return "pi";
   }
 
-  if (value === "external") {
+  if (value === "external" || value === "native") {
     return value;
   }
 
-  throw new Error("GENERIC_AI_RUNTIME_ADAPTER must be openai-codex, pi, or external.");
+  throw new Error("GENERIC_AI_RUNTIME_ADAPTER must be openai-codex, pi, native, or external.");
 }
 
 function splitCsv(value: string | undefined): readonly string[] {

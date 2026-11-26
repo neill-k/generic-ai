@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageAliases = [
   "ai",
   "agent",
+  "tools",
   "core",
   "sdk",
   "observability",

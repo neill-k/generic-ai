@@ -70,6 +70,11 @@ ADR 0043 added the durable run store and queue. This decision uses them.
    action outcome, and `runHarnessTopology` gains `resumeFrom`, so a retried or
    crashed turn keeps the actions that succeeded and runs only the rest.
 
+10. **Every record says who asked.** `submit` takes the caller's `RunActor`
+   (from `toRunActor(authContext)`, ADR 0045). The root task, every delegated
+   task, their event logs, each executor turn, and each persisted harness run
+   carry that actor, so approvals and audit can tell who started the work.
+
 ## Consequences
 
 - A cascade survives restarts: tasks, rounds and children are in the store,
