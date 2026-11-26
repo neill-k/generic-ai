@@ -49,6 +49,7 @@ authoritative runtime contracts.
 | `memory` | `@generic-ai/plugin-memory-files` | `file-backed-memory.v1` | Starter preset `memory` slot for local persistent memory; the fault-injection fixture models stale-memory boundary behavior against this slot family. |
 | `communication` | `@generic-ai/plugin-interaction` | `user-interaction.v1` | Use when a harness role may ask blocking user questions or expose task-tracking state. |
 | `communication` | `@generic-ai/plugin-messaging` | `storage-backed-messaging.v1` | Starter preset `messaging` slot for durable inter-agent messages across a run. |
+| `tool-policy` | `@generic-ai/plugin-approvals` | `owner-approvals.v1` | Wrap agent tools with `createApprovalGate` so outward actions (messages, external writes, payments, MCP writes) wait for the owner; pass the service to the delegation cascade's `approvals` option. |
 | `tool-policy` | `@generic-ai/plugin-lsp` | `lsp-read.v1` | Starter preset `lsp` slot for diagnostics, document symbols, definitions, and references. |
 | `tool-policy` | `@generic-ai/plugin-tools-files` | `local-file-tools.v1` | `examples/harness-shootout/candidates/*` as `capability.files`; starter preset `fileTools` slot. |
 | `tool-policy` | `@generic-ai/plugin-tools-terminal` | `local-terminal.v1` | Starter preset `terminalTools` slot when Docker sandboxing is disabled or unavailable. |

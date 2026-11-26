@@ -75,6 +75,7 @@ ADRs must be written when:
 - [`0058-goal-evals.md`](0058-goal-evals.md) - goal eval suites scored from run traces: NOVA's three checks, pass^k, tokens per completed goal, held-out validators and integrity findings, real topology runs in benchmarks, and a corrected pass^k estimator.
 - [`0059-safe-resume-of-interrupted-turns.md`](0059-safe-resume-of-interrupted-turns.md) - outward tool calls journaled per turn so a retried turn replays finished calls and refuses unrecorded ones, a checkpoint of the model's answer, and `goal.validated` events from the delegation cascade.
 - [`0060-delegate-task-tools.md`](0060-delegate-task-tools.md) - runtime-neutral host tools (`AgentHarnessHostTool`) on pi and native, and the cascade's `delegate_task` and `finish_task` tools replacing the fenced-JSON reply as the primary way to hand off work.
+- [`0061-owner-approvals-for-outward-actions.md`](0061-owner-approvals-for-outward-actions.md) - approval policy over tool effects, durable owner approval requests with an audit trail, the delegation cascade parking tasks until the owner decides, and the HTTP approval inbox.
 
 ## Planning Baseline
 

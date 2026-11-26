@@ -17,6 +17,7 @@ export type CompanyEventType =
   | "task.succeeded"
   | "task.failed"
   | "task.cancelled"
+  | "task.awaiting_approval"
   | "tool.effect.replayed"
   | "tool.effect.uncertain"
   | "thread.updated"

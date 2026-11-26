@@ -31,6 +31,8 @@ export const AUTH_SCOPES = Object.freeze({
   runsRead: "runs:read",
   /** Create, list, and revoke API tokens; manage owner credentials. */
   tokensManage: "tokens:manage",
+  /** Approve or reject actions that agents asked the owner to sign off. */
+  approvalsDecide: "approvals:decide",
 } as const);
 
 export type KnownAuthScope = (typeof AUTH_SCOPES)[keyof typeof AUTH_SCOPES];
@@ -40,6 +42,7 @@ export const ALL_AUTH_SCOPES: readonly KnownAuthScope[] = Object.freeze([
   AUTH_SCOPES.runsExecute,
   AUTH_SCOPES.runsRead,
   AUTH_SCOPES.tokensManage,
+  AUTH_SCOPES.approvalsDecide,
 ]);
 
 export interface AuthSubject {
