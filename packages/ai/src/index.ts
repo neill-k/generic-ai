@@ -42,4 +42,5 @@ export * from "./transform-messages.js";
 export type * from "./types.js";
 export * from "./usage.js";
 export * from "./uuid.js";
+export * from "./virtual-models.js";
 export * from "./validation.js";

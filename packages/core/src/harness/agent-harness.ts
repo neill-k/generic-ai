@@ -2,7 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { RequestAuth, StreamFn } from "@generic-ai/agent";
-import { type Model, type RetryPolicy, resolveApiKey, type ThinkingLevel } from "@generic-ai/ai";
+import {
+  createFallbackModel,
+  type Model,
+  type RetryPolicy,
+  registerVirtualModel,
+  resolveApiKey,
+  type ThinkingLevel,
+} from "@generic-ai/ai";
 import type { PromptTemplate } from "@generic-ai/resources";
 import {
   type AgentHarness,
@@ -114,6 +121,11 @@ export interface NativeAgentHarnessOptions {
    */
   readonly getAuth?: (provider: string) => Promise<RequestAuth | undefined>;
   readonly thinkingLevel?: ThinkingLevel;
+  /**
+   * Backup model references, tried in order when a role's model fails before producing output
+   * (an outage, overload or exhausted quota). Each backup resolves its own credentials.
+   */
+  readonly fallbackModels?: readonly string[];
   /** Replace the provider stream (tests, recording, proxies). */
   readonly streamFn?: StreamFn;
   /** Base system prompt for every session. Tool guidance, skills, and the working directory are appended. */
@@ -1248,8 +1260,26 @@ function createNativeSessionBackend(
     }
     return model;
   };
+  const fallbackRefs = options.fallbackModels ?? [];
+  const withFallbacks = (model: Model): Model => {
+    if (fallbackRefs.length === 0) return model;
+    const ref = `fallback/${model.provider}/${model.id}`;
+    let wrapped = modelsByRef.get(ref);
+    if (wrapped === undefined) {
+      wrapped = registerVirtualModel(
+        createFallbackModel({
+          provider: "fallback",
+          id: `${model.provider}/${model.id}`,
+          name: `${model.name} with fallbacks`,
+          models: [model, ...fallbackRefs.map(modelForRef)],
+        }),
+      ).model;
+      modelsByRef.set(ref, wrapped);
+    }
+    return wrapped;
+  };
   const modelFor = (role: AgentHarnessRole | undefined): Model =>
-    modelForRef(role?.model ?? config.model ?? DEFAULT_NATIVE_MODEL);
+    withFallbacks(modelForRef(role?.model ?? config.model ?? DEFAULT_NATIVE_MODEL));
   const apiKeyForProvider = (provider: string): string | undefined =>
     options.apiKey ?? resolveApiKey(provider) ?? readTrimmedEnv("GENERIC_AI_PROVIDER_API_KEY");
   const apiKeyFor = (model: Model): string | undefined => apiKeyForProvider(model.provider);

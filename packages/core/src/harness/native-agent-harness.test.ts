@@ -11,8 +11,11 @@ import {
   type Model,
   registerFauxProvider,
 } from "@generic-ai/ai";
-import { createMemoryToolEffectJournal, withAgentHarnessToolEffects } from "@generic-ai/sdk";
-import { defineTool } from "@generic-ai/sdk";
+import {
+  createMemoryToolEffectJournal,
+  defineTool,
+  withAgentHarnessToolEffects,
+} from "@generic-ai/sdk";
 import { Type } from "@sinclair/typebox";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -109,6 +112,31 @@ describe("native harness adapter", () => {
     expect(prompts[2]?.indexOf("Server instructions.")).toBeLessThan(
       prompts[2]?.indexOf("Workspace instructions.") ?? -1,
     );
+  });
+
+  it("moves to a fallback model when the role's model fails before any output", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-fallback-"));
+    const { provider, resolveModel } = fauxModels();
+    const answeredBy: string[] = [];
+    provider.setResponses([
+      fauxAssistantMessage("", { stopReason: "error", errorMessage: "529 overloaded" }),
+      (_context, _options, _state, model) => {
+        answeredBy.push(model.id);
+        return stop("done");
+      },
+    ]);
+    const harness = createAgentHarness(
+      { id: "native-fallback", adapter: "native", model: "faux/root-model" },
+      { native: { resolveModel, fallbackModels: ["faux/builder-model"], retry: false } },
+    );
+    const result = await harness.run({
+      instruction: "Say done",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.outputText).toBe("done");
+    expect(answeredBy).toEqual(["builder-model"]);
   });
 
   it("runs root and delegated roles on their own models with role-filtered tools", async () => {

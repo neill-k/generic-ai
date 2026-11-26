@@ -80,6 +80,7 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Anthropic Messages: streaming, thinking (adaptive and budget), signatures, redacted thinking, tool use, OAuth tokens, cache breakpoints and 1h retention, refusal mapping, cost | ✓ | `providers.test.ts` (recorded SSE through the real SDK) |
 | OpenAI Responses: reasoning summaries, encrypted reasoning replay, function calls, prompt cache key and retention | ✓ | `providers.test.ts` |
 | OpenAI-compatible Chat Completions (OpenRouter, Groq, xAI, DeepSeek, Ollama): reasoning fields, tool-call deltas, usage | ✓ | `providers.test.ts` |
+| Virtual models (a router picks the physical model and reasoning level per request), fallback models (next model when one fails before output), `native.fallbackModels` | ✓ | `virtual-models.test.ts` (pi's routing, credential and unrouted cases; session-selection cases do not apply), `native-agent-harness.test.ts` |
 | Hosted provider defaults (Cerebras, Fireworks, Together, Hugging Face, NVIDIA, Baseten, Moonshot, Kimi Coding, Z.ai, Xiaomi, MiniMax, Vercel AI Gateway, Meta) | ✓ | `hosted-providers.test.ts` (resolution and key variables; recorded request per API family) |
 | Cross-model transcript transforms, tool-call id normalisation, orphaned tool results | ✓ | `transform-messages.test.ts` |
 | Model catalog, `provider/id` refs, overrides | ✓ | `transform-messages.test.ts` |
@@ -179,7 +180,7 @@ pi (`badlogic/pi-mono`):
 | Image generation API, classifiers, deferred (batch) responses | `ai/src/images*`, `model-runtime-classifiers` | |
 | Code mode: model-written JavaScript in a QuickJS sandbox that calls tools, so nested tool results never enter the context | `codemode`, `coding-agent` `codemode-*`, `nested-tool-calls` | Closest to NOVA's "move work out of the model"; also Prime Agent's programmatic tool calling |
 | Extension provider hooks (`before_provider_request`, headers, stream events), model and thinking selection events, user bash | `extensions-runner` provider cases | |
-| Plan mode, project trust decisions for repository resources, virtual models and model fallback | `plan-mode-extension`, `trust-manager`, `virtual-models`, `model-fallback-diagnostic` | |
+| Plan mode, project trust decisions for repository resources | `plan-mode-extension`, `trust-manager` | |
 | RPC and print modes (a JSONL protocol to drive an agent from another process) | `rpc*`, `print-mode` | Generic AI's surfaces are the Hono transport and the web UI |
 | Durable harness: every turn and tool call committed before it is shown, resumed after a crash mid-turn; remote execution environments over SSH | `durable` (107 test files), `env` | Generic AI has a durable run store, queue and effect journal, but not pi's turn-level commit-and-resume |
 | Standalone MCP client with OAuth refresh and the MCP conformance suite | `mcp`, `mcp-conformance`, `mcp-oauth-*` | `plugin-mcp` uses the official SDK; OAuth for remote servers is not covered |
