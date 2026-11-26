@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-
+import type { StreamFn } from "@generic-ai/agent";
+import { type Model, type RetryPolicy, resolveApiKey, type ThinkingLevel } from "@generic-ai/ai";
+import type { PromptTemplate } from "@generic-ai/resources";
 import {
   type AgentHarness,
   type AgentHarnessAdapter,
@@ -10,23 +12,24 @@ import {
   type AgentHarnessArtifactRef,
   type AgentHarnessArtifactStore,
   type AgentHarnessArtifactWriteInput,
+  type AgentHarnessBudget,
   type AgentHarnessCapabilityEffect,
   type AgentHarnessConfig,
-  type AgentHarnessEventSink,
   type AgentHarnessEventProjection,
+  type AgentHarnessEventSink,
   type AgentHarnessEventType,
-  type AgentLifecycleHookContext,
-  type AgentLifecycleHookDecisionRecord,
-  type AgentLifecycleInProcessHookHandler,
+  type AgentHarnessHostTool,
   type AgentHarnessPolicyEvaluationInput,
   type AgentHarnessPolicyEvaluator,
   type AgentHarnessPolicyProfileId,
   type AgentHarnessRole,
-  type AgentHarnessRunInput,
   type AgentHarnessRunErrorCategory,
+  type AgentHarnessRunInput,
   type AgentHarnessRunResult,
+  type AgentLifecycleHookContext,
+  type AgentLifecycleHookDecisionRecord,
+  type AgentLifecycleInProcessHookHandler,
   type CanonicalEvent,
-  type AgentHarnessHostTool,
   createToolEffectGuard,
   getAgentHarnessToolEffects,
   goalTraceFromCanonicalEvents,
@@ -37,6 +40,8 @@ import {
   type RunEnvelope,
   type ToolEffectGuard,
   type ToolEffectJournal,
+  type UsageBudgetLimits,
+  type UsageSummary,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
@@ -47,17 +52,14 @@ import {
   SettingsManager,
   type ToolDefinition,
 } from "@generic-ai/sdk/pi";
-import { getAgentDir } from "@mariozechner/pi-coding-agent";
-import type { StreamFn } from "@generic-ai/agent";
-import { type Model, type RetryPolicy, resolveApiKey, type ThinkingLevel } from "@generic-ai/ai";
 import {
   type CompactionSettings,
   SessionManager as NativeSessionManager,
 } from "@generic-ai/session";
-import type { PromptTemplate } from "@generic-ai/resources";
+import { getAgentDir } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
-import { createCanonicalEventStream, type CanonicalEventStream } from "../events/index.js";
+import { type CanonicalEventStream, createCanonicalEventStream } from "../events/index.js";
 import {
   type CapabilityPiSessionEventContext,
   expandMcpCapabilityTools,
@@ -65,7 +67,6 @@ import {
   type PiCapabilitySessionLifecycleHooks,
   runCapabilityPiAgentSession,
 } from "../runtime/capability-runtime.js";
-import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_NATIVE_MODEL, resolveNativeModel } from "../runtime/native.js";
 import {
   expandPrompt,
@@ -73,7 +74,15 @@ import {
   type NativeSessionSubagents,
   runCapabilityNativeAgentSession,
 } from "../runtime/native-session.js";
+import type { PiRuntimeFactories } from "../runtime/pi.js";
 import { DEFAULT_OPENAI_CODEX_MODEL } from "../runtime/types.js";
+import { createUsageMeter, type UsageMeter } from "../usage/index.js";
+import {
+  type AgentLifecycleHookExecutor,
+  appendHookContext,
+  createAgentLifecycleHookExecutor,
+  wrapToolWithLifecycleHooks,
+} from "./lifecycle-hooks.js";
 import {
   secretAccessPolicyDecision,
   secretsPromptGuidance,
@@ -81,19 +90,13 @@ import {
 } from "./secrets.js";
 import {
   type HarnessTopologyRunResult,
-  resolveTopologyActorRole,
   type RunHarnessTopologyOptions,
+  resolveTopologyActorRole,
   runHarnessTopology,
   type TopologyActorInvocation,
   type TopologyActorResult,
   type TopologyActorRunner,
 } from "./topology-runner.js";
-import {
-  appendHookContext,
-  createAgentLifecycleHookExecutor,
-  type AgentLifecycleHookExecutor,
-  wrapToolWithLifecycleHooks,
-} from "./lifecycle-hooks.js";
 
 type AgentHarnessAdapterRegistry<TCapabilities, TOutput> = Readonly<
   Partial<Record<AgentHarnessAdapterKind, AgentHarnessAdapter<TCapabilities, TOutput>>>
@@ -1258,6 +1261,11 @@ export interface HarnessSessionRunOptions {
   readonly eventStream: CanonicalEventStream;
   readonly lifecycleHooks?: PiCapabilitySessionLifecycleHooks;
   readonly onSessionReady?: (context: CapabilityPiSessionEventContext) => Promise<void> | void;
+  /**
+   * The run's usage meter, shared by every session of the run. Backends that report model usage
+   * (native) route each response through it; the meter's signal is already merged into `signal`.
+   */
+  readonly usageMeter?: UsageMeter;
 }
 
 export interface HarnessSessionRunResult {
@@ -1297,7 +1305,7 @@ function createPiSessionBackend(
     kind: "pi" as const,
     label: "Pi",
     async run(runOptions: HarnessSessionRunOptions): Promise<HarnessSessionRunResult> {
-      const { role, cwd, ...rest } = runOptions;
+      const { role, cwd, usageMeter: _usageMeter, ...rest } = runOptions;
       const sessionInputs = sessionInputsFor(role);
       const piOptions = {
         ...rest,
@@ -1361,7 +1369,7 @@ function createNativeSessionBackend(
     kind: "native" as const,
     label: "native",
     async run(runOptions: HarnessSessionRunOptions): Promise<HarnessSessionRunResult> {
-      const { role, ...rest } = runOptions;
+      const { role, usageMeter, ...rest } = runOptions;
       const model = modelFor(role);
       const apiKey = apiKeyFor(model);
       const result = await runCapabilityNativeAgentSession({
@@ -1376,6 +1384,9 @@ function createNativeSessionBackend(
           : { sessionManager: NativeSessionManager.create(rest.cwd, options.sessionDir) }),
         ...(options.compaction === undefined ? {} : { compaction: options.compaction }),
         ...(options.retry === undefined ? {} : { retry: options.retry }),
+        ...(usageMeter === undefined
+          ? {}
+          : { usageMeter, usageAttribution: { roleId: role?.id ?? rest.rootAgentId } }),
         ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
         ...(subagents === undefined ? {} : { subagents }),
       });
@@ -1420,6 +1431,7 @@ async function runRoleSession(input: {
   readonly parentSessionId?: string;
   readonly recordPolicyDecisions: (decisions: readonly PolicyDecisionRecord[]) => void;
   readonly backend: HarnessSessionBackend;
+  readonly usageMeter?: UsageMeter;
 }): Promise<RoleSessionResult> {
   const { role } = input;
   const rolePolicy = policyForRole(role, false);
@@ -1486,6 +1498,7 @@ async function runRoleSession(input: {
     ...(input.parentSessionId === undefined ? {} : { parentSessionId: input.parentSessionId }),
     ...(input.signal === undefined ? {} : { signal: input.signal }),
     eventStream: input.eventStream,
+    ...(input.usageMeter === undefined ? {} : { usageMeter: input.usageMeter }),
     ...(roleLifecycleHooks === undefined ? {} : { lifecycleHooks: roleLifecycleHooks }),
     onSessionReady: async (context: CapabilityPiSessionEventContext) => {
       await observePermissionDecisions({
@@ -1533,6 +1546,7 @@ function createDelegateTool(input: {
   readonly getRootSessionId: () => string | undefined;
   readonly recordPolicyDecisions: (decisions: readonly PolicyDecisionRecord[]) => void;
   readonly backend: HarnessSessionBackend;
+  readonly usageMeter?: UsageMeter;
 }): ToolDefinition {
   const rolesById = new Map(input.roles.map((role) => [role.id, role]));
 
@@ -1613,6 +1627,7 @@ function createDelegateTool(input: {
           rootSessionId,
           parentSessionId: rootSessionId,
           recordPolicyDecisions: input.recordPolicyDecisions,
+          ...(input.usageMeter === undefined ? {} : { usageMeter: input.usageMeter }),
         });
         const outputText = roleResult.outputText;
 
@@ -2034,12 +2049,20 @@ function createSessionAgentHarnessAdapter(
           errorCategory: "deadline_exceeded",
         });
       }
-      const runSignal = createDeadlineSignal(context);
       const secrets = input.capabilities?.secrets;
       await secrets?.prepare();
       const eventStream = createCanonicalEventStream({
         ...(input.actor === undefined ? {} : { actor: input.actor }),
         ...(secrets === undefined ? {} : { redactData: (data) => secrets.redact(data) }),
+      });
+      const budget = context.budget ?? input.budget;
+      const usageMeter = createUsageMeter({
+        eventStream,
+        ...(budget === undefined ? {} : { budget: usageBudgetLimits(budget) }),
+      });
+      const runSignal = createDeadlineSignal({
+        signal: withUsageSignal(context.signal, usageMeter),
+        ...(context.deadline === undefined ? {} : { deadline: context.deadline }),
       });
       const hookExecutor = createAgentLifecycleHookExecutor(input.hooks ?? input.harness.hooks, {
         eventStream,
@@ -2116,6 +2139,7 @@ function createSessionAgentHarnessAdapter(
                       policyDecisions.push(...decisions);
                     },
                     backend,
+                    usageMeter,
                   }),
                 ]),
           ],
@@ -2176,6 +2200,7 @@ function createSessionAgentHarnessAdapter(
           rootAgentId,
           ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
           eventStream,
+          usageMeter,
           ...(rootLifecycleHooks === undefined ? {} : { lifecycleHooks: rootLifecycleHooks }),
           onSessionReady: async (context) => {
             rootRuntimeSessionId = context.sessionId;
@@ -2203,7 +2228,10 @@ function createSessionAgentHarnessAdapter(
         secrets === undefined ? result.outputText : secrets.redactText(result.outputText);
       const events = result.events;
       const projections = Object.freeze(events.map(projectEvent));
-      const status = result.failureMessage === undefined ? "succeeded" : "failed";
+      const budgetStop = usageMeter.exceeded;
+      const failureMessage = budgetStop?.message ?? result.failureMessage;
+      const status = failureMessage === undefined ? "succeeded" : "failed";
+      const usage = usageMeter.summary();
       const finalPolicyDecisions = Object.freeze([...policyDecisions]);
       const hookDecisions = hookExecutor.snapshot();
       const summary = jsonObject({
@@ -2215,6 +2243,9 @@ function createSessionAgentHarnessAdapter(
         projectionCount: projections.length,
         policyDecisionCount: finalPolicyDecisions.length,
         hookDecisionCount: hookDecisions.length,
+        ...(usage.totals.responses === 0
+          ? {}
+          : { totalTokens: usage.totals.totalTokens, costUsd: usage.totals.costUsd }),
       });
       const artifacts = await writeHarnessArtifacts({
         artifactStore: context.artifacts,
@@ -2247,10 +2278,25 @@ function createSessionAgentHarnessAdapter(
         artifacts,
         policyDecisions: finalPolicyDecisions,
         hookDecisions,
-        ...(result.failureMessage === undefined ? {} : { failureMessage: result.failureMessage }),
+        ...(usage.totals.responses === 0 ? {} : { usage }),
+        ...(failureMessage === undefined ? {} : { failureMessage }),
+        ...(budgetStop === undefined ? {} : { errorCategory: "budget_exceeded" as const }),
       });
     },
   });
+}
+
+/** The caller's signal combined with the meter's, so a reached cap stops the run like a cancel. */
+function withUsageSignal(signal: AbortSignal | undefined, meter: UsageMeter): AbortSignal {
+  return signal === undefined ? meter.signal : AbortSignal.any([signal, meter.signal]);
+}
+
+/** The token and dollar caps of a harness budget; tool-call and wall-time caps are enforced elsewhere. */
+function usageBudgetLimits(budget: AgentHarnessBudget): UsageBudgetLimits {
+  return {
+    ...(budget.maxTokens === undefined ? {} : { maxTokens: budget.maxTokens }),
+    ...(budget.maxCostUsd === undefined ? {} : { maxCostUsd: budget.maxCostUsd }),
+  };
 }
 
 export async function runAgentHarness(
@@ -2283,6 +2329,11 @@ export interface RunAgentHarnessTopologyOptions
   /** Journal for outward tool calls, shared by every role session in the topology (ADR 0059). */
   readonly effectJournal?: ToolEffectJournal;
   /**
+   * Token and dollar caps for the whole topology run, shared by every actor session. When a cap is
+   * reached the running sessions stop, the run fails with `budget_exceeded`, and no new actions start.
+   */
+  readonly budget?: AgentHarnessBudget;
+  /**
    * Replace the role-session runner, for example to route some actors to an
    * external runtime. The replacement still gets the scheduler's retries,
    * concurrency, budgets, and trace.
@@ -2293,6 +2344,8 @@ export interface RunAgentHarnessTopologyOptions
 export interface AgentHarnessTopologyRunResult extends HarnessTopologyRunResult {
   readonly projections: readonly AgentHarnessEventProjection[];
   readonly hookDecisions: readonly AgentLifecycleHookDecisionRecord[];
+  /** Model usage of every actor session, when the backend meters it (native does). */
+  readonly usage?: UsageSummary;
 }
 
 /**
@@ -2351,8 +2404,17 @@ export async function runAgentHarnessTopology(
         join(options.workspaceRoot, ".generic-ai", "artifacts", runId),
     ),
   });
+  const usageMeter = createUsageMeter({
+    eventStream,
+    ...(options.budget === undefined ? {} : { budget: usageBudgetLimits(options.budget) }),
+  });
+  const goalId = options.goal?.spec.id;
+  if (goalId !== undefined) {
+    // Every actor's spend counts toward the goal, so the result reports tokens per completed goal.
+    usageMeter.ledger.assignRunToGoal(runId, goalId);
+  }
   const runSignal = createDeadlineSignal({
-    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    signal: withUsageSignal(options.signal, usageMeter),
     ...(options.deadline === undefined ? {} : { deadline: new Date(options.deadline) }),
   });
   const backend =
@@ -2429,6 +2491,7 @@ export async function runAgentHarnessTopology(
         recordPolicyDecisions: (decisions) => {
           policyDecisions.push(...decisions);
         },
+        usageMeter,
       });
     } catch (error) {
       const failureMessage = error instanceof Error ? error.message : String(error);
@@ -2452,17 +2515,23 @@ export async function runAgentHarnessTopology(
           : { failureMessage: roleResult.failureMessage }),
       },
     });
+    const sessionUsage = usageMeter
+      .summary()
+      .byAgent.find((entry) => entry.runId === runId && entry.agentId === roleResult.sessionId);
     return {
       status,
       outputText: roleResult.outputText,
       ...(roleResult.failureMessage === undefined
         ? {}
         : { failureMessage: roleResult.failureMessage }),
+      ...(sessionUsage === undefined || sessionUsage.totals.responses === 0
+        ? {}
+        : { costUsd: sessionUsage.totals.costUsd }),
     };
   };
 
   const rest = options;
-  const topology = await runHarnessTopology({
+  const topologyResult = await runHarnessTopology({
     compiled: rest.compiled,
     instruction: rest.instruction,
     runId,
@@ -2490,6 +2559,29 @@ export async function runAgentHarnessTopology(
   }).finally(() => {
     runSignal.cleanup();
   });
+  const budgetStop = usageMeter.exceeded;
+  if (goalId !== undefined) {
+    usageMeter.ledger.setGoalOutcome(
+      goalId,
+      budgetStop !== undefined
+        ? "failed"
+        : topologyResult.status === "succeeded"
+          ? "completed"
+          : topologyResult.status === "cancelled"
+            ? "cancelled"
+            : "failed",
+    );
+  }
+  const usage = usageMeter.summary();
+  const topology: HarnessTopologyRunResult =
+    budgetStop === undefined
+      ? topologyResult
+      : {
+          ...topologyResult,
+          status: "failed",
+          failureMessage: budgetStop.message,
+          errorCategory: "budget_exceeded",
+        };
 
   policyDecisions.push(...topology.policyDecisions);
   const finalPolicyDecisions = Object.freeze([...policyDecisions]);
@@ -2558,5 +2650,6 @@ export async function runAgentHarnessTopology(
     policyDecisions: finalPolicyDecisions,
     hookDecisions,
     artifacts: Object.freeze([...topology.artifacts, ...topologyArtifacts, ...harnessArtifacts]),
+    ...(usage.totals.responses === 0 ? {} : { usage }),
   });
 }
