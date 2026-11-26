@@ -1,0 +1,71 @@
+name: package-pack-check
+
+# Packs every public package, installs the tarballs into an empty project and runs the consumer
+# smoke scripts (npm run release:check). It costs a full install and build, so it runs only when
+# something that shapes the published packages changes, not on every pull request. The release
+# workflow runs the same check again before any publish.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "package.json"
+      - "packages/*/package.json"
+      - ".changeset/config.json"
+      - "scripts/check-pack.mjs"
+      - "scripts/pack-smoke/**"
+      - "scripts/package-metadata.mjs"
+      - "scripts/release-publish.mjs"
+      - ".github/workflows/package-pack-check.yml"
+      - ".github/workflows/release.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "package.json"
+      - "packages/*/package.json"
+      - ".changeset/config.json"
+      - "scripts/check-pack.mjs"
+      - "scripts/pack-smoke/**"
+      - "scripts/package-metadata.mjs"
+      - "scripts/release-publish.mjs"
+      - ".github/workflows/package-pack-check.yml"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-pack-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+
+jobs:
+  package-pack-check:
+    name: package-pack-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Use pinned npm
+        run: npm install --global npm@11.12.1
+
+      - name: Install workspace dependencies
+        run: npm ci
+
+      - name: Build project references
+        run: npm run build
+
+      - name: Packed tarballs install and work in a clean project
+        run: npm run release:check

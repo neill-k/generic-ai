@@ -31,5 +31,22 @@
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neill-k/generic-ai.git",
+    "directory": "packages/subagents"
+  },
+  "homepage": "https://github.com/neill-k/generic-ai/tree/main/packages/subagents#readme",
+  "bugs": {
+    "url": "https://github.com/neill-k/generic-ai/issues"
+  },
+  "keywords": [
+    "generic-ai",
+    "ai-agents",
+    "multi-agent"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
   }
 }

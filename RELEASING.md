@@ -82,216 +82,172 @@ Every package in this repo is explicitly classified.
 
 ### Public (published to npm)
 
-All packages under `packages/*` are public, published to npm under the
-`@generic-ai/` scope, and carry:
+All packages under `packages/*` are public and published under the `@generic-ai/` scope. Each one
+carries the same publishing metadata, kept in line by `scripts/package-metadata.mjs` (run by
+`npm run lint`; `npm run package:metadata` fixes drift):
 
-- `"private": false` in their `package.json`,
-- `"publishConfig": { "access": "public", "provenance": true }` to force
-  public access for a scoped package and to request npm provenance
-  attestations when published from a trusted CI environment.
+- `"private": false` and `"publishConfig": { "access": "public", "provenance": true }`,
+- `license: MIT` and a `LICENSE` file in the package folder (npm always packs it),
+- `repository` (with `directory`), `homepage`, `bugs`, `keywords` and `engines.node >= 24`,
+- an `exports` map. Packages that had only `main`/`types` got a single `"."` entry plus
+  `"./package.json"`, so consumers cannot reach into private files.
 
-The complete public list:
+The 38 public packages:
 
-| Package                               | Role                                        |
-| ------------------------------------- | ------------------------------------------- |
-| `@generic-ai/core`                    | kernel                                      |
-| `@generic-ai/observability`           | local observability surface                 |
-| `@generic-ai/sdk`                     | framework-facing SDK contracts              |
-| `@generic-ai/preset-starter-hono`     | default starter preset                      |
-| `@generic-ai/plugin-config-yaml`      | canonical YAML config plugin                |
-| `@generic-ai/plugin-workspace-fs`     | local filesystem workspace services         |
-| `@generic-ai/plugin-storage-memory`   | in-memory storage                           |
-| `@generic-ai/plugin-storage-sqlite`   | SQLite-backed storage                       |
-| `@generic-ai/plugin-queue-memory`     | in-process queue                            |
-| `@generic-ai/plugin-logging-otel`     | logging and OTEL tracing                    |
-| `@generic-ai/plugin-tools-terminal`   | local terminal tool                         |
-| `@generic-ai/plugin-tools-terminal-sandbox` | sandboxed terminal tool                     |
-| `@generic-ai/plugin-tools-files`      | local file tools                            |
-| `@generic-ai/plugin-tools-documents`  | document read and write tools               |
-| `@generic-ai/plugin-tools-web`        | web fetch and search tools                  |
-| `@generic-ai/plugin-repo-map`         | repository map and orientation tools        |
-| `@generic-ai/plugin-lsp`              | stdio LSP client tools                      |
-| `@generic-ai/plugin-mcp`              | embedded MCP plugin                         |
-| `@generic-ai/plugin-agent-skills`     | Agent Skills compatibility plugin           |
-| `@generic-ai/plugin-delegation`       | delegation business-model plugin            |
-| `@generic-ai/plugin-approvals`        | owner approvals for outward actions         |
-| `@generic-ai/plugin-interaction`      | user-question and task-tracking tools       |
-| `@generic-ai/plugin-messaging`        | durable storage-backed messaging            |
-| `@generic-ai/plugin-memory-files`     | file-backed persistent memory               |
-| `@generic-ai/plugin-output-default`   | default output and finalization plugin      |
-| `@generic-ai/plugin-lsp`              | LSP client tools for harness runs           |
-| `@generic-ai/plugin-repo-map`         | deterministic repository maps and orientation |
-| `@generic-ai/plugin-web-ui`            | local-first web console plugin                |
-| `@generic-ai/observability`           | local-first observability surface           |
-| `@generic-ai/plugin-hono`             | official Hono integration plugin            |
-| `@generic-ai/plugin-web-ui`           | local-first web console plugin              |
+| Package | Role |
+| --- | --- |
+| `@generic-ai/agent` | native agent loop |
+| `@generic-ai/ai` | provider-neutral model layer |
+| `@generic-ai/autonomy` | long-running goals and autonomous mode |
+| `@generic-ai/core` | kernel |
+| `@generic-ai/extensions` | native runtime extensions and hooks |
+| `@generic-ai/observability` | local observability surface |
+| `@generic-ai/plugin-agent-skills` | Agent Skills compatibility |
+| `@generic-ai/plugin-approvals` | owner approvals for outward actions |
+| `@generic-ai/plugin-auth-identity` | single-owner auth and API tokens |
+| `@generic-ai/plugin-config-yaml` | canonical YAML config |
+| `@generic-ai/plugin-delegation` | durable delegation cascade |
+| `@generic-ai/plugin-hono` | Hono integration |
+| `@generic-ai/plugin-interaction` | user questions and task tracking |
+| `@generic-ai/plugin-logging-otel` | logging and OTEL tracing |
+| `@generic-ai/plugin-lsp` | LSP client tools |
+| `@generic-ai/plugin-mcp` | MCP client |
+| `@generic-ai/plugin-memory-files` | file-backed memory |
+| `@generic-ai/plugin-messaging` | durable inter-agent messaging |
+| `@generic-ai/plugin-output-default` | default output and finalization |
+| `@generic-ai/plugin-queue-memory` | in-process queue |
+| `@generic-ai/plugin-repo-map` | repository maps |
+| `@generic-ai/plugin-secrets` | secrets vault and grants |
+| `@generic-ai/plugin-storage-memory` | in-memory storage |
+| `@generic-ai/plugin-storage-postgres` | Postgres storage, run store and queue |
+| `@generic-ai/plugin-storage-sqlite` | SQLite storage, run store and queue |
+| `@generic-ai/plugin-tools-documents` | document read and write tools |
+| `@generic-ai/plugin-tools-files` | file tools |
+| `@generic-ai/plugin-tools-terminal` | terminal tool |
+| `@generic-ai/plugin-tools-terminal-sandbox` | Docker sandbox terminal tool |
+| `@generic-ai/plugin-tools-web` | web fetch and search tools |
+| `@generic-ai/plugin-web-ui` | web console |
+| `@generic-ai/plugin-workspace-fs` | filesystem workspace services |
+| `@generic-ai/preset-starter-hono` | default starter preset |
+| `@generic-ai/resources` | skills and prompt templates |
+| `@generic-ai/sdk` | contracts plugins compile against |
+| `@generic-ai/session` | sessions, compaction and retry |
+| `@generic-ai/subagents` | subagents and agent messaging |
+| `@generic-ai/tools` | native coding tools |
 
 ### Internal (never published)
 
-- The root monorepo `package.json` (`@generic-ai/monorepo`) is marked
-  `"private": true`. It is the workspace container; it must never be
-  published.
-- `examples/starter-hono/` (`@generic-ai/example-starter-hono`) is marked
-  `"private": true`. It is a runnable reference example, not a published
-  package. It is also listed in the `ignore` array of
-  [`.changeset/config.json`](.changeset/config.json) as a belt-and-braces
-  measure so changesets never considers it for versioning or publishing.
-  Future examples added under `examples/*` should follow the same pattern.
-- `contracts/` and `specs/` are top-level directories, not workspaces, and
-  are not part of the npm publish surface.
+- The root `package.json` (`@generic-ai/monorepo`) is `"private": true`.
+- Everything under `apps/*` (the Generic Corp app) and `examples/*` is `"private": true` and listed
+  in the `ignore` array of [`.changeset/config.json`](.changeset/config.json). The pack check fails
+  if a workspace outside `packages/` is not private, or if a public package depends on a private one.
+- `contracts/` and `specs/` are not workspaces and are not published.
 
-If a new workspace is added under `packages/*`, it is public by default and
-must carry the `publishConfig` block above. If a new workspace is added under
-`examples/*`, it is private by default and must be listed in the changesets
-`ignore` array.
+A new workspace under `packages/*` is public by default: run `npm run package:metadata` to give it
+the metadata above. A new workspace under `examples/*` or `apps/*` must be private and added to the
+changesets `ignore` array.
+
+## Checking the packages before a release
+
+`npm run release:check` (after `npm run build`) proves the packages work the way an outside user
+gets them, not through workspace links. To keep CI minutes down it does not run on every pull
+request: the `package-pack-check` workflow runs it when a package manifest, the changesets config
+or the release tooling changes (on pull requests and on `main`), and the `release` workflow runs
+it before any publish. It can also be started by hand from the Actions tab.
+
+1. Static checks: name, version, license, `publishConfig`, `repository.directory`, `engines`,
+   `exports`, `files`, and that no public package depends on a private workspace or uses a
+   `workspace:`/`file:` spec.
+2. `npm pack` for every public package, then checks each tarball: the files `main`, `types` and
+   `exports` point at are present, `LICENSE` and `README.md` are present, and no source folders,
+   tests, tsconfig or build info leak in.
+3. A plain `npm install` of all tarballs into an empty project (third-party dependencies come from
+   the registry).
+4. Every export subpath of every package is imported in Node.
+5. One TypeScript file importing every subpath typechecks under `NodeNext` resolution.
+6. The consumer smoke scripts in `scripts/pack-smoke/` run against the installed packages. Today
+   that is a small multi-agent run with no model key: a lead agent spawns a subagent through
+   `@generic-ai/subagents`, collects its answer and replies.
+
+`node scripts/check-pack.mjs --static` runs only step 1; `--keep` keeps the temporary project.
 
 ## How to create a changeset
 
-Any pull request that changes a file in `packages/*` in a way that affects a
-published package's shape or behavior must include a changeset. The recipe:
+Any pull request that changes a published package's shape or behavior must include a changeset:
 
 ```bash
 npm run changeset
 ```
 
-The interactive CLI will:
+Pick the affected packages, the bump type for each (MAJOR / MINOR / PATCH as defined above) and a
+one- or two-sentence summary for the changelog. Commit the generated file under `.changeset/`.
+Changes outside `packages/*` need no changeset. `npm run changeset:status` shows what is pending.
 
-1. Ask which packages are affected (multi-select).
-2. Ask for the bump type (`patch`, `minor`, or `major`) for each selected
-   package, following the MAJOR / MINOR / PATCH definitions above.
-3. Ask for a one- to two-sentence summary that will end up in the generated
-   `CHANGELOG.md` for each affected package.
-
-The result is a new Markdown file under `.changeset/`. Commit it alongside
-the code change. Multiple changesets can accumulate between releases; the
-next `changeset version` run consolidates them into version bumps and
-per-package changelog entries.
-
-If your change touches only files outside `packages/*` (for example,
-documentation under `docs/`, the reference example under `examples/`, or
-this file), no changeset is needed.
-
-To verify the current pending state without creating anything, run:
-
-```bash
-npm run changeset:status
-```
-
-This prints the set of packages that are pending release, grouped by bump
-type. Zero pending is a valid steady state.
+The first release is pinned by `.changeset/first-npm-release.md`, a `minor` bump for every public
+package, so all of them go from `0.0.0` to `0.1.0` together the first time.
 
 ## How releases are cut
 
-Generic AI uses the two-phase changesets release flow. In the steady state
-(once release automation has been wired on top of the baseline CI gate), the
-flow is:
+Releases run only from the `release` workflow
+([`.github/workflows/release.yml`](.github/workflows/release.yml)). It has no push or schedule
+trigger: someone starts it from the Actions tab and picks a mode.
 
-1. Contributors merge PRs that include changesets. Each merge lands the
-   changeset file in `main` alongside the code change.
-2. The changesets GitHub Action watches `main`. When it sees any pending
-   changesets, it opens a "Version Packages" pull request that:
-   - runs `changeset version`,
-   - bumps affected packages,
-   - rewrites internal dependency ranges,
-   - regenerates each package's `CHANGELOG.md`,
-   - updates `package-lock.json`.
-3. A maintainer reviews and merges the Version Packages PR.
-4. On merge, the changesets Action runs `changeset publish`, which publishes
-   every package whose version is newer than what is already on npm. With
-   OIDC configured, the publish runs with npm provenance attached.
-5. The Action creates git tags for the published versions.
+| Mode | What it does | Needs |
+| --- | --- | --- |
+| `check` | Full quality gate, `release:check`, pending changesets, and a publish dry run (`npm publish --dry-run` for every version not on npm yet). Publishes nothing. | nothing |
+| `version` | Runs the checks, then opens or updates the "Version packages" pull request: `changeset version` bumps versions, rewrites internal ranges, writes each `CHANGELOG.md` and updates the lockfile. | "Allow GitHub Actions to create and approve pull requests" in Settings > Actions > General |
+| `publish` | Runs the checks, then `changeset publish` for every version not on npm yet, with provenance, and pushes the git tags. | run from `main`, the confirm box set to `publish`, and npm credentials |
 
-The repo has baseline pull-request CI, but it does not yet have an automated
-release workflow that versions packages, publishes with provenance, and opens
-or merges the generated changeset PR. Releases are manual, and the repo owner
-is responsible for every release.
+Without npm credentials, without `publish` in the confirm box, or off `main`, the publish job
+writes a notice saying why and stops with success. Nothing is published.
 
-### Manual release path (until release automation lands)
+The normal cycle:
 
-Only the repo owner runs releases. The manual path:
+1. Pull requests merge with their changesets.
+2. Run `release` in `version` mode and merge the "Version packages" pull request it opens.
+3. Run `release` in `publish` mode from `main` with `publish` in the confirm box.
 
-```bash
-# 1. Ensure main is clean, pulled, and the quality gate is green.
-git checkout main
-git pull --ff-only
-npm install
-npm run typecheck
-npm run lint
-npm run test
-npm run build
-npm run docs:check
+`npm run release:list` shows which package versions are not on npm yet; `npm run release:dry-run`
+also dry-runs their publish. Neither publishes anything. Generic AI does not publish from laptops.
 
-# 2. Apply pending changesets.
-npm run changeset:version
+## Before the first publish (owner checklist)
 
-# 3. Review the result: package.json versions, CHANGELOG.md entries, and
-# the updated package-lock.json. Commit the version bump to main.
-git add -A
-git commit -m "chore(release): version packages"
-git push
+These need the repo owner's own npm account and cannot be done by an agent:
 
-# 4. Publish to npm. This runs `npm run build` first and then
-# `changeset publish`, which pushes to the npm registry for every package
-# whose local version is ahead of the registry.
-#
-# IMPORTANT: `publishConfig.provenance: true` is set on every public
-# package, so a local `npm publish` without OIDC credentials will fail
-# with "--provenance is not supported outside of a trusted CI environment".
-# This is intentional: Generic AI does not publish from laptops. The
-# manual path is only usable from a machine that has OIDC configured.
-npm run changeset:publish
-
-# 5. Tag the release in git (changesets publish does not tag by default
-# in the manual path).
-git tag -a "v$(date +%Y.%m.%d)" -m "Release $(date +%Y-%m-%d)"
-git push --tags
-```
-
-The manual path is a stopgap. The intent is that a dedicated release workflow
-eventually runs the publish step from trusted CI.
+1. **Claim the scope.** Create the npm organization `generic-ai` (free for public packages) at
+   npmjs.com, owned by the maintainer's npm account. On 2026-11-26 the registry had no
+   `@generic-ai` organization and no packages under the scope. If the name is taken, every package
+   name has to change before publishing.
+2. **Give CI credentials**, one of:
+   - **First publish:** a granular access token with read and write access to the `@generic-ai`
+     scope (and "bypass 2FA" for automation), saved as the repository secret **`NPM_TOKEN`**.
+   - **After the first publish (preferred):** on npmjs.com, add a trusted publisher to each package
+     (GitHub Actions, repository `neill-k/generic-ai`, workflow `release.yml`, environment
+     `npm-publish`), set the repository variable **`NPM_TRUSTED_PUBLISHING=true`**, then delete the
+     `NPM_TOKEN` secret and revoke the token.
+3. **Optional last gate:** in Settings > Environments > `npm-publish`, add yourself as a required
+   reviewer so every publish waits for a click.
+4. Run `release` in `check` mode and read the dry-run output, then `version`, then `publish`.
 
 ## npm provenance
 
-All public packages declare `"publishConfig": { "provenance": true }`. This
-flag asks npm to attach a provenance attestation to every published tarball.
-Provenance binds the tarball to a specific git commit, a specific CI job, and
-a specific build environment, using Sigstore's public transparency log. It
-lets downstream consumers verify that a given npm package came from this
-repo's CI, not from a compromised developer laptop.
+All public packages declare `"publishConfig": { "provenance": true }`, and the publish job grants
+`id-token: write`. npm attaches a Sigstore provenance attestation that ties each tarball to the
+commit and workflow run that built it. A `npm publish` from a laptop fails with "provenance is not
+supported outside of a trusted CI environment", which is intended. It needs npm 11.5.1 or later
+(the repo pins `npm@11.12.1`) and a GitHub-hosted runner.
 
-### Prerequisites
+## Deprecation policy
 
-Provenance is a CI-only feature. It requires:
-
-- npm CLI >= 11.5.1 (the repo's `packageManager` pin of `npm@11.12.1`
-  already satisfies this).
-- Node >= 22.14.0 (the repo's `engines.node` pin of `>=24.0.0` already
-  satisfies this).
-- The publish command running inside a supported CI environment. In April
-  2026 that means GitHub Actions or GitLab CI, on a cloud-hosted runner.
-- OIDC trusted publishing configured on the npm side: the `@generic-ai`
-  scope must be configured on npm to trust the GitHub repository and the
-  specific workflow path that runs `changeset publish`.
-- The GitHub Actions workflow must grant `permissions: { id-token: write }`
-  on the publish job so the runner can obtain an OIDC token.
-
-**What this means locally.** A developer running `npm publish` on their
-laptop will hit "--provenance is not supported outside of a trusted CI
-environment" and the publish will fail loudly. That is the intent: releases
-are never cut from laptops, only from CI.
-
-**What release automation owns.** A future release workflow configures:
-
-- the GitHub Actions workflow that runs `changeset publish` on merge to
-  `main`,
-- `permissions: { id-token: write }` on the publish job,
-- the npm trusted-publisher binding for the `@generic-ai` scope,
-- secret rotation policy for any fallback `NPM_TOKEN` (ideally: none, because
-  OIDC replaces it).
-
-Until release automation lands, provenance is effectively "declared intent,
-not enforced." The `publishConfig` block is still worth committing because
-it fails fast and safely the moment someone tries to publish from a laptop.
+- Before 1.0, a MINOR bump may break a public API. The changeset must say what broke and how to
+  migrate. After 1.0, breaking changes need a MAJOR bump.
+- A public export that is going away is first marked `@deprecated` in its TSDoc, with the
+  replacement, for at least one MINOR release before removal.
+- A whole package that is retired gets a final release whose README points at the replacement,
+  then `npm deprecate "@generic-ai/<name>@*" "<message>"`. Published versions are never
+  unpublished; a broken release is fixed by publishing a new version and deprecating the bad one
+  with `npm deprecate "@generic-ai/<name>@<version>" "<reason>"`.
+- Node support follows `engines.node`. Raising the minimum Node major is a breaking change.
 
 ## Changelog policy
 
@@ -335,10 +291,9 @@ them:
 - `beta` — feature-complete work that is waiting for final QA before
   becoming `latest`.
 
-Pre-release channels are explicitly **not** used during the scaffolding
-epics. Every package is pinned to `0.0.0` until the kernel and SDK
-contracts land in Epic 1 (`KRN-*`). The first real publish will be a
-`0.1.0` release cut from `main` after the Epic 1 contracts stabilize.
+Pre-release channels are not used yet. The first real publish is `0.1.0` for every public package
+(see "How to create a changeset"), cut from `main` once the native runtime is the default and
+pi is removed. Until then the release workflow can be run in `check` mode at any time.
 
 ## Related planning and decision records
 
@@ -349,6 +304,6 @@ contracts land in Epic 1 (`KRN-*`). The first real publish will be a
 - Release and publishing conventions (this document's source of truth):
   [`docs/decisions/0003-release-and-publishing.md`](docs/decisions/0003-release-and-publishing.md)
 - Baseline CI and branch-control gates: [`docs/branch-protection.md`](docs/branch-protection.md) and [`docs/ci-and-branch-control.md`](docs/ci-and-branch-control.md)
-- Release automation (blocks full release automation): `CTL-02`
+- Release automation: [`.github/workflows/release.yml`](.github/workflows/release.yml) (`CTL-02`, roadmap R21)
 - Release manager formalization and hotfix policy: `CTL-03`
 - Security and software-supply-chain controls: `CTL-06`
