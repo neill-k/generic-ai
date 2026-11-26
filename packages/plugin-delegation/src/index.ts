@@ -18,3 +18,4 @@ export * from "./tasks.js";
 
 export const name = "@generic-ai/plugin-delegation" as const;
 export const kind = "delegation" as const;
+export * from "./goals.js";

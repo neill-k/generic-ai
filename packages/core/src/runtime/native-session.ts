@@ -1,7 +1,17 @@
 import { randomUUID } from "node:crypto";
 
 import { Agent, type AgentEvent, type AgentTool, type StreamFn } from "@generic-ai/agent";
-import type { AssistantMessage, Model, ThinkingLevel } from "@generic-ai/ai";
+import type { AssistantMessage, Model, RetryPolicy, ThinkingLevel } from "@generic-ai/ai";
+import {
+  type CompactionSettings,
+  compactIfNeeded,
+  convertToLlm,
+  DEFAULT_RETRY_POLICY,
+  persistAgentMessages,
+  restoreAgentContext,
+  runWithRetry,
+  SessionManager,
+} from "@generic-ai/session";
 import type { RunEnvelope, RunEnvelopeMode } from "@generic-ai/sdk";
 
 import {
@@ -56,10 +66,22 @@ export interface RunCapabilityNativeAgentSessionOptions {
   readonly eventStream?: CanonicalEventStream;
   readonly onSessionReady?: (context: CapabilityPiSessionEventContext) => Promise<void> | void;
   readonly lifecycleHooks?: PiCapabilitySessionLifecycleHooks;
+  /**
+   * Where the conversation is recorded. Pass a file-backed manager (`SessionManager.create`,
+   * `SessionManager.open`) to persist and resume it; an existing session's context is loaded before
+   * the prompt. Defaults to an in-memory session.
+   */
+  readonly sessionManager?: SessionManager;
+  /** Auto-compaction before each prompt when the context nears the model's window. `false` turns it off. */
+  readonly compaction?: Partial<CompactionSettings> | false;
+  /** Retry on transient provider errors. Defaults to three retries with exponential backoff; `false` turns it off. */
+  readonly retry?: RetryPolicy | false;
 }
 
 export interface RunCapabilityNativeAgentSessionResult {
   readonly sessionId: string;
+  /** The session's JSONL file, when the session manager persists to disk. */
+  readonly sessionFile?: string;
   readonly model: Model;
   readonly messages: readonly unknown[];
   readonly toolRegistry: PiCapabilityToolRegistry;
@@ -199,7 +221,8 @@ export async function runCapabilityNativeAgentSession(
       ? {}
       : { skillsPrompt: toolRegistry.skillSnapshot.prompt }),
   });
-  const sessionId = randomUUID();
+  const sessionManager = options.sessionManager ?? SessionManager.inMemory(options.cwd);
+  const sessionId = sessionManager.getSessionId();
   const apiKey = options.apiKey?.trim();
   const agent = new Agent({
     initialState: {
@@ -209,9 +232,14 @@ export async function runCapabilityNativeAgentSession(
       ...(options.thinkingLevel === undefined ? {} : { thinkingLevel: options.thinkingLevel }),
     },
     sessionId,
+    convertToLlm,
     ...(options.streamFn === undefined ? {} : { streamFn: options.streamFn }),
     ...(apiKey === undefined || apiKey.length === 0 ? {} : { getApiKey: () => apiKey }),
   });
+
+  restoreAgentContext(agent, sessionManager);
+  const stopPersisting = persistAgentMessages(agent, sessionManager);
+  const retryPolicy = options.retry === false ? undefined : (options.retry ?? DEFAULT_RETRY_POLICY);
 
   const runId = options.runId ?? randomUUID();
   const scopeId = options.rootScopeId ?? "scope/root";
@@ -256,8 +284,44 @@ export async function runCapabilityNativeAgentSession(
   const abort = () => agent.abort();
   options.signal?.addEventListener("abort", abort, { once: true });
 
+  const emitRuntimeEvent = (type: string, data: Record<string, unknown>) =>
+    eventStream.emit(
+      createPluginEvent(NATIVE_RUNTIME_EVENT_PLUGIN_ID, `native.${type}`, {
+        ...eventContext,
+        origin: { subsystem: "native-session" },
+        data: { type, ...data },
+      }),
+    );
+
   const runPrompt = async (text: string) => {
-    await agent.prompt(text);
+    if (options.compaction !== false) {
+      const compaction = await compactIfNeeded(agent, sessionManager, {
+        model: options.model,
+        settings: options.compaction,
+        apiKey,
+        streamFn: options.streamFn,
+        signal: options.signal,
+        retry: retryPolicy,
+      });
+      if (compaction !== undefined) {
+        await emitRuntimeEvent("compaction", {
+          tokensBefore: compaction.tokensBefore,
+          firstKeptEntryId: compaction.firstKeptEntryId,
+        });
+      }
+    }
+    await runWithRetry(agent, () => agent.prompt(text), {
+      policy: retryPolicy ?? { enabled: false, maxRetries: 0, baseDelayMs: 0 },
+      signal: options.signal,
+      onRetry: async (notice) => {
+        await emitRuntimeEvent("retry", {
+          attempt: notice.attempt,
+          maxRetries: notice.maxRetries,
+          delayMs: notice.delayMs,
+          errorMessage: notice.errorMessage,
+        });
+      },
+    });
     const last = latestAssistant(agent.state.messages);
     if (options.signal?.aborted || last?.stopReason === "aborted") {
       throw options.signal?.reason instanceof Error
@@ -275,6 +339,7 @@ export async function runCapabilityNativeAgentSession(
     readonly terminalStatus?: StopAndRespondState["status"];
   }): Promise<RunCapabilityNativeAgentSessionResult> => {
     unsubscribe();
+    stopPersisting();
     options.signal?.removeEventListener("abort", abort);
     await forwarder;
     const messageCount = agent.state.messages.length;
@@ -301,8 +366,10 @@ export async function runCapabilityNativeAgentSession(
     });
     const events = eventStream.snapshot();
     const lastSequence = events.at(-1)?.sequence;
+    const sessionFile = sessionManager.getSessionFile();
     return Object.freeze({
       sessionId,
+      ...(sessionFile === undefined ? {} : { sessionFile }),
       model: options.model,
       messages: Object.freeze([...agent.state.messages]),
       toolRegistry,
