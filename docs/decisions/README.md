@@ -65,6 +65,7 @@ ADRs must be written when:
 - [`0041-structured-tool-error-recovery.md`](0041-structured-tool-error-recovery.md) - SDK structured tool-error envelopes, timeout budgets, and report summaries for recovery evidence.
 - [`0042-protocol-topology-runner.md`](0042-protocol-topology-runner.md) - stateful SDK protocol reducers plus the core topology runner that executes pipeline, verifier-loop, hierarchy, and squad harnesses.
 - [`0043-durable-run-store-and-queue.md`](0043-durable-run-store-and-queue.md) - SDK run store and durable queue contracts, queue worker, conformance suites, and the Postgres and SQLite backends.
+- [`0044-persistent-agents-and-delegation-cascade.md`](0044-persistent-agents-and-delegation-cascade.md) - persistent org-chart agents with memory and workspaces, and the durable cross-run delegation cascade over the run store and queue.
 
 ## Planning Baseline
 
