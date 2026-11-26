@@ -58,6 +58,8 @@ export interface MeteredResponse {
   readonly usage: ModelUsage;
   readonly responseId?: string;
   readonly stopReason?: string;
+  /** Why the call was made, when it is not an agent turn (for example `compaction`). */
+  readonly purpose?: string;
 }
 
 export interface CreateUsageMeterOptions {
@@ -153,6 +155,7 @@ export function createUsageMeter(options: CreateUsageMeterOptions = {}): UsageMe
         ...(context.goalId === undefined ? {} : { goalId: context.goalId }),
         ...(response.responseId === undefined ? {} : { responseId: response.responseId }),
         ...(response.stopReason === undefined ? {} : { stopReason: response.stopReason }),
+        ...(response.purpose === undefined ? {} : { purpose: response.purpose }),
       };
       await options.eventStream?.emit({
         ...eventContext(context),

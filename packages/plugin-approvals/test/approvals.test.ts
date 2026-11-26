@@ -290,6 +290,25 @@ describe("approval gate", () => {
     expect(await service.list()).toEqual([]);
   });
 
+  it("wraps a frozen tool without redefining its execute", async () => {
+    const { service } = openService();
+    const send = fakeTool("gmail_send", ["message.send"]);
+    const frozen = Object.freeze(send);
+    const gate = gateFor(service);
+    const wrapped = gate.wrapTool(frozen);
+    expect(getAgentHarnessToolEffects(wrapped)).toEqual(["message.send"]);
+    expect(text(await wrapped.execute("c1", EMAIL))).toContain("needs the owner's approval");
+    expect(send.calls).toHaveLength(0);
+    const [pending] = gate.pending();
+    await service.decide({
+      approvalId: pending?.approvalId ?? "",
+      decision: "approved",
+      actor: OWNER,
+    });
+    await gate.wrapTool(frozen).execute("c2", EMAIL);
+    expect(send.calls).toHaveLength(1);
+  });
+
   it("suspends an outward call, then runs the approved call exactly once", async () => {
     const { service } = openService();
     const send = fakeTool("gmail_send", ["mcp.write", "message.send"]);
