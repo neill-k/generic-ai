@@ -319,6 +319,11 @@ export interface OwnerAuthRoutes {
  * - `POST {prefix}/passkeys/login/options|verify` sign in with a passkey
  * - `POST {prefix}/logout`
  * - `GET|DELETE {prefix}/passkeys[/:id]` list or remove passkeys
+ * - `POST {prefix}/sessions/revoke-others` sign out every other session
+ *
+ * Signing in or adding a passkey revokes any session the browser already
+ * held, and removing a passkey or revoking other sessions rotates the
+ * caller's own session cookie.
  * - `GET|POST|DELETE {prefix}/tokens[/:id]` list, create, revoke API tokens
  */
 export function createOwnerAuthRoutes(
@@ -409,6 +414,36 @@ export function createOwnerAuthRoutes(
     isSameOriginRequest(auth, c.req.raw)
       ? undefined
       : jsonResponse(403, { error: "Cross-origin auth requests are not allowed." });
+
+  /** Session secrets the browser presented, under either cookie name. */
+  const presentedSessions = (c: Context): string[] =>
+    [`__Host-${resolved.cookieName}`, resolved.cookieName]
+      .map((name) => getCookie(c, name))
+      .filter((value): value is string => value !== undefined);
+
+  /**
+   * Revokes any session the browser already holds, so a sign-in never keeps
+   * a session id that existed before it (session fixation).
+   */
+  const revokePresentedSessions = async (c: Context): Promise<void> => {
+    for (const secret of presentedSessions(c)) {
+      await auth.revokeSession(secret);
+    }
+  };
+
+  /** Swaps the caller's cookie session for a fresh one after a sensitive change. */
+  const rotateCallerSession = async (c: Context, context: AuthContext): Promise<void> => {
+    if (context.credentialSource !== "cookie") {
+      return;
+    }
+    for (const secret of presentedSessions(c)) {
+      const rotated = await auth.rotateSession(secret);
+      if (rotated !== undefined) {
+        issueSessionCookie(c, rotated.secret, rotated.expiresAt);
+        return;
+      }
+    }
+  };
 
   const issueSessionCookie = (c: Context, secret: string, expiresAt: string) => {
     const secure = isSecure(auth, c.req.raw, resolved);
@@ -507,7 +542,15 @@ export function createOwnerAuthRoutes(
         }),
       true,
     );
-    issueSessionCookie(c, result.session.secret, result.session.expiresAt);
+    if (context?.credentialSource === "cookie") {
+      // Already signed in: keep the caller's session bound to the passkey it
+      // signed in with, but rotate it, and drop the extra session.
+      await auth.revokeSession(result.session.secret);
+      await rotateCallerSession(c, context);
+    } else {
+      await revokePresentedSessions(c);
+      issueSessionCookie(c, result.session.secret, result.session.expiresAt);
+    }
     return c.json({ passkey: result.passkey, expiresAt: result.session.expiresAt }, 200, {
       "cache-control": "no-store",
     });
@@ -542,6 +585,7 @@ export function createOwnerAuthRoutes(
         }),
       true,
     );
+    await revokePresentedSessions(c);
     issueSessionCookie(c, session.secret, session.expiresAt);
     return c.json({ expiresAt: session.expiresAt }, 200, { "cache-control": "no-store" });
   });
@@ -578,7 +622,24 @@ export function createOwnerAuthRoutes(
       return gate.response;
     }
     await auth.removePasskey(c.req.param("id"));
-    return jsonResponse(200, { ok: true });
+    await rotateCallerSession(c, gate.context);
+    return c.json({ ok: true }, 200, { "cache-control": "no-store" });
+  });
+
+  app.post(`${prefix}/sessions/revoke-others`, async (c) => {
+    const gate = await requireScope(c, AUTH_SCOPES.tokensManage);
+    if ("response" in gate) {
+      return gate.response;
+    }
+    const blocked = requireSameOrigin(c);
+    if (gate.context.credentialSource === "cookie" && blocked !== undefined) {
+      return blocked;
+    }
+    // Keep only the caller's own session (if it is one), then rotate it.
+    const own = gate.context.credentialSource === "cookie" ? presentedSessions(c)[0] : undefined;
+    const revoked = await auth.revokeOtherSessions(own);
+    await rotateCallerSession(c, gate.context);
+    return c.json({ revoked }, 200, { "cache-control": "no-store" });
   });
 
   app.get(`${prefix}/tokens`, async (c) => {

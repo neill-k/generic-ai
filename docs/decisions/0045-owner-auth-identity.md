@@ -81,5 +81,9 @@ fits the same `AuthContext` shape; it is deferred, not rejected.
 - Web console chat runs record the actor on the user message, the
   `run.started` console event, and every harness run event
   (`AgentHarnessRunInput.actor`, `CanonicalEventStreamOptions.actor`).
-- Not yet done: session rotation on privilege change, the actor on durable run
-  store records (lands with R8/R9), and an OIDC adapter.
+- Sessions rotate around sensitive changes: sign-in revokes any session the
+  browser already held, adding or removing a passkey rotates the caller's
+  cookie, and `POST /auth/sessions/revoke-others` signs out every other
+  session.
+- Not yet done: the actor on durable run store records (lands with R8/R9).
+  OIDC stays out of scope while v1 has a single owner.
