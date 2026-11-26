@@ -23,6 +23,8 @@
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "0.91.1",
+    "@aws-sdk/client-bedrock-runtime": "3.1167.0",
+    "@aws-sdk/credential-provider-node": "3.972.97",
     "@google/genai": "3.2.0",
     "openai": "6.26.0"
   },
