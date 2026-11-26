@@ -34,6 +34,15 @@ export {
   unauthorizedResponse,
 } from "./hono.js";
 export {
+  type AuthRateLimitDecision,
+  type AuthRateLimiter,
+  type AuthRateLimiterOptions,
+  type ClientKeyOptions,
+  clientKeyFromRequest,
+  createAuthRateLimiter,
+  PEER_ADDRESS_SYMBOL,
+} from "./rate-limit.js";
+export {
   type AuthCollection,
   type AuthKeyValueStore,
   type AuthStore,

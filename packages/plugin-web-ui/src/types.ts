@@ -2,6 +2,7 @@ import type {
   AgentConfig,
   AgentHarnessConfig,
   ResolvedConfig,
+  RunActor,
   StorageContract,
 } from "@generic-ai/sdk";
 import type {
@@ -134,6 +135,8 @@ export interface WebUiChatMessage {
   readonly role: WebUiChatRole;
   readonly content: string;
   readonly createdAt: string;
+  /** Who posted a user message, when the host authenticated the request. */
+  readonly actor?: RunActor;
 }
 
 export interface WebUiChatEvent {
@@ -170,6 +173,13 @@ export interface WebUiHarnessRunnerInput {
   readonly agent?: AgentConfig;
   readonly harness?: AgentHarnessConfig;
   readonly signal: AbortSignal;
+  /** Who started this run, when the host authenticated the request. */
+  readonly actor?: RunActor;
+}
+
+export interface WebUiPostMessageOptions {
+  /** Redaction-safe identity of the caller, resolved by the transport. */
+  readonly actor?: RunActor;
 }
 
 export interface WebUiHarnessRunnerResult {
@@ -217,6 +227,7 @@ export interface WebUiPlugin {
     threadId: string,
     input: WebUiPostMessageInput,
     signal: AbortSignal,
+    options?: WebUiPostMessageOptions,
   ): Promise<WebUiChatThreadDetail>;
   interruptThread(threadId: string): Promise<WebUiChatThreadDetail | undefined>;
   streamThreadEvents(threadId: string, fromSequence?: number): AsyncIterable<WebUiChatEvent>;
@@ -228,4 +239,10 @@ export interface WebUiTransportSecurityOptions {
   readonly authorize?: (request: Request) => Promise<Response | undefined> | Response | undefined;
   readonly trustRequestUrlLoopback?: boolean;
   readonly requireSessionTokenForRead?: boolean;
+  /**
+   * Resolves who is making a request, after `authorize` accepted it. The
+   * actor is stored on user messages, added to run events, and passed to the
+   * harness runner.
+   */
+  readonly resolveActor?: (request: Request) => Promise<RunActor | undefined> | RunActor | undefined;
 }

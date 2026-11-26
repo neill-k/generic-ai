@@ -31,6 +31,8 @@ const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const LAST_USED_WRITE_INTERVAL_MS = 60 * 1000;
 const MAX_TOKEN_NAME_LENGTH = 100;
+/** Cap on unexpired, unused sign-in challenges, so option requests cannot fill the store. */
+const MAX_OPEN_CHALLENGES = 100;
 
 export class OwnerAuthError extends Error {
   constructor(
@@ -43,6 +45,7 @@ export class OwnerAuthError extends Error {
       | "PASSKEY_VERIFICATION_FAILED"
       | "LAST_PASSKEY"
       | "NOT_FOUND"
+      | "RATE_LIMITED"
       | "INVALID_INPUT",
     message: string,
   ) {
@@ -392,12 +395,22 @@ export function createOwnerAuth(options: OwnerAuthOptions): OwnerAuth {
     return record;
   }
 
+  /** Drops expired challenges and refuses new ones while too many are open. */
   async function pruneExpiredChallenges(): Promise<void> {
     const at = now().getTime();
+    let open = 0;
     for (const challenge of await store.list("challenges")) {
       if (Date.parse(challenge.expiresAt) <= at) {
         await store.delete("challenges", challenge.id);
+      } else {
+        open += 1;
       }
+    }
+    if (open >= MAX_OPEN_CHALLENGES) {
+      throw new OwnerAuthError(
+        "RATE_LIMITED",
+        "Too many sign-in attempts are in progress. Try again in a few minutes.",
+      );
     }
   }
 
