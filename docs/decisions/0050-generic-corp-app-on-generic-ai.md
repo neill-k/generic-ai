@@ -5,8 +5,8 @@
 - Supersedes: the "Core Product Decision" in
   [`docs/planning/01-scope-and-decisions.md`](../planning/01-scope-and-decisions.md)
   that Generic AI is "not a reimplementation of the full Generic Corp product".
-- Numbered 0050 to stay clear of records being added in parallel (0042 is used
-  twice by open work on the topology runner and the durable run store).
+- Numbered 0050 to stay clear of records being added in parallel by other
+  workstreams.
 
 ## Context
 
