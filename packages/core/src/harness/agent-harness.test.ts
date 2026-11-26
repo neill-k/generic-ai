@@ -267,7 +267,10 @@ describe("createAgentHarness", () => {
       const toolSets: string[][] = [];
       let harnessToolCalls = 0;
       let sessionIndex = 0;
-      const mcpTool = (name: string, effects: readonly ("mcp.read" | "mcp.write")[]) =>
+      const mcpTool = (
+        name: string,
+        effects: readonly ("mcp.read" | "mcp.write" | "message.send" | "external.write")[],
+      ) =>
         withAgentHarnessToolEffects(
           {
             name,
@@ -341,6 +344,8 @@ describe("createAgentHarness", () => {
               return [
                 mcpTool("mcp__docs__search", ["mcp.read"]),
                 mcpTool("mcp__docs__update", ["mcp.read", "mcp.write"]),
+                mcpTool("mcp__mail__send_email", ["mcp.read", "mcp.write", "message.send"]),
+                mcpTool("mcp__cal__create_event", ["mcp.read", "mcp.write", "external.write"]),
               ];
             },
           },
@@ -356,9 +361,17 @@ describe("createAgentHarness", () => {
     for (const readOnlyRole of [rootTools, plannerTools, verifierTools]) {
       expect(readOnlyRole).toContain("mcp__docs__search");
       expect(readOnlyRole).not.toContain("mcp__docs__update");
+      expect(readOnlyRole).not.toContain("mcp__mail__send_email");
+      expect(readOnlyRole).not.toContain("mcp__cal__create_event");
     }
     expect(builderTools).toEqual(
-      expect.arrayContaining(["mcp__docs__search", "mcp__docs__update", "mcp_registry"]),
+      expect.arrayContaining([
+        "mcp__docs__search",
+        "mcp__docs__update",
+        "mcp__mail__send_email",
+        "mcp__cal__create_event",
+        "mcp_registry",
+      ]),
     );
     expect(local.result.policyDecisions).toEqual(
       expect.arrayContaining([

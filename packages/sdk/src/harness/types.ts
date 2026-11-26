@@ -37,6 +37,9 @@ export const AGENT_HARNESS_CAPABILITY_EFFECTS = [
   "lsp.read",
   "secret.read",
   "sandbox.create",
+  "message.send",
+  "external.write",
+  "payment.spend",
 ] as const;
 
 export const AGENT_HARNESS_EVENT_TYPES = [
