@@ -551,6 +551,24 @@ export function createDelegationCascade(
   // Store helpers
   // ---------------------------------------------------------------------------
 
+  /** Owner notes not yet shown to a running turn, marked as delivered in this round. */
+  async function takeOwnerNotes(taskId: string, round: number): Promise<string[]> {
+    const current = await load(taskId);
+    const fresh = (current?.notices ?? []).filter(
+      (notice) => notice.kind === "owner-note" && notice.deliveredRound === undefined,
+    );
+    if (fresh.length === 0) {
+      return [];
+    }
+    const ids = new Set(fresh.map((notice) => notice.id));
+    await update(taskId, (latest) => ({
+      notices: (latest.notices ?? []).map((notice) =>
+        ids.has(notice.id) ? { ...notice, deliveredRound: round } : notice,
+      ),
+    }));
+    return fresh.map((notice) => `Message from the owner while you work: ${notice.text}`);
+  }
+
   async function load(taskId: string): Promise<AgentTaskRecord | undefined> {
     const record = await store.getRun(taskId);
     return record === undefined ? undefined : runToTask(record);
@@ -1137,6 +1155,9 @@ export function createDelegationCascade(
         ...(task.actor === undefined ? {} : { actor: task.actor }),
         effectJournal,
         tools: turnTools.tools,
+        // Owner messages that arrive while the turn runs reach the agent at its next step
+        // (decision 5) instead of waiting for the next round's prompt.
+        steering: () => takeOwnerNotes(taskId, round),
         signal,
         metadata: { round, attempt: attemptNumber, depth: task.depth },
       });

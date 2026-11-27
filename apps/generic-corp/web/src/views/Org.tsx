@@ -30,7 +30,7 @@ export function OrgView({
       <header class="page-header">
         <div>
           <h1>Org chart</h1>
-          <p class="muted">Select anyone to see what they are doing or to speak with them.</p>
+          <p class="muted">Select anyone to speak with them or to see what they are doing.</p>
         </div>
       </header>
       <ErrorNote message={chart.error} />
@@ -113,7 +113,7 @@ function AgentPanel({
       return task?.agentId === agentId;
     },
   );
-  const [tab, setTab] = useState<"now" | "chat" | "memory">("now");
+  const [tab, setTab] = useState<"now" | "chat" | "memory">("chat");
   const data = detail.data;
   const title = data?.agent.title ?? data?.agent.role ?? agentId;
   const active =
@@ -146,8 +146,8 @@ function AgentPanel({
           <div class="tabs" role="tablist">
             {(
               [
-                ["now", "Now"],
                 ["chat", "Message"],
+                ["now", "Now"],
                 ["memory", "Memory"],
               ] as const
             ).map(([id, label]) => (
@@ -196,7 +196,9 @@ function AgentPanel({
             </div>
           ) : null}
 
-          {tab === "chat" ? <AgentMessage agentId={agentId} isCeo={agentId === ceoId} /> : null}
+          {tab === "chat" ? (
+            <AgentMessage agentId={agentId} name={title} isCeo={agentId === ceoId} />
+          ) : null}
 
           {tab === "memory" ? (
             data.memory.trim().length === 0 ? (
@@ -211,51 +213,113 @@ function AgentPanel({
   );
 }
 
-/** A message to the CEO starts a goal. Messages to other agents come with direct chat. */
-function AgentMessage({ agentId, isCeo }: { agentId: string; isCeo: boolean }) {
+interface ChatEntry {
+  message: {
+    messageId: string;
+    text: string;
+    createdAt: string;
+    delivery: "current-work" | "new-request";
+    taskIds: string[];
+  };
+  reply?: { taskId: string; status: string; text?: string; error?: string };
+}
+
+/**
+ * Direct messages to any agent (decisions 4 and 5). A busy agent reads the message at its next
+ * step; an idle one takes it as a new request with its own goal. The CEO is told either way.
+ */
+function AgentMessage({ agentId, name, isCeo }: { agentId: string; name: string; isCeo: boolean }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
-  if (!isCeo) {
-    return (
-      <p class="muted">
-        Direct messages to {agentId} are not open in this build. Speak with the CEO, who will pass
-        it along.
-      </p>
-    );
-  }
+  const history = useResource(
+    () =>
+      api<{ messages: ChatEntry[] }>(`/agents/${encodeURIComponent(agentId)}/messages`).then(
+        (body) => body.messages,
+      ),
+    [agentId],
+    (event) =>
+      (event.type === "agent.message" && event.data["agentId"] === agentId) ||
+      ((event.type === "task.succeeded" || event.type === "task.failed") &&
+        (event.data["task"] as { agentId?: string } | undefined)?.agentId === agentId),
+  );
   const send = async (event: Event) => {
     event.preventDefault();
     if (text.trim().length === 0) {
       return;
     }
     setSending(true);
+    setError(undefined);
     try {
-      const body = await api<{ taskId: string }>("/threads", { method: "POST", json: { text } });
-      navigate("goals", body.taskId);
+      await api(`/agents/${encodeURIComponent(agentId)}/messages`, {
+        method: "POST",
+        json: { text },
+      });
+      setText("");
+      history.reload();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
       setSending(false);
     }
   };
+  const entries = history.data ?? [];
   return (
-    <form class="stack" onSubmit={send}>
+    <div class="stack">
       <p class="small muted">
-        Each message to the CEO becomes a goal with its own definition of done.
+        If {name} is busy, your message reaches it at its next step. If not, it becomes a new
+        request with its own definition of done.
+        {isCeo ? "" : " The CEO is informed that you spoke to its team directly."}
       </p>
-      <textarea
-        rows={4}
-        aria-label="Message to the CEO"
-        value={text}
-        onInput={(event) => setText((event.target as HTMLTextAreaElement).value)}
-      />
-      <div class="row-end">
-        <button type="submit" class="primary" disabled={sending}>
-          Send
-        </button>
-      </div>
+      {entries.length === 0 ? (
+        <p class="muted">No messages yet. The line is open.</p>
+      ) : (
+        <ol class="messages">
+          {entries.map((entry) => (
+            <li key={entry.message.messageId}>
+              <div class="message owner">
+                <span class="who">You</span>
+                <p>{entry.message.text}</p>
+                <span class="small muted">
+                  {formatTime(entry.message.createdAt)} ·{" "}
+                  {entry.message.delivery === "current-work" ? (
+                    "delivered to its current work"
+                  ) : (
+                    <a href={href("goals", entry.message.taskIds[0])}>filed as a new request</a>
+                  )}
+                </span>
+              </div>
+              {entry.reply?.text !== undefined || entry.reply?.error !== undefined ? (
+                <div class="message agent">
+                  <span class="who">{name}</span>
+                  <p>{entry.reply?.text ?? entry.reply?.error}</p>
+                </div>
+              ) : entry.reply !== undefined ? (
+                <p class="small muted">{name} is on it.</p>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      )}
+      <form class="stack" onSubmit={send}>
+        <textarea
+          rows={3}
+          aria-label={`Message to ${name}`}
+          value={text}
+          onInput={(event) => setText((event.target as HTMLTextAreaElement).value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              void send(event);
+            }
+          }}
+        />
+        <div class="row-end">
+          <button type="submit" class="primary" disabled={sending}>
+            {sending ? "Sending…" : "Send"}
+          </button>
+        </div>
+      </form>
       <ErrorNote message={error} />
-    </form>
+    </div>
   );
 }
