@@ -7,7 +7,7 @@ import {
   type StreamFn,
 } from "@generic-ai/agent";
 import type { AssistantMessage, Message, Model } from "@generic-ai/ai";
-
+import { type AgentActivity, agentActivity } from "./observe.js";
 import type {
   ChildRunResult,
   ChildSession,
@@ -144,6 +144,14 @@ export class AgentChildSession implements ChildSession {
 
   pendingMessageCount(): number {
     return this.agent.peekQueuedMessages().length;
+  }
+
+  messages(): readonly unknown[] {
+    return this.agent.state.messages;
+  }
+
+  activity(): AgentActivity {
+    return agentActivity(this.agent.state);
   }
 
   dispose(): void {
