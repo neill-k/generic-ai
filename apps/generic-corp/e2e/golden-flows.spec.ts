@@ -92,3 +92,24 @@ test("approval: an outward action waits for the owner, then runs exactly once", 
   await expect(page.locator("#messages")).toContainText("Email sent.", { timeout: 30_000 });
   expect(sentEmails()).toEqual([{ to: "customer@example.com", body: "Your order shipped today." }]);
 });
+
+test("memory: the owner adds to the handbook, edits it, and undoes a removal", async ({ page }) => {
+  await page.goto(`${server.url}/#/memory`);
+  await expect(page.locator("h1")).toHaveText("Memory");
+  await page.getByLabel("Title").fill("How Neill likes updates");
+  await page.getByLabel("Content").fill("Short, plain, on his phone.");
+  await page.getByRole("button", { name: "Add" }).click();
+  const entries = page.locator(".memory-entries");
+  await expect(entries).toContainText("Short, plain, on his phone.");
+  await expect(entries).toContainText("From: You");
+
+  await entries.getByRole("button", { name: "Edit" }).click();
+  await entries.getByLabel("Content").fill("Short and plain.");
+  await entries.getByRole("button", { name: "Save" }).click();
+  await expect(entries).toContainText("Short and plain.");
+
+  await entries.getByRole("button", { name: "Remove" }).click();
+  await expect(page.locator("#view")).toContainText("Nothing here yet.");
+  await page.locator(".memory-change").first().getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".memory-entries")).toContainText("Short and plain.");
+});
