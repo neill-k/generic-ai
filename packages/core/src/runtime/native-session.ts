@@ -242,6 +242,12 @@ export interface RunCapabilityNativeAgentSessionOptions {
    */
   readonly schedules?: NativeSessionSchedules | boolean;
   /**
+   * Messages for the agent while the session works, such as an owner message to a busy agent.
+   * Polled while a turn streams; each message is handed to the agent as steering, so it is read
+   * after the current step instead of after the turn.
+   */
+  readonly steering?: () => Promise<readonly string[]> | readonly string[];
+  /**
    * Offload long tool results: a result longer than `maxChars` (default 16000 characters) is saved
    * to a file and the model gets a preview and the path (see `docs/offloading.md`). On by default;
    * `false` turns it off.
@@ -1042,6 +1048,8 @@ export async function runCapabilityNativeAgentSession(
       runningCommands.delete(event.toolCallId);
     }
   });
+  const unbindSteering =
+    options.steering === undefined ? undefined : bindSteering(agent, options.steering);
   const unbindSchedules = schedules?.bindAgent(agent, () => ({
     isCompacting: compacting,
     isBashRunning: runningCommands.size > 0,
@@ -1202,6 +1210,7 @@ export async function runCapabilityNativeAgentSession(
       }
     }
     await unbindSchedules?.();
+    unbindSteering?.();
     unwatchCommands();
     releaseScheduledSession?.();
     if (scheduleSessionFile !== undefined && scheduleOptions?.service !== undefined) {
@@ -1442,4 +1451,53 @@ function mergeAbortSignals(
     return present[0];
   }
   return AbortSignal.any(present);
+}
+
+/** How often a running turn checks for new steering messages. */
+const STEERING_POLL_MS = 1000;
+
+/**
+ * Polls `source` while the agent streams and queues what it returns as steering. The agent loop
+ * reads steering after each step's tool calls finish, so a message lands at the next step. A poll
+ * also runs as each tool call starts, so a message sent during a long command is not missed.
+ */
+function bindSteering(
+  agent: Agent,
+  source: () => Promise<readonly string[]> | readonly string[],
+): () => void {
+  let polling = false;
+  let stopped = false;
+  const poll = async () => {
+    if (polling || stopped || !agent.state.isStreaming) {
+      return;
+    }
+    polling = true;
+    try {
+      for (const text of await source()) {
+        if (text.trim().length > 0) {
+          agent.steer({
+            role: "user",
+            content: [{ type: "text", text }],
+            timestamp: Date.now(),
+          } as AgentMessage);
+        }
+      }
+    } catch {
+      // A failed poll is retried on the next tick; steering never stops a turn.
+    } finally {
+      polling = false;
+    }
+  };
+  const timer = setInterval(() => void poll(), STEERING_POLL_MS);
+  timer.unref?.();
+  const unsubscribe = agent.subscribe((event) => {
+    if (event.type === "tool_execution_start" || event.type === "turn_end") {
+      void poll();
+    }
+  });
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+    unsubscribe();
+  };
 }

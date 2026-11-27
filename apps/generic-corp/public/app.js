@@ -1444,9 +1444,14 @@ const lines = (text) =>
     .filter((line) => line.length > 0);
 
 async function renderPermissions(message) {
-  const [{ permissions, saved }, { refusals }] = await Promise.all([
+  const [{ permissions, saved }, { refusals }, github] = await Promise.all([
     api("/permissions"),
     api("/refusals?limit=100"),
+    api("/connectors/github").catch((error) => ({
+      connected: false,
+      repos: [],
+      error: error.message,
+    })),
   ]);
   const checkbox = (checked, label, hint) => {
     const input = h("input", { type: "checkbox", checked });
@@ -1479,6 +1484,78 @@ async function renderPermissions(message) {
     placeholder: "owner/name",
   });
   repos.value = permissions.github.repos.join("\n");
+  // Ticking a repository adds it to the list above; Save stores it.
+  const repoPicker = github.repos.map((repo) => {
+    const box = checkbox(
+      lines(repos.value).includes(repo.fullName),
+      repo.fullName,
+      `${repo.private ? "private" : "public"}${repo.canPush ? "" : ", the token cannot push here"}`,
+    );
+    box.input.addEventListener("change", () => {
+      const current = lines(repos.value).filter((name) => name !== repo.fullName);
+      repos.value = (box.input.checked ? [...current, repo.fullName] : current).join("\n");
+    });
+    return box.row;
+  });
+  const tokenInput = h("input", {
+    type: "password",
+    autocomplete: "off",
+    "aria-label": "GitHub token",
+    placeholder: "github_pat_...",
+  });
+  const githubError = h("p", { class: "form-error", role: "alert", hidden: true });
+  const githubCall = async (path, options, done) => {
+    try {
+      await api(path, options);
+      await renderPermissions(done);
+    } catch (error) {
+      githubError.textContent = error.message;
+      githubError.hidden = false;
+    }
+  };
+  const githubPanel = h(
+    "div",
+    { class: "panel permissions-form" },
+    h("h2", {}, "GitHub connection"),
+    github.connected
+      ? h(
+          "p",
+          {},
+          `Connected${github.account ? ` as ${github.account}` : " with the server's token"}. Agents can read the repositories it can see. `,
+          github.source === "owner"
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  onClick: () =>
+                    githubCall("/connectors/github", { method: "DELETE" }, "GitHub disconnected."),
+                },
+                "Disconnect",
+              )
+            : null,
+        )
+      : h(
+          "form",
+          {
+            onSubmit: (event) => {
+              event.preventDefault();
+              githubCall(
+                "/connectors/github",
+                { method: "POST", body: JSON.stringify({ token: tokenInput.value }) },
+                "GitHub connected. It is read-only until you tick repositories below and save.",
+              );
+            },
+          },
+          h(
+            "p",
+            { class: "muted" },
+            "Paste a fine-grained GitHub token. Give it Contents and Pull requests (read and write) and Checks and Commit statuses (read) on the repositories you want. It stays on this server and agents never see it.",
+          ),
+          tokenInput,
+          h("p", {}, h("button", { type: "submit" }, "Connect GitHub")),
+        ),
+    githubError,
+  );
   const hosts = h("textarea", { rows: "6", "aria-label": "Hosts shell commands may reach" });
   hosts.value = permissions.shellHosts.join("\n");
   const rules = h("textarea", {
@@ -1525,13 +1602,19 @@ async function renderPermissions(message) {
         "div",
         { style: "display: grid; gap: 16px" },
         message ? h("div", { class: "notice", role: "status" }, message) : null,
+        githubPanel,
         h(
           "form",
           { class: "panel permissions-form", onSubmit: save },
           h("h2", {}, "Allowed"),
           toggles.map((toggle) => toggle.row),
           h("h2", {}, "GitHub"),
-          h("p", { class: "muted" }, "Repositories agents may write to, one owner/name per line."),
+          h(
+            "p",
+            { class: "muted" },
+            "Repositories agents may write to (push branches, open pull requests, merge with green checks). None means read-only.",
+          ),
+          repoPicker,
           repos,
           githubToggles.map((toggle) => toggle.row),
           h("h2", {}, "Network for shell commands"),
