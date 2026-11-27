@@ -35,6 +35,12 @@ import {
   createModelBackground,
   DEFAULT_BACKGROUND_MODEL,
 } from "./background.js";
+import {
+  BackupError,
+  type CompanyBackups,
+  createCompanyBackups,
+  readBackupSettings,
+} from "./backups.js";
 import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { createDreaming } from "./dreaming.js";
@@ -303,6 +309,7 @@ export interface GenericCorpServer {
   readonly refusals: RefusalLog;
   /** How agent commands reach the network. */
   readonly agentNetwork: AgentNetwork;
+  readonly backups: CompanyBackups;
   stop(): Promise<void>;
 }
 
@@ -352,6 +359,11 @@ export interface CreateGenericCorpServerOptions {
    */
   readonly modelAuth?: CompanyModelAuth;
   /**
+   * Nightly backups of the database and the company's files. Defaults to the schedule the
+   * `GENERIC_CORP_BACKUP*` variables describe (backups.ts).
+   */
+  readonly backups?: CompanyBackups;
+  /**
    * The GitHub connector. Defaults to a credential file at `<dataDir>/connectors/github.json`
    * (or `GENERIC_CORP_GITHUB_TOKEN`). Tests pass one with a fake `fetch`.
    */
@@ -385,6 +397,28 @@ export async function createGenericCorpServer(
     const layout = companyLayout(environment.dataDir);
     const drive = createCompanyDrive({ layout, kv: storage.kv });
     const processEnv = options.env ?? process.env;
+    let publishBackupStatus: ((status: Readonly<Record<string, unknown>>) => void) | undefined;
+    const backups =
+      options.backups ??
+      createCompanyBackups({
+        dataDir: environment.dataDir,
+        database:
+          environment.databaseUrl === undefined
+            ? { driver: "sqlite", path: path.join(environment.dataDir, "company.sqlite") }
+            : { driver: "postgres", connectionString: environment.databaseUrl },
+        settings: (() => {
+          try {
+            return readBackupSettings(processEnv, environment.dataDir);
+          } catch (error) {
+            if (error instanceof BackupError) {
+              throw new GenericCorpConfigError(error.message);
+            }
+            throw error;
+          }
+        })(),
+        log,
+        onChange: (status) => publishBackupStatus?.({ ...status }),
+      });
     const modelAuth =
       options.modelAuth ??
       createCompanyModelAuth({
@@ -582,6 +616,7 @@ export async function createGenericCorpServer(
     });
     runtimeRef = runtime;
     await runtime.initialize();
+    publishBackupStatus = (status) => runtime.events.publish("backups.updated", status);
 
     // Background memory work (decisions 18 and 19): frugal, pausable, one job at a time.
     const background = createMemoryBackgroundStore({ kv: storage.kv });
@@ -725,6 +760,7 @@ export async function createGenericCorpServer(
         refusals,
         modelAuth,
         permissions,
+        backups,
         github,
         companyRoot: layout.root,
         secrets: {
@@ -750,6 +786,14 @@ export async function createGenericCorpServer(
       scannerTimer.start();
       dreamingTimer.start();
     }
+    backups.start();
+    if (backups.settings.enabled) {
+      log(
+        `Backups: nightly at ${String(backups.settings.hour).padStart(2, "0")}:00 server time into ${backups.settings.dir}, keeping ${backups.settings.keep}.`,
+      );
+    } else {
+      log("Backups: nightly backups are off (GENERIC_CORP_BACKUPS=off).");
+    }
 
     return {
       app,
@@ -761,7 +805,9 @@ export async function createGenericCorpServer(
       permissions,
       refusals,
       agentNetwork,
+      backups,
       async stop() {
+        await backups.stop();
         await scannerTimer.stop();
         await dreamingTimer.stop();
         await runtime.stop();

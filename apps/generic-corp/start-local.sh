@@ -4,6 +4,9 @@
 #   ./apps/generic-corp/start-local.sh          # build and start (or restart)
 #   ./apps/generic-corp/start-local.sh logs     # follow the app's log
 #   ./apps/generic-corp/start-local.sh stop     # stop; your company's data is kept
+#   ./apps/generic-corp/start-local.sh backups  # list the nightly backups
+#   ./apps/generic-corp/start-local.sh restore <backup id|latest>
+#                                               # put a backup back, then start
 #
 # Needs Docker with Compose v2. Everything else runs in containers. See
 # apps/generic-corp/RUN-LOCALLY.md.
@@ -21,9 +24,22 @@ case "${1:-start}" in
   stop)
     exec "${compose[@]}" stop
     ;;
+  backups)
+    exec "${compose[@]}" run --rm app node apps/generic-corp/dist/restore.js
+    ;;
+  restore)
+    if [[ $# -lt 2 ]]; then
+      echo "Usage: $0 restore <backup id|latest>   (list them with: $0 backups)" >&2
+      exit 2
+    fi
+    # The app must not be running while its database and files are replaced.
+    "${compose[@]}" stop app
+    "${compose[@]}" run --rm app node apps/generic-corp/dist/restore.js "$2" --yes
+    exec "$0" start
+    ;;
   start) ;;
   *)
-    echo "Usage: $0 [start|logs|stop]" >&2
+    echo "Usage: $0 [start|logs|stop|backups|restore <backup>]" >&2
     exit 2
     ;;
 esac

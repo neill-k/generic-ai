@@ -167,6 +167,37 @@ more) and send it as a bearer token.
 | `GENERIC_AI_AUTH_TOKEN` | none | Break-glass static owner token |
 | `GENERIC_AI_SECRET_<NAME>` | none | A secret named `<NAME>`, for example `GENERIC_AI_SECRET_BRAVE_API_KEY` |
 | `GENERIC_AI_SECRETS_KEY` | none | Master key (`openssl rand -hex 32`) for secrets stored in the database |
+| `GENERIC_CORP_BACKUPS` | `on` | Nightly backups of the database and the `company`, `sessions` and `artifacts` folders. `off` stops the nightly run; `POST /api/backups` still works |
+| `GENERIC_CORP_BACKUP_DIR` | `<dataDir>/backups` | Where backups go. Must be outside `company/`, which agents can write to |
+| `GENERIC_CORP_BACKUP_HOUR` | `3` | Hour (server time, 0 to 23) of the nightly backup. A missed one runs at the next check after start |
+| `GENERIC_CORP_BACKUP_KEEP` | `7` | Backups kept; older ones are deleted after each new one |
+
+### Backups and restore
+
+A backup is a folder named by its time, holding the database (`database.jsonl.gz`,
+every row of every table, for Postgres; `database.sqlite.gz`, a `VACUUM INTO`
+copy, for SQLite), `files.tar.gz` and a `manifest.json` with a SHA-256 for each
+file. The Postgres export does not depend on the server version, so a backup
+taken on Postgres 17 restores into 16. The Claude sign-in (`model-auth.json`)
+is left out on purpose.
+
+`GET /api/backups` lists them with the next scheduled time; `POST /api/backups`
+starts one, and `backups.updated` events follow it.
+
+To restore, stop the server, then:
+
+```bash
+node apps/generic-corp/dist/restore.js              # list backups
+node apps/generic-corp/dist/restore.js latest       # check one and say what would change
+node apps/generic-corp/dist/restore.js <id> --yes   # restore it
+```
+
+It uses the same `GENERIC_CORP_DATA_DIR`, `DATABASE_URL` and `GENERIC_CORP_BACKUP_DIR`
+as the server. Before replacing anything it saves the current state as a
+`before-restore` backup, so a restore can be undone the same way
+(`--no-safety-backup` skips that). The Postgres restore runs in one
+transaction: if it fails, the database is left as it was. With Docker, use
+`./apps/generic-corp/start-local.sh restore <id>` (RUN-LOCALLY.md).
 
 ### Tools in the company file
 

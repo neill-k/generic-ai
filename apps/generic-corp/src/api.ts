@@ -12,6 +12,7 @@ import {
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { MemoryBackgroundStore } from "./background.js";
+import type { CompanyBackups } from "./backups.js";
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import { DriveError, type DriveFile, deliverablesFolder } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
@@ -59,6 +60,8 @@ export interface CompanyApiOptions {
   };
   /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
   readonly permissions?: PermissionStore;
+  /** Nightly backups, listed and started at `/api/backups`. */
+  readonly backups?: CompanyBackups;
   /** The GitHub connector, at `/api/connectors/github`. Owner only. */
   readonly github?: GithubConnector;
   /** The company root, which pushes to GitHub read deliverables from. */
@@ -739,6 +742,25 @@ export function createCompanyApi(
     const modelAuth = requireModelAuth();
     requireManage(c);
     return c.json(await modelAuthCall(() => modelAuth.signOut()));
+  });
+
+  // --- Backups ------------------------------------------------------------
+
+  const requireBackups = (): CompanyBackups => {
+    if (options.backups === undefined) {
+      throw new ApiError(404, "Backups are not available.");
+    }
+    return options.backups;
+  };
+
+  app.get("/backups", async (c) => c.json(await requireBackups().status()));
+
+  // Starts a backup and answers at once; `backups.updated` events follow its progress.
+  app.post("/backups", async (c) => {
+    const backups = requireBackups();
+    requireManage(c);
+    void backups.run("manual").catch(() => undefined);
+    return c.json(await backups.status(), 202);
   });
 
   // --- Agents and the org chart -------------------------------------------
