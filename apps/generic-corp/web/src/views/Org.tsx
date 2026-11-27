@@ -227,6 +227,12 @@ function AgentPanel({
               <pre class="memory">{data.memory}</pre>
             )
           ) : null}
+          {tab === "memory" ? (
+            <p class="small">
+              <a href={href("memory", agentId)}>Open the memory page</a> to edit, see where each
+              entry came from, or undo a change.
+            </p>
+          ) : null}
         </div>
       )}
     </SidePanel>

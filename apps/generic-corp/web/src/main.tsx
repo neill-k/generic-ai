@@ -7,12 +7,14 @@ import { href, useRoute } from "./router.js";
 import "./styles.css";
 import { GoalView } from "./views/Goal.js";
 import { GoalsView } from "./views/Goals.js";
+import { MemoryView } from "./views/Memory.js";
 import { MoreView } from "./views/More.js";
 import { OrgView } from "./views/Org.js";
 
 const NAV: readonly { view: string; label: string; icon: string }[] = [
   { view: "goals", label: "Goals", icon: "◎" },
   { view: "org", label: "Org chart", icon: "⌗" },
+  { view: "memory", label: "Memory", icon: "✎" },
   { view: "more", label: "More", icon: "≡" },
 ];
 
@@ -28,6 +30,8 @@ function App() {
     page = <GoalView goalId={route.id} />;
   } else if (route.view === "org") {
     page = <OrgView agentId={route.id} company={company.data} />;
+  } else if (route.view === "memory") {
+    page = <MemoryView scopeId={route.id} />;
   } else if (route.view === "more") {
     page = <MoreView />;
   } else {

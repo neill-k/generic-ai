@@ -27,8 +27,24 @@ import {
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
+import {
+  type BackgroundModel,
+  createBackgroundGate,
+  createBackgroundTimer,
+  createMemoryBackgroundStore,
+  createModelBackground,
+  DEFAULT_BACKGROUND_MODEL,
+} from "./background.js";
+import {
+  BackupError,
+  type CompanyBackups,
+  createCompanyBackups,
+  readBackupSettings,
+} from "./backups.js";
+import { type CompanyCheckup, createCompanyCheckup } from "./checkup.js";
 import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
+import { createDreaming } from "./dreaming.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
 import {
   type AgentNetwork,
@@ -48,9 +64,10 @@ import {
   createCompanyHandInCheck,
   createModelJudge,
 } from "./goals.js";
+import { createCompanyHarvest } from "./harvest.js";
+import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import { createCompanyMemory } from "./memory.js";
 import { createMemoryTools } from "./memory-tools.js";
-import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import {
   type CompanyModelAuth,
   createCompanyModelAuth,
@@ -64,6 +81,7 @@ import {
   type PermissionStore,
   permissionsBriefing,
 } from "./permissions.js";
+import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
 import { createRefusalLog, type RefusalLog } from "./refusals.js";
 import { resolveCompanyRlm } from "./rlm.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
@@ -292,6 +310,7 @@ export interface GenericCorpServer {
   readonly refusals: RefusalLog;
   /** How agent commands reach the network. */
   readonly agentNetwork: AgentNetwork;
+  readonly backups: CompanyBackups;
   stop(): Promise<void>;
 }
 
@@ -322,6 +341,14 @@ export interface CreateGenericCorpServerOptions {
     readonly impossibility?: ImpossibilityReviewer;
     readonly checks?: Readonly<Record<string, GoalCheck>>;
   };
+  /**
+   * The model background memory work uses (the preference scanner, dreaming). Defaults to
+   * `GENERIC_CORP_MEMORY_MODEL` or a small Claude model on the owner's sign-in. Background jobs
+   * only run while workers run.
+   */
+  readonly backgroundModel?: BackgroundModel;
+  /** Why background memory work may not spend now (spending limits, company pause). */
+  readonly canSpendInBackground?: () => Promise<string | undefined> | string | undefined;
   /** How agent commands run. Defaults to `resolveAgentIsolation` over the environment. */
   readonly agentIsolation?: AgentIsolation;
   /** Replaces the check that the agent user's firewall rule holds, for tests. */
@@ -332,6 +359,27 @@ export interface CreateGenericCorpServerOptions {
    * or the secrets vault.
    */
   readonly modelAuth?: CompanyModelAuth;
+  /**
+   * Whether agents have memory: the handbook and private-memory section in each prompt, and the
+   * remember and forget tools. Defaults to true; the baseline comparison turns it off to measure
+   * what memory is worth.
+   */
+  readonly agentMemory?: boolean;
+  /**
+   * The owner's checkup (the live baseline comparison, `/api/checkup`). Defaults to one that runs
+   * the company's own template with this server's model sign-in; `false` leaves it out.
+   */
+  readonly checkup?: CompanyCheckup | false;
+  /**
+   * An egress proxy to share instead of starting one, for a server started inside another (the
+   * checkup's companies). It is neither started nor stopped here.
+   */
+  readonly egressProxy?: Pick<EgressProxy, "envFor">;
+  /**
+   * Nightly backups of the database and the company's files. Defaults to the schedule the
+   * `GENERIC_CORP_BACKUP*` variables describe (backups.ts).
+   */
+  readonly backups?: CompanyBackups;
   /**
    * The GitHub connector. Defaults to a credential file at `<dataDir>/connectors/github.json`
    * (or `GENERIC_CORP_GITHUB_TOKEN`). Tests pass one with a fake `fetch`.
@@ -366,6 +414,28 @@ export async function createGenericCorpServer(
     const layout = companyLayout(environment.dataDir);
     const drive = createCompanyDrive({ layout, kv: storage.kv });
     const processEnv = options.env ?? process.env;
+    let publishBackupStatus: ((status: Readonly<Record<string, unknown>>) => void) | undefined;
+    const backups =
+      options.backups ??
+      createCompanyBackups({
+        dataDir: environment.dataDir,
+        database:
+          environment.databaseUrl === undefined
+            ? { driver: "sqlite", path: path.join(environment.dataDir, "company.sqlite") }
+            : { driver: "postgres", connectionString: environment.databaseUrl },
+        settings: (() => {
+          try {
+            return readBackupSettings(processEnv, environment.dataDir);
+          } catch (error) {
+            if (error instanceof BackupError) {
+              throw new GenericCorpConfigError(error.message);
+            }
+            throw error;
+          }
+        })(),
+        log,
+        onChange: (status) => publishBackupStatus?.({ ...status }),
+      });
     const modelAuth =
       options.modelAuth ??
       createCompanyModelAuth({
@@ -398,7 +468,10 @@ export async function createGenericCorpServer(
       options.agentNetworkProbe,
     );
     log(describeAgentNetwork(agentNetwork));
-    if (networkPolicy !== "off") {
+    // A server started inside another (the checkup's companies) shares that server's proxy: the
+    // agent firewall only lets the agent user reach the one fixed egress port.
+    const sharedEgress = networkPolicy === "off" ? undefined : options.egressProxy;
+    if (networkPolicy !== "off" && sharedEgress === undefined) {
       const proxy = createEgressProxy({
         allow: () => permissions.current().shellHosts,
         port: environment.egressPort ?? 0,
@@ -417,7 +490,7 @@ export async function createGenericCorpServer(
       await proxy.start();
       egress = proxy;
     }
-    const egressProxy = egress;
+    const egressProxy: Pick<EgressProxy, "envFor"> | undefined = sharedEgress ?? egress;
     // Every role's Python workspace runs behind the same wall: as the agent user, with the
     // command limits and this agent's egress proxy settings (rlm.ts).
     const rlm = resolveCompanyRlm(options.env ?? process.env, agentIsolation, {
@@ -448,14 +521,23 @@ export async function createGenericCorpServer(
       legacyNotes: (agentId) =>
         readFile(path.join(layout.agentsRoot, agentId, "context.md"), "utf8"),
     });
+    // Scripts an agent writes are kept once its task is accepted (decision 28), outside the
+    // company folder, for dreaming to turn into saved procedures.
+    const harvest = createCompanyHarvest({
+      kv: storage.kv,
+      companyRoot: layout.root,
+      root: path.join(environment.dataDir, "harvest"),
+    });
     const withMemoryTools = (
       bindings: ReturnType<CompanyToolkit["capabilities"]>,
       input: Parameters<CompanyToolkit["capabilities"]>[0],
     ): ReturnType<CompanyToolkit["capabilities"]> => ({
-      ...bindings,
+      ...harvest.wrapBindings(bindings, input),
       customTools: [
         ...(bindings.customTools ?? []),
-        ...createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId }),
+        ...(options.agentMemory === false
+          ? []
+          : createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId })),
       ],
     });
     // Every tool call is checked against the owner's permissions. An action outside them is
@@ -509,6 +591,8 @@ export async function createGenericCorpServer(
       agentsRoot: layout.agentsRoot,
       drive,
       memory,
+      ...(options.agentMemory === false ? { memoryInPrompts: false } : {}),
+      harvest,
       executor,
       cascade: {
         worker: {
@@ -555,6 +639,83 @@ export async function createGenericCorpServer(
     });
     runtimeRef = runtime;
     await runtime.initialize();
+    publishBackupStatus = (status) => runtime.events.publish("backups.updated", status);
+
+    // Background memory work (decisions 18 and 19): frugal, pausable, one job at a time.
+    const background = createMemoryBackgroundStore({ kv: storage.kv });
+    const backgroundGate = createBackgroundGate({
+      store: background,
+      ...(options.canSpendInBackground === undefined
+        ? {}
+        : { canSpend: options.canSpendInBackground }),
+    });
+    const backgroundModel =
+      options.backgroundModel ??
+      createModelBackground({
+        model: processEnv["GENERIC_CORP_MEMORY_MODEL"]?.trim() || DEFAULT_BACKGROUND_MODEL,
+        getAuth: (provider) => modelAuth.getAuth(provider),
+      });
+    const scanner = createPreferenceScanner({
+      memory,
+      store: background,
+      model: backgroundModel,
+      gate: backgroundGate,
+      messages: async () => {
+        const threads = await runtime.threads.list();
+        const messages: OwnerMessage[] = threads.flatMap((thread) =>
+          thread.messages.map((message) => ({
+            messageId: message.messageId,
+            threadId: thread.threadId,
+            text: message.text,
+            createdAt: message.createdAt,
+            agentId: runtime.ceoId,
+          })),
+        );
+        return messages.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+      },
+      agents: async () =>
+        (await runtime.directory.list()).map((agent) => ({
+          id: agent.id,
+          title: agent.title ?? agent.role,
+        })),
+    });
+    const sessionsRoot = path.join(environment.dataDir, "sessions");
+    const dreaming = createDreaming({
+      memory,
+      store: background,
+      model: backgroundModel,
+      gate: backgroundGate,
+      sessionsRoot,
+      harvest,
+      agents: async () => (await runtime.directory.list()).map((agent) => agent.id),
+      lastActive: async (agentId) => {
+        const tasks = await runtime.listTasks({ agentId, limit: 50 });
+        if (tasks.some((task) => ["queued", "running", "waiting"].includes(task.status))) {
+          return "working";
+        }
+        const latest = tasks
+          .map((task) => task.completedAt ?? task.updatedAt)
+          .sort()
+          .at(-1);
+        return latest === undefined ? undefined : new Date(latest);
+      },
+    });
+    const dreamingTimer = createBackgroundTimer(
+      async () => Math.min(30, (await background.settings()).dreaming.idleMinutes) * 60_000,
+      async () => {
+        await dreaming.tick();
+      },
+      (error) => log(`Dreaming failed: ${String(error)}`),
+    );
+    const scannerTimer = createBackgroundTimer(
+      async () => (await background.settings()).scanner.intervalMinutes * 60_000,
+      async () => {
+        if ((await background.settings()).scanner.enabled) {
+          await scanner.scan();
+        }
+      },
+      (error) => log(`Preference scan failed: ${String(error)}`),
+    );
 
     let auth: OwnerAuth | undefined;
     const app = new Hono();
@@ -610,13 +771,32 @@ export async function createGenericCorpServer(
     }
 
     const ownerAuth = auth;
+    // The live baseline comparison, run only when the owner presses "run the checkup".
+    const checkup =
+      options.checkup === false
+        ? undefined
+        : (options.checkup ??
+          createCompanyCheckup({
+            kv: storage.kv,
+            modelAuth,
+            env: options.env ?? process.env,
+            ...(egressProxy === undefined ? {} : { egressProxy }),
+            log,
+          }));
     app.route(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
         toolkit: companyToolkit,
+        memoryBackground: {
+          store: background,
+          scan: async () => scanner.scan(),
+          dream: async (agentId) => dreaming.dream(agentId, { force: true }),
+        },
         refusals,
         modelAuth,
         permissions,
+        ...(checkup === undefined ? {} : { checkup }),
+        backups,
         github,
         companyRoot: layout.root,
         secrets: {
@@ -639,6 +819,16 @@ export async function createGenericCorpServer(
 
     if (environment.workers) {
       runtime.start();
+      scannerTimer.start();
+      dreamingTimer.start();
+    }
+    backups.start();
+    if (backups.settings.enabled) {
+      log(
+        `Backups: nightly at ${String(backups.settings.hour).padStart(2, "0")}:00 server time into ${backups.settings.dir}, keeping ${backups.settings.keep}.`,
+      );
+    } else {
+      log("Backups: nightly backups are off (GENERIC_CORP_BACKUPS=off).");
     }
 
     return {
@@ -651,10 +841,14 @@ export async function createGenericCorpServer(
       permissions,
       refusals,
       agentNetwork,
+      backups,
       async stop() {
+        await backups.stop();
+        await scannerTimer.stop();
+        await dreamingTimer.stop();
         await runtime.stop();
         await companyToolkit.close();
-        await egressProxy?.stop();
+        await egress?.stop();
         await storage.close();
       },
     };

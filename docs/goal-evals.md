@@ -158,3 +158,15 @@ keys and validator files outside the agent's workspace as well.
   `goal_complete` and `goal_validators_passed`.
 
 Benchmark reports' `pass^k` uses the same estimator as goal evals.
+
+## Baseline comparison
+
+Generic Corp's checkup (`apps/generic-corp/src/baseline.ts`) runs one goal eval
+suite under several configurations: a plain single agent with delegation,
+offloading, the Python workspace and memory all off, the full company with all
+of them on, and optionally the company with each one off in turn. Each
+configuration's report gives `efficiency.tokensPerCompletedGoal`, and the
+comparison reports each configuration's cut against the single agent. The
+validators and the judge are the same everywhere, so results are compared on
+what was delivered, not on who did the work. Live runs start only by hand; see
+the app's README.

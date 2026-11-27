@@ -192,7 +192,13 @@ Useful variations:
   (faster, smaller). On Apple silicon and other arm64 machines Chrome is
   skipped anyway, because Google does not publish it for Linux arm64.
 - `GENERIC_CORP_PORT=3100` serves on another host port.
-- `docker compose ... down -v` deletes the database and agent data.
+- `docker compose ... down -v` deletes the database and agent data, backups
+  included (they live in the data volume under `/data/backups`).
+- Backups run nightly; restore one with
+  `apps/generic-corp/start-local.sh restore <id>`. See "Backups and restore"
+  in the README. On Railway, backups land on the app's volume next to the data
+  until off-site copies exist, so treat them as protection against mistakes,
+  not against losing the volume.
 
 To check an image the way CI does:
 

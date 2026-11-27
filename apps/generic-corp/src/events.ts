@@ -28,6 +28,7 @@ export type CompanyEventType =
   | "thread.updated"
   | "drive.updated"
   | "drive.goal.updated"
+  | "backups.updated"
   | "agent.message"
   | "runtime.error";
 
