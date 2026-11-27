@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   Agent,
   type AgentEvent,
+  type AgentMessage,
   type AgentTool,
   type RequestAuth,
   type StreamFn,
@@ -37,6 +38,7 @@ import {
   resolveProjectTrusted,
   type Skill,
 } from "@generic-ai/resources";
+import { createRlmWorkspace, type KernelLaunch, type RlmWorkspace } from "@generic-ai/rlm";
 import {
   goalTraceFromCanonicalEvents,
   type RunEnvelope,
@@ -214,6 +216,13 @@ export interface RunCapabilityNativeAgentSessionOptions {
    */
   readonly resume?: boolean;
   /**
+   * Give the agent a persistent Python workspace (the `python` tool, see `@generic-ai/rlm`),
+   * borrowed from Prime Agent's RLM: large inputs live in variables, code calls smaller models with
+   * `rlm.llm` and the agent's other tools with `rlm.tool`, and only what it prints is returned.
+   * Needs Python 3 on the host. The kernel stops when the session ends.
+   */
+  readonly rlm?: NativeSessionRlm | boolean;
+  /**
    * Keep the session working toward a persistent thread goal (see `@generic-ai/autonomy`). `true`
    * gives the agent the goal tools without starting a goal. The goal is saved in the session, so a
    * resumed session continues it.
@@ -313,6 +322,34 @@ export interface NativeSessionSubagents {
    * and to the provider's own environment variable otherwise.
    */
   readonly getApiKey?: (provider: string) => string | undefined;
+}
+
+export interface NativeSessionRlm {
+  /** Python executable. Defaults to `GENERIC_AI_PYTHON` or `python3`. */
+  readonly python?: string;
+  /** The model `rlm.llm` uses when code names none. Defaults to the session's model. */
+  readonly model?: Model;
+  /** Resolve a model code names (`"provider/id"`). Without it, code can only use the default. */
+  readonly resolveModel?: (reference: string) => Model | undefined;
+  /** Models `rlm.models()` lists. Defaults to the default sub-model. */
+  readonly models?: () => readonly Model[];
+  /** API key for a sub-model's provider. Defaults to the session's key for its own provider. */
+  readonly getApiKey?: (provider: string) => string | undefined;
+  /** Let code call the session's other tools with `rlm.tool`. Defaults to true. */
+  readonly tools?: boolean;
+  /** JSON values put into the workspace as variables when it starts. */
+  readonly variables?: Readonly<Record<string, unknown>>;
+  /** Save the variables here when the session ends and load them when it starts. */
+  readonly snapshotPath?: string;
+  /** Default and maximum seconds per call. Defaults to 120 and 600. */
+  readonly timeoutSeconds?: number;
+  readonly maxTimeoutSeconds?: number;
+  /** Characters of output returned per call. Defaults to 20000. */
+  readonly maxOutputChars?: number;
+  /** Kernel environment. Defaults to the agent command allowlist. */
+  readonly env?: NodeJS.ProcessEnv;
+  /** Rewrite the kernel launch, for example to run it as the agent OS user. */
+  readonly launch?: (input: KernelLaunch) => KernelLaunch;
 }
 
 export interface NativeSessionExtensions {
@@ -467,6 +504,69 @@ function answeredStopCall(
     return { response: args.response.trim(), status };
   }
   return undefined;
+}
+
+function createSessionRlm(
+  options: RunCapabilityNativeAgentSessionOptions,
+  input: {
+    readonly apiKey?: string;
+    readonly tools: () => readonly AgentTool[];
+    readonly getMessages: () => readonly AgentMessage[];
+    readonly onResponse: (message: AssistantMessage) => Promise<void>;
+  },
+): RlmWorkspace | undefined {
+  if (options.rlm === undefined || options.rlm === false) {
+    return undefined;
+  }
+  const config: NativeSessionRlm = options.rlm === true ? {} : options.rlm;
+  const apiKey = input.apiKey;
+  const getApiKey =
+    config.getApiKey ??
+    ((provider: string) => (provider === options.model.provider ? apiKey : undefined));
+  return createRlmWorkspace({
+    cwd: options.cwd,
+    ...(config.python === undefined ? {} : { python: config.python }),
+    ...(config.env === undefined ? {} : { env: config.env }),
+    ...(config.launch === undefined ? {} : { launch: config.launch }),
+    ...(config.variables === undefined ? {} : { variables: config.variables }),
+    ...(config.snapshotPath === undefined ? {} : { snapshotPath: config.snapshotPath }),
+    ...(config.timeoutSeconds === undefined ? {} : { timeoutSeconds: config.timeoutSeconds }),
+    ...(config.maxTimeoutSeconds === undefined
+      ? {}
+      : { maxTimeoutSeconds: config.maxTimeoutSeconds }),
+    ...(config.maxOutputChars === undefined ? {} : { maxOutputChars: config.maxOutputChars }),
+    ...(config.tools === false ? {} : { tools: input.tools }),
+    getMessages: input.getMessages,
+    llm: {
+      model: config.model ?? options.model,
+      ...(config.resolveModel === undefined ? {} : { resolveModel: config.resolveModel }),
+      ...(config.models === undefined ? {} : { models: config.models }),
+      getApiKey,
+      ...(options.streamFn === undefined
+        ? {}
+        : {
+            complete: async (model, prompt, signal) => {
+              // A session with its own stream function (tests, a proxy) sends sub-calls through it.
+              const streamFn = options.streamFn as NonNullable<typeof options.streamFn>;
+              const key = getApiKey(model.provider);
+              const events = await streamFn(
+                model,
+                {
+                  ...(prompt.system === undefined ? {} : { systemPrompt: prompt.system }),
+                  messages: [{ role: "user", content: prompt.prompt, timestamp: Date.now() }],
+                },
+                {
+                  signal,
+                  ...(key === undefined ? {} : { apiKey: key }),
+                  ...(prompt.maxTokens === undefined ? {} : { maxTokens: prompt.maxTokens }),
+                },
+              );
+              return events.result();
+            },
+          }),
+      onResponse: input.onResponse,
+    },
+  });
 }
 
 function createSessionSubagentRoot(
@@ -733,14 +833,30 @@ export async function runCapabilityNativeAgentSession(
         };
   const offloaded = (tool: AgentTool): AgentTool =>
     offload === undefined ? tool : withOffload(tool, offload);
-  const tools: AgentTool[] = [
+  const workTools: AgentTool[] = [
     ...capabilityTools,
     ...(subagentRoot === undefined ? [] : (createSubagentTools(subagentRoot) as AgentTool[])),
     ...(longRun?.tools ?? []),
     ...(schedules?.tools ?? []),
     ...(continual?.tools ?? []),
-    ...(turnMode === "single-turn" ? [] : [createNativeStopTool(stopState)]),
-  ].map(offloaded);
+  ];
+  const rlmWorkspace = createSessionRlm(options, {
+    ...(apiKey === undefined || apiKey.length === 0 ? {} : { apiKey }),
+    tools: () => workTools,
+    getMessages: () => agent.state.messages,
+    onResponse: async (message) => {
+      await options.usageMeter?.record(
+        { ...eventContext, ...options.usageAttribution },
+        { provider: message.provider, model: message.model, usage: message.usage, purpose: "rlm" },
+      );
+    },
+  });
+  const tools: AgentTool[] = [
+    ...workTools.map(offloaded),
+    // The workspace already cuts long output and keeps large values in variables.
+    ...(rlmWorkspace === undefined ? [] : [rlmWorkspace.tool as unknown as AgentTool]),
+    ...(turnMode === "single-turn" ? [] : [createNativeStopTool(stopState)].map(offloaded)),
+  ];
   const deferredTools: AgentTool[] = [];
   let toolsLoadedSinceTurn = false;
   const loadDeferredTools = (names: readonly string[]): void => {
@@ -1048,6 +1164,7 @@ export async function runCapabilityNativeAgentSession(
     readonly terminalStatus?: StopAndRespondState["status"];
   }): Promise<RunCapabilityNativeAgentSessionResult> => {
     await subagentRoot?.children.shutdown();
+    await rlmWorkspace?.dispose();
     unbindSubagents?.();
     unbindLongRun?.();
     unbindHarvest?.();
