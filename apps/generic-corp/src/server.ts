@@ -27,6 +27,7 @@ import {
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
+import { type CompanyCheckup, createCompanyCheckup } from "./checkup.js";
 import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
@@ -329,6 +330,16 @@ export interface CreateGenericCorpServerOptions {
    * or the secrets vault.
    */
   readonly modelAuth?: CompanyModelAuth;
+  /**
+   * Whether each agent's memory file is included in its prompt. Defaults to true; the baseline
+   * comparison turns it off to measure what memory is worth.
+   */
+  readonly agentMemory?: boolean;
+  /**
+   * The owner's checkup (the live baseline comparison, `/api/checkup`). Defaults to one that runs
+   * the company's own template with this server's model sign-in; `false` leaves it out.
+   */
+  readonly checkup?: CompanyCheckup | false;
   readonly log?: (message: string) => void;
 }
 
@@ -477,6 +488,7 @@ export async function createGenericCorpServer(
       drive,
       executor,
       cascade: {
+        ...(options.agentMemory === false ? { memoryPromptChars: 0 } : {}),
         worker: {
           concurrency: environment.workerConcurrency ?? DEFAULT_WORKER_CONCURRENCY,
           ...(environment.turnLeaseMs === undefined ? {} : { leaseMs: environment.turnLeaseMs }),
@@ -576,6 +588,17 @@ export async function createGenericCorpServer(
     }
 
     const ownerAuth = auth;
+    // The live baseline comparison, run only when the owner presses "run the checkup".
+    const checkup =
+      options.checkup === false
+        ? undefined
+        : (options.checkup ??
+          createCompanyCheckup({
+            kv: storage.kv,
+            modelAuth,
+            env: options.env ?? process.env,
+            log,
+          }));
     app.route(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
@@ -583,6 +606,7 @@ export async function createGenericCorpServer(
         refusals,
         modelAuth,
         permissions,
+        ...(checkup === undefined ? {} : { checkup }),
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),

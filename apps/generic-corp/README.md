@@ -286,6 +286,48 @@ There is no Actions workflow for this on purpose: automated runs never call a
 real model, so the reliability gate only runs when you start it by hand, and the
 provider key stays on your machine.
 
+Checkup: the baseline comparison (design decisions 43 to 45). It runs the
+same goal through a plain single agent and through Generic Corp, on real models,
+and reports tokens per finished goal for each, so NOVA's promised 90% cut is
+measured rather than claimed. Every configuration is judged on what it
+delivered, with the same validators and judge, never on who did the work.
+
+| Configuration | Delegation | Offloading | Python workspace | Memory |
+| --- | --- | --- | --- | --- |
+| `single-agent` | off | off | off | off |
+| `company` | on | on | on | on |
+| `company-no-<feature>` (ablation set) | one of the four off, the rest on | | | |
+
+The plain single agent is the CEO alone, on the CEO's model, told to do every
+part of the work itself and given every role's instructions, so only the
+structure differs. Each attempt starts a fresh company, so memory starts empty.
+
+The live set is small because it runs on the owner's Claude plan: the back
+office's month-end close (exact answers, no web search), one attempt per
+configuration. Before it starts, the checkup shows the plan and its expected
+tokens (a guess until the first checkup has run, then the last checkup's real
+usage with a 50% margin) and it stops at the high end of that estimate. It only
+runs when the owner starts it:
+
+- In the app: `GET /api/checkup` returns the plan, the estimate and the latest
+  checkup. `POST /api/checkup` with `{"confirm": true}` (and optionally
+  `"set": "ablation"`) starts one in the background and returns 202; without
+  `confirm` it returns 400 with the plan. One runs at a time.
+  `GET /api/checkups` lists past checkups and `GET /api/checkups/:id` returns one
+  with its report. Starting one needs the owner's manage scope.
+- From a terminal: `npm run checkup -w @generic-ai/app-generic-corp` shows the
+  plan and asks before starting (`--yes` skips the question, `--plan` only shows
+  it, `--set ablation` adds the four ablations, `--out <dir>` writes
+  `baseline.md` and `baseline.json`). It uses the Claude sign-in saved in the
+  data folder (`--data-dir`, default `GENERIC_CORP_DATA_DIR` or
+  `~/.generic-corp`), else `ANTHROPIC_API_KEY`. With the local Docker setup, run
+  `docker compose -f apps/generic-corp/compose.yaml exec app node apps/generic-corp/dist/checkup-cli.js`
+  to use the sign-in you made in the app. It exits 3 when there is no sign-in
+  and 4 in GitHub Actions.
+
+Nothing automated starts a checkup. Its tests run the whole comparison on a
+scripted model.
+
 To add a template, copy a folder, change `company.yaml`, and record a replay
 for each goal. `templates.test.ts` checks that every goal has a case, a replay,
 and numeric, rubric and trace validators.

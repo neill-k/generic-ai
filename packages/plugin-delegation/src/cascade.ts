@@ -393,7 +393,10 @@ export interface CreateDelegationCascadeOptions {
   readonly maxValidationAttempts?: number;
   /** Queue attempts per turn before the task fails. Defaults to the queue's default. */
   readonly maxAttemptsPerTurn?: number;
-  /** Characters of the agent's memory file included in its prompt. Defaults to 8000. */
+  /**
+   * Characters of the agent's memory file included in its prompt. Defaults to 8000. 0 turns
+   * memory off: the prompt neither includes the file nor mentions it.
+   */
   readonly memoryPromptChars?: number;
   /** Characters of each child result included in the parent's prompt. Defaults to 8000. */
   readonly childResultPromptChars?: number;
@@ -1928,15 +1931,20 @@ export function createDelegationCascade(
       lines.push("You have nobody to delegate to; do the work yourself.");
     }
 
-    lines.push(
-      "",
-      "## Your memory",
-      `Your memory file is ${agent.memoryPath}. It persists across tasks; update it with decisions and lessons worth keeping.`,
-      `Your workspace is ${agent.workspacePath}.`,
-    );
-    const trimmedMemory = memory.trim();
-    if (trimmedMemory.length > 0) {
-      lines.push("", "```markdown", clip(trimmedMemory, limits.memoryChars, true), "```");
+    if (limits.memoryChars > 0) {
+      lines.push(
+        "",
+        "## Your memory",
+        `Your memory file is ${agent.memoryPath}. It persists across tasks; update it with decisions and lessons worth keeping.`,
+        `Your workspace is ${agent.workspacePath}.`,
+      );
+      const trimmedMemory = memory.trim();
+      if (trimmedMemory.length > 0) {
+        lines.push("", "```markdown", clip(trimmedMemory, limits.memoryChars, true), "```");
+      }
+    } else {
+      // Memory is off: the agent is not told about its memory file at all.
+      lines.push("", `Your workspace is ${agent.workspacePath}.`);
     }
 
     lines.push("", `## Task ${task.taskId}`);

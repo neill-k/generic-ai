@@ -38,6 +38,7 @@ import {
 } from "./company.js";
 import { companyLayout } from "./drive.js";
 import { collectCompanyGoalEvidence, createModelJudge } from "./goals.js";
+import type { CompanyModelAuth } from "./model-auth.js";
 import { secondOpinionModel } from "./second-opinion.js";
 import { createGenericCorpServer } from "./server.js";
 import type { SpendCap } from "./spend.js";
@@ -189,6 +190,18 @@ export interface CompanyEvalExecutorOptions {
   readonly resolveModel?: (ref: string) => Model;
   /** Live mode: replaces the model judge. */
   readonly judge?: GoalJudge;
+  /** Live mode: where agents get their model credential, for example the owner's Claude sign-in. */
+  readonly modelAuth?: CompanyModelAuth;
+  /**
+   * Feature switches for the baseline comparison: `offload: false` keeps large tool results in
+   * context, `rlm: false` leaves out the Python workspace, `memory: false` leaves agents' memory
+   * files out of their prompts. Everything is on by default.
+   */
+  readonly features?: {
+    readonly offload?: boolean;
+    readonly rlm?: boolean;
+    readonly memory?: boolean;
+  };
   /**
    * A token and dollar cap over every attempt. Each agent turn starts with what is left as its
    * harness budget, and attempts that would start after the cap is reached are not run.
@@ -260,8 +273,13 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
       const resolveModel = model?.resolveModel ?? options.resolveModel;
       const judge = replay === undefined ? options.judge : replayJudge(replay);
       const spendCap = options.spendCap;
+      const native = {
+        ...(resolveModel === undefined ? {} : { resolveModel }),
+        ...(options.features?.offload === false ? { offload: false as const } : {}),
+        ...(options.features?.rlm === false ? { rlm: false } : {}),
+      };
       const executorOptions = {
-        ...(resolveModel === undefined ? {} : { native: { resolveModel } }),
+        ...(Object.keys(native).length === 0 ? {} : { native }),
         ...(spendCap === undefined
           ? {}
           : {
@@ -284,6 +302,11 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
         ...(toolkit === undefined ? {} : { toolkit }),
         ...(Object.keys(executorOptions).length === 0 ? {} : { executorOptions }),
         ...(judge === undefined ? {} : { goals: { judges: judge } }),
+        ...(options.modelAuth === undefined || replay !== undefined
+          ? {}
+          : { modelAuth: options.modelAuth }),
+        ...(options.features?.memory === false ? { agentMemory: false } : {}),
+        checkup: false,
         authStore: createMemoryAuthStore(),
         log,
       });
@@ -384,7 +407,7 @@ export interface TemplateEvalRun {
  * Wraps a judge so it refuses to grade once the cap is reached. A refused grade is an error,
  * which fails the validator rather than passing it.
  */
-function cappedJudge(judge: GoalJudge, spendCap: SpendCap | undefined): GoalJudge {
+export function cappedJudge(judge: GoalJudge, spendCap: SpendCap | undefined): GoalJudge {
   if (spendCap === undefined) {
     return judge;
   }

@@ -414,6 +414,21 @@ describe("delegation cascade (R9)", () => {
     expect(calls[1]?.prompt).toContain('Agent "analyst" does not report to you.');
   });
 
+  it("leaves memory out of the prompt when memoryPromptChars is 0", async () => {
+    const { executor, calls } = scriptedExecutor({});
+    const withMemory = await openHarness(executor);
+    await withMemory.cascade.submit({ agentId: "analyst", instruction: "Count", taskId: "on" });
+    await withMemory.cascade.drain();
+    expect(calls[0]?.prompt).toContain("## Your memory");
+
+    const withoutMemory = await openHarness(executor, { memoryPromptChars: 0 });
+    await withoutMemory.cascade.submit({ agentId: "analyst", instruction: "Count", taskId: "off" });
+    await withoutMemory.cascade.drain();
+    expect(calls[1]?.prompt).not.toContain("## Your memory");
+    expect(calls[1]?.prompt).not.toContain("context.md");
+    expect(calls[1]?.prompt).toContain("Your workspace is");
+  });
+
   it("allows delegation anywhere in the subtree when configured", async () => {
     const { executor } = scriptedExecutor({
       ceo: (_input, turn) =>
