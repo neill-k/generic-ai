@@ -71,6 +71,20 @@ export interface AgentTaskGoalReport {
   readonly checks?: readonly AgentTaskGoalCheck[];
 }
 
+/** Why work is held. The host decides; the cascade only parks and resumes. */
+export interface AgentHold {
+  /** For example `owner-pause`, `company-limit`, `agent-limit`, `plan-reset`. */
+  readonly kind: string;
+  /** Plain words for the owner, such as "Paused until your plan resets at 4:00 PM." */
+  readonly reason: string;
+  /** When the hold is expected to lift, if known (ISO time). */
+  readonly until?: string;
+}
+
+export interface AgentTaskHold extends AgentHold {
+  readonly since: string;
+}
+
 export interface AgentTaskGoalCheck {
   readonly validatorId: string;
   readonly kind: string;
@@ -184,6 +198,11 @@ export interface AgentTaskRecord {
   readonly impossibilityClaims?: readonly AgentTaskImpossibilityClaim[];
   /** Set when a second reviewer confirmed the task is impossible in principle. */
   readonly impossible?: AgentTaskImpossibilityClaim;
+  /**
+   * Set while the task waits on a hold: the owner paused its agent or the company (decision 33),
+   * or a spending or plan limit was reached (decision 15). Cleared when the hold lifts.
+   */
+  readonly hold?: AgentTaskHold;
   readonly ownerQuestions?: readonly AgentTaskOwnerQuestion[];
   readonly notices?: readonly AgentTaskNotice[];
   readonly status: AgentTaskStatus;

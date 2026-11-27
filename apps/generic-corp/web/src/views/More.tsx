@@ -1,3 +1,5 @@
+import { CompanyPauseButton, usePause } from "../components/pause.js";
+
 /**
  * Screens that still live in the classic dashboard while they move over. Each link opens the
  * classic page in place; the list shrinks as screens arrive here.
@@ -14,6 +16,7 @@ const CLASSIC: readonly { hash: string; title: string; text: string }[] = [
 ];
 
 export function MoreView() {
+  const pause = usePause();
   return (
     <div class="page">
       <header class="page-header">
@@ -22,6 +25,12 @@ export function MoreView() {
           <p class="muted">These rooms are being moved. They open in the classic dashboard.</p>
         </div>
       </header>
+      <section class="card company-pause phone-only" aria-label="Pause">
+        <p class="small muted">
+          Pausing lets each agent finish the step it is on. Nothing is cut off mid-action.
+        </p>
+        <CompanyPauseButton pause={pause} />
+      </section>
       <ul class="more-list">
         {CLASSIC.map((item) => (
           <li key={item.hash}>

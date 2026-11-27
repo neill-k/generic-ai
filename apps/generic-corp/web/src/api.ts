@@ -43,6 +43,7 @@ export type GoalState =
   | "queued"
   | "working"
   | "waiting"
+  | "paused"
   | "done"
   | "impossible"
   | "stopped"
@@ -187,6 +188,12 @@ export interface GoalTemplate {
   description?: string;
   request: string;
   definitionOfDone: string[];
+}
+
+export interface PauseView {
+  company: boolean;
+  since?: string;
+  agents: string[];
 }
 
 export function fileUrl(path: string, download = false): string {

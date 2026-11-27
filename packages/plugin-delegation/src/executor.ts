@@ -113,6 +113,7 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
         ...(input.effectJournal === undefined ? {} : { effectJournal: input.effectJournal }),
         ...(session === undefined ? {} : { session }),
         ...(input.steering === undefined ? {} : { steering: input.steering }),
+        ...(input.stopRequested === undefined ? {} : { stopRequested: input.stopRequested }),
         ...(input.tools === undefined || input.tools.length === 0
           ? {}
           : { hostTools: input.tools }),
@@ -142,8 +143,8 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
 }
 
 /**
- * Picks an executor per turn, for example a protocol topology for one agent
- * and a single harness run for everyone else.
+ * Picks an executor per turn, for example a different harness for one agent
+ * and the default harness run for everyone else.
  */
 export function routeTaskExecutor(
   select: (input: AgentTaskExecutionInput) => AgentTaskExecutor | undefined,

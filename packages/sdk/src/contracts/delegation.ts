@@ -48,7 +48,7 @@ export interface DelegationResult<TResult = unknown> {
  * Durable delegation cascade: the runtime-neutral contract between the
  * cascade scheduler (which owns task records, the queue, and the org chart)
  * and whatever actually runs an agent turn (a single harness adapter run, a
- * protocol topology, or a test double).
+ * or a test double).
  */
 export interface AgentTaskExecutionInput {
   /** The durable task this turn works on. */
@@ -64,7 +64,7 @@ export interface AgentTaskExecutionInput {
   readonly roleKind?: string;
   readonly model?: string;
   readonly instructions?: string;
-  /** Fully rendered prompt: identity, memory, task, goal, results, protocol. */
+  /** Fully rendered prompt: identity, memory, task, goal, results, how to respond. */
   readonly prompt: string;
   /** The agent's persistent home: its memory file and workspace live here. */
   readonly workspaceRoot: string;
@@ -87,6 +87,8 @@ export interface AgentTaskExecutionInput {
    * Pass it to the harness as `AgentHarnessRunInput.steering`.
    */
   readonly steering?: AgentHarnessSteering;
+  /** True once the turn should stop after its current step. Pass it as `AgentHarnessRunInput.stopRequested`. */
+  readonly stopRequested?: () => Promise<boolean> | boolean;
   readonly signal?: AbortSignal;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
 }

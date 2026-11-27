@@ -1267,6 +1267,78 @@ describe("owner messages to a running turn (decision 5)", () => {
   });
 });
 
+describe("holds: pause and limits (decisions 15 and 33)", () => {
+  it("parks a held agent's task and gives it a fresh turn once the hold lifts", async () => {
+    let paused = true;
+    const { executor, calls } = scriptedExecutor({});
+    const events: string[] = [];
+    const harness = await openHarness(executor, {
+      holdFor: (agentId) =>
+        paused && agentId === "ceo" ? { kind: "owner-pause", reason: "Paused." } : undefined,
+      onEvent: (event) => {
+        events.push(event.type);
+      },
+    });
+    await harness.cascade.submit({ agentId: "ceo", instruction: "Plan the offsite", taskId: "t" });
+    await harness.cascade.drain();
+
+    expect(calls).toHaveLength(0);
+    const held = await harness.cascade.get("t");
+    expect(held?.status).toBe("queued");
+    expect(held?.hold).toMatchObject({ kind: "owner-pause", reason: "Paused." });
+    expect(events).toContain("task.held");
+
+    // Still held: nothing resumes, and recovery leaves it alone.
+    expect(await harness.cascade.resumeHeld()).toBe(0);
+    expect(await harness.cascade.recover()).toBe(0);
+    await harness.cascade.drain();
+    expect(calls).toHaveLength(0);
+
+    paused = false;
+    expect(await harness.cascade.resumeHeld()).toBe(1);
+    await harness.cascade.drain();
+    const done = await harness.cascade.get("t");
+    expect(done?.status).toBe("succeeded");
+    expect(done?.hold).toBeUndefined();
+    expect(calls).toHaveLength(1);
+  });
+
+  it("stops a running turn after its step and parks it instead of failing", async () => {
+    let paused = false;
+    const stops: boolean[] = [];
+    const executor: AgentTaskExecutor = async (input) => {
+      if (input.prompt.includes("The hold is lifted")) {
+        return { status: "succeeded", outputText: "Picked up and finished." };
+      }
+      paused = true; // the owner presses pause mid-turn
+      stops.push((await input.stopRequested?.()) === true);
+      return {
+        status: "failed",
+        outputText: "",
+        failureMessage: "Stopped after the current step.",
+      };
+    };
+    const harness = await openHarness(executor, {
+      holdFor: () => (paused ? { kind: "owner-pause", reason: "Paused." } : undefined),
+    });
+    await harness.cascade.submit({ agentId: "analyst", instruction: "Research", taskId: "r" });
+    await harness.cascade.drain();
+
+    expect(stops).toEqual([true]);
+    const parked = await harness.cascade.get("r");
+    expect(parked?.status).toBe("queued");
+    expect(parked?.hold?.reason).toBe("Paused.");
+
+    paused = false;
+    expect(await harness.cascade.resumeHeld()).toBe(1);
+    await harness.cascade.drain();
+    expect(await harness.cascade.get("r")).toMatchObject({
+      status: "succeeded",
+      outputText: "Picked up and finished.",
+    });
+  });
+});
+
 describe("goals on every request (ADR 0069)", () => {
   type Use = (
     name: string,

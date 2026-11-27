@@ -158,8 +158,7 @@ export interface NativeAgentHarnessOptions {
     | boolean;
   /**
    * Give every native session the thread-goal tools (see `@generic-ai/autonomy`). A session keeps
-   * working while a goal the agent created is active. A topology run's own goal is not handed to
-   * each actor: it is the team's goal, and the topology runner checks it with the same SDK runner.
+   * working while a goal the agent created is active.
    */
   readonly goal?:
     | Omit<NativeSessionGoal, "spec" | "validation" | "collectEvidence" | "objective">
@@ -1202,6 +1201,8 @@ export interface HarnessSessionRunOptions {
   readonly sessionFile?: string;
   /** Native backend: messages for the agent while the turn runs (`AgentHarnessRunInput.steering`). */
   readonly steering?: AgentHarnessSteering;
+  /** Native backend: stop the turn after the current step (`AgentHarnessRunInput.stopRequested`). */
+  readonly stopRequested?: () => Promise<boolean> | boolean;
   /**
    * Native backend: continue `sessionFile` from its last completed step instead of sending
    * `prompt` (see `RunCapabilityNativeAgentSessionOptions.resume`). Use it to re-run a turn that a
@@ -1366,8 +1367,8 @@ interface RoleSessionResult {
 
 /**
  * Run one harness role as its own session on the harness backend, applying the role's effect
- * policy, lifecycle hooks, and policy-decision tracing. Shared by the
- * model-directed `delegate_agent` tool and the protocol-driven topology runner.
+ * policy, lifecycle hooks, and policy-decision tracing. Used by the
+ * `delegate_agent` tool.
  */
 async function runRoleSession(input: {
   readonly runId: string;
@@ -2155,6 +2156,7 @@ function createSessionAgentHarnessAdapter(
                 ...(input.session.resume === true ? { resume: true } : {}),
               }),
           ...(input.steering === undefined ? {} : { steering: input.steering }),
+          ...(input.stopRequested === undefined ? {} : { stopRequested: input.stopRequested }),
           onSessionReady: async (context) => {
             rootRuntimeSessionId = context.sessionId;
             await observePermissionDecisions({

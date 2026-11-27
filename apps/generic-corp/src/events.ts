@@ -21,11 +21,14 @@ export type CompanyEventType =
   | "task.goal_changed"
   | "task.owner_question"
   | "task.impossibility_reviewed"
+  | "task.held"
+  | "company.paused"
   | "tool.effect.replayed"
   | "tool.effect.uncertain"
   | "thread.updated"
   | "drive.updated"
   | "drive.goal.updated"
+  | "backups.updated"
   | "agent.message"
   | "runtime.error";
 

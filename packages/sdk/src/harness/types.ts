@@ -305,6 +305,11 @@ export interface AgentHarnessRunInput<TCapabilities = unknown> {
    * next step instead of after the turn. The host is responsible for not returning a message twice.
    */
   readonly steering?: AgentHarnessSteering;
+  /**
+   * Checked as each step ends (native backend). When it returns true the turn stops there, after
+   * the step's tool calls finished, so nothing is cut off mid-call. Used to pause an agent.
+   */
+  readonly stopRequested?: () => Promise<boolean> | boolean;
 }
 
 /** Returns messages that arrived for a running turn since the last call. */
