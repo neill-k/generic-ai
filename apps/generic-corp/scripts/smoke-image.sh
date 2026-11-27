@@ -10,6 +10,8 @@
 # shutdown. With --browser it also launches headless Chrome through the
 # pinned Playwright MCP package, as the browser connector does.
 set -euo pipefail
+# Pipelines below use `grep -c … >/dev/null`, not `grep -q`: `grep -q` stops at the first match,
+# the writer then dies of SIGPIPE, and pipefail turns a found line into a failure.
 
 image="${1:?usage: smoke-image.sh <image> [--browser]}"
 check_browser="${2:-}"
@@ -54,7 +56,7 @@ wait_for "Postgres" "docker exec $pg pg_isready -U postgres -h 127.0.0.1"
 step "Pre-deploy migration"
 docker run --rm --network "$net" -e DATABASE_URL="$url" "$image" node apps/generic-corp/dist/migrate.js
 docker run --rm --network "$net" -e DATABASE_URL="$url" "$image" node apps/generic-corp/dist/migrate.js \
-  | grep -q "up to date" || fail "second migration run was not a no-op"
+  | grep -c "up to date" >/dev/null || fail "second migration run was not a no-op"
 
 # Stand-in secrets: the probe below checks none of them reach agent commands.
 api_key="sk-ant-smoke-$$-provider-key"
@@ -74,7 +76,7 @@ wait_for "/ready" "[ \"\$(status_of /ready)\" = 200 ]"
 
 [ "$(status_of /health)" = 200 ] || fail "/health is not 200"
 [ "$(status_of /api/agents)" = 401 ] || fail "/api/agents answered without auth"
-docker logs "$app" 2>&1 | grep -q "https://smoke.example.com/auth/login and use this one-time setup token" \
+docker logs "$app" 2>&1 | grep -c "https://smoke.example.com/auth/login and use this one-time setup token" >/dev/null \
   || fail "setup token line missing from the log"
 # The one-time setup token lives only in the server's memory and log.
 setup_token="$(docker logs "$app" 2>&1 | grep -A1 "one-time setup token" | tail -n1 | tr -d ' ')"
@@ -86,7 +88,7 @@ docker exec "$app" sh -c '
     if tr "\0" " " < "$p/cmdline" 2>/dev/null | grep -q "^node apps/generic-corp/dist/run.js"; then
       awk "/^Uid:/ { print \$2 }" "$p/status"
     fi
-  done' | grep -qx 1000 || fail "server is not running as uid 1000"
+  done' | grep -cx 1000 >/dev/null || fail "server is not running as uid 1000"
 docker exec -u node "$app" sh -c 'command -v bash && command -v git && command -v rg && command -v fd' >/dev/null \
   || fail "bash, git, rg or fd missing"
 docker exec -u node "$app" sh -c 'touch /data/.write-test && rm /data/.write-test' \
@@ -96,9 +98,9 @@ if docker exec -u node "$app" sh -c 'touch /app/apps/generic-corp/dist/run.js' 2
 fi
 
 step "Agent commands run as their own user"
-docker logs "$app" 2>&1 | grep -q 'Agent commands run as the OS user "agent"' \
+docker logs "$app" 2>&1 | grep -c 'Agent commands run as the OS user "agent"' >/dev/null \
   || fail "the server did not switch agent commands to the agent user"
-curl -s "http://127.0.0.1:$port/ready" | grep -q '"agentIsolation":"user"' \
+curl -s "http://127.0.0.1:$port/ready" | grep -c '"agentIsolation":"user"' >/dev/null \
   || fail "/ready does not report agentIsolation user"
 if docker exec -u agent "$app" sudo -n true 2>/dev/null; then
   fail "the agent user can use sudo"
