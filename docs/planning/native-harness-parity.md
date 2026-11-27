@@ -130,6 +130,7 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Retry on transient errors (classifier, backoff, retry loop) | ✓ | ported `@generic-ai/ai` `retry`, `uuid`; `agent-session.test.ts` and `native-agent-harness.test.ts` cover the agent-level retry (pi's `agent-session-retry` drives its `AgentSession` class, which is not ported) |
 | Usage totals | ✓ | ported `usage-totals` (provider-reported total flag dropped) |
 | Context-overflow recovery (compact then retry the turn) | ✓ | `runWithRetry` `onContextOverflow` (slice 8a) |
+| Turn-level resume after a restart (design review decision 30): each finished message is saved as it ends; `resume` continues a saved session from its last completed step (tool results or a user message continue, a failed last response is set aside and retried, cut-off tool calls get an error result instead of running twice, a finished answer or `stop_and_respond` returns without a model call); per-turn `session: { file, resume }` on harness runs | ✓ | `packages/session/test/resume.test.ts`, `native-session-resume.test.ts`, the restart case in `native-agent-harness.test.ts`. pi's `durable` package (commit-before-show for every streamed event, a durable log replayed on reattach) is not ported: Generic AI resumes at message granularity |
 | Cache stats, auto-compaction queue, cache warming | ○ | pi `agent-session-auto-compaction-queue`, `cache-stats`, `cache-warmer` |
 | Session files through the durable store contract (R6) | ○ | once the store lands, `SessionManager` gains a store-backed writer |
 | Skills: discovery, validation, collisions, prompt block, `/skill:name` commands | ✓ | ported `skills` into `@generic-ai/resources`; `plugin-agent-skills` now uses it; `native-agent-harness.test.ts` covers `/skill:` runs |
@@ -177,7 +178,7 @@ chose to follow pi; tool search and the hosted provider defaults were closed aft
 
 The design review with Neill on 2026-11-27 set what stays open: Prime's RLM as a tool every agent
 has (decision 20, now ✓ above) and durable turn-level resume from the last completed step
-(decision 30). Providers beyond Anthropic and OpenAI and Prime's factory workflows are dropped.
+(decision 30, now ✓ above). Nothing is left open. Providers beyond Anthropic and OpenAI and Prime's factory workflows are dropped.
 MCP OAuth, code mode, SSH environments and the smaller pi gaps are held: not being worked on now,
 and kept here so they can be picked up later.
 
@@ -188,7 +189,7 @@ pi (`badlogic/pi-mono`):
 | Remaining built-in providers: Qwen token plans, Cloudflare AI Gateway and Workers AI, OpenCode, and pi's per-model compat quirks and model catalogs for the hosted providers | `ai/src/providers/*` | Dropped | Cerebras, Fireworks, Together, Hugging Face, NVIDIA, Baseten, Moonshot, Kimi Coding, Z.ai, Xiaomi, MiniMax, Vercel AI Gateway and Meta now have defaults (base URL, API, key variable), 27 providers in all; their models resolve with conservative defaults rather than pi's per-model catalog |
 | Image generation API, classifiers, deferred (batch) responses | `ai/src/images*`, `model-runtime-classifiers` | Held | |
 | Code mode: model-written JavaScript in a QuickJS sandbox that calls tools, so nested tool results never enter the context | `codemode`, `coding-agent` `codemode-*`, `nested-tool-calls` | Held | Closest to NOVA's "move work out of the model"; also Prime Agent's programmatic tool calling |
-| Durable harness: every turn and tool call committed before it is shown, resumed after a crash mid-turn; remote execution environments over SSH | `durable` (107 test files), `env` | Open (turn-level resume, decision 30); SSH environments held | Generic AI has a durable run store, queue and effect journal, but not pi's turn-level commit-and-resume |
+| Durable harness: every turn and tool call committed before it is shown, resumed after a crash mid-turn; remote execution environments over SSH | `durable` (107 test files), `env` | Done at message granularity (turn-level resume, decision 30); per-event commit and SSH environments held | Turn-level resume continues a saved session from its last completed step. pi's commit-before-show of every streamed event and SSH environments are not ported |
 | Standalone MCP client with OAuth refresh and the MCP conformance suite | `mcp`, `mcp-conformance`, `mcp-oauth-*` | Held | `plugin-mcp` uses the official SDK; OAuth for remote servers is not covered |
 | Tool binary downloads (`rg`, `fd` fetched on first use) | `tools-manager` | Held | Deploy images install them; a local user needs them on `PATH` |
 | Telemetry contracts (spans, metrics, propagation) | `telemetry` | Held | Generic AI has `@generic-ai/observability` with its own shape |
