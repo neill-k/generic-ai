@@ -43,6 +43,7 @@ import {
   goalTraceFromCanonicalEvents,
   type RunEnvelope,
   type RunEnvelopeMode,
+  withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
   type CompactionSettings,
@@ -854,7 +855,20 @@ export async function runCapabilityNativeAgentSession(
   const tools: AgentTool[] = [
     ...workTools.map(offloaded),
     // The workspace already cuts long output and keeps large values in variables.
-    ...(rlmWorkspace === undefined ? [] : [rlmWorkspace.tool as unknown as AgentTool]),
+    // Code in the workspace can do what a shell command can, so it carries the same effect tags
+    // and permission checks see it as such. Its rlm.tool calls go through the tools' own wrappers.
+    ...(rlmWorkspace === undefined
+      ? []
+      : [
+          withAgentHarnessToolEffects(rlmWorkspace.tool as unknown as AgentTool, {
+            id: "rlm.python",
+            label: "Python workspace",
+            description: "Runs Python in the session's persistent workspace.",
+            effects: ["process.spawn", "fs.read", "fs.write", "network.egress"],
+            reversibility: "irreversible",
+            retrySemantics: "retry-may-duplicate",
+          }),
+        ]),
     ...(turnMode === "single-turn" ? [] : [createNativeStopTool(stopState)].map(offloaded)),
   ];
   const deferredTools: AgentTool[] = [];

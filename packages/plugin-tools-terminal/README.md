@@ -37,6 +37,9 @@ set as both soft and hard limits so it cannot raise them:
 Core dumps are off. Set a field to `null` to leave that resource unlimited, or
 `limits: false` to turn them all off. `wrapCommandForUser` and
 `commandLimitScript` are exported so other shell tools apply the same wrapper.
+`wrapProcessForUser` does the same for a long-lived process given as argv and
+keeps its stdin (a plain command gets none), for example as the Python
+workspace kernel's `launch` hook (`@generic-ai/rlm`).
 
 Sandboxed code execution is tracked separately in [`docs/decisions/0013-sandboxed-execution.md`](../../docs/decisions/0013-sandboxed-execution.md). The planned migration path is a dedicated `@generic-ai/plugin-tools-terminal-sandbox` package that can replace this package in the starter preset's `terminalTools` slot without changing kernel boundaries.
 

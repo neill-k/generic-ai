@@ -36,6 +36,7 @@
     "@generic-ai/plugin-tools-web": "0.0.0",
     "@generic-ai/preset-starter-hono": "0.0.0",
     "@generic-ai/resources": "0.0.0",
+    "@generic-ai/rlm": "0.0.0",
     "@generic-ai/sdk": "0.0.0",
     "hono": "^4.12.15",
     "yaml": "^2.8.3"
