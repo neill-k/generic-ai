@@ -55,10 +55,10 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.13",
-    "@changesets/cli": "2.31.0",
+    "@changesets/cli": "3.0.3",
     "@types/node": "24.12.2",
     "rimraf": "6.1.4",
     "typescript": "6.0.3",
-    "vitest": "4.1.12"
+    "vitest": "5.1.1"
   }
 }
