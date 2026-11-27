@@ -2031,11 +2031,12 @@ function memoryForm(entry, onSave, onCancel) {
 
 async function renderMemory(message) {
   const scope = state.memoryScope ?? "company";
-  const [overview, listing, history, agents] = await Promise.all([
+  const [overview, listing, history, agents, background] = await Promise.all([
     api("/memory"),
     api(`/memory/${encodeURIComponent(scope)}`),
     api(`/memory/changes?scope=${encodeURIComponent(scope)}&limit=50`),
     api("/agents"),
+    api("/memory/background").catch(() => undefined),
   ]);
   const counts = new Map(overview.scopes.map((row) => [row.scope, row.entries]));
   const isHandbook = scope === "company";
@@ -2065,6 +2066,84 @@ async function renderMemory(message) {
       await renderMemory(error.message);
     }
   };
+
+  const setPaused = async (paused) => {
+    try {
+      await api("/memory/background", { method: "PUT", body: JSON.stringify({ paused }) });
+      await renderMemory(
+        paused ? "Background memory work is paused." : "Background memory work is back on.",
+      );
+    } catch (error) {
+      await renderMemory(error.message);
+    }
+  };
+  const scanNow = async () => {
+    try {
+      const { result } = await api("/memory/background/scan", { method: "POST" });
+      await renderMemory(
+        result.skipped
+          ? result.skipped
+          : `Read ${result.scanned} messages and filed ${result.filed} preferences.`,
+      );
+    } catch (error) {
+      await renderMemory(error.message);
+    }
+  };
+  const dreamNow = async () => {
+    try {
+      const { result } = await api(`/memory/background/dream/${encodeURIComponent(scope)}`, {
+        method: "POST",
+      });
+      await renderMemory(
+        result.skipped
+          ? result.skipped
+          : `Dreamed over ${result.sessions} sessions and ${result.scripts} scripts: ${result.applied} changes.`,
+      );
+    } catch (error) {
+      await renderMemory(error.message);
+    }
+  };
+  const jobLine = (label, job) =>
+    h(
+      "p",
+      { class: "small" },
+      h("strong", {}, `${label}: `),
+      job?.lastRunAt ? `last ran ${formatTime(job.lastRunAt)}` : "has not run yet",
+      job?.lastResult ? ` · ${job.lastResult}` : "",
+      job?.lastError ? ` · last problem: ${job.lastError}` : "",
+      job?.usage?.calls
+        ? ` · ${job.usage.calls} calls, ${formatTokens(job.usage.totalTokens)} tokens`
+        : "",
+    );
+  const backgroundPanel = background
+    ? h(
+        "div",
+        { class: "panel" },
+        h("h2", {}, "Background work"),
+        h(
+          "p",
+          { class: "muted small" },
+          "A small model reads your chats for lasting preferences, and idle agents dream: they reread their recent work and tidy their memory. Both use your Claude plan, sparingly.",
+        ),
+        jobLine("Preference scanner", background.jobs.scanner),
+        jobLine("Dreaming", background.jobs.dreaming),
+        h(
+          "div",
+          { class: "row-actions" },
+          background.settings.paused
+            ? h("button", { type: "button", onClick: () => setPaused(false) }, "Resume")
+            : h(
+                "button",
+                { type: "button", class: "ghost", onClick: () => setPaused(true) },
+                "Pause",
+              ),
+          h("button", { type: "button", class: "ghost", onClick: scanNow }, "Scan chats now"),
+          isHandbook
+            ? null
+            : h("button", { type: "button", class: "ghost", onClick: dreamNow }, "Dream now"),
+        ),
+      )
+    : null;
 
   const tabs = h(
     "div",
@@ -2202,6 +2281,7 @@ async function renderMemory(message) {
             ? h("p", { class: "muted" }, "No changes yet.")
             : h("ul", { class: "memory-changes" }, history.changes.map(changeRow)),
         ),
+        backgroundPanel,
       ),
     ),
   );

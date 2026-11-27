@@ -31,6 +31,14 @@ import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company
 import { createDashboardRoutes } from "./dashboard.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
 import {
+  type BackgroundModel,
+  createBackgroundGate,
+  createBackgroundTimer,
+  createMemoryBackgroundStore,
+  createModelBackground,
+  DEFAULT_BACKGROUND_MODEL,
+} from "./background.js";
+import {
   type AgentNetwork,
   type AgentNetworkProbe,
   createEgressProxy,
@@ -47,7 +55,10 @@ import {
   createCompanyHandInCheck,
   createModelJudge,
 } from "./goals.js";
+import { createDreaming } from "./dreaming.js";
+import { createCompanyHarvest } from "./harvest.js";
 import { createCompanyMemory } from "./memory.js";
+import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
 import { createMemoryTools } from "./memory-tools.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import {
@@ -321,6 +332,14 @@ export interface CreateGenericCorpServerOptions {
     readonly impossibility?: ImpossibilityReviewer;
     readonly checks?: Readonly<Record<string, GoalCheck>>;
   };
+  /**
+   * The model background memory work uses (the preference scanner, dreaming). Defaults to
+   * `GENERIC_CORP_MEMORY_MODEL` or a small Claude model on the owner's sign-in. Background jobs
+   * only run while workers run.
+   */
+  readonly backgroundModel?: BackgroundModel;
+  /** Why background memory work may not spend now (spending limits, company pause). */
+  readonly canSpendInBackground?: () => Promise<string | undefined> | string | undefined;
   /** How agent commands run. Defaults to `resolveAgentIsolation` over the environment. */
   readonly agentIsolation?: AgentIsolation;
   /** Replaces the check that the agent user's firewall rule holds, for tests. */
@@ -435,11 +454,18 @@ export async function createGenericCorpServer(
       legacyNotes: (agentId) =>
         readFile(path.join(layout.agentsRoot, agentId, "context.md"), "utf8"),
     });
+    // Scripts an agent writes are kept once its task is accepted (decision 28), outside the
+    // company folder, for dreaming to turn into saved procedures.
+    const harvest = createCompanyHarvest({
+      kv: storage.kv,
+      companyRoot: layout.root,
+      root: path.join(environment.dataDir, "harvest"),
+    });
     const withMemoryTools = (
       bindings: ReturnType<CompanyToolkit["capabilities"]>,
       input: Parameters<CompanyToolkit["capabilities"]>[0],
     ): ReturnType<CompanyToolkit["capabilities"]> => ({
-      ...bindings,
+      ...harvest.wrapBindings(bindings, input),
       customTools: [
         ...(bindings.customTools ?? []),
         ...createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId }),
@@ -495,6 +521,7 @@ export async function createGenericCorpServer(
       agentsRoot: layout.agentsRoot,
       drive,
       memory,
+      harvest,
       executor,
       cascade: {
         worker: {
@@ -541,6 +568,82 @@ export async function createGenericCorpServer(
     });
     runtimeRef = runtime;
     await runtime.initialize();
+
+    // Background memory work (decisions 18 and 19): frugal, pausable, one job at a time.
+    const background = createMemoryBackgroundStore({ kv: storage.kv });
+    const backgroundGate = createBackgroundGate({
+      store: background,
+      ...(options.canSpendInBackground === undefined
+        ? {}
+        : { canSpend: options.canSpendInBackground }),
+    });
+    const backgroundModel =
+      options.backgroundModel ??
+      createModelBackground({
+        model: processEnv["GENERIC_CORP_MEMORY_MODEL"]?.trim() || DEFAULT_BACKGROUND_MODEL,
+        getAuth: (provider) => modelAuth.getAuth(provider),
+      });
+    const scanner = createPreferenceScanner({
+      memory,
+      store: background,
+      model: backgroundModel,
+      gate: backgroundGate,
+      messages: async () => {
+        const threads = await runtime.threads.list();
+        const messages: OwnerMessage[] = threads.flatMap((thread) =>
+          thread.messages.map((message) => ({
+            messageId: message.messageId,
+            threadId: thread.threadId,
+            text: message.text,
+            createdAt: message.createdAt,
+            agentId: runtime.ceoId,
+          })),
+        );
+        return messages.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+      },
+      agents: async () =>
+        (await runtime.directory.list()).map((agent) => ({
+          id: agent.id,
+          title: agent.title ?? agent.role,
+        })),
+    });
+    const sessionsRoot = path.join(environment.dataDir, "sessions");
+    const dreaming = createDreaming({
+      memory,
+      store: background,
+      model: backgroundModel,
+      gate: backgroundGate,
+      sessionsRoot,
+      harvest,
+      agents: async () => (await runtime.directory.list()).map((agent) => agent.id),
+      lastActive: async (agentId) => {
+        const tasks = await runtime.listTasks({ agentId, limit: 50 });
+        if (tasks.some((task) => ["queued", "running", "waiting"].includes(task.status))) {
+          return "working";
+        }
+        const latest = tasks
+          .map((task) => task.completedAt ?? task.updatedAt)
+          .sort()
+          .at(-1);
+        return latest === undefined ? undefined : new Date(latest);
+      },
+    });
+    const dreamingTimer = createBackgroundTimer(
+      async () => Math.min(30, (await background.settings()).dreaming.idleMinutes) * 60_000,
+      async () => {
+        await dreaming.tick();
+      },
+      (error) => log(`Dreaming failed: ${String(error)}`),
+    );
+    const scannerTimer = createBackgroundTimer(
+      async () => (await background.settings()).scanner.intervalMinutes * 60_000,
+      async () => {
+        if ((await background.settings()).scanner.enabled) {
+          await scanner.scan();
+        }
+      },
+      (error) => log(`Preference scan failed: ${String(error)}`),
+    );
 
     let auth: OwnerAuth | undefined;
     const app = new Hono();
@@ -600,6 +703,11 @@ export async function createGenericCorpServer(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
         toolkit: companyToolkit,
+        memoryBackground: {
+          store: background,
+          scan: async () => scanner.scan(),
+          dream: async (agentId) => dreaming.dream(agentId, { force: true }),
+        },
         refusals,
         modelAuth,
         permissions,
@@ -623,6 +731,8 @@ export async function createGenericCorpServer(
 
     if (environment.workers) {
       runtime.start();
+      scannerTimer.start();
+      dreamingTimer.start();
     }
 
     return {
@@ -636,6 +746,8 @@ export async function createGenericCorpServer(
       refusals,
       agentNetwork,
       async stop() {
+        await scannerTimer.stop();
+        await dreamingTimer.stop();
         await runtime.stop();
         await companyToolkit.close();
         await egressProxy?.stop();

@@ -319,6 +319,8 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
           skillDirs: [
             mirrorCompanySkills(skillDirs, input.workspaceRoot),
             path.join(input.workspaceRoot, ".agents", "skills"),
+            // Procedures saved in the agent's memory (dreaming), rebuilt before each turn.
+            path.join(input.workspaceRoot, ".agents", "memory-skills"),
           ],
           includeProject: false,
           includeUser: false,

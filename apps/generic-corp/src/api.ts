@@ -23,6 +23,7 @@ import {
   REFINEMENT_KIND_NAMES,
 } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
+import type { MemoryBackgroundStore } from "./background.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
 import type { RefusalLog } from "./refusals.js";
@@ -55,6 +56,12 @@ export interface CompanyApiOptions {
   readonly refusals?: RefusalLog;
   /** What powers the agents (Claude sign-in or API key), managed at `/api/model-auth`. */
   readonly modelAuth?: CompanyModelAuth;
+  /** Background memory jobs: settings, pause, status, and running a scan now. */
+  readonly memoryBackground?: {
+    readonly store: MemoryBackgroundStore;
+    scan(): Promise<unknown>;
+    dream(agentId: string): Promise<unknown>;
+  };
   /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
   readonly permissions?: PermissionStore;
 }
@@ -674,6 +681,43 @@ export function createCompanyApi(
       runtime.memory.scopes(),
     ]);
     return c.json({ handbook, scopes });
+  });
+
+  const requireBackground = () => {
+    if (options.memoryBackground === undefined) {
+      throw new ApiError(404, "Background memory work is not available.");
+    }
+    return options.memoryBackground;
+  };
+
+  app.get("/memory/background", async (c) => {
+    const { store } = requireBackground();
+    const [settings, scanner, dreaming] = await Promise.all([
+      store.settings(),
+      store.job("scanner"),
+      store.job("dreaming"),
+    ]);
+    return c.json({ settings, jobs: { scanner, dreaming } });
+  });
+
+  app.put("/memory/background", async (c) => {
+    requireManage(c);
+    const { store } = requireBackground();
+    return c.json({ settings: await store.updateSettings(await readJsonObject(c)) });
+  });
+
+  app.post("/memory/background/scan", async (c) => {
+    requireManage(c);
+    return c.json({ result: await requireBackground().scan() });
+  });
+
+  app.post("/memory/background/dream/:agentId", async (c) => {
+    requireManage(c);
+    const agentId = c.req.param("agentId");
+    if ((await runtime.directory.get(agentId)) === undefined) {
+      throw new ApiError(404, `Agent ${agentId} was not found.`);
+    }
+    return c.json({ result: await requireBackground().dream(agentId) });
   });
 
   app.get("/memory/changes", async (c) => {

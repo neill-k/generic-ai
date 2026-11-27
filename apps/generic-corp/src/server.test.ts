@@ -331,13 +331,17 @@ describe("Generic Corp server", () => {
     const added = await api<{ change: { id: string } }>(
       server,
       "/api/memory/company",
-      post({ edits: [{ action: "create", title: "Owner", content: "Neill likes short answers." }] }),
+      post({
+        edits: [{ action: "create", title: "Owner", content: "Neill likes short answers." }],
+      }),
     );
     expect(added.status).toBe(200);
     await api(
       server,
       "/api/memory/researcher",
-      post({ edits: [{ action: "create", title: "Sources", content: "Cite the primary source." }] }),
+      post({
+        edits: [{ action: "create", title: "Sources", content: "Cite the primary source." }],
+      }),
     );
     const overview = await api<{ handbook: unknown[]; scopes: Array<{ scope: string }> }>(
       server,
@@ -382,6 +386,68 @@ describe("Generic Corp server", () => {
     expect(bad.status).toBe(400);
     const badScope = await api(server, "/api/memory/..%2Fetc");
     expect(badScope.status).toBe(400);
+  });
+
+  it("scans owner chats for preferences on request, and can be paused", async () => {
+    let server: GenericCorpServer | undefined;
+    const scripted = scriptedCompany(() => (server as GenericCorpServer).storage.runStore);
+    const prompts: string[] = [];
+    server = await createGenericCorpServer({
+      environment: environment(),
+      company: COMPANY,
+      executor: scripted.executor,
+      authStore: createMemoryAuthStore(),
+      log: () => undefined,
+      backgroundModel: async (request) => {
+        prompts.push(request.prompt);
+        const id = /\[([^\]]+)\] to ceo/.exec(request.prompt)?.[1];
+        return {
+          text: JSON.stringify({
+            preferences: [
+              { scope: "company", title: "Metric units", content: "Use metric.", messageId: id },
+            ],
+          }),
+        };
+      },
+    });
+    const opened = server;
+    cleanups.push(() => opened.stop());
+    await api(server, "/api/threads", post({ text: "Always use metric units, please." }));
+    const scanned = await api<{ result: { filed: number } }>(
+      server,
+      "/api/memory/background/scan",
+      { method: "POST" },
+    );
+    expect(scanned.body.result.filed).toBe(1);
+    expect(prompts[0]).toContain("Always use metric units");
+    const handbook = await api<{ entries: Array<{ title: string; origin: { kind: string } }> }>(
+      server,
+      "/api/memory/company",
+    );
+    expect(handbook.body.entries[0]).toMatchObject({
+      title: "Metric units",
+      origin: { kind: "chat" },
+    });
+
+    const paused = await api<{ settings: { paused: boolean } }>(server, "/api/memory/background", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paused: true }),
+    });
+    expect(paused.body.settings.paused).toBe(true);
+    await api(server, "/api/threads", post({ text: "Another message." }));
+    const skipped = await api<{ result: { skipped: string } }>(
+      server,
+      "/api/memory/background/scan",
+      { method: "POST" },
+    );
+    expect(skipped.body.result.skipped).toMatch(/paused/);
+    expect(prompts).toHaveLength(1);
+    const status = await api<{ jobs: { scanner: { usage: { calls: number } } } }>(
+      server,
+      "/api/memory/background",
+    );
+    expect(status.body.jobs.scanner.usage.calls).toBe(1);
   });
 
   it("cancels a request and everything it delegated", async () => {
