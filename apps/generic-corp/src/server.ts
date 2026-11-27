@@ -82,6 +82,7 @@ import {
   permissionsBriefing,
 } from "./permissions.js";
 import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
+import { openQualityStore } from "./quality.js";
 import { createRefusalLog, type RefusalLog } from "./refusals.js";
 import { resolveCompanyRlm } from "./rlm.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
@@ -565,13 +566,19 @@ export async function createGenericCorpServer(
       artifactsRoot: path.join(environment.dataDir, "artifacts"),
       sessionsRoot: path.join(environment.dataDir, "sessions"),
     });
-    const executor: AgentTaskExecutor =
+    const baseExecutor: AgentTaskExecutor =
       options.executor ??
       ((input) =>
         defaultExecutor({
           ...input,
           prompt: `${permissionsBriefing(permissions.current())}\n${input.prompt}`,
         }));
+    // The owner's quality dial picks the model for each turn (decision 22).
+    const quality = await openQualityStore(storage.kv, company);
+    const executor: AgentTaskExecutor = (input) =>
+      baseExecutor({ ...input, model: quality.modelFor(input.agentId) });
+    const workerModel = (agent: { readonly id: string; readonly model?: string }) =>
+      workerModelOf(company, { ...agent, model: quality.modelFor(agent.id) });
     // A goal on the CEO's task is the company's goal: it is checked against the whole team's
     // work and the files handed in with submit_work (see goals.ts). Second opinions (the rubric
     // judge, the impossibility reviewer) run on a model other than the worker's.
@@ -594,6 +601,10 @@ export async function createGenericCorpServer(
       ...(options.agentMemory === false ? { memoryInPrompts: false } : {}),
       harvest,
       executor,
+      quality: (agentId) => {
+        const level = quality.levelOf(agentId);
+        return { ...(level === undefined ? {} : { level }), model: quality.modelFor(agentId) };
+      },
       cascade: {
         worker: {
           concurrency: environment.workerConcurrency ?? DEFAULT_WORKER_CONCURRENCY,
@@ -605,14 +616,14 @@ export async function createGenericCorpServer(
         impossibility:
           options.goals?.impossibility ??
           createModelImpossibilityReviewer({
-            modelFor: (agent) => secondOpinionModel(company, workerModelOf(company, agent)),
+            modelFor: (agent) => secondOpinionModel(company, workerModel(agent)),
             getAuth: (provider) => modelAuth.getAuth(provider),
           }),
         goals: {
           ...(options.goals?.judges === undefined
             ? {
                 judgesFor: ({ agent }) => {
-                  const model = secondOpinionModel(company, workerModelOf(company, agent));
+                  const model = secondOpinionModel(company, workerModel(agent));
                   let judge = judgeByModel.get(model);
                   if (judge === undefined) {
                     judge = createModelJudge({
@@ -799,6 +810,7 @@ export async function createGenericCorpServer(
         backups,
         github,
         companyRoot: layout.root,
+        quality,
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),

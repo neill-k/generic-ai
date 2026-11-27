@@ -24,7 +24,13 @@ import {
   createAgentChat,
   withCeoNotes,
 } from "./agent-chat.js";
-import { type CompanyConfig, ceoOf, companyAgentSeeds, tierOf } from "./company.js";
+import {
+  type CompanyConfig,
+  ceoOf,
+  companyAgentSeeds,
+  type QualityLevel,
+  tierOf,
+} from "./company.js";
 import { type CompanyCosts, summarizeCompanyCosts } from "./costs.js";
 import { type CompanyDrive, type DriveEntry, describeDriveForAgent } from "./drive.js";
 import { type CompanyEventHub, createCompanyEventHub } from "./events.js";
@@ -85,6 +91,8 @@ export interface CompanyRuntimeOptions {
   readonly now?: () => Date;
   readonly createId?: () => string;
   readonly log?: (message: string) => void;
+  /** The agent's quality step and the model it runs on now (quality.ts), for the org chart. */
+  readonly quality?: (agentId: string) => { readonly level?: QualityLevel; readonly model: string };
 }
 
 export type ChatReplyStatus = AgentTaskStatus;
@@ -115,6 +123,8 @@ export interface OrgChartNode {
   readonly title?: string;
   readonly tier: string;
   readonly model?: string;
+  /** The owner's quality step for this agent, when set. */
+  readonly quality?: QualityLevel;
   readonly status: PersistentAgentRecord["status"];
   /** Tasks this agent is working on or waiting on right now. */
   readonly activeTasks: number;
@@ -598,12 +608,15 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     const build = (agent: PersistentAgentRecord, seen: Set<string>): OrgChartNode => {
       seen.add(agent.id);
       const tier = agent.metadata?.["tier"];
+      const quality = options.quality?.(agent.id);
+      const model = quality?.model ?? agent.model;
       return {
         id: agent.id,
         role: agent.role,
         ...(agent.title === undefined ? {} : { title: agent.title }),
         tier: typeof tier === "string" ? tier : tierOf(company, agent.id),
-        ...(agent.model === undefined ? {} : { model: agent.model }),
+        ...(model === undefined ? {} : { model }),
+        ...(quality?.level === undefined ? {} : { quality: quality.level }),
         status: agent.status,
         activeTasks: busy.get(agent.id) ?? 0,
         reports: (children.get(agent.id) ?? [])
