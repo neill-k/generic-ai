@@ -109,10 +109,12 @@ timeout, then asks each file tool for paths outside the workspace.
   commands in a separate service or VM with its own egress rules (an
   allowlisting proxy, or a provider's sandbox such as Firecracker/gVisor
   microVMs) and talks to it over an authenticated API.
-- **No resource limits per command.** Agent commands share the container's
-  CPU, memory and disk. Railway does not expose cgroup controls inside the
-  container; a runaway command can slow or crash the server. Railway's
-  service limits cap the whole container.
+- **Resource limits are per process, not per agent.** Each agent command gets
+  `ulimit` limits (4 GiB of memory and an hour of CPU per process, 4 GiB
+  files, 4096 open files, 1024 processes for the `agent` user) and runs at
+  niceness 10, so one heavy script cannot starve the server. Railway does not
+  expose cgroup controls inside the container, so there is no total CPU or
+  memory cap per agent; Railway's service limits cap the whole container.
 - **A symlink race in the file tools.** The file tools check a path and then
   open it. An agent command that swaps a directory in its home for a symlink
   at exactly the right moment could make a file tool (running as `node`)
