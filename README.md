@@ -54,31 +54,20 @@ consumption by 90%":
 - **Evidence reports** - trace-backed outputs that separate observations,
   inferences, recommendations, and insufficient-evidence boundaries.
 
-## The Research Harness As The Evaluation Layer
+## How Agents Work Together
 
-Agentic architecture choices are easy to demo and hard to compare. Generic AI
-turns those choices into package-composed harnesses so the same mission can run
-through a hierarchy, squad, pipeline, verifier loop, or future method family
-without rewriting the product code around it. That is how apps built on the
-framework, Generic Corp included, measure whether a change to prompts,
-topology or validators actually helps.
+Every agent is a full agent with the tools its permissions allow. Generic AI
+ships no fixed coordination patterns: there is no built-in pipeline, squad,
+hierarchy or verifier loop, and no restricted planner, explorer or verifier
+roles ([`ADR 0071`](docs/decisions/0071-no-fixed-agent-patterns.md)). Agents
+coordinate one way: a lead hands work down the org chart to the agents who
+report to it, each with its own goal and checks, and the results come back up.
+The org chart exists so people can see how work is delegated and talk to any
+agent.
 
-The harness spine is captured in
-[`ADR 0021`](docs/decisions/0021-agents-as-code-harness-spine.md) and the
-composable control plane in
-[`ADR 0022`](docs/decisions/0022-composable-agent-harness-control-plane.md).
-The working fixture is
-[`examples/harness-shootout`](examples/harness-shootout), which compiles one
-mission into four candidate harnesses and routes them through the same report
-contract.
-
-## Sample Evidence Report
-
-[`examples/harness-shootout/sample-report.md`](examples/harness-shootout/sample-report.md)
-is the canonical product demo for the research-harness surface. It shows how a
-report keeps observations, inferences, recommendations, and evidence boundaries
-separate so a weak or underpowered run can say `insufficient_evidence` instead
-of overclaiming.
+Changes to prompts, tools or validators are measured with goal evals
+([`docs/goal-evals.md`](docs/goal-evals.md)) and, for coding work, the
+Terminal-Bench integration in [`examples/terminal-bench`](examples/terminal-bench).
 
 ## Getting Started
 
@@ -355,7 +344,7 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 - [`@generic-ai/plugin-interaction`](packages/plugin-interaction) — blocking user questions plus visible task-list publishing through standard agent tools.
 - [`@generic-ai/plugin-messaging`](packages/plugin-messaging) — durable, storage-backed inter-agent messaging.
 - [`@generic-ai/plugin-memory-files`](packages/plugin-memory-files) — file-backed persistent agent memory with search; the reference `MemoryService` implementation for richer memory plugins.
-- [`@generic-ai/plugin-repo-map`](packages/plugin-repo-map) — deterministic compact repository maps for planner/explorer harness roles.
+- [`@generic-ai/plugin-repo-map`](packages/plugin-repo-map) — deterministic compact repository maps for agents that need to find their way around a codebase.
 - [`@generic-ai/plugin-lsp`](packages/plugin-lsp) — configurable stdio LSP client exposing diagnostics, symbols, definitions, and references as harness tools.
 - [`@generic-ai/plugin-web-ui`](packages/plugin-web-ui) — local-first web console with chat, config inspection, and multi-agent architecture templates.
 
@@ -371,17 +360,14 @@ All packages live under `packages/` and publish as `@generic-ai/*`.
 ### Reference examples
 
 - [`examples/starter-hono`](examples/starter-hono) — runnable example that proves the whole stack: `createGenericAI()` with no arguments resolves the built-in starter descriptor, and callers can also pass `createStarterHonoPreset()` explicitly.
-- [`examples/harness-shootout`](examples/harness-shootout) — package-composed agents-as-code benchmark fixture with one mission, four candidate harnesses, and a sample evidence report.
 - [`examples/terminal-bench`](examples/terminal-bench) — private Harbor and Terminal-Bench integration example for benchmark runs with harness projections, artifact imports, and validation gates.
 
 ## Harness DSL And Benchmarking
 
 The public launch spine is documented in [`docs/harness-dsl.md`](docs/harness-dsl.md).
-The SDK exports Harness DSL, Generic Agent IR, protocol ABI, MissionSpec,
-BenchmarkSpec, TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch types.
-`compileHarnessDsl()` validates declarations before runtime execution, and
-`runHarnessBenchmark()` consumes compiled harnesses through the normal runtime
-path.
+The SDK exports Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec,
+TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch types.
+`compileHarnessDsl()` validates declarations before runtime execution.
 
 Agent lifecycle hooks are documented in [`docs/agent-lifecycle-hooks.md`](docs/agent-lifecycle-hooks.md). They use `.generic-ai/hooks.yaml` to inject prompt context, observe permission decisions, and intercept supported tool lifecycle points with inspectable hook evidence.
 

@@ -8,8 +8,14 @@ import type {
 
 export interface ObservabilityAgentTools {
   readonly listRuns: (filter: ObservabilityRunListFilter) => Promise<unknown>;
-  readonly getRun: (input: { readonly workspaceId: string; readonly runId: string }) => Promise<unknown>;
-  readonly getTrace: (input: { readonly workspaceId: string; readonly runId: string }) => Promise<unknown>;
+  readonly getRun: (input: {
+    readonly workspaceId: string;
+    readonly runId: string;
+  }) => Promise<unknown>;
+  readonly getTrace: (input: {
+    readonly workspaceId: string;
+    readonly runId: string;
+  }) => Promise<unknown>;
   readonly queryMetrics: (query: ObservabilityMetricQuery) => Promise<unknown>;
   readonly getMetricCatalog: () => Promise<unknown>;
   readonly createReport: (input: {

@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-
 import type {
   AgentLifecycleHookContext,
   AgentLifecycleHookDecision,
@@ -13,8 +12,8 @@ import type {
   AgentLifecycleInProcessHookHandler,
   JsonObject,
   JsonValue,
+  ToolDefinition,
 } from "@generic-ai/sdk";
-import type { ToolDefinition } from "@generic-ai/sdk";
 
 import { getAgentCommandEnv } from "@generic-ai/tools";
 

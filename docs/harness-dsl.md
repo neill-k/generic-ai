@@ -11,91 +11,22 @@ Harness DSL -> Generic Agent IR -> runtime/packages -> traces/evals/reports
 
 ## What Ships In v0.1
 
-- `@generic-ai/sdk` exports the Harness DSL, Generic Agent IR, protocol ABI,
-  MissionSpec, BenchmarkSpec, TraceEvent, BenchmarkReport, PolicySpec, and
-  HarnessPatch contract types.
-- `compileHarnessDsl()` validates package, agent, space, protocol, and artifact
-  references before runtime execution.
-- `runHarnessBenchmark()` in `@generic-ai/core` consumes compiled harnesses and
-  runs trials through `GenericAILlmRuntime`.
+- `@generic-ai/sdk` exports the Harness DSL, Generic Agent IR, MissionSpec,
+  BenchmarkSpec, TraceEvent, BenchmarkReport, PolicySpec, and HarnessPatch
+  contract types.
+- `compileHarnessDsl()` validates package, agent, space, relationship and
+  artifact references before runtime execution.
 - The runtime is the native adapter, which calls providers through
   `@generic-ai/ai`. The `pi` and `openai-codex` adapters have been removed
   (ADR 0068).
-- `examples/harness-shootout` provides the first package-composed benchmark
-  fixture and walkthrough.
 
-## Running Topologies
+## No Fixed Patterns
 
-Protocol bindings are executable. `runHarnessTopology()` in `@generic-ai/core`
-selects a binding (the first one, or `protocol` by binding id or protocol
-name), validates it, and then loops: the protocol reducer returns the next batch
-of actions from the outcomes so far, the runner executes them, and each
-outcome feeds the next reduction. Actions in one batch run concurrently up to
-`maxConcurrency`. Failed actor attempts retry up to `maxAttempts` unless the
-actor runner marks the failure non-retryable. Runs stop at `done`, `failed`,
-or `blocked`, at `maxSteps`, at the deadline, or on cancellation.
-
-The scheduler is runtime-neutral: actors run through an injected
-`TopologyActorRunner`. `createAdapterTopologyActorRunner()` runs each actor
-through any SDK `AgentHarnessAdapter`, giving it a single-role harness config
-whose model comes from the actor, a matching `harness.roles` entry, or the
-harness default, so models can be chosen per role and new runtimes work
-without scheduler changes.
-
-`runAgentHarnessTopology()` executes each actor as a native role session with the
-same policy profile, role effect policy, lifecycle hooks, canonical events,
-and artifacts as `AgentHarness`. Actor role names map to role policies:
-`implementer`, `solver`, and `repairer` can edit; `critic` and `reviewer` run
-checks without file writes; `manager`, `planner`, and unknown role names are
-read-only. A `harness.roles` entry whose id matches the actor id or role name
-overrides the mapping.
-
-Standard protocol behaviour and binding `config`:
-
-| Protocol | Flow | Config |
-| --- | --- | --- |
-| `pipeline` | Stages run in order; each sees earlier outputs. A failed or `VERDICT: FAIL` stage fails the run. | `stages` (actor ids) |
-| `verifier-loop` | Solver, then the acceptance checks (goal validators and/or critic); on rejection the repairer (or solver) fixes from that feedback and the checks run again. | `solver`, `critic`, `repairer`, `maxIterations` (default 3), `acceptance` |
-| `hierarchy` | Manager plans assignments, reports work in parallel, manager synthesizes. | `manager`, `delegatees` |
-| `squad` | Members claim work items in parallel batches and share a board of finished items. | `workItems`, `lead`, `space` |
-
-All protocols accept `maxContextChars` to bound how much earlier output is
-shared with each actor. Actors steer protocols with a `VERDICT: PASS|FAIL`
-line or a fenced JSON block (`{"assignments": [...]}` for hierarchy plans,
-`{"workItems": [...]}` for squad decomposition), parsed by
-`parseActorDirectives()`.
-
-### Goals decide when a topology is done
-
-Pass a sealed goal (see [goals.md](goals.md)) as `goal`, with the host's
-judges and checks as `goalValidators`, and the goal's validators decide
-success instead of an agent's opinion:
-
-- Every actor's prompt includes `describeGoalForAgent(goal)`: the objective,
-  definition of done, and the checks that will be run.
-- The verifier loop's `acceptance` picks its checks. With a goal it defaults
-  to `goal-then-critic` (validators first; the critic only reviews candidates
-  that pass them), or `goal` when there is no critic. Without a goal it stays
-  `critic`. Set `acceptance: "critic"` to ignore the goal in the loop.
-  Validator feedback (`GOAL INCOMPLETE` with fix hints) goes to the repairer.
-- The verifier loop asks for validation with a `validate_goal` action. The
-  runner executes it with `runGoalValidators()`; the agents never run or see
-  the validator implementations.
-- For every protocol, a run only ends `succeeded` when the goal is `COMPLETE`
-  on the final output. If the final output was not already accepted by a
-  `validate_goal` action, the runner validates it once more; `INCOMPLETE`
-  fails the run with the feedback as `failureMessage`. The last report is on
-  `result.goalReport`, and each validation adds a `grader.completed` trace
-  event.
-- Evidence is the candidate output plus a trace built from the run's
-  canonical events. `collectGoalEvidence` adds metrics, artifacts, or a fuller
-  trace.
-
-Every run returns per-action outcomes and a `TraceEvent` trace in which
-`actor.completed` events point at their `actor.invoked` event and each
-invocation points at its `protocol.action.planned` event. The session-backed runner
-also writes `topology/topology-trace.json` and `topology/topology-outcomes.json`
-beside the standard harness artifacts.
+The DSL has no protocol bindings. Generic AI ships no built-in pipeline, squad,
+hierarchy or verifier loop and no restricted planner, explorer or verifier
+roles; agents coordinate by delegating down the org chart, and every role is a
+full agent ([ADR 0071](decisions/0071-no-fixed-agent-patterns.md)).
+Relationships (`delegates_to`, `reports_to`, and so on) describe the chart.
 
 ## Recommendation Boundary
 
@@ -245,11 +176,7 @@ observations into answer correctness, citation coverage, reconciliation rate,
 stale-source uses, and text-preservation rates. These dimensions are reported
 beside, not instead of, the primary benchmark metric.
 
-The first fixture is
-`examples/harness-shootout/chinese-web-research/`, a deterministic Chinese web
-research profile inspired by Level-Navi Agent and BrowseComp-ZH task shapes. It
-uses hand-authored fixture sources so CI remains reproducible and licensing
-clear. Live Chinese web/search runs should be provider-gated and need
+Live Chinese web/search runs should be provider-gated and need
 same-profile before/after evidence before anyone claims external score movement.
 
 ## Authority Boundary
@@ -270,37 +197,28 @@ guessing rollback cost from the tool name.
 
 Compiled harnesses emit a deterministic `CapabilityBOM` inventory. The BOM
 records the harness package set, capability kinds, grant policy effects,
-protocol bindings, policies, agent package/capability bindings, artifact
+policies, agent package/capability bindings, artifact
 contracts, and a stable fingerprint. Equivalent capability inventories produce
 the same BOM fingerprint even when source arrays are reordered; adding,
 removing, or changing package/capability inventory changes the fingerprint.
 
 Benchmark reports can attach those BOMs next to candidate results so package,
-tool, policy, grader, report-renderer, and protocol drift is visible before two
+tool, policy, grader and report-renderer drift is visible before two
 runs are compared. This is inventory and provenance evidence only. It is not a
 package trust approval, supply-chain attestation, or runtime permission grant.
 
-## Three-Tier Benchmark Stack
+## Task-Environment Benchmarks
 
-Generic AI uses the same `MissionSpec` / `BenchmarkSpec` / report pipeline at
-three scales:
-
-- Micro: focused function-calling and retrieval scenarios such as
-  `examples/bench-tool-calling`.
-- Meso: policy-and-tools scenarios such as `examples/bench-policy-tools`, where
-  recovery, authority, and tool policy are the behavior under test.
-- Macro: full task-environment runs such as `examples/terminal-bench`.
-
-The tiers are adapters around the same evidence contract, not separate product
-surfaces. A benchmark layer should emit canonical events and bounded reports
-even when its task domain is intentionally small.
+Full task-environment runs such as `examples/terminal-bench` use the same
+`MissionSpec` / `BenchmarkSpec` / report pipeline and emit canonical events and
+bounded reports.
 
 ## Where To Add Future Work
 
 - Public reusable contracts: `@generic-ai/sdk`.
 - Runtime adaptation for compiled harnesses: `@generic-ai/core`, with ADRs for
   cross-package decisions.
-- Package-provided protocols, graders, policies, trace exporters, and report
+- Package-provided graders, policies, trace exporters, and report
   renderers: future `@generic-ai/plugin-*` or documented package layers.
 - Frozen machine-readable external schemas: `contracts/harness/` after the
   typed contract is stable.

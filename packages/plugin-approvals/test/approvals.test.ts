@@ -7,9 +7,9 @@ import {
   type ApprovalServiceContract,
   type ApprovalServiceEvent,
   type AuthContext,
-  DEFAULT_APPROVAL_POLICY,
   createMemoryToolEffectJournal,
   createToolEffectGuard,
+  DEFAULT_APPROVAL_POLICY,
   evaluateApprovalPolicy,
   getAgentHarnessToolEffects,
   isApprovalError,
@@ -26,7 +26,6 @@ import {
   createApprovalGate,
   createApprovalRoutes,
   createApprovalService,
-  createTopologyApprover,
 } from "../src/index.js";
 
 const OWNER: RunActor = {
@@ -533,44 +532,6 @@ describe("approval routes", () => {
     const { service } = openService();
     expect(() => createApprovalRoutes(service)).toThrow(/authenticate/);
     expect(() => createApprovalRoutes(service, { allowUnauthenticated: true })).not.toThrow();
-  });
-});
-
-describe("topology approver", () => {
-  it("turns a request_approval action into a durable request and waits for the owner", async () => {
-    const { service } = openService();
-    const approve = createTopologyApprover({
-      service,
-      requester: { agentId: "coordinator" },
-      pollIntervalMs: 5,
-      waitTimeoutMs: 2_000,
-    });
-    service.subscribe(async (event) => {
-      if (event.type === "approval.requested") {
-        await service.decide({
-          approvalId: event.approval.approvalId,
-          decision: "rejected",
-          actor: OWNER,
-        });
-      }
-    });
-    const verdict = await approve({
-      runId: "run-1",
-      protocol: "pipeline",
-      step: 2,
-      action: {
-        id: "approve-release",
-        idempotencyKey: "run-1:approve-release",
-        kind: "request_approval",
-        payload: { summary: "Publish the report" },
-      },
-    });
-    expect(verdict).toBe(false);
-    const [request] = await service.list();
-    expect(request?.action).toMatchObject({
-      kind: "topology.action",
-      summary: "Publish the report",
-    });
   });
 });
 

@@ -1,5 +1,7 @@
 # 0042. Protocol-Driven Topology Runner
 
+> Superseded by [0071](0071-no-fixed-agent-patterns.md): the protocols and the topology runner were removed.
+
 ## Context
 
 The Harness DSL lets a harness bind its agents to a protocol: `pipeline`,

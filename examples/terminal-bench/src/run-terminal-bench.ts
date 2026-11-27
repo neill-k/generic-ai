@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { delimiter, resolve } from "node:path";
-import path from "node:path";
+import path, { delimiter, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export type TerminalBenchProfile = "smoke" | "quick" | "calibration" | "validation" | "full";
@@ -177,8 +176,7 @@ export function buildHarborCommandPlan(options: TerminalBenchRunOptions = {}): H
   const nextEnv: NodeJS.ProcessEnv = ensureWindowsDockerComposeShim({
     ...env,
     GENERIC_AI_REPO_ROOT: REPO_ROOT,
-    GENERIC_AI_RUNTIME_ADAPTER:
-      options.adapter ?? env["GENERIC_AI_RUNTIME_ADAPTER"] ?? "native",
+    GENERIC_AI_RUNTIME_ADAPTER: options.adapter ?? env["GENERIC_AI_RUNTIME_ADAPTER"] ?? "native",
     PYTHONIOENCODING: env["PYTHONIOENCODING"] ?? "utf-8",
     PYTHONUTF8: env["PYTHONUTF8"] ?? "1",
     TERM: env["TERM"] ?? "dumb",

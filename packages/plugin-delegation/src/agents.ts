@@ -29,7 +29,7 @@ export interface PersistentAgentRecord {
   readonly reportsTo?: string;
   readonly instructions?: string;
   readonly model?: string;
-  /** Harness role kind that governs tools: `planner`, `explorer`, `builder`, `verifier`, `custom`. */
+  /** Harness role kind: `builder` (the default) or `custom`. Every agent gets its full tool set. */
   readonly roleKind?: string;
   /** The agent's home directory. Holds the memory file and the workspace. */
   readonly homePath: string;

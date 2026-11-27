@@ -2,29 +2,28 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, join, relative, resolve, sep } from "node:path";
-import path from "node:path";
+import path, { basename, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  createBenchmarkReport,
-  createStableFingerprint,
-  HARNESS_SCHEMA_VERSION,
-  renderBenchmarkReportMarkdown,
   type AgentHarnessEventProjection,
   type ArtifactReference,
   type BenchmarkReport,
   type BenchmarkSpec,
   type BenchmarkTrialResult,
+  createBenchmarkReport,
+  createStableFingerprint,
+  HARNESS_SCHEMA_VERSION,
   type MetricValue,
   type MissionSpec,
+  renderBenchmarkReportMarkdown,
   type TraceDiagnostics,
   type TraceEvent,
   type TraceEventType,
 } from "@generic-ai/sdk";
 import {
+  type CommandTranscript,
   createCommandTranscriptFromTraceEvents,
   renderCommandTranscriptsMarkdown,
-  type CommandTranscript,
 } from "./command-transcript.js";
 
 export interface HarborImportOptions {
@@ -615,7 +614,7 @@ function traceEventTypeFromProjection(
   }
 
   if (projection.type.startsWith("handoff.")) {
-    return "protocol.action.planned";
+    return "handoff.recorded";
   }
 
   if (projection.type === "session.completed" || projection.type === "session.failed") {
@@ -1100,10 +1099,7 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf-8");
 }
 
-function metricValue(
-  trial: BenchmarkTrialResult,
-  metricId: string,
-): number | undefined {
+function metricValue(trial: BenchmarkTrialResult, metricId: string): number | undefined {
   return trial.metrics.find((metric) => metric.metricId === metricId)?.value;
 }
 
@@ -1124,7 +1120,9 @@ function createSmokeArtifactProof(input: {
       });
     });
     const harnessArtifactRefs = trial.artifacts
-      .filter((artifact) => artifact.uri.startsWith(`${trial.trialId}/artifacts/generic-ai/harness/`))
+      .filter((artifact) =>
+        artifact.uri.startsWith(`${trial.trialId}/artifacts/generic-ai/harness/`),
+      )
       .map((artifact) => artifact.id);
     const reward = metricValue(trial, "reward");
     const success = metricValue(trial, "success");

@@ -52,23 +52,12 @@ Current runtime bridge:
 - `createAgentHarness(options)` / `runAgentHarness(options)` run the composable
   harness control plane above the native runtime; `GenericAILlmRuntime` remains the low-level
   text/model helper
-- Harness role binding is effect-based. Planner/explorer roles get read
-  capabilities, builder gets edit/terminal access, and verifier gets terminal
-  execution for checks without direct file write/edit tools.
+- Harness role binding is effect-based. Every role, the primary agent
+  included, gets the tools its policy profile allows; `readOnly: true` limits a
+  role to read effects. There are no fixed patterns between roles (ADR 0071).
 - Agent lifecycle hooks can inject prompt context, observe permission decisions,
   wrap supported tool calls, and record `hook.*` events plus hook-decision
   artifacts.
-- `runHarnessTopology(options)` executes a compiled harness's protocol binding
-  (pipeline, verifier-loop, hierarchy, squad, or a package protocol) by looping
-  the protocol reducer with bounded concurrency, retries, step/deadline
-  budgets, cancellation, approvals, and a causal trace. Actor execution is an
-  injected `TopologyActorRunner`; `createAdapterTopologyActorRunner(options)`
-  runs actors through any `AgentHarnessAdapter` with per-role models.
-- `runAgentHarnessTopology(options)` runs the same topology with each actor as
-  a policy-scoped native role session, sharing role policies, hooks, canonical
-  events, and artifacts with `AgentHarness`.
-- `runHarnessBenchmark(options)` compiles Harness DSL contracts from the SDK,
-  then runs trials through the configured runtime helper for benchmark fixtures
 
 Models are resolved by `resolveNativeModel`: `provider/id` as given, or a bare
 id routed by family (`claude-*` to Anthropic, anything else to OpenAI). API keys

@@ -1,15 +1,15 @@
 import type {
+  CanonicalConfigEdit,
+  CanonicalConfigTransactionFailure,
+  CanonicalConfigTransactionPlan,
+} from "@generic-ai/plugin-config-yaml";
+import type {
   AgentConfig,
   AgentHarnessConfig,
   ResolvedConfig,
   RunActor,
   StorageContract,
 } from "@generic-ai/sdk";
-import type {
-  CanonicalConfigEdit,
-  CanonicalConfigTransactionFailure,
-  CanonicalConfigTransactionPlan,
-} from "@generic-ai/plugin-config-yaml";
 
 export const name = "@generic-ai/plugin-web-ui" as const;
 export const kind = "web-ui" as const;
@@ -244,5 +244,7 @@ export interface WebUiTransportSecurityOptions {
    * actor is stored on user messages, added to run events, and passed to the
    * harness runner.
    */
-  readonly resolveActor?: (request: Request) => Promise<RunActor | undefined> | RunActor | undefined;
+  readonly resolveActor?: (
+    request: Request,
+  ) => Promise<RunActor | undefined> | RunActor | undefined;
 }

@@ -19,7 +19,7 @@ import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import { DriveError, type DriveFile, deliverablesFolder } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
 import { type GithubConnector, GithubError } from "./github.js";
-import { goalDetailView, listGoalViews } from "./goal-views.js";
+import { activityView, goalDetailView, listGoalViews } from "./goal-views.js";
 import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
@@ -1400,6 +1400,10 @@ export function createCompanyApi(
     const cancelled = await runtime.cascade.cancel(taskId, reason);
     return c.json({ cancelled, task: await runtime.cascade.get(taskId) });
   });
+
+  app.get("/activity", async (c) =>
+    c.json(await activityView(runtime, { limit: readLimit(c.req.query("limit"), 100, 1000) })),
+  );
 
   app.get("/board", async (c) =>
     c.json({ columns: await runtime.board({ limit: readLimit(c.req.query("limit"), 300, 2000) }) }),

@@ -307,17 +307,12 @@ const YAML_EXTENSIONS = new Set([".yaml", ".yml"]);`,
         examples: {
           title: "Examples And Harness",
           description:
-            "Examples demonstrate the public surface. starter-hono is runnable, terminal-bench is a private integration workspace, and harness-shootout is the JSON fixture for the public launch spine.",
+            "Examples demonstrate the public surface. starter-hono is runnable, terminal-bench is a private integration workspace.",
           files: [
             "examples/starter-hono/package.json",
             "examples/terminal-bench/package.json",
-            "examples/harness-shootout/README.md",
           ],
-          code: `await runHarnessBenchmark({
-  benchmark,
-  mission,
-  harnesses,
-});`,
+          code: `const starter = await createStarterExampleServer({ env: process.env });`,
           lang: "typescript",
         },
         governance: {

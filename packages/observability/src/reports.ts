@@ -60,9 +60,10 @@ export function renderObservabilityReportMarkdown(report: ObservabilityReport): 
     "",
     "## Inferences",
     "",
-    ...(report.inferences.length > 0 ? report.inferences : ["No deterministic inference available."]).map(
-      (item) => `- ${item}`,
-    ),
+    ...(report.inferences.length > 0
+      ? report.inferences
+      : ["No deterministic inference available."]
+    ).map((item) => `- ${item}`),
     "",
     "## Evidence",
     "",
@@ -72,7 +73,12 @@ export function renderObservabilityReportMarkdown(report: ObservabilityReport): 
     `- Policy decisions: ${report.evidence.policyDecisionCount}`,
     "",
     ...(report.insufficientEvidence.length > 0
-      ? ["## Insufficient Evidence", "", ...report.insufficientEvidence.map((item) => `- ${item}`), ""]
+      ? [
+          "## Insufficient Evidence",
+          "",
+          ...report.insufficientEvidence.map((item) => `- ${item}`),
+          "",
+        ]
       : []),
   ].join("\n");
 }

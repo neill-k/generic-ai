@@ -16,7 +16,7 @@ const directory = createAgentDirectory({
 });
 
 await directory.seed([
-  { id: "ceo", role: "ceo", title: "Chief Executive", roleKind: "planner", model: "anthropic/claude-opus" },
+  { id: "ceo", role: "ceo", title: "Chief Executive", model: "anthropic/claude-opus" },
   { id: "vp-research", role: "vp", reportsTo: "ceo" },
   { id: "analyst", role: "ic", reportsTo: "vp-research" },
 ]);
@@ -105,9 +105,10 @@ waits in the store, then gets a new turn with every child's result. Delegation
 is limited to direct reports by default (`delegationScope: "subtree" | "any"`),
 and depth, rounds, fan-out and validation retries are bounded.
 
-To run a fixed team workflow (pipeline, verifier loop, hierarchy, squad) as one
-agent's turn, use `createTopologyTaskExecutor` from `@generic-ai/core`, and
-`routeTaskExecutor` to pick it for that agent.
+Delegation down the chart is the one way agents coordinate; there are no fixed
+team workflows (ADR 0071). Every agent runs as a full agent: `roleKind` is
+`builder` (the default) or `custom`, and a stored restricted kind from before
+runs as `builder`.
 
 See `docs/decisions/0044-persistent-agents-and-delegation-cascade.md`.
 

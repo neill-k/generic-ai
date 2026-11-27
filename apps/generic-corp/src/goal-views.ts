@@ -448,3 +448,65 @@ async function goalFiles(runtime: CompanyRuntime, goalId: string): Promise<Drive
   const shelf = await runtime.drive.deliverables().catch(() => []);
   return [...(shelf.find((entry) => entry.goalId === goalId)?.files ?? [])];
 }
+
+/** One piece of work in the activity view (decision 49): who is on what, in plain words. */
+export interface ActivityItem {
+  readonly taskId: string;
+  readonly goalId: string;
+  readonly goalTitle: string;
+  readonly agentId: string;
+  readonly agentRole: string;
+  readonly agentTitle?: string;
+  /** Who asked for it: an agent's id, or undefined when the owner did. */
+  readonly delegatedBy?: string;
+  readonly title: string;
+  readonly active: boolean;
+  readonly held: boolean;
+  readonly statusText: string;
+  readonly updatedAt: string;
+}
+
+export interface ActivityView {
+  /** Work running, queued, waiting or held, newest first. */
+  readonly now: readonly ActivityItem[];
+  /** Work that finished, newest first. */
+  readonly recent: readonly ActivityItem[];
+}
+
+/** The live activity view that replaces the board: what is happening now, and what just finished. */
+export async function activityView(
+  runtime: CompanyRuntime,
+  options: { readonly limit?: number } = {},
+): Promise<ActivityView> {
+  const limit = options.limit ?? 100;
+  const [tasks, agents] = await Promise.all([
+    runtime.listTasks({ limit: 5000 }),
+    agentMap(runtime),
+  ]);
+  const roots = new Map(
+    tasks.filter((task) => task.depth === 0).map((task) => [task.taskId, task]),
+  );
+  const items = tasks.map((task): ActivityItem => {
+    const root = roots.get(task.rootTaskId);
+    const agent = agents.get(task.agentId);
+    return {
+      taskId: task.taskId,
+      goalId: task.rootTaskId,
+      goalTitle: root === undefined ? task.rootTaskId : titleOf(root),
+      agentId: task.agentId,
+      agentRole: agent?.role ?? task.agentId,
+      ...(agent?.title === undefined ? {} : { agentTitle: agent.title }),
+      ...(task.delegatedBy === undefined ? {} : { delegatedBy: task.delegatedBy }),
+      title: titleOf(task),
+      active: ACTIVE.has(task.status),
+      held: task.hold !== undefined && ACTIVE.has(task.status),
+      statusText: taskStatusText(task),
+      updatedAt: task.updatedAt,
+    };
+  });
+  items.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  return {
+    now: items.filter((item) => item.active).slice(0, limit),
+    recent: items.filter((item) => !item.active).slice(0, limit),
+  };
+}

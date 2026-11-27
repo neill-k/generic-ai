@@ -145,9 +145,9 @@ describe("agent harness secrets", () => {
         record(context);
         return call(STOP_AND_RESPOND_TOOL_NAME, { response: "pushed" });
       },
-      () => call("delegate_agent", { roleId: "verifier", task: "check" }),
+      () => call("delegate_agent", { roleId: "reviewer", task: "check" }),
       (context) => {
-        prompts["verifier"] = promptText(context);
+        prompts["reviewer"] = promptText(context);
         return call("bash", { command });
       },
       (context) => {
@@ -165,7 +165,7 @@ describe("agent harness secrets", () => {
         model: "faux/test-model",
         roles: [
           { id: "builder", kind: "builder", secrets: ["GITHUB_*"] },
-          { id: "verifier", kind: "verifier" },
+          { id: "reviewer", kind: "builder" },
         ],
       },
       { native: { resolveModel: () => model } },
@@ -203,10 +203,10 @@ describe("agent harness secrets", () => {
 
     expect(result.failureMessage).toBeUndefined();
     expect(result.status).toBe("succeeded");
-    // The builder's command ran with the real value; the verifier was refused before running.
+    // The builder's command ran with the real value; the reviewer, without the grant, was refused before running.
     expect(commands).toEqual([`git push https://x:${FAKE_TOKEN}@example.test`]);
     expect(toolResults[1]?.isError).toBe(true);
-    expect(toolResults[1]?.text).toMatch(/not granted to "verifier"/);
+    expect(toolResults[1]?.text).toMatch(/not granted to "reviewer"/);
     // Nothing the model or the event log sees holds the value.
     expect(toolResults[0]?.isError).toBe(false);
     expect(JSON.stringify(toolResults)).not.toContain(FAKE_TOKEN);
@@ -216,12 +216,12 @@ describe("agent harness secrets", () => {
     // Only the granted role is told about the secret, by name.
     expect(prompts["builder"]).toContain("Available secrets: GITHUB_TOKEN.");
     expect(prompts["root"]).not.toContain("Available secrets");
-    expect(prompts["verifier"]).not.toContain("Available secrets");
+    expect(prompts["reviewer"]).not.toContain("Available secrets");
     // Each use is audited as a policy decision.
     expect(result.policyDecisions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ actorId: "builder", action: "secret.read", decision: "allowed" }),
-        expect.objectContaining({ actorId: "verifier", action: "secret.read", decision: "denied" }),
+        expect.objectContaining({ actorId: "reviewer", action: "secret.read", decision: "denied" }),
       ]),
     );
     expect(
