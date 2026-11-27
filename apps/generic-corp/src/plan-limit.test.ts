@@ -7,7 +7,8 @@ import { createSqliteStorage } from "@generic-ai/plugin-storage-sqlite";
 import type { AgentTaskExecutionResult, AgentTaskExecutor } from "@generic-ai/sdk";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type CompanyConfig, type CompanyModelAuth, createGenericCorpServer } from "./index.js";
+import { type CompanyConfig, createGenericCorpServer } from "./index.js";
+import type { CompanyModelAuth } from "./model-auth.js";
 import { createPlanLimit, PLAN_RESET_REASON, readPlanLimitError } from "./plan-limit.js";
 import { createSqliteStorageContract } from "./storage.js";
 
