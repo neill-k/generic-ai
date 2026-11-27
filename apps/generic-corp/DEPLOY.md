@@ -23,7 +23,7 @@ Docker Compose runs the same image locally with Postgres. Decision record:
   answers 200 only when the database is reachable and the schema is current,
   and 503 otherwise. Railway and Compose wait on `/ready`.
 - **Data:** Postgres holds runs, the queue, agents, owner auth and the
-  company. `/data` (`GENERIC_CORP_DATA_DIR`) holds agent homes, memory files,
+  company. `/data` (`GENERIC_CORP_DATA_DIR`) holds the company folder (the shared drive and agent homes), memory files,
   workspaces and run artifacts, so it must be a volume.
 - **Agent tools:** bash, git, ripgrep and fd are in the image. On amd64 the
   image also has Google Chrome and the pinned Playwright MCP package for the
@@ -33,8 +33,9 @@ Docker Compose runs the same image locally with Postgres. Decision record:
 
 Railway does not let a container start other containers, so there is no
 Docker sandbox there. Generic Corp does not use one: its agents' shell
-commands run directly in the app container, starting in the agent's home
-under `/data/agents`, as a separate unprivileged user, `agent`. The server
+commands run directly in the app container, starting in the company folder
+`/data/company` (the shared drive plus every agent's home), as a separate
+unprivileged user, `agent`. The server
 runs as `node`. Threat model and decision record:
 [`docs/decisions/0064-agent-isolation-on-railway.md`](../../docs/decisions/0064-agent-isolation-on-railway.md).
 
@@ -57,7 +58,7 @@ locally, in `/data/company.sqlite`.
   server starts (MCP servers launched with `uvx` included), cannot signal
   those processes, and cannot read or write the server's files on `/data`.
   The entrypoint keeps `/data` closed to other users (it can only be passed
-  through) and gives agent homes to the `agent` group, which `node` is in, so
+  through) and gives the company folder to the `agent` group, which `node` is in, so
   the server and agent commands both work there. On a timeout or abort the
   whole command, including anything it started in the background, is killed.
 - **Environment.** Each command starts from an allowlist (`PATH`, `HOME`,
@@ -67,8 +68,9 @@ locally, in `/data/company.sqlite`.
   (a hook gets a server variable only when its config names it in `passEnv`).
 - **File tools.** The agents' read, write, edit, ls, find and grep tools run
   inside the server process, as `node`. They only accept paths inside the
-  agent's home, resolving symlinks first, so `/proc/self/environ`, server
-  files and links pointing out of the home are refused. `read` may also open
+  company folder, resolving symlinks first, so `/proc/self/environ`, server
+  files and links pointing out of it are refused. Inside it, every agent
+  reaches the shared drive and every home: the company is one trust zone. `read` may also open
   the shell tool's own saved output in the temp directory.
 - **`/proc` as a second line.** The image makes the `node` binary
   execute-only, so Linux marks the server non-dumpable and even a process of
