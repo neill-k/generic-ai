@@ -158,7 +158,7 @@ tests are used as behavioural specs for that thread.
 | Real subagents: spawn, await, run in background, retain (`rlm.spawn`, `rlm.collect`, `list_subagents`, `delete_subagent`, `rename`) | ✓ | `@generic-ai/subagents`: roster text and collect rules from `rlm_child_model` and `rlm_children` tests; in-process, so children stop with their session; `native.subagents` harness option |
 | Agent-to-agent messaging and orchestration (parent, sibling, child; broadcast; capacity guard) | ✓ | `@generic-ai/subagents`: `message_ids_and_validation`, `target_and_capacity_guards`, `message_prompts_and_id_parsing`, `message_host_handler_round_trip` ported |
 | Progress notes and the inbox | ✓ | `progress_note_throttles_and_stores` ported; inbox kinds `agent-message`, `child-exited`, `child-failed` |
-| Agent observation (`agent_observe`: live activity, recent message previews), messaging pause and resume | ○ | `pa-core` agent_observe tests |
+| Agent observation (`agent_observe`: live activity, recent message previews), messaging pause and resume | ✓ | `@generic-ai/subagents` `observe.test.ts`: `observe_limits_clamp`, `observe_previews_truncate`, the family roster, target resolution and `recent_messages` controller cases, and the `agent_messages_pause`/`_resume`/`_clear` worker arms; tools `observe_agents`, `get_agent`, `recent_agent_messages` |
 | Daemon-backed sessions that survive disconnects and can be reattached | ◐ | Background sessions: a stored session's due jobs resume it from the SDK durable queue on any worker (`createScheduledSessionService`, ADR 0065). Live reattach to a running turn is not ported. |
 | Persistent goals: objective, token budget, continuation, no-progress cap and backoff, pause, resume, complete | ✓ | `@generic-ai/autonomy`: `goals.rs` and `goal_driver/tests.rs` cases ported; `complete_goal` tool instead of `goal.complete()`; in native sessions the goal is an SDK goal spec and `complete_goal` runs `runGoalValidators` (ADR 0063, NOVA: the agent cannot mark its own work done); `native.goal` harness option |
 | Heartbeats and schedules | ✓ | `@generic-ai/autonomy`: `cron/mod.rs` and `scheduler.rs` tests ported (schedule parsing, cron in UTC, `/heartbeat` grammar, deferral rules, failure backoff); `cron_add`, `cron_list`, `cron_cancel`, `heartbeat_set`, `heartbeat_manage` tools; `native.schedules` harness option; see `docs/schedules.md` |
@@ -194,7 +194,6 @@ Prime Agent:
 | Gap | Where | Notes |
 | --- | --- | --- |
 | Persistent Python REPL as the main tool, prompt-as-a-variable, programmatic subagent calls, executable Python skills | `pa-core` RLM, `pa-agent` | Code mode would cover the programmatic tool calling in JavaScript |
-| `agent_observe` (live activity and recent messages of another agent), messaging pause and resume | `pa-daemon` `agent_messaging/observe.rs` | |
 | Live reattach to a running turn after a disconnect | `pa-daemon` | Background sessions resume from the durable queue instead |
 | Factory workflows (state-machine skills run by the Python kernel) | `pa-factory` | |
 

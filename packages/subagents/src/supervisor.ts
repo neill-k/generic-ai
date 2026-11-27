@@ -25,6 +25,18 @@ import {
   normalizeAgentMessage,
   resolveFamilyMember,
 } from "./messaging.js";
+import {
+  type AgentActivity,
+  type AgentMessagingStatus,
+  type AgentObservation,
+  type AgentObserveListResult,
+  type AgentObserveSummary,
+  type AgentRecentMessagesResult,
+  agentActivity,
+  normalizeRecentMessagesWindow,
+  type ObservableAgentState,
+  recentMessagePreviews,
+} from "./observe.js";
 import { normalizeProgressNote, type ProgressNoteOutcome, ProgressNotes } from "./progress.js";
 import {
   ANSWER_TEXT_MAX_CHARS,
@@ -78,6 +90,10 @@ export interface ChildSession {
   steer(message: string): void;
   /** Messages delivered but not yet read by the model. */
   pendingMessageCount?(): number;
+  /** The transcript, for `recent_agent_messages`. */
+  messages?(): readonly unknown[];
+  /** What the session is doing, for observation. Defaults to `busy` while a task runs. */
+  activity?(): AgentActivity;
   dispose?(): void | Promise<void>;
 }
 
@@ -236,7 +252,7 @@ interface NodeDelivery {
 
 /** The part of an agent the root node needs to deliver messages to it. */
 export interface MessageTargetAgent {
-  readonly state: { readonly isStreaming: boolean };
+  readonly state: ObservableAgentState;
   steer(message: { role: "user"; content: string; timestamp: number }): void;
   peekQueuedMessages(): readonly unknown[];
 }
@@ -321,6 +337,8 @@ export class AgentNode {
   readonly tree: TreeContext;
   #name: string;
   #delivery: NodeDelivery | undefined;
+  #observation: AgentObservation | undefined;
+  #messagingPaused = false;
 
   /** @internal Use `createSubagentRoot`; children are made by `spawn`. */
   constructor(input: {
@@ -364,6 +382,11 @@ export class AgentNode {
     this.#delivery = delivery;
   }
 
+  /** @internal */
+  setObservation(observation: AgentObservation | undefined): void {
+    this.#observation = observation;
+  }
+
   /**
    * Deliver messages for this agent to `agent`: steered into a running turn, or kept in the inbox
    * while it is idle. Returns the function that stops delivery.
@@ -380,10 +403,18 @@ export class AgentNode {
       },
       pending: () => agent.peekQueuedMessages().length,
     };
+    const observation: AgentObservation = {
+      messages: () => agent.state.messages ?? [],
+      activity: () => agentActivity(agent.state),
+    };
     this.#delivery = delivery;
+    this.#observation = observation;
     return () => {
       if (this.#delivery === delivery) {
         this.#delivery = undefined;
+      }
+      if (this.#observation === observation) {
+        this.#observation = undefined;
       }
     };
   }
@@ -403,6 +434,9 @@ export class AgentNode {
 
   /** @internal */
   receive(message: IncomingMessage): AgentMessageDeliveryStatus {
+    if (this.#messagingPaused) {
+      throw new Error("Agent messaging is paused");
+    }
     if (this.#delivery === undefined) {
       this.#queue(message);
       return "queued";
@@ -503,6 +537,111 @@ export class AgentNode {
           return { target: node.id, error: errorMessage(error) };
         }
       }),
+    };
+  }
+
+  /**
+   * Refuse new agent messages to this agent until `resumeMessages`. Senders get "Agent messaging is
+   * paused"; messages already delivered or waiting in the inbox stay.
+   */
+  pauseMessages(): AgentMessagingStatus {
+    this.#messagingPaused = true;
+    return this.messagingStatus();
+  }
+
+  resumeMessages(): AgentMessagingStatus {
+    this.#messagingPaused = false;
+    return this.messagingStatus();
+  }
+
+  /** Drop the agent messages waiting in the inbox. */
+  clearMessages(): { readonly cleared: number } {
+    return { cleared: this.inbox.read({ kind: "agent-message" }).length };
+  }
+
+  messagingStatus(): AgentMessagingStatus {
+    return {
+      paused: this.#messagingPaused,
+      maxMessageChars: this.tree.maxMessageChars,
+      maxPendingPerSession: this.tree.maxPendingMessages,
+    };
+  }
+
+  /** @internal This agent's observation row, as seen by a family member. */
+  summary(relationship?: AgentFamilyRelationship): AgentObserveSummary {
+    const taskStatus = this.parent?.children.statusOf(this.id);
+    const activity = this.#observation?.activity() ?? (taskStatus === "running" ? "busy" : "idle");
+    const messages = this.#observation?.messages();
+    const note = this.progress.latest()?.message;
+    return {
+      id: this.id,
+      name: this.name,
+      ...(relationship === undefined ? {} : { relationship }),
+      depth: this.depth,
+      status: activity !== "idle" || taskStatus === "running" ? "running" : "idle",
+      activity,
+      ...(messages === undefined ? {} : { messageCount: messages.length }),
+      queuedCount: this.pendingMessages(),
+      inboxCount: this.inbox.count().count,
+      ...(taskStatus === undefined ? {} : { taskStatus }),
+      ...(note === undefined ? {} : { progressNote: note }),
+      runningChildren: this.children.runningCount(),
+      messagingPaused: this.#messagingPaused,
+    };
+  }
+
+  /** This agent's own row and its family's: parent, live siblings, and live children. */
+  observeAgents(): AgentObserveListResult {
+    return {
+      current: this.summary(),
+      agents: this.familyNodes().map(({ relationship, node }) => node.summary(relationship)),
+    };
+  }
+
+  #observeTarget(target: unknown): { node: AgentNode; relationship: AgentFamilyRelationship } {
+    if (typeof target !== "string" || target.trim().length === 0) {
+      throw new Error("agent observe target must be a non-empty string");
+    }
+    const wanted = target.trim();
+    const family = this.familyNodes();
+    const byId = family.find((entry) => entry.node.id === wanted);
+    if (byId !== undefined) return byId;
+    const matches = family.filter((entry) => entry.node.name === wanted);
+    const [only] = matches;
+    if (matches.length === 1 && only !== undefined) return only;
+    if (matches.length > 1) {
+      const rendered = matches
+        .map((entry) => `${entry.node.id} (${entry.relationship}:${entry.node.name})`)
+        .join(", ");
+      throw new Error(`Ambiguous agent "${wanted}": matches ${rendered}`);
+    }
+    throw new Error(`agent ${wanted} is not reachable`);
+  }
+
+  /** One family member's row, by id or name. */
+  observeAgent(target: unknown): AgentObserveSummary {
+    const { node, relationship } = this.#observeTarget(target);
+    return node.summary(relationship);
+  }
+
+  /**
+   * Bounded previews of a family member's latest messages: `limit` 1-50 (default 8), each cut to
+   * `maxChars` 80-2000 (default 800).
+   */
+  recentMessages(
+    target: unknown,
+    window: { readonly limit?: unknown; readonly maxChars?: unknown } = {},
+  ): AgentRecentMessagesResult {
+    const { limit, maxChars } = normalizeRecentMessagesWindow(window);
+    const { node, relationship } = this.#observeTarget(target);
+    const transcript = node.#observation?.messages() ?? [];
+    const previews = recentMessagePreviews(transcript, limit, maxChars);
+    return {
+      agent: node.summary(relationship),
+      messages: previews.messages,
+      limit,
+      maxChars,
+      truncated: previews.truncated,
     };
   }
 
@@ -657,6 +796,11 @@ export class SubagentSupervisor {
     node.setDelivery({
       deliver: (message) => this.#deliverToChild(record, message),
       pending: () => record.session?.pendingMessageCount?.() ?? 0,
+    });
+    const session = record.session;
+    node.setObservation({
+      messages: () => session.messages?.() ?? [],
+      activity: () => session.activity?.() ?? (record.status === "running" ? "busy" : "idle"),
     });
     this.#tree.emit({
       type: "spawned",
@@ -819,6 +963,11 @@ export class SubagentSupervisor {
     };
   }
 
+  /** @internal A live child's task status. */
+  statusOf(id: string): SubagentStatus | undefined {
+    return this.#records.find((record) => record.id === id)?.status;
+  }
+
   runningCount(): number {
     return this.#records.filter((record) => record.status === "running").length;
   }
@@ -886,6 +1035,7 @@ export class SubagentSupervisor {
       this.#records = this.#records.filter((candidate) => candidate !== record);
       this.#tombstones.push(record);
       record.node.setDelivery(undefined);
+      record.node.setObservation(undefined);
       record.controller.abort();
       await record.node.children.shutdown();
       await record.done;

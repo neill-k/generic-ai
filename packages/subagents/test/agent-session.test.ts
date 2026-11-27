@@ -144,10 +144,20 @@ describe("subagents on real agents", () => {
       "rename_agent",
       "send_agent_message",
       "read_inbox",
+      "observe_agents",
+      "get_agent",
+      "recent_agent_messages",
     ]);
     provider.setResponses([fauxAssistantMessage("ok")]);
     return root.children.spawn({ prompt: "x" }).then(async () => {
-      expect(names[0]).toEqual(["send_agent_message", "read_inbox", "progress_note"]);
+      expect(names[0]).toEqual([
+        "send_agent_message",
+        "read_inbox",
+        "observe_agents",
+        "get_agent",
+        "recent_agent_messages",
+        "progress_note",
+      ]);
       await root.children.collect([], 1_000);
     });
   });

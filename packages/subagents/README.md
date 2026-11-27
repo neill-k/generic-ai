@@ -33,7 +33,27 @@ unbind();
 ```
 
 The agent tools are `spawn_agent`, `collect_agents`, `list_agents`, `delete_agent`,
-`rename_agent`, `send_agent_message`, `read_inbox`, and (for subagents) `progress_note`.
+`rename_agent`, `send_agent_message`, `read_inbox`, `observe_agents`, `get_agent`,
+`recent_agent_messages`, and (for subagents) `progress_note`.
+
+**Observation** (Prime Agent's `agent_observe`) lets an agent look at its family without
+interrupting it. `node.observeAgents()` (tool `observe_agents`) returns the caller's own row as
+`current` and its parent, siblings and children as `agents`. Each row has `status` (`running` or
+`idle`), the live `activity` (`model`, `tool`, `busy`, `idle`), `messageCount`, `queuedCount`,
+`inboxCount`, a subagent's `taskStatus` and `progressNote`, `runningChildren`, and
+`messagingPaused`. `node.observeAgent(target)` (tool `get_agent`) returns one row, by id or name;
+a name two members share is refused, and anything outside the family is "not reachable".
+`node.recentMessages(target, { limit, maxChars })` (tool `recent_agent_messages`) returns previews
+of the latest messages with their transcript `index`, `role`, `timestamp`, text (thinking
+included), `toolCalls` and `customType`; `limit` is 1-50 (default 8) and `maxChars` 80-2000
+(default 800). Transcripts and activity come from `bindAgent` for the root and from the child
+session's optional `messages()` and `activity()`; `AgentChildSession` provides both.
+
+**Pausing messages:** `node.pauseMessages()` makes senders get "Agent messaging is paused" until
+`node.resumeMessages()`; messages already delivered or waiting stay. `node.clearMessages()` drops
+the agent messages waiting in the inbox (child notices stay), and `node.messagingStatus()` reports
+the pause flag and limits. These are for the host (for example while a person is typing to that
+agent), not agent tools.
 
 Limits (defaults): depth 3, 8 running children per agent, 16,384-character messages, 20 pending
 messages per agent, names of at most 64 characters, unique among one parent's live children.

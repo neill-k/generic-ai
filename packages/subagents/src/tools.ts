@@ -16,6 +16,9 @@ export const RENAME_AGENT_TOOL = "rename_agent";
 export const SEND_AGENT_MESSAGE_TOOL = "send_agent_message";
 export const READ_INBOX_TOOL = "read_inbox";
 export const PROGRESS_NOTE_TOOL = "progress_note";
+export const OBSERVE_AGENTS_TOOL = "observe_agents";
+export const GET_AGENT_TOOL = "get_agent";
+export const RECENT_AGENT_MESSAGES_TOOL = "recent_agent_messages";
 
 export interface SubagentToolsOptions {
   /** Include spawn, collect, list, rename, and delete. Defaults to true when the node may spawn. */
@@ -26,6 +29,8 @@ export interface SubagentToolsOptions {
   readonly inbox?: boolean | undefined;
   /** Include `progress_note`. Defaults to true for subagents and false for the root. */
   readonly progress?: boolean | undefined;
+  /** Include `observe_agents`, `get_agent`, and `recent_agent_messages`. Defaults to true. */
+  readonly observe?: boolean | undefined;
 }
 
 function result<T>(value: T): AgentToolResult<T> {
@@ -95,6 +100,24 @@ const inboxSchema = Type.Object({
   ),
   before_ms: Type.Optional(Type.Number({ description: "Only items received before this time." })),
   peek: Type.Optional(Type.Boolean({ description: "Return the items without removing them." })),
+});
+
+const observeTargetSchema = Type.Object({
+  target: Type.String({ description: "Id or name of a parent, sibling, or child agent." }),
+});
+
+const recentMessagesSchema = Type.Object({
+  target: Type.String({ description: "Id or name of a parent, sibling, or child agent." }),
+  limit: Type.Optional(
+    Type.Integer({ minimum: 1, maximum: 50, description: "Messages to show, 1-50. Default 8." }),
+  ),
+  max_chars: Type.Optional(
+    Type.Integer({
+      minimum: 80,
+      maximum: 2000,
+      description: "Characters kept per message, 80-2000. Default 800.",
+    }),
+  ),
 });
 
 const noteSchema = Type.Object({
@@ -204,6 +227,36 @@ export function createSubagentTools(
         });
       },
     });
+  }
+  if (options.observe ?? true) {
+    tools.push(
+      {
+        name: OBSERVE_AGENTS_TOOL,
+        label: "Observe agents",
+        description:
+          "See your own state and your parent's, siblings' and children's: whether each is running, what it is doing (model, tool, busy, idle), queued messages, inbox size, task status, and progress note.",
+        parameters: Type.Object({}),
+        execute: async () => result(node.observeAgents()),
+      },
+      {
+        name: GET_AGENT_TOOL,
+        label: "Get agent",
+        description: "See one parent, sibling, or child agent's current state.",
+        parameters: observeTargetSchema,
+        execute: async (_id, params) => result({ agent: node.observeAgent(params.target) }),
+      },
+      {
+        name: RECENT_AGENT_MESSAGES_TOOL,
+        label: "Recent agent messages",
+        description:
+          "Read short previews of a parent, sibling, or child agent's latest messages, to see what it is working on without interrupting it.",
+        parameters: recentMessagesSchema,
+        execute: async (_id, params) =>
+          result(
+            node.recentMessages(params.target, { limit: params.limit, maxChars: params.max_chars }),
+          ),
+      },
+    );
   }
   if (options.progress ?? node.parent !== undefined) {
     tools.push({
