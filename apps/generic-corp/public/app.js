@@ -11,6 +11,7 @@ const state = {
   drivePath: "drive",
   company: undefined,
   refreshTimer: undefined,
+  claudeFlowId: undefined,
 };
 
 // ---------------------------------------------------------------------------
@@ -150,6 +151,7 @@ const VIEWS = {
   costs: renderCosts,
   tools: renderTools,
   secrets: renderSecrets,
+  power: renderModelAuth,
   approvals: renderApprovals,
   drive: renderDrive,
   deliverables: renderDeliverables,
@@ -183,7 +185,12 @@ async function render() {
 /** Coalesces bursts of live events into one refresh of the current view. */
 function scheduleRefresh() {
   // Task events don't change these views, and a refresh would clear a half-typed secret.
-  if (state.view === "secrets" || state.view === "tools" || state.view === "approvals") {
+  if (
+    state.view === "secrets" ||
+    state.view === "power" ||
+    state.view === "tools" ||
+    state.view === "approvals"
+  ) {
     return;
   }
   if (state.refreshTimer !== undefined) {
@@ -1044,6 +1051,161 @@ function firstSentence(text) {
 // ---------------------------------------------------------------------------
 // Secrets
 // ---------------------------------------------------------------------------
+
+const MODEL_AUTH_SOURCES = {
+  subscription: "Your Claude subscription",
+  api_key: "An Anthropic API key saved here",
+  environment: "ANTHROPIC_API_KEY on the server",
+  none: "Nothing yet",
+};
+
+async function renderModelAuth(message) {
+  const status = await api("/model-auth");
+  const formError = h("p", { class: "form-error", role: "alert", hidden: true });
+  const fail = (error) => {
+    formError.textContent = error.message;
+    formError.hidden = false;
+  };
+  const codeInput = h("input", {
+    id: "claude-code",
+    name: "code",
+    autocomplete: "off",
+    spellcheck: "false",
+    placeholder: "Paste the code here",
+    required: true,
+    "aria-label": "Code from Claude",
+  });
+  const keyInput = h("input", {
+    id: "anthropic-key",
+    name: "key",
+    type: "password",
+    autocomplete: "new-password",
+    placeholder: "sk-ant-...",
+    required: true,
+    "aria-label": "Anthropic API key",
+  });
+  const linkSlot = h("div", {});
+  const start = async () => {
+    try {
+      const flow = await api("/model-auth/claude/start", { method: "POST" });
+      state.claudeFlowId = flow.flowId;
+      linkSlot.replaceChildren(
+        h(
+          "ol",
+          {},
+          h(
+            "li",
+            {},
+            h("a", { href: flow.url, target: "_blank", rel: "noopener noreferrer" }, "Open Claude"),
+            " and approve access with the account whose plan should power the company.",
+          ),
+          h("li", {}, "Copy the code Claude shows at the end and paste it below."),
+        ),
+        h(
+          "form",
+          { class: "secret-form", onSubmit: finish },
+          codeInput,
+          h("button", { type: "submit" }, "Finish sign-in"),
+        ),
+      );
+      codeInput.focus();
+    } catch (error) {
+      fail(error);
+    }
+  };
+  const finish = async (event) => {
+    event.preventDefault();
+    try {
+      await api("/model-auth/claude/finish", {
+        method: "POST",
+        body: JSON.stringify({ flowId: state.claudeFlowId, code: codeInput.value }),
+      });
+      state.claudeFlowId = undefined;
+      await renderModelAuth("Signed in. Agents now run on your Claude subscription.");
+    } catch (error) {
+      fail(error);
+    }
+  };
+  const saveKey = async (event) => {
+    event.preventDefault();
+    try {
+      await api("/model-auth/api-key", {
+        method: "PUT",
+        body: JSON.stringify({ key: keyInput.value }),
+      });
+      keyInput.value = "";
+      await renderModelAuth("Saved. Agents now run on this API key.");
+    } catch (error) {
+      fail(error);
+    }
+  };
+  const signOut = async () => {
+    try {
+      await api("/model-auth", { method: "DELETE" });
+      await renderModelAuth("Signed out. The stored sign-in or key was removed.");
+    } catch (error) {
+      fail(error);
+    }
+  };
+  const stored = status.source === "subscription" || status.source === "api_key";
+  setView(
+    h(
+      "div",
+      {},
+      h("h1", {}, "Claude sign-in"),
+      h(
+        "p",
+        { class: "subtitle" },
+        "What powers your agents. Sign in with your Claude subscription, or use an Anthropic API key instead. Your agents use it without ever seeing it.",
+      ),
+      h(
+        "div",
+        { style: "display: grid; gap: 16px" },
+        message ? h("div", { class: "notice", role: "status" }, message) : null,
+        status.source === "none"
+          ? h(
+              "div",
+              { class: "error-banner", role: "alert" },
+              "Nothing powers the company yet. Agents cannot work until you sign in or add a key.",
+            )
+          : null,
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, "Powered by"),
+          h("p", {}, MODEL_AUTH_SOURCES[status.source] ?? status.source),
+          stored
+            ? h("button", { type: "button", class: "ghost", onClick: signOut }, "Sign out")
+            : null,
+        ),
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, "Sign in with Claude"),
+          h(
+            "p",
+            { class: "muted" },
+            "Uses your Claude Pro or Max plan. When the plan's usage limit is reached, work pauses until it resets.",
+          ),
+          h("button", { type: "button", onClick: start }, "Sign in with Claude"),
+          linkSlot,
+        ),
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, "Or use an API key"),
+          h(
+            "form",
+            { class: "secret-form", onSubmit: saveKey },
+            keyInput,
+            h("button", { type: "submit" }, "Save key"),
+          ),
+        ),
+        formError,
+      ),
+    ),
+  );
+}
 
 const SECRET_SOURCES = {
   env: "Server environment",
