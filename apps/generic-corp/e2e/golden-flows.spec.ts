@@ -95,22 +95,33 @@ test("permissions: an action outside them is refused and listed, and runs once a
 });
 
 test("memory: the owner adds to the handbook, edits it, and undoes a removal", async ({ page }) => {
-  await page.goto(`${server.url}/classic/#/memory`);
+  await page.goto(`${server.url}/#/memory`);
   await expect(page.locator("h1")).toHaveText("Memory");
+  await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.getByLabel("Title").fill("How Neill likes updates");
-  await page.getByLabel("Content").fill("Short, plain, on his phone.");
-  await page.getByRole("button", { name: "Add" }).click();
+  await page.getByLabel("What should be remembered").fill("Short, plain, on his phone.");
+  await page.getByRole("button", { name: "Save" }).click();
   const entries = page.locator(".memory-entries");
   await expect(entries).toContainText("Short, plain, on his phone.");
   await expect(entries).toContainText("From: You");
 
   await entries.getByRole("button", { name: "Edit" }).click();
-  await entries.getByLabel("Content").fill("Short and plain.");
+  await entries.getByLabel("What should be remembered").fill("Short and plain.");
   await entries.getByRole("button", { name: "Save" }).click();
   await expect(entries).toContainText("Short and plain.");
 
   await entries.getByRole("button", { name: "Remove" }).click();
-  await expect(page.locator("#view")).toContainText("Nothing here yet.");
-  await page.locator(".memory-change").first().getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator("main")).toContainText("Nothing in the handbook yet.");
+  await page.locator(".memory-changes li").first().getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".memory-entries")).toContainText("Short and plain.");
+});
+
+test("memory: a preference from the owner's chat lands in the handbook", async ({ page }) => {
+  await send(page, "From now on, always use metric units.");
+  await page.goto(`${server.url}/#/memory`);
+  await page.getByRole("button", { name: "Scan chats now" }).click();
+  const entries = page.locator(".memory-entries");
+  await expect(entries).toContainText("Use metric units.");
+  await expect(entries).toContainText("From: Noticed in your chats");
+  await expect(page.locator("main")).toContainText("Preference scanner: last ran");
 });
