@@ -15,6 +15,7 @@ import { bodyLimit } from "hono/body-limit";
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import { DriveError, type DriveFile } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
+import { goalDetailView, listGoalViews } from "./goal-views.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
@@ -274,6 +275,14 @@ function sseFrame(event: CompanyEvent): string {
   return `id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify({ at: event.at, ...event.data })}\n\n`;
 }
 
+/**
+ * The same event as an unnamed frame with its type in the data, so one `onmessage` handler sees
+ * every event (`EventSource` has no wildcard listener). Used by the app with `?unnamed=1`.
+ */
+function unnamedSseFrame(event: CompanyEvent): string {
+  return `id: ${event.id}\ndata: ${JSON.stringify({ type: event.type, at: event.at, data: event.data })}\n\n`;
+}
+
 export function createCompanyApi(
   runtime: CompanyRuntime,
   options: CompanyApiOptions,
@@ -352,6 +361,22 @@ export function createCompanyApi(
       goals: (runtime.company.goals ?? []).map(describeCompanyGoal),
     }),
   );
+
+  // --- Goals the owner has set: the home screen (decision 47) ------------
+
+  app.get("/goal-views", async (c) =>
+    c.json({
+      goals: await listGoalViews(runtime, { limit: readLimit(c.req.query("limit"), 200, 2000) }),
+    }),
+  );
+
+  app.get("/goal-views/:goalId", async (c) => {
+    const goal = await goalDetailView(runtime, c.req.param("goalId"));
+    if (goal === undefined) {
+      throw new ApiError(404, "Goal not found.");
+    }
+    return c.json({ goal });
+  });
 
   // --- Secrets -------------------------------------------------------------
 
@@ -770,6 +795,7 @@ export function createCompanyApi(
 
   app.get("/events", (c) => {
     const lastEventId = Number(c.req.header("last-event-id") ?? c.req.query("since") ?? "0");
+    const frame = c.req.query("unnamed") === "1" ? unnamedSseFrame : sseFrame;
     const encoder = new TextEncoder();
     let unsubscribe: (() => void) | undefined;
     let keepAlive: ReturnType<typeof setInterval> | undefined;
@@ -793,10 +819,10 @@ export function createCompanyApi(
         send(`retry: 3000\n: connected ${runtime.events.lastId}\n\n`);
         if (Number.isInteger(lastEventId) && lastEventId > 0) {
           for (const event of runtime.events.since(lastEventId)) {
-            send(sseFrame(event));
+            send(frame(event));
           }
         }
-        unsubscribe = runtime.events.subscribe((event) => send(sseFrame(event)));
+        unsubscribe = runtime.events.subscribe((event) => send(frame(event)));
         keepAlive = setInterval(() => send(": keep-alive\n\n"), keepAliveMs);
         c.req.raw.signal.addEventListener("abort", () => {
           close();

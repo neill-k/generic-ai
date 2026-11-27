@@ -843,6 +843,9 @@ describe("goal-gated tasks (R24)", () => {
     expect(task?.status).toBe("succeeded");
     expect(task?.validationFailures).toBe(1);
     expect(task?.lastGoalReport?.passed).toBe(2);
+    // Each check's outcome is kept so the owner sees a live checklist.
+    expect(task?.lastGoalReport?.checks?.length).toBeGreaterThan(0);
+    expect(task?.lastGoalReport?.checks?.every((check) => check.status === "passed")).toBe(true);
   });
 
   it("fails closed when a goal's check is not registered", async () => {
@@ -1557,6 +1560,14 @@ describe("goals on every request (ADR 0069)", () => {
 
     const root = await cascade.get("offsite");
     expect(root?.status).toBe("succeeded");
+    // Each line of the definition of done has its own tick on the owner's checklist.
+    const dod = root?.lastGoalReport?.checks?.find(
+      (check) => check.validatorId === "definition-of-done",
+    );
+    expect(dod?.criteria?.map((criterion) => [criterion.criterionId, criterion.passed])).toEqual([
+      ["dod-1", true],
+      ["dod-2", true],
+    ]);
     expect(root?.goalHistory?.map((entry) => [entry.revision, entry.source])).toEqual([
       [1, "submit"],
       [2, "owner"],

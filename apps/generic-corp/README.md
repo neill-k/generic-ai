@@ -56,11 +56,16 @@ dashboard at `/` with an approvals inbox.
   is set. Search keys and MCP `${NAME}` placeholders resolve host-side, so
   agents never see them. An agent's `secrets:` list lets it use named secrets
   in its own tool calls as `{{secret:NAME}}`.
-- **Dashboard.** `public/` holds a no-build page (`dashboard.ts` serves it at
-  `/` with a strict CSP): chat with the CEO, the org chart with each agent's
-  memory and tasks, the board, costs, the agents' tools and connectors, and a
-  secrets screen that shows which secrets are missing and saves new ones. It
-  refreshes from `/api/events`, and a signed-out browser goes to `/auth/login`.
+- **The app.** `web/` is the owner's app: Preact, bundled by Vite into
+  `dist/web` (`npm run build` runs both `tsc` and `vite build`; `npm run dev:web`
+  serves it with hot reload against a server on port 8787). `dashboard.ts` serves
+  it at `/` with a strict CSP. Goals is the home screen: each goal shows its
+  definition of done as a live checklist, who is on it, what was delivered and
+  what it used, and the owner edits what done means in a side panel. The org chart
+  opens each agent's current work and memory. It refreshes from
+  `/api/events?unnamed=1`, and a signed-out browser goes to `/auth/login`.
+  `public/` is the earlier no-build dashboard, served at `/classic/` until its
+  remaining screens (activity, drive, usage, tools, secrets, Claude sign-in) move.
 - **Approvals.** Outward actions wait for the owner (`@generic-ai/plugin-approvals`):
   sending messages, writing to outside systems, spending money and writing MCP
   tools, or whatever `approvals:` in the company file says. A gated call ends
