@@ -10,6 +10,7 @@ import type {
   BaselineSet,
   RunBaselineOptions,
 } from "./baseline.js";
+import type { EgressProxy } from "./egress.js";
 import type { CompanyModelAuth } from "./model-auth.js";
 import { createSpendCap } from "./spend.js";
 
@@ -86,6 +87,8 @@ export interface CreateCompanyCheckupOptions {
   /** The server's model sign-in; the checkup runs on the owner's own plan or key. */
   readonly modelAuth: CompanyModelAuth;
   readonly env?: NodeJS.ProcessEnv;
+  /** The server's egress proxy, so the checkup's agents get the same walled network. */
+  readonly egressProxy?: Pick<EgressProxy, "envFor">;
   /** Replaces the baseline runner, for tests. */
   readonly run?: (options: RunBaselineOptions) => Promise<BaselineReport>;
   readonly now?: () => Date;
@@ -183,6 +186,7 @@ export function createCompanyCheckup(options: CreateCompanyCheckupOptions): Comp
           modelAuth: options.modelAuth,
           spendCap: createSpendCap({ maxTokens: view.estimate.maxTokens }),
           ...(options.env === undefined ? {} : { env: options.env }),
+          ...(options.egressProxy === undefined ? {} : { egressProxy: options.egressProxy }),
           onConfigStart: (config) => {
             void update({ running: config.id });
           },

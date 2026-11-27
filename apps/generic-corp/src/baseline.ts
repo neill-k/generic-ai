@@ -7,6 +7,7 @@ import {
 } from "@generic-ai/sdk";
 
 import { type CompanyConfig, ceoOf, modelFor } from "./company.js";
+import type { EgressProxy } from "./egress.js";
 import { cappedJudge, createCompanyEvalExecutor } from "./evals.js";
 import { createModelJudge } from "./goals.js";
 import type { CompanyModelAuth } from "./model-auth.js";
@@ -287,6 +288,8 @@ export interface RunBaselineOptions {
   readonly modelAuth?: CompanyModelAuth;
   /** Replaces the model resolver, for tests. */
   readonly resolveModel?: (ref: string) => Model;
+  /** An egress proxy for every attempt's agents to share, when running inside a server. */
+  readonly egressProxy?: Pick<EgressProxy, "envFor">;
   /** Replaces the model judge, for tests. */
   readonly judge?: GoalJudge;
   /** Defaults to a token cap at the estimate's high end. */
@@ -351,6 +354,7 @@ export async function runBaseline(options: RunBaselineOptions = {}): Promise<Bas
         ...(options.env === undefined ? {} : { env: options.env }),
         ...(options.resolveModel === undefined ? {} : { resolveModel: options.resolveModel }),
         ...(options.modelAuth === undefined ? {} : { modelAuth: options.modelAuth }),
+        ...(options.egressProxy === undefined ? {} : { egressProxy: options.egressProxy }),
         features: {
           offload: config.features.offload,
           rlm: config.features.rlm,

@@ -99,7 +99,10 @@ const AGENT_IN_TASK = /\(agent id "([A-Za-z0-9._-]+)", role /;
  * what comes back; anyone working alone writes it and hands it in. Each request is recorded so
  * the test can see which tools and prompt each configuration gave the agents.
  */
-function scriptedModel(): { resolveModel: (ref: string) => Model; requests: Context[] } {
+function scriptedModel(options: { readonly firstCommand?: string } = {}): {
+  resolveModel: (ref: string) => Model;
+  requests: Context[];
+} {
   const requests: Context[] = [];
   const provider = registerFauxProvider({ models: [{ id: "scripted" }] });
   cleanups.push(() => provider.unregister());
@@ -122,6 +125,9 @@ function scriptedModel(): { resolveModel: (ref: string) => Model; requests: Cont
       return prompt !== undefined && text(prompt).includes("## Results from the work you delegated")
         ? call("submit_work", { summary: "The writer's note is ready.", deliverables: [] })
         : call("delegate_task", { tasks: [{ to: "writer", task: "Write the note." }] });
+    }
+    if (options.firstCommand !== undefined && lastTool === undefined) {
+      return call("bash", { command: options.firstCommand });
     }
     if (lastTool === "write") {
       return call("submit_work", { summary: "Wrote the note.", deliverables: [] });
@@ -215,6 +221,38 @@ describe("baseline comparison", () => {
     expect(markdown).toContain("| Plain single agent | 1/1 |");
     expect(markdown).toContain("| Generic Corp, everything on | 1/1 |");
     expect(markdown).toContain("baseline");
+  }, 60_000);
+
+  it("gives the attempts' agent commands the shared egress proxy when one is passed", async () => {
+    const { resolveModel, requests } = scriptedModel({ firstCommand: "printenv HTTPS_PROXY" });
+    const shared: string[] = [];
+    await runBaseline({
+      plan: {
+        ...baselinePlan({ set: "core" }),
+        templateId: "baseline-test",
+        caseIds: ["note"],
+        configs: [SINGLE_AGENT_CONFIG],
+      },
+      template: TEMPLATE,
+      env: {},
+      resolveModel,
+      judge: passingJudge,
+      egressProxy: {
+        envFor: (agentId) => {
+          shared.push(agentId);
+          return { HTTPS_PROXY: `http://127.0.0.1:9/${agentId}`, HTTP_PROXY: "http://127.0.0.1:9" };
+        },
+      },
+      log: () => undefined,
+    });
+    expect(shared).toContain("lead");
+    const output = requests
+      .flatMap((context) => context.messages)
+      .filter((message) => message.role === "toolResult" && message.toolName === "bash")
+      .flatMap((message) => (message.role === "toolResult" ? message.content : []))
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join("\n");
+    expect(output).toContain("http://127.0.0.1:9/lead");
   }, 60_000);
 
   it("stops at the token cap and counts attempts not run as unfinished", async () => {

@@ -343,6 +343,11 @@ export interface CreateGenericCorpServerOptions {
    * the company's own template with this server's model sign-in; `false` leaves it out.
    */
   readonly checkup?: CompanyCheckup | false;
+  /**
+   * An egress proxy to share instead of starting one, for a server started inside another (the
+   * checkup's companies). It is neither started nor stopped here.
+   */
+  readonly egressProxy?: Pick<EgressProxy, "envFor">;
   readonly log?: (message: string) => void;
 }
 
@@ -398,7 +403,10 @@ export async function createGenericCorpServer(
       options.agentNetworkProbe,
     );
     log(describeAgentNetwork(agentNetwork));
-    if (networkPolicy !== "off") {
+    // A server started inside another (the checkup's companies) shares that server's proxy: the
+    // agent firewall only lets the agent user reach the one fixed egress port.
+    const sharedEgress = networkPolicy === "off" ? undefined : options.egressProxy;
+    if (networkPolicy !== "off" && sharedEgress === undefined) {
       const proxy = createEgressProxy({
         allow: () => permissions.current().shellHosts,
         port: environment.egressPort ?? 0,
@@ -417,7 +425,7 @@ export async function createGenericCorpServer(
       await proxy.start();
       egress = proxy;
     }
-    const egressProxy = egress;
+    const egressProxy: Pick<EgressProxy, "envFor"> | undefined = sharedEgress ?? egress;
     // Every role's Python workspace runs behind the same wall: as the agent user, with the
     // command limits and this agent's egress proxy settings (rlm.ts).
     const rlm = resolveCompanyRlm(options.env ?? process.env, agentIsolation, {
@@ -620,6 +628,7 @@ export async function createGenericCorpServer(
             kv: storage.kv,
             modelAuth,
             env: options.env ?? process.env,
+            ...(egressProxy === undefined ? {} : { egressProxy }),
             log,
           }));
     app.route(
@@ -665,7 +674,7 @@ export async function createGenericCorpServer(
       async stop() {
         await runtime.stop();
         await companyToolkit.close();
-        await egressProxy?.stop();
+        await egress?.stop();
         await storage.close();
       },
     };

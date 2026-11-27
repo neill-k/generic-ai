@@ -37,6 +37,7 @@ import {
   type OrgTier,
 } from "./company.js";
 import { companyLayout } from "./drive.js";
+import type { EgressProxy } from "./egress.js";
 import { collectCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import type { CompanyModelAuth } from "./model-auth.js";
 import { secondOpinionModel } from "./second-opinion.js";
@@ -190,6 +191,11 @@ export interface CompanyEvalExecutorOptions {
   readonly resolveModel?: (ref: string) => Model;
   /** Live mode: replaces the model judge. */
   readonly judge?: GoalJudge;
+  /**
+   * Live mode: an egress proxy to share, when the attempts run inside a server whose agent
+   * firewall only allows that server's proxy port.
+   */
+  readonly egressProxy?: Pick<EgressProxy, "envFor">;
   /** Live mode: where agents get their model credential, for example the owner's Claude sign-in. */
   readonly modelAuth?: CompanyModelAuth;
   /**
@@ -307,6 +313,9 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
           : { modelAuth: options.modelAuth }),
         ...(options.features?.memory === false ? { agentMemory: false } : {}),
         checkup: false,
+        ...(options.egressProxy === undefined || replay !== undefined
+          ? {}
+          : { egressProxy: options.egressProxy }),
         authStore: createMemoryAuthStore(),
         log,
       });

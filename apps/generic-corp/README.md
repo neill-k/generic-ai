@@ -332,7 +332,9 @@ runs when the owner starts it:
   to use the sign-in you made in the app. It exits 3 when there is no sign-in
   and 4 in GitHub Actions.
 
-Nothing automated starts a checkup. Its tests run the whole comparison on a
+A checkup started from the app runs its companies behind the same wall as
+normal work: their agent commands go through the server's own egress proxy and
+allowlist. Nothing automated starts a checkup. Its tests run the whole comparison on a
 scripted model.
 
 To add a template, copy a folder, change `company.yaml`, and record a replay
