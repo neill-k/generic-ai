@@ -6,6 +6,7 @@ import { useLiveStatus, useResource } from "./live.js";
 import { href, useRoute } from "./router.js";
 import "./styles.css";
 import { ActivityView } from "./views/Activity.js";
+import { CheckupView } from "./views/Checkup.js";
 import { ConnectionsView } from "./views/Connections.js";
 import { GoalView } from "./views/Goal.js";
 import { GoalsView } from "./views/Goals.js";
@@ -24,7 +25,7 @@ const NAV: readonly { view: string; label: string; icon: string }[] = [
 
 /** Settings rooms live under More in the navigation. */
 const navView = (view: string) =>
-  view === "connections" || view === "permissions" ? "more" : view;
+  ["connections", "permissions", "checkup"].includes(view) ? "more" : view;
 
 function App() {
   const route = useRoute();
@@ -44,6 +45,8 @@ function App() {
     page = <ActivityView />;
   } else if (route.view === "connections") {
     page = <ConnectionsView />;
+  } else if (route.view === "checkup") {
+    page = <CheckupView />;
   } else if (route.view === "permissions") {
     page = <PermissionsView />;
   } else if (route.view === "more") {

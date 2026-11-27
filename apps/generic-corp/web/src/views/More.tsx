@@ -9,6 +9,11 @@ const ROOMS: readonly { view: string; title: string; text: string }[] = [
     text: "GitHub, tools and the keys agents use without seeing them.",
   },
   { view: "permissions", title: "Permissions", text: "What agents may do, and what was refused." },
+  {
+    view: "checkup",
+    title: "Checkup",
+    text: "Whether the company beats a single agent on the same goals. Runs only when you ask.",
+  },
 ];
 
 /**

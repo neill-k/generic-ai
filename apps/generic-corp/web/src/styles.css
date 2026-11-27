@@ -1344,3 +1344,20 @@ a.tab {
 .secret-form input {
   flex: 1 1 12rem;
 }
+
+.report {
+  margin: 0;
+  padding: 0.8rem;
+  border-radius: var(--radius);
+  background: var(--bg, var(--surface));
+  border: 1px solid var(--line);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 32rem;
+  overflow: auto;
+}
+
+.checkup-reason {
+  margin-bottom: 1rem;
+}
