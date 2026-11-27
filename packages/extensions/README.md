@@ -28,7 +28,11 @@ await runner.runPrompt("/status", (text) => agent.prompt(text));
 
 - Events: `session_start`, `session_shutdown`, `input`, `before_agent_start`, `agent_start`,
   `agent_end`, `turn_start`, `turn_end`, `message_end`, `context`, `tool_call`, `tool_result`,
-  `session_before_compact`, `session_compact`.
+  `session_before_compact`, `session_compact`, and the provider and selection events
+  `before_provider_request` (return a replacement payload; replacements chain),
+  `before_provider_headers` (mutate `event.headers`; `null` removes a header the model or caller
+  set), `after_provider_response` (status and headers), `model_select` and
+  `thinking_level_select` (fired by `context.setModel` and `context.setThinkingLevel`).
 - Chaining: `input` transforms and `before_agent_start` system prompts chain; the first `handled`
   input or `tool_call` block wins; `tool_result` patches chain and keep fields a patch leaves out;
   any handler can cancel compaction.

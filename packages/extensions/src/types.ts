@@ -5,10 +5,16 @@
 // names, payloads, and result-chaining rules follow pi so pi extensions that only use these hooks
 // port with small changes.
 
-import type { AgentMessage, AgentTool, AgentToolResult } from "@generic-ai/agent";
+import type {
+  AgentMessage,
+  AgentThinkingLevel,
+  AgentTool,
+  AgentToolResult,
+} from "@generic-ai/agent";
 import type {
   AssistantMessage,
   ImageContent,
+  Model,
   TextContent,
   ToolResultMessage,
 } from "@generic-ai/ai";
@@ -25,6 +31,14 @@ export interface ExtensionContext {
   getMessages(): readonly AgentMessage[];
   /** Queue a message that is delivered to the model after the current turn. */
   sendMessage(message: AgentMessage): void;
+  /** The model the next request will use, once an agent is bound. */
+  getModel(): Model | undefined;
+  /** Switch the model from the next prompt. Fires `model_select`. */
+  setModel(model: Model): Promise<void>;
+  /** The reasoning level the next request will use. */
+  getThinkingLevel(): AgentThinkingLevel | undefined;
+  /** Switch the reasoning level from the next prompt. Fires `thinking_level_select`. */
+  setThinkingLevel(level: AgentThinkingLevel): Promise<void>;
 }
 
 // --- Events -----------------------------------------------------------------------------------
@@ -149,6 +163,50 @@ export interface SessionCompactEvent {
   readonly tokensBefore: number;
 }
 
+/** A replacement provider payload (request bodies are JSON objects). */
+export type BeforeProviderRequestEventResult = object;
+
+/** A provider request is about to be sent. A handler may return a replacement payload. */
+export interface BeforeProviderRequestEvent {
+  readonly type: "before_provider_request";
+  readonly payload: unknown;
+  readonly model: Model;
+}
+
+/**
+ * Request headers are being assembled. Handlers mutate `headers` in place (for example to add
+ * tracing headers); a `null` value removes a header the model or caller set. Provider defaults
+ * (authentication, API version) are added after this and cannot be changed here.
+ */
+export interface BeforeProviderHeadersEvent {
+  readonly type: "before_provider_headers";
+  readonly headers: Record<string, string | null>;
+  readonly model: Model;
+}
+
+/** A provider HTTP response arrived (before its stream is read). */
+export interface AfterProviderResponseEvent {
+  readonly type: "after_provider_response";
+  readonly status: number;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly model: Model;
+}
+
+export type ModelSelectSource = "set" | "restore";
+
+export interface ModelSelectEvent {
+  readonly type: "model_select";
+  readonly model: Model;
+  readonly previousModel: Model | undefined;
+  readonly source: ModelSelectSource;
+}
+
+export interface ThinkingLevelSelectEvent {
+  readonly type: "thinking_level_select";
+  readonly level: AgentThinkingLevel;
+  readonly previousLevel: AgentThinkingLevel | undefined;
+}
+
 export interface ExtensionEventMap {
   session_start: [SessionStartEvent, undefined];
   session_shutdown: [SessionShutdownEvent, undefined];
@@ -164,6 +222,11 @@ export interface ExtensionEventMap {
   tool_result: [ToolResultEvent, ToolResultEventResult];
   session_before_compact: [SessionBeforeCompactEvent, SessionBeforeCompactEventResult];
   session_compact: [SessionCompactEvent, undefined];
+  before_provider_request: [BeforeProviderRequestEvent, BeforeProviderRequestEventResult];
+  before_provider_headers: [BeforeProviderHeadersEvent, undefined];
+  after_provider_response: [AfterProviderResponseEvent, undefined];
+  model_select: [ModelSelectEvent, undefined];
+  thinking_level_select: [ThinkingLevelSelectEvent, undefined];
 }
 
 export type ExtensionEventName = keyof ExtensionEventMap;

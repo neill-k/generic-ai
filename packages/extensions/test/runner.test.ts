@@ -8,6 +8,7 @@ import {
   fauxAssistantMessage,
   fauxToolCall,
   registerFauxProvider,
+  resolveModel,
 } from "@generic-ai/ai";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -417,5 +418,95 @@ describe("ExtensionRunner bound to an agent", () => {
     unbind();
     expect(agent.transformContext).toBeUndefined();
     expect(agent.beforeToolCall).toBeUndefined();
+  });
+});
+
+describe("provider hooks and model selection", () => {
+  function chatStream(): string {
+    const chunk = {
+      id: "c1",
+      object: "chat.completion.chunk",
+      created: 1,
+      model: "m",
+      choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }],
+    };
+    return `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`;
+  }
+
+  it("lets extensions replace the payload, add headers and observe the response", async () => {
+    const requests: Array<{ headers: Headers; body: Record<string, unknown> }> = [];
+    const fetchStub = (async (_input: string | URL | Request, init?: RequestInit) => {
+      requests.push({
+        headers: new Headers(init?.headers),
+        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+      });
+      return new Response(chatStream(), {
+        status: 200,
+        headers: { "content-type": "text/event-stream", "x-request-id": "req-9" },
+      });
+    }) as typeof fetch;
+    const model = { ...resolveModel("openrouter/some/model"), headers: { "X-Remove": "gone" } };
+    const agent = new Agent({
+      initialState: { model, systemPrompt: "Base." },
+      streamOptions: { apiKey: "k", maxRetries: 0, fetch: fetchStub, headers: { "X-Caller": "1" } },
+    });
+    const runner = new ExtensionRunner();
+    const responses: Array<{ status: number; id: string | undefined }> = [];
+    await runner.load((api) => {
+      api.on("before_provider_request", (event) => ({
+        ...(event.payload as Record<string, unknown>),
+        temperature: 0.1,
+      }));
+      api.on("before_provider_request", (event) => {
+        expect((event.payload as Record<string, unknown>)["temperature"]).toBe(0.1);
+        return undefined;
+      });
+      api.on("before_provider_headers", (event) => {
+        event.headers["X-Trace"] = "trace-1";
+        event.headers["X-Remove"] = null;
+      });
+      api.on("after_provider_response", (event) => {
+        responses.push({ status: event.status, id: event.headers["x-request-id"] });
+      });
+    }, "/ext/provider.ts");
+    const unbind = runner.bindAgent(agent);
+
+    await agent.prompt("hi");
+    expect(requests[0]?.body["temperature"]).toBe(0.1);
+    expect(requests[0]?.headers.get("x-trace")).toBe("trace-1");
+    expect(requests[0]?.headers.get("x-caller")).toBe("1");
+    expect(requests[0]?.headers.get("x-remove")).toBeNull();
+    expect(responses).toEqual([{ status: 200, id: "req-9" }]);
+
+    unbind();
+    expect(agent.streamOptions?.onPayload).toBeUndefined();
+  });
+
+  it("fires model_select and thinking_level_select when an extension switches them", async () => {
+    const provider = registerFauxProvider({ models: [{ id: "first" }, { id: "second" }] });
+    registrations.push(provider);
+    const first = provider.getModel("first");
+    if (first === undefined) throw new Error("missing model");
+    const agent = new Agent({ initialState: { model: first } });
+    const runner = new ExtensionRunner();
+    const seen: string[] = [];
+    await runner.load((api) => {
+      api.on("model_select", (event) => {
+        seen.push(`model ${event.previousModel?.id} -> ${event.model.id} (${event.source})`);
+      });
+      api.on("thinking_level_select", (event) => {
+        seen.push(`thinking ${event.previousLevel} -> ${event.level}`);
+      });
+    }, "/ext/select.ts");
+    runner.bindAgent(agent);
+    const context = runner.createContext();
+    const second = provider.getModel("second");
+    if (second === undefined) throw new Error("missing model");
+    await context.setModel(second);
+    await context.setThinkingLevel("high");
+    expect(agent.state.model.id).toBe("second");
+    expect(context.getModel()?.id).toBe("second");
+    expect(context.getThinkingLevel()).toBe("high");
+    expect(seen).toEqual(["model first -> second (set)", "thinking off -> high"]);
   });
 });
