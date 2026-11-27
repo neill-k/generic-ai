@@ -39,7 +39,8 @@ dashboard at `/` with an approvals inbox.
   `agents/<id>/` is each agent's home with `workspace/` as its scratch folder.
   Paths are relative to the company root, so the same path means the same
   file to every agent, the goal checks and the owner. Agents are told to hand
-  work to each other as drive paths, not pasted text. The owner browses,
+  work to each other as drive paths, not pasted text. A long result is saved to
+  `drive/goals/<goalId>/handoffs/` and its manager gets an excerpt plus the path. The owner browses,
   uploads, previews and downloads drive files, drops files into a chat, and
   sees finished work on the deliverables shelf. Cancelling a goal keeps its
   folder, marked abandoned, with an `ABANDONED.md` note.

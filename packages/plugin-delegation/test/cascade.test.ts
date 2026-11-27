@@ -627,6 +627,44 @@ describe("delegation cascade (R9)", () => {
       /Unknown agent/,
     );
   });
+
+  it("hands a long child result to the parent as a file path with an excerpt", async () => {
+    const long = `${"Finding. ".repeat(2_000)}THE END`;
+    const { executor, calls } = scriptedExecutor({
+      ceo: (_input, turn) =>
+        turn === 1
+          ? {
+              status: "succeeded",
+              outputText: json({
+                delegate_task: [
+                  { to: "vp-research", task: "Research everything" },
+                  { to: "vp-ops", task: "Say hi" },
+                ],
+              }),
+            }
+          : { status: "succeeded", outputText: "Done." },
+      "vp-research": () => ({ status: "succeeded", outputText: long }),
+      "vp-ops": () => ({ status: "succeeded", outputText: "hi" }),
+    });
+    const saved: string[] = [];
+    const { cascade } = await openHarness(executor, {
+      saveChildResult: async (child) => {
+        saved.push(child.taskId);
+        return `drive/goals/${child.rootTaskId}/handoffs/${child.agentId}.md`;
+      },
+    });
+    await cascade.submit({ agentId: "ceo", instruction: "Plan", taskId: "plan" });
+    await cascade.drain();
+
+    expect(saved).toEqual(["plan.0.1"]);
+    const second = calls.filter((call) => call.agentId === "ceo")[1]?.prompt ?? "";
+    expect(second).toContain(
+      `The whole result (${long.length} characters) is in drive/goals/plan/handoffs/vp-research.md.`,
+    );
+    expect(second).not.toContain("THE END");
+    expect(second).toContain("hi");
+    expect(second.length).toBeLessThan(long.length);
+  });
 });
 
 const postgresUrl = process.env["GENERIC_AI_TEST_POSTGRES_URL"];
