@@ -41,6 +41,7 @@ import {
   resolveAgentNetwork,
 } from "./egress.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
+import { createGithubConnector, type GithubConnector } from "./github.js";
 import {
   COMPANY_GOAL_METRICS,
   createCompanyGoalEvidence,
@@ -331,6 +332,11 @@ export interface CreateGenericCorpServerOptions {
    * or the secrets vault.
    */
   readonly modelAuth?: CompanyModelAuth;
+  /**
+   * The GitHub connector. Defaults to a credential file at `<dataDir>/connectors/github.json`
+   * (or `GENERIC_CORP_GITHUB_TOKEN`). Tests pass one with a fake `fetch`.
+   */
+  readonly github?: GithubConnector;
   readonly log?: (message: string) => void;
 }
 
@@ -367,6 +373,12 @@ export async function createGenericCorpServer(
         fallback: async (provider) =>
           resolveProviderKeyFromEnv(provider, processEnv) ??
           (await secrets.get(providerKeyName(provider), "host")),
+      });
+    const github =
+      options.github ??
+      createGithubConnector({
+        credentialPath: path.join(environment.dataDir, "connectors", "github.json"),
+        env: processEnv,
       });
     const agentIsolation =
       options.agentIsolation ?? resolveAgentIsolation(options.env ?? process.env);
@@ -422,6 +434,7 @@ export async function createGenericCorpServer(
         env: options.env ?? process.env,
         // Every agent works from the company root: the shared drive and every agent's home.
         toolRoot: () => layout.root,
+        github,
         ...(agentIsolation.runAs === undefined ? {} : { runAs: agentIsolation.runAs }),
         ...(egressProxy === undefined
           ? {}
@@ -454,6 +467,7 @@ export async function createGenericCorpServer(
           refusals,
           agentId: input.agentId,
           taskId: input.taskId,
+          verifyGreenChecks: (call) => github.verifyGreenChecks(call),
         }),
       secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
       ...(environment.noProgressMinutes === undefined
@@ -603,6 +617,8 @@ export async function createGenericCorpServer(
         refusals,
         modelAuth,
         permissions,
+        github,
+        companyRoot: layout.root,
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),

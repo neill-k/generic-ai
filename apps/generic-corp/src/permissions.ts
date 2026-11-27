@@ -395,9 +395,13 @@ interface McpToolMetadata {
   readonly toolName?: string;
 }
 
+/** The connector a tool belongs to: an MCP server, or a built-in connector such as GitHub. */
 function mcpMetadata(tool: unknown): McpToolMetadata | undefined {
-  const mcp = (tool as { mcp?: unknown }).mcp;
-  return typeof mcp === "object" && mcp !== null ? (mcp as McpToolMetadata) : undefined;
+  const record = tool as { mcp?: unknown; connector?: unknown };
+  const metadata = record.connector ?? record.mcp;
+  return typeof metadata === "object" && metadata !== null
+    ? (metadata as McpToolMetadata)
+    : undefined;
 }
 
 /** Wraps an agent's tools so each call is checked against the owner's permissions first. */

@@ -137,6 +137,10 @@ timeout, then asks each file tool for paths outside the workspace.
   `npm publish`) to any account whose credentials a command has, so a
   prompt-injected agent handed an outsider's token could push company files
   to that account; closing that needs a proxy that reads TLS traffic.
+- GitHub: connect it in the app (Permissions page), or set
+  `GENERIC_CORP_GITHUB_TOKEN` to a fine-grained token with Contents and Pull
+  requests (read and write) and Checks and Commit statuses (read). The app's
+  token is stored in `<dataDir>/connectors/github.json` on the volume.
 - **Resource limits are per process, not per agent.** Each agent command gets
   `ulimit` limits (4 GiB of memory and an hour of CPU per process, 4 GiB
   files, 4096 open files, 1024 processes for the `agent` user) and runs at

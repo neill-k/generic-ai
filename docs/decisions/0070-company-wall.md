@@ -53,8 +53,7 @@ with the reason and is logged to the refused-actions list; nothing ever waits
 for the owner, and the approval gate, inbox and routes are gone from the app
 (`@generic-ai/plugin-approvals` stays in the framework and now exports
 `interceptToolExecute` and `wrapToolBindings`). A merge is refused unless a
-checks verifier confirms green checks; none exists until the GitHub connector
-lands, so merges are refused until then. Permissions and standing rules live in
+checks verifier confirms green checks (see the GitHub connector below). Permissions and standing rules live in
 host storage (the database, outside the company drive), written only by the
 owner's API, so no agent tool and no later background job (dreaming) can
 change them. Each agent turn starts with the standing rules and what is off.
@@ -88,3 +87,31 @@ a Railway container, so there is no total per-agent cap.
 - The web tools can still carry data out in a URL's query string. They send
   no bodies or custom headers; the permission categories and the
   refused-actions list are the control there.
+
+## GitHub connector (decisions 24, 29, 39)
+
+The owner connects GitHub once on the Permissions page by pasting a fine-grained
+token (or sets `GENERIC_CORP_GITHUB_TOKEN`). The token is kept in
+`<dataDir>/connectors/github.json`, mode 0600 and readable only by the server's
+OS user, like the model sign-in; it is never put in an agent's environment, and
+every GitHub call runs in the server process (`apps/generic-corp/src/github.ts`).
+
+- Agents get `github_list_repos`, `github_read`, `github_list_pull_requests`,
+  `github_pull_request_checks`, `github_push_branch`, `github_open_pull_request`
+  and `github_merge_pull_request` while GitHub is connected.
+- Reads work in any repository the token can see. Writes go through the
+  permission gate: only in repositories the owner ticked (none by default, so a
+  new connection is read-only), and each of push, open pull request and merge
+  can be switched off.
+- `github_push_branch` commits a company drive folder through the Git Data API
+  and never pushes to the repository's default branch; work reaches the default
+  branch only through a pull request.
+- A merge needs green checks twice: the gate asks the connector to verify them
+  before the call runs, and the merge itself re-checks and names the head commit
+  it checked, so a commit that lands in between makes GitHub refuse the merge. A
+  pull request with no checks at all, a draft, or any check that is pending or
+  not success, neutral or skipped is not green.
+- The owner can push a goal's deliverables to a branch, and optionally open a
+  pull request, with `POST /api/connectors/github/push`.
+- Tests use an in-memory fake of the GitHub API; nothing calls the real GitHub.
+
