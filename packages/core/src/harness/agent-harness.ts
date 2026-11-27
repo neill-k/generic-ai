@@ -74,6 +74,7 @@ import {
   type NativeSessionAutonomous,
   type NativeSessionExtensions,
   type NativeSessionGoal,
+  type NativeSessionRlm,
   type NativeSessionSubagents,
   type RunCapabilityNativeAgentSessionOptions,
   runCapabilityNativeAgentSession,
@@ -149,6 +150,15 @@ export interface NativeAgentHarnessOptions {
    * A spawn's `model` goes through `resolveModel`; children get the session's tools.
    */
   readonly subagents?: Omit<NativeSessionSubagents, "resolveModel" | "getApiKey"> | boolean;
+  /**
+   * Give every native session a persistent Python workspace, the `python` tool (see
+   * `@generic-ai/rlm`). `model` names the default sub-model for `rlm.llm` (`"provider/id"`, a
+   * small one is cheaper); without it sub-calls use the session's model. Code may name any model
+   * the harness can resolve. Needs Python 3 on the host.
+   */
+  readonly rlm?:
+    | (Omit<NativeSessionRlm, "model" | "resolveModel" | "getApiKey"> & { readonly model?: string })
+    | boolean;
   /**
    * Give every native session the thread-goal tools (see `@generic-ai/autonomy`). A session keeps
    * working while a goal the agent created is active. A topology run's own goal is not handed to
@@ -1298,6 +1308,26 @@ function createNativeSessionBackend(
           getApiKey: apiKeyForProvider,
         };
 
+  const rlmOption = options.rlm === true ? {} : options.rlm === false ? undefined : options.rlm;
+  const resolveRef = (ref: string): Model | undefined => {
+    try {
+      return modelForRef(ref);
+    } catch {
+      return undefined;
+    }
+  };
+  const rlmFor = (): NativeSessionRlm | undefined => {
+    if (rlmOption === undefined) return undefined;
+    const { model: subModelRef, ...rest } = rlmOption;
+    const subModel = subModelRef === undefined ? undefined : resolveRef(subModelRef);
+    return {
+      ...rest,
+      ...(subModel === undefined ? {} : { model: subModel }),
+      resolveModel: resolveRef,
+      getApiKey: apiKeyForProvider,
+    };
+  };
+
   return Object.freeze({
     kind: "native" as const,
     label: "native",
@@ -1323,6 +1353,7 @@ function createNativeSessionBackend(
           : { usageMeter, usageAttribution: { roleId: role?.id ?? rest.rootAgentId } }),
         ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
         ...(subagents === undefined ? {} : { subagents }),
+        ...(rlmOption === undefined ? {} : { rlm: rlmFor() ?? true }),
         ...(options.goal === undefined ? {} : { goal: options.goal }),
         ...(options.autonomous === undefined ? {} : { autonomous: options.autonomous }),
         ...(options.schedules === undefined ? {} : { schedules: options.schedules }),

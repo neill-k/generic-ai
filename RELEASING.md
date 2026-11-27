@@ -130,6 +130,7 @@ The 38 public packages:
 | `@generic-ai/plugin-workspace-fs` | filesystem workspace services |
 | `@generic-ai/preset-starter-hono` | default starter preset |
 | `@generic-ai/resources` | skills and prompt templates |
+| `@generic-ai/rlm` | persistent Python workspace tool (RLM) |
 | `@generic-ai/sdk` | contracts plugins compile against |
 | `@generic-ai/session` | sessions, compaction and retry |
 | `@generic-ai/subagents` | subagents and agent messaging |

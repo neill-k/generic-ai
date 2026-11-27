@@ -24,6 +24,7 @@
     "@generic-ai/autonomy": "0.0.0",
     "@generic-ai/continual": "0.0.0",
     "@generic-ai/resources": "0.0.0",
+    "@generic-ai/rlm": "0.0.0",
     "@generic-ai/session": "0.0.0",
     "@generic-ai/tools": "0.0.0",
     "@sinclair/typebox": "0.34.49"

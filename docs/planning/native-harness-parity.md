@@ -143,7 +143,7 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Plan mode: read-only planning (write tools and non-allowlisted bash refused), plan extraction, `[DONE:n]` execution tracking | ✓ | `packages/extensions/test/plan-mode-utils.test.ts` (pi's `plan-mode-utils` in full) and `plan-mode.test.ts` (`plan-mode-extension` cases adapted: headless, so the host calls `execute()` instead of a TUI select, and tools are blocked through `tool_call` rather than swapped) |
 | Tool search over deferred tools: BM25 ranker, `tool_search` loads matches for the next call, loaded tools survive resume (`native.toolSearch`) | ✓ | ported `tool-search` (codemode cases dropped) in `packages/tools/test`; `native-session-tool-search.test.ts` |
 | MCP client and OAuth | ○ | `mcp-*` (Generic AI already has `plugin-mcp`; port only what it lacks) |
-| RPC / print modes | ○ | `rpc*`, `print-mode` |
+| RPC and print modes: pi's JSONL framing, the RPC command set a library host can serve (prompt with steer or follow-up queueing, abort, `clear_queue`, new session, state, models, thinking levels, queue modes, compaction, stats, entries, session name, messages, commands), a typed `RpcClient`, and print mode's text and JSON output with exit codes | ✓ | `@generic-ai/session` `test/modes`: pi's `rpc-jsonl` in full; `rpc-prompt-response-semantics`, `rpc-client-clear-queue` and `print-mode` cases adapted to the faux provider. pi's `rpc.test.ts` needs a live model and is not ported; bash, fork, tree, clone and HTML export commands are left out (no CLI binary, so a host wires these modes to its own entry point) |
 | Interactive TUI, themes, clipboard, HTML export | — | out of scope: Generic AI's surfaces are the web UI and Hono transport |
 
 ### Durable runtime (pi `durable`, 109 test files)
@@ -165,7 +165,7 @@ tests are used as behavioural specs for that thread.
 | Heartbeats and schedules | ✓ | `@generic-ai/autonomy`: `cron/mod.rs` and `scheduler.rs` tests ported (schedule parsing, cron in UTC, `/heartbeat` grammar, deferral rules, failure backoff); `cron_add`, `cron_list`, `cron_cancel`, `heartbeat_set`, `heartbeat_manage` tools; `native.schedules` harness option; see `docs/schedules.md` |
 | Bounded autonomous mode: limits, quality gates, gate-failure continuation, no rerun on an unchanged worktree | ✓ | `@generic-ai/autonomy`: `autonomous/mod.rs`, `driver.rs` and `gates.rs` tests ported; `native.autonomous` harness option; gate commands become `check` validators of the session's SDK goal; in stop-tool mode a completed stop is checked against them |
 | Continual harness: supplemental prompts, memories, skill descriptions, subagent specs updated by `/refine` from evidence, base prompt immutable | ✓ | `@generic-ai/continual`: `refinement/{mod,planner,ranking,executor}.rs` tests ported (state merge, history, proposal parsing and validation, apply and rollback, relevance ranking, prompt digest, planner and review requests); `refine`, `harness_read`, `harness_search` tools and `/refine [--global]`, `/refine rollback <id>`; automatic review after a compaction and every 25 turns; `native.continual` harness option; see `docs/continual-harness.md`. Prime's `factory` kind (state-machine workflows run by its Python kernel) is not ported; skill entries name a shell command or an installed skill instead of a Python callable |
-| Persistent Python REPL as the primary tool (RLM) | ○ | evaluate later; Generic AI agents do generic work (D6), so this is a plugin, not the core loop |
+| Persistent Python workspace (RLM): one interpreter per session, large inputs in variables, sub-model calls from code (`rlm.llm`, `rlm.llm_batch`), the agent's tools from code (`rlm.tool`), the transcript as data, interrupts and timeouts, snapshot and restore | ✓ | `@generic-ai/rlm` `workspace.test.ts` against a real Python with the faux provider (cases from `test_repl.py`: persistent namespace, trailing expression, top-level await and background tasks, tracebacks with cell source, interrupt in sync code and at an await, host bridge, snapshot and restore); `native-session-rlm.test.ts`; `rlm` session and harness option. A tool any agent can use rather than the only tool, per D6. Prime's `rlm.spawn`/`collect` stay with `@generic-ai/subagents`; bash handles, MCP from the kernel and the factory namespace are not ported |
 
 ## Gap audit (2026-11-26, after pi was removed)
 
@@ -175,27 +175,31 @@ clipboard and HTML export; Windows PowerShell configuration; pi's package manage
 or covered by Generic AI's own packages. The borrowed subscription sign-ins were ported after Neill
 chose to follow pi; tool search and the hosted provider defaults were closed after this audit.
 
+The design review with Neill on 2026-11-27 set what stays open: Prime's RLM as a tool every agent
+has (decision 20, now ✓ above) and durable turn-level resume from the last completed step
+(decision 30). Providers beyond Anthropic and OpenAI and Prime's factory workflows are dropped.
+MCP OAuth, code mode, SSH environments and the smaller pi gaps are held: not being worked on now,
+and kept here so they can be picked up later.
+
 pi (`badlogic/pi-mono`):
 
-| Gap | Where in pi | Notes |
-| --- | --- | --- |
-| Remaining built-in providers: Qwen token plans, Cloudflare AI Gateway and Workers AI, OpenCode, and pi's per-model compat quirks and model catalogs for the hosted providers | `ai/src/providers/*` | Cerebras, Fireworks, Together, Hugging Face, NVIDIA, Baseten, Moonshot, Kimi Coding, Z.ai, Xiaomi, MiniMax, Vercel AI Gateway and Meta now have defaults (base URL, API, key variable), 27 providers in all; their models resolve with conservative defaults rather than pi's per-model catalog |
-| Image generation API, classifiers, deferred (batch) responses | `ai/src/images*`, `model-runtime-classifiers` | |
-| Code mode: model-written JavaScript in a QuickJS sandbox that calls tools, so nested tool results never enter the context | `codemode`, `coding-agent` `codemode-*`, `nested-tool-calls` | Closest to NOVA's "move work out of the model"; also Prime Agent's programmatic tool calling |
-| RPC and print modes (a JSONL protocol to drive an agent from another process) | `rpc*`, `print-mode` | Generic AI's surfaces are the Hono transport and the web UI |
-| Durable harness: every turn and tool call committed before it is shown, resumed after a crash mid-turn; remote execution environments over SSH | `durable` (107 test files), `env` | Generic AI has a durable run store, queue and effect journal, but not pi's turn-level commit-and-resume |
-| Standalone MCP client with OAuth refresh and the MCP conformance suite | `mcp`, `mcp-conformance`, `mcp-oauth-*` | `plugin-mcp` uses the official SDK; OAuth for remote servers is not covered |
-| Tool binary downloads (`rg`, `fd` fetched on first use) | `tools-manager` | Deploy images install them; a local user needs them on `PATH` |
-| Telemetry contracts (spans, metrics, propagation) | `telemetry` | Generic AI has `@generic-ai/observability` with its own shape |
-| Chord (reloadable multi-process object runtime) and the evals harness | `chord`, `evals` | Application framework and pi's own evals, not harness features |
+| Gap | Where in pi | Status | Notes |
+| --- | --- | --- | --- |
+| Remaining built-in providers: Qwen token plans, Cloudflare AI Gateway and Workers AI, OpenCode, and pi's per-model compat quirks and model catalogs for the hosted providers | `ai/src/providers/*` | Dropped | Cerebras, Fireworks, Together, Hugging Face, NVIDIA, Baseten, Moonshot, Kimi Coding, Z.ai, Xiaomi, MiniMax, Vercel AI Gateway and Meta now have defaults (base URL, API, key variable), 27 providers in all; their models resolve with conservative defaults rather than pi's per-model catalog |
+| Image generation API, classifiers, deferred (batch) responses | `ai/src/images*`, `model-runtime-classifiers` | Held | |
+| Code mode: model-written JavaScript in a QuickJS sandbox that calls tools, so nested tool results never enter the context | `codemode`, `coding-agent` `codemode-*`, `nested-tool-calls` | Held | Closest to NOVA's "move work out of the model"; also Prime Agent's programmatic tool calling |
+| Durable harness: every turn and tool call committed before it is shown, resumed after a crash mid-turn; remote execution environments over SSH | `durable` (107 test files), `env` | Open (turn-level resume, decision 30); SSH environments held | Generic AI has a durable run store, queue and effect journal, but not pi's turn-level commit-and-resume |
+| Standalone MCP client with OAuth refresh and the MCP conformance suite | `mcp`, `mcp-conformance`, `mcp-oauth-*` | Held | `plugin-mcp` uses the official SDK; OAuth for remote servers is not covered |
+| Tool binary downloads (`rg`, `fd` fetched on first use) | `tools-manager` | Held | Deploy images install them; a local user needs them on `PATH` |
+| Telemetry contracts (spans, metrics, propagation) | `telemetry` | Held | Generic AI has `@generic-ai/observability` with its own shape |
+| Chord (reloadable multi-process object runtime) and the evals harness | `chord`, `evals` | Out of scope | Application framework and pi's own evals, not harness features |
 
 Prime Agent:
 
-| Gap | Where | Notes |
-| --- | --- | --- |
-| Persistent Python REPL as the main tool, prompt-as-a-variable, programmatic subagent calls, executable Python skills | `pa-core` RLM, `pa-agent` | Code mode would cover the programmatic tool calling in JavaScript |
-| Live reattach to a running turn after a disconnect | `pa-daemon` | Background sessions resume from the durable queue instead |
-| Factory workflows (state-machine skills run by the Python kernel) | `pa-factory` | |
+| Gap | Where | Status | Notes |
+| --- | --- | --- | --- |
+| Live reattach to a running turn after a disconnect | `pa-daemon` | Held | Background sessions resume from the durable queue instead |
+| Factory workflows (state-machine skills run by the Python kernel) | `pa-factory` | Dropped | |
 
 ## Slices
 
