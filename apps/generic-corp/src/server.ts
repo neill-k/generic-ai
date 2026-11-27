@@ -35,12 +35,7 @@ import {
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
-import {
-  type CompanyConfig,
-  DEFAULT_COMPANY,
-  DEFAULT_TIER_MODELS,
-  parseCompanyYaml,
-} from "./company.js";
+import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";

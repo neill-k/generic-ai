@@ -4,6 +4,7 @@ import {
   AGENT_TASK_RUN_KIND,
   type AgentDirectory,
   type AgentTaskGoal,
+  type AgentTaskImpossibilityClaim,
   type AgentTaskRecord,
   type AgentTaskStatus,
   type CreateDelegationCascadeOptions,
@@ -118,7 +119,17 @@ export interface TaskSummary {
     readonly lastStatus?: string;
     readonly passed?: number;
     readonly required?: number;
+    /** Goal version: 1 when first set, one more for each owner edit. */
+    readonly revision?: number;
+    /** True while the agent is still drafting the goal with `set_goal`. */
+    readonly drafting?: boolean;
   };
+  /** Questions the agent wrote down for the owner that have no answer yet. */
+  readonly openQuestions?: number;
+  /** Files handed in with `submit_work`. */
+  readonly deliverables?: readonly string[];
+  /** Set when a second reviewer agreed the task is impossible in principle. */
+  readonly impossible?: { readonly reason: string; readonly reasoning?: string };
 }
 
 export interface ListTasksOptions {
@@ -187,12 +198,27 @@ function taskTitle(task: AgentTaskRecord): string {
   return line.length > 160 ? `${line.slice(0, 159)}…` : line;
 }
 
+function impossibleView(claim: AgentTaskImpossibilityClaim): {
+  readonly reason: string;
+  readonly reasoning?: string;
+} {
+  return {
+    reason: claim.reason,
+    ...(claim.review === undefined ? {} : { reasoning: claim.review.reasoning }),
+  };
+}
+
 export function summarizeTask(task: AgentTaskRecord): TaskSummary {
   const report = task.lastGoalReport;
+  const openQuestions = (task.ownerQuestions ?? []).filter(
+    (question) => question.answer === undefined,
+  ).length;
   const goal =
-    task.goal === undefined && report === undefined
+    task.goal === undefined && report === undefined && task.goalDraft === undefined
       ? undefined
       : {
+          ...(task.goalRevision === undefined ? {} : { revision: task.goalRevision }),
+          ...(task.goalDraft === "pending" ? { drafting: true } : {}),
           ...(task.goal?.definitionOfDone === undefined
             ? {}
             : { definitionOfDone: task.goal.definitionOfDone }),
@@ -215,6 +241,11 @@ export function summarizeTask(task: AgentTaskRecord): TaskSummary {
     updatedAt: task.updatedAt,
     ...(task.completedAt === undefined ? {} : { completedAt: task.completedAt }),
     ...(goal === undefined ? {} : { goal }),
+    ...(openQuestions === 0 ? {} : { openQuestions }),
+    ...(task.handIn === undefined
+      ? {}
+      : { deliverables: task.handIn.deliverables.map((deliverable) => deliverable.path) }),
+    ...(task.impossible === undefined ? {} : { impossible: impossibleView(task.impossible) }),
   };
 }
 

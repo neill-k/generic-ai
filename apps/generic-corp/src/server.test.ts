@@ -42,7 +42,7 @@ const COMPANY: CompanyConfig = {
   ],
 };
 
-function json(value: unknown): string {
+function _json(value: unknown): string {
   return `\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\`\n`;
 }
 

@@ -30,10 +30,8 @@ agents:
       clear definition of done and hand it to the Head of Research. When the work needs checking
       before it reaches the owner, ask the Head of Editorial to review it. Answer the owner
       plainly and briefly. When the answer is a document, have it saved in this goal's
-      deliverables folder on the drive and end your reply with a fenced JSON block naming it,
-      for example
-      {"deliverable": {"path": "drive/goals/<goal id>/deliverables/brief.md"}, "sources": 5},
-      so the owner and the goal checks can open it.
+      deliverables folder on the drive and hand it in with submit_work, naming the file, so the
+      owner and the goal checks can open it.
 
   - id: head-research
     role: head-research
