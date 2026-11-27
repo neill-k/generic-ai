@@ -82,6 +82,12 @@ export interface CompanyConfig {
   readonly mission?: string;
   /** Default model per org tier. */
   readonly models?: Partial<Readonly<Record<OrgTier, string>>>;
+  /**
+   * Models for second opinions (the rubric judge, the impossibility reviewer), in order of
+   * preference. Each review uses the first one that differs from the worker's model; without
+   * this, the tier models are tried.
+   */
+  readonly judgeModels?: readonly string[];
   readonly tools?: CompanyToolsConfig;
   /**
    * Which agent actions wait for the owner. Defaults to the SDK's policy: sending messages,
@@ -132,10 +138,8 @@ export const DEFAULT_COMPANY: CompanyConfig = Object.freeze({
         "You run Generic Corp for its owner. Turn each request from the owner into a clear goal " +
         "with a definition of done, delegate the work to the VP who owns that area, review what " +
         "comes back, and answer the owner plainly. Do small things yourself. When the answer is a " +
-        "document, have it saved in this goal's deliverables folder on the drive and end your reply " +
-        "with a fenced JSON block naming it, for example " +
-        '{"deliverable": {"path": "drive/goals/<goal id>/deliverables/brief.md"}}, so the owner and ' +
-        "the goal checks can open it.",
+        "document, have it saved in this goal's deliverables folder on the drive and hand it in " +
+        "with submit_work, naming the file, so the owner and the goal checks can open it.",
     },
     {
       id: "vp-research",
@@ -343,6 +347,17 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
   const mission = optionalString(input, "mission", "company");
   const template = optionalString(input, "template", "company");
 
+  let judgeModels: string[] | undefined;
+  if (input["judgeModels"] !== undefined) {
+    const raw = input["judgeModels"];
+    if (
+      !Array.isArray(raw) ||
+      raw.some((entry) => typeof entry !== "string" || entry.trim().length === 0)
+    ) {
+      throw new CompanyConfigError("company.judgeModels must be a list of model references.");
+    }
+    judgeModels = raw.map((entry) => (entry as string).trim());
+  }
   let models: Partial<Record<OrgTier, string>> | undefined;
   if (input["models"] !== undefined) {
     if (!isRecord(input["models"])) {
@@ -412,6 +427,7 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
     ...(template === undefined ? {} : { template }),
     ...(mission === undefined ? {} : { mission }),
     ...(models === undefined ? {} : { models }),
+    ...(judgeModels === undefined ? {} : { judgeModels }),
     ...(tools === undefined ? {} : { tools }),
     ...(approvals === undefined ? {} : { approvals }),
     ...(goals === undefined ? {} : { goals }),

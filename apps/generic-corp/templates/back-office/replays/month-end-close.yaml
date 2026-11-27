@@ -24,6 +24,13 @@ agents:
             definitionOfDone: Totals correct to the cent from a script, flags with reasons, a close note.
     - call: stop_and_respond
       args: { response: Finance is closing March. }
+    - call: submit_work
+      args:
+        summary: >-
+          March is closed: EUR 2,337.75 in total. The second CloudCo charge on 11 Mar looks like a duplicate.
+        deliverables:
+          - path: agents/bookkeeper/workspace/march-close.md
+          - path: agents/bookkeeper/workspace/march-totals.json
     - call: stop_and_respond
       args:
         response: |-
@@ -31,10 +38,6 @@ agents:
           EUR 848.50, then Software at EUR 840.00. One thing needs you: CloudCo charged us
           twice, on the 4th and again on the 11th, so EUR 420.00 looks like a duplicate. I
           suggest asking CloudCo for a refund.
-
-          ```json
-          {"deliverable": {"agent": "bookkeeper", "path": "workspace/march-close.md"}, "total": 2337.75, "byCategory": {"Office": 280.95, "Software": 840.0, "Travel": 848.5, "Meals": 58.3, "Marketing": 310.0}, "flagged": [{"vendor": "CloudCo", "date": "11 Mar", "amount": 420.0, "reason": "Second CloudCo charge in March; CloudCo bills once a month on the 4th."}]}
-          ```
 
   head-finance:
     - call: delegate_task
@@ -52,6 +55,13 @@ agents:
             definitionOfDone: The script's output and a close note with totals and flags.
     - call: stop_and_respond
       args: { response: The bookkeeper is running the numbers. }
+    - call: submit_work
+      args:
+        summary: >-
+          Checked the close: category totals add up, one flag (the second CloudCo charge).
+        deliverables:
+          - path: agents/bookkeeper/workspace/march-close.md
+          - path: agents/bookkeeper/workspace/march-totals.json
     - call: stop_and_respond
       args:
         response: >-
@@ -104,6 +114,11 @@ agents:
       args: { command: "node workspace/scripts/close-month.mjs workspace/march-expenses.csv CloudCo" }
     - call: write
       args:
+        path: workspace/march-totals.json
+        content: |-
+          {"total": 2337.75, "byCategory": {"Office": 280.95, "Software": 840.0, "Travel": 848.5, "Meals": 58.3, "Marketing": 310.0}, "flagged": [{"vendor": "CloudCo", "date": "11 Mar", "amount": 420.0, "reason": "Second CloudCo charge in March; CloudCo bills once a month on the 4th."}]}
+    - call: write
+      args:
         path: workspace/march-close.md
         content: |-
           # March close
@@ -131,6 +146,13 @@ agents:
           Totals come from `workspace/scripts/close-month.mjs`, run on
           `workspace/march-expenses.csv`. Next month, save the new CSV and run
           `node workspace/scripts/close-month.mjs <file> CloudCo`.
+    - call: submit_work
+      args:
+        summary: >-
+          Closed March from the script: totals, category totals and one flag.
+        deliverables:
+          - path: workspace/march-close.md
+          - path: workspace/march-totals.json
     - call: stop_and_respond
       args:
         response: >-

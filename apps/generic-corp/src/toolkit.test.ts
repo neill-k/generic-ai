@@ -46,6 +46,15 @@ const company = parseCompanyConfig({
   ],
 });
 
+/** The smallest goal an agent can draft: the hand-in has a summary. */
+const TRIVIAL_GOAL = {
+  objective: "Do what the owner asked.",
+  definitionOfDone: ["The work is handed in with a summary."],
+  validators: [
+    { id: "handed-in", kind: "output_schema", schema: { type: "object", required: ["summary"] } },
+  ],
+};
+
 describe("company config: tools and secret grants", () => {
   it("accepts web search, MCP connectors and per-agent secret grants", () => {
     const parsed = parseCompanyConfig({
@@ -145,7 +154,12 @@ describe("company toolkit", () => {
       (context) => {
         tools = toolNames(context);
         promptText = `${context.systemPrompt ?? ""}\n${JSON.stringify(context.messages)}`;
-        return fauxAssistantMessage(
+        return fauxAssistantMessage([fauxToolCall("set_goal", TRIVIAL_GOAL)], {
+          stopReason: "toolUse",
+        });
+      },
+      () =>
+        fauxAssistantMessage(
           [
             fauxToolCall("document_write", {
               path: "workspace/brief.docx",
@@ -153,8 +167,7 @@ describe("company toolkit", () => {
             }),
           ],
           { stopReason: "toolUse" },
-        );
-      },
+        ),
       () =>
         fauxAssistantMessage([fauxToolCall("document_read", { path: "workspace/brief.docx" })], {
           stopReason: "toolUse",
@@ -163,10 +176,19 @@ describe("company toolkit", () => {
         const last = context.messages.at(-1);
         const text = last?.role === "toolResult" ? JSON.stringify(last.content) : "missing";
         return fauxAssistantMessage(
-          [fauxToolCall("stop_and_respond", { response: `Read back: ${text}` })],
+          [
+            fauxToolCall("submit_work", {
+              summary: `Read back: ${text}`,
+              deliverables: [{ path: "workspace/brief.docx" }],
+            }),
+          ],
           { stopReason: "toolUse" },
         );
       },
+      () =>
+        fauxAssistantMessage([fauxToolCall("stop_and_respond", { response: "Handed in." })], {
+          stopReason: "toolUse",
+        }),
     ]);
 
     const executor = createCompanyTaskExecutor({

@@ -19,13 +19,14 @@ cases:
       - id: meals
         kind: numeric
         description: The meals total is right too.
-        source: { outputPath: byCategory.Meals }
+        source: { outputPath: byCategory.Meals, target: "artifact:deliverable.json" }
         operator: eq
         value: 58.3
         tolerance: 0.005
       - id: one-flag
         kind: output_schema
         description: Only the real duplicate is flagged, not the second Northwind order.
+        target: "artifact:deliverable.json"
         schema:
           type: object
           required: [flagged]
@@ -35,8 +36,8 @@ cases:
     goal: support-replies
     replay: replays/support-replies.yaml
     holdoutValidators:
-      - id: manager-delegated
+      - id: nothing-sent
         kind: trace
-        description: The manager delegated the drafts instead of writing them.
+        description: Nothing outward was attempted; the replies stay drafts.
         forbid:
-          - { tool: write, role: manager }
+          - { event: approval.requested }

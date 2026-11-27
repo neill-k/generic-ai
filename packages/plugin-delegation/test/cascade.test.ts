@@ -24,10 +24,10 @@ import {
   type AgentDirectory,
   type AgentTaskJobPayload,
   type AgentTaskJobResult,
+  type CreateDelegationCascadeOptions,
   createAgentDirectory,
   createDelegationCascade,
   createMemoryAgentStore,
-  type CreateDelegationCascadeOptions,
   type DelegationCascade,
   type DelegationCascadeEvent,
   listToolEffectRecords,
@@ -131,6 +131,8 @@ async function openHarness(
     directory,
     executor,
     now: () => new Date(clock.now()),
+    // These scenarios predate the submit_work hand-in (ADR 0069); the hand-in tests opt in.
+    handIn: "reply",
     ...overrides,
   });
   const harness = { file, root, clock, runStore, queue, directory, cascade };
@@ -246,8 +248,17 @@ describe("delegation directives", () => {
       { to: "vp-ops", task: "Book venue", goal: { definitionOfDone: "Signed contract" } },
     ]);
     expect(
-      readDirectives(json({ finish_task: { status: "failed", reason: "No budget" } })).failure,
+      readDirectives(json({ finish_task: { status: "failed", reason: "No budget" } })).impossible,
     ).toBe("No budget");
+    expect(readDirectives(json({ declare_impossible: { reason: "No budget" } })).impossible).toBe(
+      "No budget",
+    );
+    expect(
+      readDirectives(
+        json({ submit_work: { summary: "Done", deliverables: [{ path: "drive/a.md" }] } }),
+      ).handIn,
+    ).toEqual({ summary: "Done", deliverables: [{ path: "drive/a.md" }] });
+    expect(readDirectives(json({ submit_work: { deliverables: [] } })).invalid).toMatch(/summary/);
     expect(readDirectives(json({ delegate_task: [{ to: "x" }] })).invalid).toMatch(
       /needs a string/,
     );
@@ -515,19 +526,24 @@ describe("delegation cascade (R9)", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("lets an agent give up with finish_task", async () => {
+  it("ends a task as impossible only when the reviewer agrees (older finish_task JSON)", async () => {
     const { executor } = scriptedExecutor({
       analyst: () => ({
         status: "succeeded",
         outputText: json({ finish_task: { status: "failed", reason: "Source is paywalled" } }),
       }),
     });
-    const { cascade } = await openHarness(executor);
+    const { cascade } = await openHarness(executor, {
+      impossibility: () => ({ impossible: true, reasoning: "Agreed.", reviewer: "judge-model" }),
+    });
     await cascade.submit({ agentId: "analyst", instruction: "x", taskId: "x" });
     await cascade.drain();
     const task = await cascade.get("x");
     expect(task?.status).toBe("failed");
-    expect(task?.failureMessage).toBe("Source is paywalled");
+    expect(task?.failureMessage).toBe(
+      "Declared impossible: Source is paywalled\nConfirmed by judge-model: Agreed.",
+    );
+    expect(task?.impossible?.review?.reviewer).toBe("judge-model");
   });
 
   it("refuses delegation that would deadlock or go too deep", async () => {
@@ -655,6 +671,7 @@ describe.skipIf(!postgresUrl)("delegation cascade on Postgres", () => {
         }),
         directory,
         executor,
+        handIn: "reply",
         worker: { pollIntervalMs: 10, leaseMs: 10_000 },
       });
       return { storage, cascade };
@@ -1114,25 +1131,38 @@ describe("delegate_task and finish_task tools", () => {
     const child = await cascade.get("offsite.0.1");
     expect(child?.agentId).toBe("vp-ops");
     expect(child?.goal?.definitionOfDone).toBe("A signed contract");
-    expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual(["delegate_task", "finish_task"]);
+    expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual([
+      "delegate_task",
+      "submit_work",
+      "declare_impossible",
+      "ask_owner",
+    ]);
     expect(calls[0]?.prompt).toContain("call the delegate_task tool");
   });
 
-  it("offers only finish_task to agents with nobody to delegate to", async () => {
+  it("offers no delegate_task to agents with nobody to delegate to", async () => {
     const { executor, calls } = scriptedExecutor({});
     const wrapped: AgentTaskExecutor = async (input) => {
       await executor(input);
-      await call(input, "finish_task", { reason: "The data source is gone." });
+      await call(input, "declare_impossible", { reason: "The data source is gone." });
       return { status: "succeeded", outputText: "Sorry." };
     };
-    const { cascade } = await openHarness(wrapped);
+    const { cascade } = await openHarness(wrapped, {
+      impossibility: () => ({ impossible: true, reasoning: "It was deleted.", reviewer: "r" }),
+    });
     await cascade.submit({ agentId: "analyst", instruction: "Pull data", taskId: "pull" });
     await cascade.drain();
 
-    expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual(["finish_task"]);
+    expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual([
+      "submit_work",
+      "declare_impossible",
+      "ask_owner",
+    ]);
     const task = await cascade.get("pull");
     expect(task?.status).toBe("failed");
-    expect(task?.failureMessage).toBe("The data source is gone.");
+    expect(task?.failureMessage).toBe(
+      "Declared impossible: The data source is gone.\nConfirmed by r: It was deleted.",
+    );
   });
 
   it("saves tool directives in the turn checkpoint", async () => {
@@ -1158,5 +1188,470 @@ describe("delegate_task and finish_task tools", () => {
     });
     expect((await cascade.get("offsite"))?.status).toBe("succeeded");
     expect(turns).toBe(2);
+  });
+});
+
+describe("goals on every request (ADR 0069)", () => {
+  type Use = (
+    name: string,
+    params: Record<string, unknown>,
+  ) => Promise<{ text: string; isError?: boolean }>;
+  type Turn = (
+    input: AgentTaskExecutionInput,
+    use: Use,
+    turn: number,
+  ) => Promise<string | undefined> | string | undefined;
+
+  /** Each agent's turns call cascade tools through `use`, then return their reply text. */
+  function toolExecutor(scripts: Record<string, Turn>) {
+    const calls: AgentTaskExecutionInput[] = [];
+    const results: Array<{ agentId: string; tool: string; text: string; isError?: boolean }> = [];
+    const turns = new Map<string, number>();
+    const executor: AgentTaskExecutor = async (input) => {
+      calls.push(input);
+      const turn = (turns.get(input.taskId) ?? 0) + 1;
+      turns.set(input.taskId, turn);
+      const use: Use = async (name, params) => {
+        const tool = input.tools?.find((candidate) => candidate.name === name);
+        if (tool === undefined) {
+          const missing = { text: `no ${name} tool`, isError: true };
+          results.push({ agentId: input.agentId, tool: name, ...missing });
+          return missing;
+        }
+        const result = await tool.execute(params as never, { toolCallId: `${name}-${turn}` });
+        results.push({ agentId: input.agentId, tool: name, ...result });
+        return result;
+      };
+      const reply = await scripts[input.agentId]?.(input, use, turn);
+      return { status: "succeeded", outputText: reply ?? "" };
+    };
+    return { executor, calls, results };
+  }
+
+  const answerGoal = {
+    objective: "Answer the owner's question.",
+    definitionOfDone: ["The answer names the capital of France."],
+    validators: [{ id: "answer-checked", kind: "check", checkRef: "mentions-paris" }],
+  };
+  const mentionsParis = {
+    "mentions-paris": ({ evidence }: { evidence: { outputText?: string } }) => ({
+      passed: /paris/i.test(evidence.outputText ?? ""),
+      message: "The answer must name Paris.",
+    }),
+  };
+
+  it("finishes a task only when the agent hands in with submit_work", async () => {
+    const { executor, calls, results } = toolExecutor({
+      analyst: async (_input, use, turn) => {
+        if (turn === 1) {
+          return "I think it is done."; // no hand-in
+        }
+        await use("submit_work", {
+          summary: "Brief written.",
+          deliverables: [{ path: "drive/goals/brief/deliverables/brief.md", title: "Brief" }],
+        });
+        return "Handed in.";
+      },
+    });
+    const { cascade } = await openHarness(executor, { handIn: "tool" });
+    await cascade.submit({ agentId: "analyst", instruction: "Write the brief", taskId: "brief" });
+    await cascade.drain();
+
+    const task = await cascade.get("brief");
+    expect(task?.status).toBe("succeeded");
+    expect(task?.round).toBe(1);
+    expect(calls[1]?.prompt).toContain("You ended your turn without handing anything in");
+    expect(task?.handIn).toMatchObject({
+      summary: "Brief written.",
+      deliverables: [{ path: "drive/goals/brief/deliverables/brief.md", title: "Brief" }],
+      round: 1,
+    });
+    expect(task?.outputText).toBe(
+      "Brief written.\n\nDeliverables:\n- drive/goals/brief/deliverables/brief.md (Brief)",
+    );
+    expect(results.find((result) => result.tool === "submit_work")?.text).toMatch(/Handed in/);
+  });
+
+  it("lets the host refuse a hand-in during the turn and checks the hand-in as output", async () => {
+    const { executor, results } = toolExecutor({
+      analyst: async (_input, use) => {
+        const first = await use("submit_work", {
+          summary: "Done.",
+          deliverables: [{ path: "drive/missing.md" }],
+        });
+        if (first.isError === true) {
+          await use("submit_work", { summary: "Done.", deliverables: ["drive/brief.md"] });
+        }
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, {
+      handIn: "tool",
+      checkHandIn: ({ deliverables }) =>
+        deliverables.some((deliverable) => deliverable.path.includes("missing"))
+          ? "drive/missing.md does not exist."
+          : undefined,
+    });
+    await cascade.submit({
+      agentId: "analyst",
+      instruction: "Write the brief",
+      taskId: "brief",
+      goal: {
+        spec: {
+          id: "brief",
+          objective: "A brief.",
+          definitionOfDone: ["One deliverable."],
+          validators: [
+            {
+              id: "one-file",
+              kind: "output_schema",
+              schema: {
+                type: "object",
+                required: ["deliverables"],
+                properties: { deliverables: { type: "array", minItems: 1 } },
+              },
+            },
+          ],
+        },
+      },
+    });
+    await cascade.drain();
+
+    expect(results[0]).toMatchObject({
+      isError: true,
+      text: expect.stringMatching(/does not exist/),
+    });
+    const task = await cascade.get("brief");
+    expect(task?.status).toBe("succeeded");
+    expect(task?.lastGoalReport?.status).toBe("COMPLETE");
+  });
+
+  it("has the agent draft the goal first and locks it once set", async () => {
+    const { executor, calls, results } = toolExecutor({
+      ceo: async (_input, use, turn) => {
+        if (turn === 1) {
+          await use("submit_work", { summary: "Paris." }); // refused: no goal yet
+          await use("set_goal", {
+            objective: "Answer.",
+            definitionOfDone: ["Name the capital."],
+            validators: [
+              {
+                id: "self-reported",
+                kind: "numeric",
+                source: { outputPath: "confidence" },
+                operator: "gte",
+                value: 0.9,
+              },
+            ],
+          }); // refused: self-reported number
+          await use("set_goal", answerGoal);
+          await use("set_goal", answerGoal); // refused: locked
+          await use("submit_work", { summary: "Lyon." });
+          return "";
+        }
+        await use("submit_work", { summary: "Paris." });
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, {
+      handIn: "tool",
+      goals: { checks: mentionsParis, metrics: { deliverableWords: "Words in the deliverable." } },
+    });
+    await cascade.submit({
+      agentId: "ceo",
+      instruction: "What is the capital of France?",
+      taskId: "q1",
+      draftGoal: true,
+    });
+    await cascade.drain();
+
+    expect(calls[0]?.prompt).toContain("No goal is set for this request yet");
+    expect(calls[0]?.prompt).toContain("deliverableWords: Words in the deliverable.");
+    expect(calls[0]?.tools?.map((tool) => tool.name)).toContain("set_goal");
+    expect(results.map((result) => [result.tool, result.isError === true])).toEqual([
+      ["submit_work", true],
+      ["set_goal", true],
+      ["set_goal", false],
+      ["set_goal", true],
+      ["submit_work", false],
+      ["submit_work", false],
+    ]);
+    expect(results[1]?.text).toMatch(/host measures/);
+    expect(results[3]?.text).toMatch(/locked/);
+    // The second turn has no set_goal tool and shows the locked goal.
+    expect(calls[1]?.tools?.map((tool) => tool.name)).not.toContain("set_goal");
+    expect(calls[1]?.prompt).toContain("The goal is locked");
+    expect(calls[1]?.prompt).toContain("The answer must name Paris.");
+
+    const task = await cascade.get("q1");
+    expect(task?.status).toBe("succeeded");
+    expect(task?.goalDraft).toBe("set");
+    expect(task?.goal?.spec?.id).toBe("q1");
+    expect(task?.goalHistory).toEqual([
+      expect.objectContaining({ revision: 1, source: "agent", changedBy: "ceo" }),
+    ]);
+  });
+
+  it("sends a turn back when the goal is still not drafted", async () => {
+    const { executor, calls } = toolExecutor({
+      ceo: async (_input, use, turn) => {
+        if (turn === 1) {
+          return "Paris, obviously.";
+        }
+        await use("set_goal", answerGoal);
+        await use("submit_work", { summary: "Paris." });
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, {
+      handIn: "tool",
+      goals: { checks: mentionsParis },
+    });
+    await cascade.submit({ agentId: "ceo", instruction: "Capital?", taskId: "q", draftGoal: true });
+    await cascade.drain();
+    expect(calls[1]?.prompt).toContain("No goal is set for this request yet. Call set_goal");
+    expect((await cascade.get("q"))?.status).toBe("succeeded");
+  });
+
+  it("keeps going when the reviewer says the task is only hard, and stops when it agrees", async () => {
+    const reviews: string[] = [];
+    const { executor, calls } = toolExecutor({
+      analyst: async (input, use) => {
+        await use("declare_impossible", {
+          reason:
+            input.taskId === "pnp" ? "P vs NP is too hard." : "The earth cannot be teleported.",
+        });
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, {
+      handIn: "tool",
+      maxRounds: 2,
+      impossibility: ({ reason, agent }) => {
+        reviews.push(`${agent.id}: ${reason}`);
+        return reason.includes("teleported")
+          ? { impossible: true, reasoning: "Violates physics.", reviewer: "openai/other" }
+          : { impossible: false, reasoning: "Open problem, not known to be impossible." };
+      },
+    });
+    await cascade.submit({ agentId: "analyst", instruction: "Prove P != NP", taskId: "pnp" });
+    await cascade.submit({ agentId: "analyst", instruction: "Teleport earth", taskId: "earth" });
+    await cascade.drain();
+
+    const earth = await cascade.get("earth");
+    expect(earth?.status).toBe("failed");
+    expect(earth?.impossible?.review).toEqual({
+      impossible: true,
+      reasoning: "Violates physics.",
+      reviewer: "openai/other",
+    });
+    const pnp = await cascade.get("pnp");
+    expect(pnp?.impossible).toBeUndefined();
+    expect(pnp?.impossibilityClaims?.[0]?.review?.impossible).toBe(false);
+    const pnpTurns = calls.filter((call) => call.taskId === "pnp");
+    expect(pnpTurns[1]?.prompt).toContain(
+      "A reviewer did not agree that the task is impossible in principle, so keep going.",
+    );
+    expect(pnpTurns[1]?.prompt).toContain("Open problem, not known to be impossible.");
+  });
+
+  it("never confirms impossibility without a reviewer", async () => {
+    const { executor, calls } = toolExecutor({
+      analyst: async (_input, use, turn) => {
+        if (turn === 1) {
+          await use("declare_impossible", { reason: "Too hard." });
+        } else {
+          await use("submit_work", { summary: "Did it after all." });
+        }
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, { handIn: "tool" });
+    await cascade.submit({ agentId: "analyst", instruction: "x", taskId: "x" });
+    await cascade.drain();
+    expect(calls[1]?.prompt).toContain("could not be reviewed");
+    const task = await cascade.get("x");
+    expect(task?.status).toBe("succeeded");
+    expect(task?.impossibilityClaims?.[0]?.reviewError).toMatch(/No reviewer/);
+  });
+
+  it("applies owner edits to the definition of done and tells everyone on the goal", async () => {
+    const judged: string[][] = [];
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { executor, calls } = toolExecutor({
+      ceo: async (_input, use, turn) => {
+        if (turn === 1) {
+          await use("delegate_task", { tasks: [{ to: "vp-ops", task: "Plan it" }] });
+          return "";
+        }
+        await use("submit_work", { summary: "Plan done." });
+        return "";
+      },
+      "vp-ops": async (_input, use, turn) => {
+        if (turn === 1) {
+          await gate;
+          return "still working"; // no hand-in: sent back
+        }
+        await use("submit_work", { summary: "Plan with a budget." });
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, {
+      handIn: "tool",
+      goals: {
+        judges: (request) => {
+          judged.push([...request.definitionOfDone]);
+          return {
+            criteria: request.criteria.map((criterion) => ({
+              criterionId: criterion.id,
+              score: 1,
+            })),
+          };
+        },
+      },
+    });
+    await cascade.submit({
+      agentId: "ceo",
+      instruction: "Plan the offsite",
+      taskId: "offsite",
+      goal: {
+        spec: {
+          id: "offsite",
+          objective: "An offsite plan.",
+          definitionOfDone: ["A dated agenda."],
+          validators: [
+            { id: "quality", kind: "rubric", criteria: [{ id: "agenda", description: "Dated." }] },
+          ],
+        },
+      },
+    });
+    const worker = cascade.drain();
+    // Wait until the VP's first turn is running, then edit the goal.
+    for (let i = 0; i < 200 && !calls.some((call) => call.agentId === "vp-ops"); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const edited = await cascade.updateGoal(
+      "offsite",
+      { definitionOfDone: ["A dated agenda.", "A budget under $5,000."] },
+      { changedBy: "owner" },
+    );
+    release?.();
+    await worker;
+    await cascade.drain();
+
+    expect(edited.goalRevision).toBe(2);
+    expect(edited.goal?.spec?.validators.map((validator) => validator.id)).toEqual([
+      "quality",
+      "definition-of-done",
+    ]);
+    const vpTurns = calls.filter((call) => call.agentId === "vp-ops");
+    expect(vpTurns[1]?.prompt).toContain("## New since your last step");
+    expect(vpTurns[1]?.prompt).toContain("A budget under $5,000.");
+    const ceoTurns = calls.filter((call) => call.agentId === "ceo");
+    expect(ceoTurns[1]?.prompt).toContain("The owner changed the definition of done (revision 2)");
+    // The checks ran against the new version.
+    expect(judged.at(-1)).toEqual(["A dated agenda.", "A budget under $5,000."]);
+
+    const root = await cascade.get("offsite");
+    expect(root?.status).toBe("succeeded");
+    expect(root?.goalHistory?.map((entry) => [entry.revision, entry.source])).toEqual([
+      [1, "submit"],
+      [2, "owner"],
+    ]);
+
+    // Editing after it succeeded reopens the goal.
+    const reopened = await cascade.updateGoal("offsite", {
+      definitionOfDone: ["A dated agenda.", "A budget under $4,000."],
+    });
+    expect(reopened.status).toBe("queued");
+    await cascade.drain();
+    const after = await cascade.get("offsite");
+    expect(after?.status).toBe("succeeded");
+    expect(after?.goalRevision).toBe(3);
+    expect(calls.filter((call) => call.agentId === "ceo").at(-1)?.prompt).toContain(
+      "The owner changed the definition of done after you handed in",
+    );
+  });
+
+  it("writes owner questions down without blocking, and delivers answers at the next step", async () => {
+    const events: DelegationCascadeEvent[] = [];
+    const { executor, calls, results } = toolExecutor({
+      analyst: async (input, use, turn) => {
+        if (turn === 1) {
+          await use("ask_owner", {
+            question: "Which region?",
+            assumption: "Europe, since the owner is based there.",
+          });
+          return "keep going"; // no hand-in yet
+        }
+        if (turn === 2) {
+          return "still going";
+        }
+        await use("submit_work", {
+          summary: `Done for ${input.prompt.includes("APAC") ? "APAC" : "?"}`,
+        });
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, {
+      handIn: "tool",
+      onEvent: (event) => events.push(event),
+    });
+    await cascade.submit({ agentId: "analyst", instruction: "Size the market", taskId: "m" });
+    await cascade.drain({ maxJobs: 1 });
+
+    const asked = await cascade.get("m");
+    expect(asked?.status).toBe("queued");
+    const question = asked?.ownerQuestions?.[0];
+    expect(question).toMatchObject({ question: "Which region?", agentId: "analyst" });
+    expect(results[0]?.text).toMatch(/Do not wait/);
+    expect(events.some((event) => event.type === "task.owner_question")).toBe(true);
+
+    await cascade.answerQuestion("m", question?.id as string, "APAC");
+    await cascade.drain();
+    expect(calls[1]?.prompt).toContain('The owner answered "Which region?": APAC');
+    expect(calls[2]?.prompt).toContain("A: APAC");
+    expect(calls[2]?.prompt).not.toContain("## New since your last step");
+    expect((await cascade.get("m"))?.outputText).toBe("Done for APAC");
+  });
+
+  it("picks judges per agent so the judge can differ from the worker's model", async () => {
+    const seen: string[] = [];
+    const { executor } = toolExecutor({
+      analyst: async (_input, use) => {
+        await use("submit_work", { summary: "ok" });
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, {
+      handIn: "tool",
+      goals: {
+        judgesFor:
+          ({ agent }) =>
+          () => {
+            seen.push(agent.id);
+            return { criteria: [{ criterionId: "c", score: 1 }] };
+          },
+      },
+    });
+    await cascade.submit({
+      agentId: "analyst",
+      instruction: "x",
+      taskId: "x",
+      goal: {
+        spec: {
+          id: "x",
+          objective: "x",
+          definitionOfDone: ["x"],
+          validators: [{ id: "r", kind: "rubric", criteria: [{ id: "c", description: "c" }] }],
+        },
+      },
+    });
+    await cascade.drain();
+    expect(seen).toEqual(["analyst"]);
+    expect((await cascade.get("x"))?.status).toBe("succeeded");
   });
 });

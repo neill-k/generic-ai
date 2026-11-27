@@ -17,6 +17,7 @@ import {
   type OwnerAuth,
   unauthorizedResponse,
 } from "@generic-ai/plugin-auth-identity";
+import type { ImpossibilityReviewer } from "@generic-ai/plugin-delegation";
 import {
   createSecretsFromEnvironment,
   SECRETS_KEY_ENV,
@@ -34,16 +35,16 @@ import {
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
-import {
-  type CompanyConfig,
-  DEFAULT_COMPANY,
-  DEFAULT_TIER_MODELS,
-  parseCompanyYaml,
-} from "./company.js";
+import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
-import { createCompanyGoalEvidence, createModelJudge } from "./goals.js";
+import {
+  COMPANY_GOAL_METRICS,
+  createCompanyGoalEvidence,
+  createCompanyHandInCheck,
+  createModelJudge,
+} from "./goals.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import {
   type CompanyModelAuth,
@@ -52,6 +53,11 @@ import {
   resolveProviderKeyFromEnv,
 } from "./model-auth.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
+import {
+  createModelImpossibilityReviewer,
+  secondOpinionModel,
+  workerModelOf,
+} from "./second-opinion.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
 import { DEFAULT_TEMPLATE, listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
 import { type CompanyToolkit, companySecretReferences, createCompanyToolkit } from "./toolkit.js";
@@ -283,11 +289,13 @@ export interface CreateGenericCorpServerOptions {
   /** Replaces the generic-work toolkit, for tests. */
   readonly toolkit?: CompanyToolkit;
   /**
-   * Judges and checks for goals. Rubrics default to a model judge on the company's VP model;
-   * without a key for it, rubric checks report an error and the goal stays incomplete.
+   * Judges and checks for goals. Rubrics default to a model judge on a model other than the
+   * worker's (decision 12); without a key for it, rubric checks report an error and the goal
+   * stays incomplete. Impossibility claims default to a reviewer on such a model too.
    */
   readonly goals?: {
     readonly judges?: GoalJudge | Readonly<Record<string, GoalJudge>>;
+    readonly impossibility?: ImpossibilityReviewer;
     readonly checks?: Readonly<Record<string, GoalCheck>>;
   };
   /** How agent commands run. Defaults to `resolveAgentIsolation` over the environment. */
@@ -376,7 +384,8 @@ export async function createGenericCorpServer(
         sessionsRoot: path.join(environment.dataDir, "sessions"),
       });
     // A goal on the CEO's task is the company's goal: it is checked against the whole team's
-    // work and the deliverable the CEO names (see goals.ts).
+    // work and the files handed in with submit_work (see goals.ts). Second opinions (the rubric
+    // judge, the impossibility reviewer) run on a model other than the worker's.
     let runtimeRef: CompanyRuntime | undefined;
     const started = () => {
       if (runtimeRef === undefined) {
@@ -384,6 +393,9 @@ export async function createGenericCorpServer(
       }
       return runtimeRef;
     };
+    // Deliverable paths are relative to the company root, as agents write them.
+    const companyRoot = layout.root;
+    const judgeByModel = new Map<string, GoalJudge>();
     const runtime = createCompanyRuntime({
       company,
       storage,
@@ -396,19 +408,39 @@ export async function createGenericCorpServer(
           concurrency: environment.workerConcurrency ?? DEFAULT_WORKER_CONCURRENCY,
           ...(environment.turnLeaseMs === undefined ? {} : { leaseMs: environment.turnLeaseMs }),
         },
+        checkHandIn: createCompanyHandInCheck({
+          companyRoot,
+        }),
+        impossibility:
+          options.goals?.impossibility ??
+          createModelImpossibilityReviewer({
+            modelFor: (agent) => secondOpinionModel(company, workerModelOf(company, agent)),
+            getAuth: (provider) => modelAuth.getAuth(provider),
+          }),
         goals: {
-          judges:
-            options.goals?.judges ??
-            createModelJudge({
-              model: company.models?.vp ?? DEFAULT_TIER_MODELS.vp,
-              getAuth: (provider) => modelAuth.getAuth(provider),
-            }),
+          ...(options.goals?.judges === undefined
+            ? {
+                judgesFor: ({ agent }) => {
+                  const model = secondOpinionModel(company, workerModelOf(company, agent));
+                  let judge = judgeByModel.get(model);
+                  if (judge === undefined) {
+                    judge = createModelJudge({
+                      model,
+                      getAuth: (provider) => modelAuth.getAuth(provider),
+                    });
+                    judgeByModel.set(model, judge);
+                  }
+                  return judge;
+                },
+              }
+            : { judges: options.goals.judges }),
+          metrics: COMPANY_GOAL_METRICS,
           ...(options.goals?.checks === undefined ? {} : { checks: options.goals.checks }),
           evidence: createCompanyGoalEvidence({
             runStore: storage.runStore,
             cascade: () => started().cascade,
             directory: () => started().directory,
-            drive,
+            companyRoot,
           }),
         },
       },

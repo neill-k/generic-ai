@@ -4,7 +4,10 @@ import type {
   GoalCheck,
   GoalEvidence,
   GoalJudge,
+  GoalSpec,
   GoalValidationReport,
+  GoalValidatorSpec,
+  JsonValue,
   RunStoreContract,
   SealedGoal,
 } from "@generic-ai/sdk";
@@ -18,7 +21,12 @@ import {
 } from "@generic-ai/sdk";
 
 import type { PersistentAgentRecord } from "./agents.js";
-import type { AgentTaskGoal, AgentTaskGoalReport, AgentTaskRecord } from "./tasks.js";
+import type {
+  AgentTaskGoal,
+  AgentTaskGoalReport,
+  AgentTaskHandIn,
+  AgentTaskRecord,
+} from "./tasks.js";
 
 /**
  * Goal gating for delegated tasks (roadmap R24 wired into R9).
@@ -32,6 +40,24 @@ import type { AgentTaskGoal, AgentTaskGoalReport, AgentTaskRecord } from "./task
 export interface TaskGoalOptions {
   /** Rubric judges by `judgeRef`; a bare function registers as `default`. */
   readonly judges?: GoalJudge | Readonly<Record<string, GoalJudge>>;
+  /**
+   * Judges for one task, chosen per agent so the judge can run on a different model from the
+   * worker (decision 12). Wins over `judges` when it returns something.
+   */
+  readonly judgesFor?: (input: {
+    readonly task: AgentTaskRecord;
+    readonly agent: PersistentAgentRecord;
+  }) => GoalJudge | Readonly<Record<string, GoalJudge>> | undefined;
+  /**
+   * Numbers the host measures for every hand-in, by metric name, with a line saying what each
+   * counts. Shown to agents drafting a goal: numeric checks may only read these (decision 11).
+   */
+  readonly metrics?: Readonly<Record<string, string>>;
+  /** Extra rules for goals agents draft with `set_goal`. Return a problem to refuse the draft. */
+  readonly draftPolicy?: (
+    spec: GoalSpec,
+    input: { readonly task: AgentTaskRecord; readonly agent: PersistentAgentRecord },
+  ) => string | undefined;
   /** Deterministic checks by `checkRef` (tests, CLIs, scripts). */
   readonly checks?: Readonly<Record<string, GoalCheck>>;
   readonly defaultTimeoutMs?: number;
@@ -45,6 +71,8 @@ export interface TaskGoalEvidenceInput {
   readonly outputText: string;
   /** Harness runs that executed this turn. */
   readonly turnRunIds: readonly string[];
+  /** What the agent handed in with `submit_work`, when it used the tool. */
+  readonly handIn?: AgentTaskHandIn;
 }
 
 /** Seals a task goal's spec and records its fingerprint. Throws `GoalSpecError` on an invalid spec. */
@@ -95,10 +123,13 @@ export async function collectGoalEvidence(
   for (const runId of input.turnRunIds) {
     events.push(...(await runStore.readEvents(runId)));
   }
-  const structured = parseActorDirectives(input.outputText).data;
+  const structured =
+    input.handIn === undefined
+      ? parseActorDirectives(input.outputText).data
+      : (handInOutput(input.handIn) as JsonValue);
   const additional = (await extra?.(input)) ?? {};
   return {
-    outputText: input.outputText,
+    outputText: input.handIn?.summary ?? input.outputText,
     ...(structured === undefined ? {} : { output: structured }),
     trace: goalTraceFromCanonicalEvents(events),
     ...additional,
@@ -133,4 +164,128 @@ export function summarizeGoalReport(report: GoalValidationReport): AgentTaskGoal
     feedback: report.feedback,
     evaluatedAt: report.evaluatedAt,
   };
+}
+
+/** A hand-in as the structured output validators see: `{ summary, deliverables: [{ path, title? }] }`. */
+export function handInOutput(handIn: AgentTaskHandIn): JsonValue {
+  return {
+    summary: handIn.summary,
+    deliverables: handIn.deliverables.map((deliverable) => ({
+      path: deliverable.path,
+      ...(deliverable.title === undefined ? {} : { title: deliverable.title }),
+    })),
+  };
+}
+
+/** Id of the rubric the host keeps in step with the definition of done on owner edits. */
+export const DEFINITION_OF_DONE_VALIDATOR_ID = "definition-of-done";
+
+/**
+ * Numeric checks read numbers the host measured, never numbers in the agent's own reply
+ * (decision 11): a host metric, or a path into an artifact the host read itself (such as the
+ * deliverable file). Returns a problem, or undefined.
+ */
+export function selfReportedNumberProblem(spec: GoalSpec): string | undefined {
+  const offending = spec.validators.filter(
+    (validator) =>
+      validator.kind === "numeric" &&
+      !("metric" in validator.source) &&
+      !(validator.source.target ?? "output").startsWith("artifact:"),
+  );
+  if (offending.length === 0) {
+    return undefined;
+  }
+  return (
+    `Numeric checks must read a number the host measures ({"metric": "<name>"}, or an ` +
+    `"outputPath" into an "artifact:<id>" target), not one from the agent's own reply: ${offending.map((validator) => validator.id).join(", ")}.`
+  );
+}
+
+/**
+ * Reads a goal an agent drafted with `set_goal`. The host fixes the id, so the agent cannot point
+ * its task at another goal, and applies decision 11 and the host's own policy.
+ */
+export function readDraftedGoal(
+  params: Record<string, unknown>,
+  goalId: string,
+  policy?: (spec: GoalSpec) => string | undefined,
+): { readonly spec: GoalSpec } | { readonly error: string } {
+  const definitionOfDone = params["definitionOfDone"];
+  const candidate = {
+    id: goalId,
+    ...(typeof params["title"] === "string" ? { title: params["title"] } : {}),
+    objective: params["objective"],
+    definitionOfDone:
+      typeof definitionOfDone === "string" ? [definitionOfDone] : (definitionOfDone ?? []),
+    validators: params["validators"] ?? [],
+  };
+  const parsed = parseGoalSpec(candidate);
+  if (!parsed.ok) {
+    return { error: new GoalSpecError(parsed.issues).message };
+  }
+  const problem = selfReportedNumberProblem(parsed.value) ?? policy?.(parsed.value);
+  return problem === undefined ? { spec: parsed.value } : { error: problem };
+}
+
+/** What the owner may change about a goal. Omitted fields stay as they are. */
+export interface TaskGoalEdit {
+  readonly objective?: string;
+  readonly title?: string;
+  readonly definitionOfDone?: readonly string[];
+  /** Replaces the checks. Numeric checks must read host metrics. */
+  readonly validators?: readonly GoalValidatorSpec[];
+}
+
+/**
+ * Applies an owner edit to a goal. When the definition of done changes, the host's
+ * `definition-of-done` rubric is rewritten (or added) so every line of the new version is
+ * checked, not only the lines the original checks happened to cover (decision 8).
+ */
+export function applyGoalEdit(
+  current: GoalSpec | undefined,
+  edit: TaskGoalEdit,
+  goalId: string,
+  fallbackObjective: string,
+): GoalSpec {
+  const definitionOfDone = edit.definitionOfDone ?? current?.definitionOfDone ?? [];
+  let validators: GoalValidatorSpec[] = [...(edit.validators ?? current?.validators ?? [])];
+  if (edit.definitionOfDone !== undefined || validators.length === 0) {
+    const rubric: GoalValidatorSpec = {
+      id: DEFINITION_OF_DONE_VALIDATOR_ID,
+      kind: "rubric",
+      description: "Every line of the definition of done is met.",
+      criteria: definitionOfDone.map((line, index) => ({
+        id: `dod-${index + 1}`,
+        description: line,
+        required: true,
+      })),
+    };
+    const existing = validators.findIndex(
+      (validator) => validator.id === DEFINITION_OF_DONE_VALIDATOR_ID,
+    );
+    if (existing >= 0) {
+      const previous = validators[existing] as GoalValidatorSpec;
+      validators[existing] =
+        previous.kind === "rubric" ? { ...previous, criteria: rubric.criteria } : rubric;
+    } else if (definitionOfDone.length > 0) {
+      validators = [...validators, rubric];
+    }
+  }
+  const candidate = {
+    ...(current ?? {}),
+    id: current?.id ?? goalId,
+    objective: edit.objective ?? current?.objective ?? fallbackObjective,
+    ...(edit.title === undefined ? {} : { title: edit.title }),
+    definitionOfDone,
+    validators,
+  };
+  const parsed = parseGoalSpec(candidate);
+  if (!parsed.ok) {
+    throw new GoalSpecError(parsed.issues);
+  }
+  const problem = selfReportedNumberProblem(parsed.value);
+  if (problem !== undefined) {
+    throw new Error(problem);
+  }
+  return parsed.value;
 }

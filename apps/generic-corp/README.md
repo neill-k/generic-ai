@@ -201,15 +201,35 @@ A template folder has:
 - `replays/`: recorded agent turns, search results, pages and rubric
   judgments for each case.
 
-How goals are checked. A goal on the CEO's task is the company's goal, so
-`goals.ts` checks it against the whole team: the trace includes every run
-delegated under the CEO (each event tagged with the agent that ran it), and
-when the CEO's reply ends with a fenced JSON block naming a deliverable
-(`{"deliverable": {"path": "drive/goals/<goalId>/deliverables/brief.md"}}`, a
-company-root path; the older `{"agent": "analyst", "path": "workspace/brief.md"}`
-form reads from that agent's home), that file is the `deliverable` artifact, with
-`deliverableWords`, `deliverableLines` and `deliverableLinks` metrics. Rubrics
-use a model judge on the company's VP model.
+How goals are checked (ADR 0069). Every owner message gets a goal: a
+template goal when the owner picks one, otherwise the CEO drafts the objective,
+definition of done and checks with `set_goal` before any other work, and the
+host locks them. Work finishes only through `submit_work`, which hands in a
+summary and the files made (paths relative to the company root, such as
+`drive/goals/<goalId>/deliverables/brief.md`, or to the agent's own home). A
+hand-in naming a file that does not exist is refused on the spot.
+
+A goal on the CEO's task is the company's goal, so `goals.ts` checks it
+against the whole team: the trace includes every run delegated under the CEO,
+and each handed-in text file is an artifact (`deliverable` for the first,
+`deliverable.<ext>` and `deliverable:<name>` for the rest). Numeric checks
+read only numbers the host measures (decision 11): `deliverableCount`,
+`deliverableWords`, `deliverableLines`, `deliverableLinks`,
+`deliverableTableRows`, `deliverableListItems` and `deliverableSections`, or a
+field of a handed-in JSON file (`outputPath` with `target: "artifact:deliverable.json"`).
+Checks look at results, never at which agent did the work.
+
+Second opinions run on a model other than the worker's (decisions 10 and 12):
+the rubric judge, and the reviewer that must agree a task is impossible in
+principle before an agent may give up. The candidates are the company's
+`judgeModels`, then each tier's model. The owner is never the judge.
+
+The owner can change a goal at any time with `PUT /api/tasks/:id/goal`
+(objective, definition of done, checks); every unfinished task under it is told
+at its next step and the checks run against the new version. Agents never wait
+on the owner: `ask_owner` writes a question down with the assumption the agent
+is working on, listed at `GET /api/questions` and answered with
+`POST /api/tasks/:id/questions/:questionId/answer`.
 
 Evals. `npm run evals -w @generic-ai/app-generic-corp` replays every
 template's suite offline: a fresh company per attempt, the recorded turns on a

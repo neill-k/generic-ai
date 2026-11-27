@@ -49,6 +49,12 @@ agents:
               A Markdown file of 300 to 1,500 words with at least four linked sources.
     - call: stop_and_respond
       args: { response: Research has the brief. I will send it once it is checked. }
+    - call: submit_work
+      args:
+        summary: >-
+          The European home battery storage brief is ready, with size, growth, players and risks, sourced.
+        deliverables:
+          - path: agents/analyst/workspace/home-battery-brief.md
     - call: stop_and_respond
       args:
         response: |-
@@ -56,10 +62,6 @@ agents:
           (EUR 7.5 billion) in 2025 and is expected to grow about 15% a year to 2030. Three
           vendors sell most systems, and the main risks are subsidy cuts, falling export
           tariffs that could reverse, and installer shortages.
-
-          ```json
-          {"deliverable": {"agent": "analyst", "path": "workspace/home-battery-brief.md"}, "sources": 4}
-          ```
 
   head-research:
     - call: delegate_task
@@ -73,6 +75,12 @@ agents:
             definitionOfDone: 300 to 1,500 words, at least four distinct linked sources.
     - call: stop_and_respond
       args: { response: The analyst is on it. }
+    - call: submit_work
+      args:
+        summary: >-
+          Reviewed the brief: figures sourced, players and risks covered.
+        deliverables:
+          - path: agents/analyst/workspace/home-battery-brief.md
     - call: stop_and_respond
       args:
         response: >-
@@ -153,6 +161,12 @@ agents:
             https://policy-review.example/tariffs-home-storage
           - Example Commodities Desk, Battery cell prices:
             https://commodities.example/cell-prices-2026
+    - call: submit_work
+      args:
+        summary: >-
+          Wrote the market brief with four linked sources.
+        deliverables:
+          - path: workspace/home-battery-brief.md
     - call: stop_and_respond
       args:
         response: >-
