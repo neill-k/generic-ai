@@ -203,6 +203,15 @@ export interface ModelJudgeOptions {
   readonly resolveModel?: (ref: string) => Model;
   /** Called with each grading call's usage, so an eval can count the judge against its cap. */
   readonly onUsage?: (usage: AssistantMessage["usage"]) => void;
+  /**
+   * Request auth per provider (the owner's Claude sign-in or a stored key). Without it the
+   * provider's environment variable is used.
+   */
+  readonly getAuth?: (
+    provider: string,
+  ) => Promise<
+    { readonly apiKey?: string; readonly headers?: Readonly<Record<string, string>> } | undefined
+  >;
 }
 
 function textOf(message: AssistantMessage): string {
@@ -227,6 +236,7 @@ export function createModelJudge(options: ModelJudgeOptions): GoalJudge {
   const resolve = options.resolveModel ?? ((ref: string) => resolveModel(ref));
   return async (request): Promise<GoalJudgment> => {
     const model = resolve(options.model);
+    const auth = await options.getAuth?.(model.provider);
     const reply = await complete(
       model,
       {
@@ -235,7 +245,11 @@ export function createModelJudge(options: ModelJudgeOptions): GoalJudge {
           { role: "user", content: buildRubricJudgePrompt(request), timestamp: Date.now() },
         ],
       },
-      { signal: request.signal },
+      {
+        signal: request.signal,
+        ...(auth?.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
+        ...(auth?.headers === undefined ? {} : { headers: { ...auth.headers } }),
+      },
     );
     options.onUsage?.(reply.usage);
     if (reply.stopReason === "error" || reply.stopReason === "aborted") {

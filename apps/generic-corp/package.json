@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@generic-ai/ai": "0.0.0",
+    "@generic-ai/auth": "0.0.0",
     "@generic-ai/core": "0.0.0",
     "@generic-ai/plugin-agent-skills": "0.0.0",
     "@generic-ai/plugin-approvals": "0.0.0",
