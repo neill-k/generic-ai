@@ -16,8 +16,9 @@
 //   E2E_DATA_DIR       data directory (required)
 //   E2E_PORT           port, default 0 (printed as `listening on <url>`)
 //   E2E_OUTBOX         file each sent email is appended to, one JSON line per send
-//   E2E_HANG_FILE      when set, the first VP turn creates this file and then hangs forever, so a
-//                      test can kill the process mid-turn; later turns see the file and finish
+//   E2E_HANG_FILE      when set, the first VP turn writes its deliverable, creates this file and
+//                      then hangs forever, so a test can kill the process mid-turn; later turns
+//                      see the file and finish
 //   E2E_MODEL_DELAY_MS simulated model latency per response, default 0
 //   E2E_STATS_FILE     file the peak number of model calls in flight is written to, overall and
 //                      per agent
@@ -29,6 +30,7 @@ import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@gener
 import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
 import { Type } from "@sinclair/typebox";
 
+import { companyLayout } from "../dist/drive.js";
 import { startFetchServer } from "../dist/node-server.js";
 import { createGenericCorpServer } from "../dist/server.js";
 import { createCompanyToolkit } from "../dist/toolkit.js";
@@ -103,10 +105,15 @@ const GOAL = {
 };
 
 /** Hands the work in with `submit_work`, then ends the turn. */
-function finish(context, text) {
+function finish(context, text, deliverables = []) {
   return calledThisTurn(context, "submit_work")
     ? answer("Handed in.")
-    : call("submit_work", { summary: text, deliverables: [] });
+    : call("submit_work", { summary: text, deliverables });
+}
+
+/** The goal's deliverables folder, as the drive section of the prompt names it. */
+function deliverablesFolderOf(prompt) {
+  return /Put finished work for the owner in (\S+?)\/?\./.exec(prompt)?.[1];
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -149,11 +156,21 @@ async function decide(context) {
   const lastCall = lastTool?.content.find((part) => part.type === "toolCall")?.name;
 
   if (agent === "vp-ops") {
+    // Write the count to the goal's deliverables folder on the drive, then hand it in.
+    const folder = deliverablesFolderOf(prompt);
+    const file = folder === undefined ? undefined : `${folder}/chair-count.md`;
+    if (file !== undefined && !calledThisTurn(context, "write")) {
+      return call("write", { path: file, content: "# Chair count\n\n42 chairs.\n" });
+    }
     if (hangFile && !existsSync(hangFile)) {
       writeFileSync(hangFile, String(process.pid));
       await new Promise(() => undefined);
     }
-    return finish(context, "42 chairs counted.");
+    return finish(
+      context,
+      "42 chairs counted.",
+      file === undefined ? [] : [{ path: file, title: "Chair count" }],
+    );
   }
   if (agent !== "ceo") {
     return finish(context, `Nothing scripted for ${agent ?? "an unknown agent"}.`);
@@ -220,7 +237,12 @@ const sendEmail = withAgentHarnessToolEffects(
   ["message.send"],
 );
 
-const base = createCompanyToolkit({ company: E2E_COMPANY, env: {} });
+// Every agent works from the company root, as in production (see server.ts).
+const base = createCompanyToolkit({
+  company: E2E_COMPANY,
+  env: {},
+  toolRoot: () => companyLayout(dataDir).root,
+});
 const toolkit = {
   ...base,
   capabilities: (input) => {

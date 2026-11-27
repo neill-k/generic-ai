@@ -140,7 +140,9 @@ export function BackupsView() {
               so a restore can be undone. You'll need to sign in to Claude again afterwards.
             </p>
             <p class="small muted">With Docker:</p>
-            <pre class="command">./start-local.sh restore {status.backups[0]?.id ?? "<id>"}</pre>
+            <pre class="command">
+              ./apps/generic-corp/start-local.sh restore {status.backups[0]?.id ?? "<id>"}
+            </pre>
             <p class="small muted">Without Docker, from apps/generic-corp:</p>
             <pre class="command">
               node dist/restore.js {status.backups[0]?.id ?? "latest"} --yes
