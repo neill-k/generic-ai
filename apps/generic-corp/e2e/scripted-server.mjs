@@ -1,11 +1,15 @@
 // A real Generic Corp server on a scripted model, for the end-to-end, crash and load tests
 // (roadmap R19). Everything is the production path (HTTP server, owner API, dashboard, SQLite
-// run store and durable queue, the delegation cascade, workers, approvals gate) except the model,
+// run store and durable queue, the delegation cascade, workers, permissions gate) except the model,
 // which follows a fixed policy keyed on the agent and the owner's words:
 //
-// - "email ..."    the CEO sends an email (a `message.send` action the owner must approve);
+// - "email ..."    the CEO sends an email (a `message.send` action, refused unless the owner's
+//                  permissions allow sending messages);
 // - "delegate ..." the CEO hands the work to the VP and reports the VP's answer;
 // - anything else  the CEO answers itself.
+//
+// Every request gets a goal (ADR 0069): the CEO first drafts a small one with `set_goal`, and
+// every agent finishes by handing in with `submit_work`.
 //
 // Run after `npm run build`. Configuration comes from the environment:
 //
@@ -59,6 +63,15 @@ function textOf(message) {
     : message.content.map((part) => (part.type === "text" ? part.text : "")).join("\n");
 }
 
+/**
+ * This turn's rendered prompt. An agent keeps one saved session per goal, so earlier turns' prompts
+ * come first; the latest one naming the agent is the current turn's.
+ */
+function turnPrompt(messages) {
+  const latest = messages.findLast((m) => m.role === "user" && AGENT.test(textOf(m)));
+  return textOf(latest ?? messages[0]);
+}
+
 /** The owner's request: the text under "## Task <id>" up to the next section. */
 function taskOf(prompt) {
   const match = /## Task [^\n]*\n([\s\S]*?)(?:\n## |$)/.exec(prompt);
@@ -69,6 +82,33 @@ const call = (name, args) =>
   fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
 const answer = (text) => call("stop_and_respond", { response: text });
 
+/** Tools the agent already called in this turn (since the turn's prompt). */
+function calledThisTurn(context, name) {
+  const start = context.messages.findLastIndex((m) => m.role === "user" && AGENT.test(textOf(m)));
+  return context.messages
+    .slice(Math.max(start, 0))
+    .some(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some((part) => part.type === "toolCall" && part.name === name),
+    );
+}
+
+const GOAL = {
+  objective: "Do what the owner asked.",
+  definitionOfDone: ["The result is handed in with a summary."],
+  validators: [
+    { id: "handed-in", kind: "output_schema", schema: { type: "object", required: ["summary"] } },
+  ],
+};
+
+/** Hands the work in with `submit_work`, then ends the turn. */
+function finish(context, text) {
+  return calledThisTurn(context, "submit_work")
+    ? answer("Handed in.")
+    : call("submit_work", { summary: text, deliverables: [] });
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Model calls in flight, overall and per agent, with their peaks. Written to E2E_STATS_FILE after
@@ -77,7 +117,7 @@ const statsFile = process.env.E2E_STATS_FILE;
 const inflight = { all: 0, byAgent: {} };
 const peak = { all: 0, byAgent: {}, calls: 0 };
 async function respond(context) {
-  const agent = AGENT.exec(textOf(context.messages[0]))?.[1] ?? "unknown";
+  const agent = AGENT.exec(turnPrompt(context.messages))?.[1] ?? "unknown";
   inflight.all += 1;
   inflight.byAgent[agent] = (inflight.byAgent[agent] ?? 0) + 1;
   peak.all = Math.max(peak.all, inflight.all);
@@ -98,7 +138,7 @@ async function decide(context) {
   if (delayMs > 0) {
     await sleep(delayMs);
   }
-  const prompt = textOf(context.messages[0]);
+  const prompt = turnPrompt(context.messages);
   const agent = AGENT.exec(prompt)?.[1];
   const task = taskOf(prompt);
   const last = context.messages.at(-1);
@@ -113,21 +153,29 @@ async function decide(context) {
       writeFileSync(hangFile, String(process.pid));
       await new Promise(() => undefined);
     }
-    return answer("42 chairs counted.");
+    return finish(context, "42 chairs counted.");
   }
   if (agent !== "ceo") {
-    return answer(`Nothing scripted for ${agent ?? "an unknown agent"}.`);
+    return finish(context, `Nothing scripted for ${agent ?? "an unknown agent"}.`);
+  }
+  if (calledThisTurn(context, "submit_work")) {
+    return answer("Handed in.");
+  }
+  const goalPending = (context.tools ?? []).some((tool) => tool.name === "set_goal");
+  if (goalPending && !calledThisTurn(context, "set_goal")) {
+    return call("set_goal", GOAL);
   }
   if (prompt.includes("## Results from the work you delegated")) {
     const report = /### "vp-ops": succeeded[\s\S]*?\n\n([^\n]+)/.exec(prompt)?.[1] ?? "no answer";
-    return answer(`The VP reports: ${report}`);
+    return finish(context, `The VP reports: ${report}`);
   }
   if (/\bemail\b/i.test(task)) {
     if (lastCall === "send_email") {
-      return answer(
-        prompt.includes("## The owner's decisions")
-          ? "Email sent."
-          : "Waiting for the owner to approve the email.",
+      return finish(
+        context,
+        textOf(last).includes("Refused")
+          ? "Sending is off, so I drafted the email instead."
+          : "Email sent.",
       );
     }
     return call("send_email", EMAIL);
@@ -146,7 +194,7 @@ async function decide(context) {
       ],
     });
   }
-  return answer("Hello from the CEO.");
+  return finish(context, "Hello from the CEO.");
 }
 
 const provider = registerFauxProvider({ provider: "scripted", models: [{ id: "model" }] });
@@ -187,6 +235,8 @@ const app = await createGenericCorpServer({
     GENERIC_CORP_DATA_DIR: dataDir,
     GENERIC_CORP_INSECURE_NO_AUTH: "true",
     GENERIC_CORP_HOST: "127.0.0.1",
+    // Several scripted servers run side by side; each picks a free port for its egress proxy.
+    GENERIC_CORP_EGRESS_PORT: "0",
   },
   company: E2E_COMPANY,
   toolkit,

@@ -21,6 +21,12 @@ agents:
             definitionOfDone: Three drafts in a file, each following the policy, nothing sent.
     - call: stop_and_respond
       args: { response: Support is drafting the replies. }
+    - call: submit_work
+      args:
+        summary: >-
+          Three replies drafted under the refund policy, not sent, waiting for the owner.
+        deliverables:
+          - path: agents/support-agent/workspace/replies.md
     - call: stop_and_respond
       args:
         response: |-
@@ -28,10 +34,6 @@ agents:
           full refund for the cracked lamp. Ben is past the 30-day refund window, so he is
           offered an exchange for a larger size. Chloe gets an apology and a promise of a
           tracking update within a day.
-
-          ```json
-          {"deliverable": {"agent": "support-agent", "path": "workspace/replies.md"}, "drafts": 3}
-          ```
 
   head-support:
     - call: delegate_task
@@ -46,6 +48,12 @@ agents:
             definitionOfDone: Three drafts that follow the policy.
     - call: stop_and_respond
       args: { response: The support agent is drafting. }
+    - call: submit_work
+      args:
+        summary: >-
+          Reviewed the three drafts against the policy.
+        deliverables:
+          - path: agents/support-agent/workspace/replies.md
     - call: stop_and_respond
       args:
         response: >-
@@ -79,6 +87,12 @@ agents:
           Hi Chloe, I'm sorry your order hasn't arrived yet. I've asked the courier where it
           is and will send you an update with tracking details within one working day. If it
           turns out to be lost, we'll send a replacement straight away.
+    - call: submit_work
+      args:
+        summary: >-
+          Drafted three replies following the refund policy.
+        deliverables:
+          - path: workspace/replies.md
     - call: stop_and_respond
       args:
         response: Three drafts are in workspace/replies.md, following the policy. Nothing sent.

@@ -64,12 +64,23 @@ export function kernelRunAs(runAs: TerminalRunAsUser): TerminalRunAsUser {
   };
 }
 
+export interface ResolveCompanyRlmOptions {
+  /**
+   * Extra environment for one agent's kernel, on top of the agent-command allowlist: the egress
+   * proxy settings, so code in the workspace reaches the network the way that agent's shell
+   * commands do, and no other way.
+   */
+  readonly agentEnv?: (agentId: string) => Readonly<Record<string, string>>;
+  readonly check?: PythonCheck;
+}
+
 /** Decides whether roles get the Python workspace, and how its kernel runs. */
 export function resolveCompanyRlm(
   env: NodeJS.ProcessEnv,
   isolation: AgentIsolation,
-  check: PythonCheck = checkPython,
+  options: ResolveCompanyRlmOptions = {},
 ): CompanyRlm {
+  const check = options.check ?? checkPython;
   const mode = (env[RLM_ENV.mode] ?? "auto").trim().toLowerCase() || "auto";
   if (mode !== "auto" && mode !== "on" && mode !== "off") {
     throw new CompanyRlmError(`${RLM_ENV.mode} must be auto, on or off, not "${mode}".`);
@@ -91,10 +102,11 @@ export function resolveCompanyRlm(
   const option: CompanyRlmOption = {
     python,
     ...(model === undefined || model.length === 0 ? {} : { model }),
+    ...(options.agentEnv === undefined ? {} : { agentEnv: options.agentEnv }),
     ...(runAs === undefined
       ? {}
       : {
-          // The session's cwd is the agent's home, which is also HOME for its shell commands.
+          // The session's cwd is the agent's working root, which is also HOME for its shell commands.
           launch: (launch) => ({
             ...wrapProcessForUser(launch, runAs, launch.cwd),
             cwd: launch.cwd,

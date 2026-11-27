@@ -62,16 +62,32 @@ Give a task a checkable goal with `goal: { spec }` (an SDK goal spec, see
 `COMPLETE`; otherwise the agent gets the validators' feedback and another turn.
 Register rubric judges and host checks with the cascade's `goals` option.
 
-An agent turn either replies with its result, gives up, or delegates. Each turn
-gets two tools (`AgentTaskExecutionInput.tools`, passed to the harness as
-`hostTools` by `createAdapterTaskExecutor`, so they work on pi and the native
+An agent turn hands in its work, delegates, or claims the task is impossible.
+Each turn gets these tools (`AgentTaskExecutionInput.tools`, passed to the
+harness as `hostTools` by `createAdapterTaskExecutor`, so they work on every
 runtime):
 
+- `submit_work({ summary, deliverables: [{ path, title? }] })` hands in
+  finished work. Only a hand-in finishes a task (`handIn: "tool"`, the
+  default); it is checked against the goal, and validators see it as the
+  structured output. `checkHandIn` lets the host refuse it during the turn.
 - `delegate_task({ tasks: [{ to, task, definitionOfDone?, goal? }] })` records
   hand-offs. It checks the target, the org chart and the limits right away, so
   the agent can fix a bad hand-off in the same turn. It is only offered when the
   agent has someone to delegate to.
-- `finish_task({ reason })` gives up on a task that cannot be done.
+- `declare_impossible({ reason })` claims the task is impossible in principle.
+  The host's `impossibility` reviewer (ideally on another model) must agree;
+  otherwise the agent gets the task back with the reviewer's reasoning.
+- `ask_owner({ question, assumption })` writes a question down for the owner
+  without pausing; `cascade.answerQuestion` delivers the answer at the next step.
+- `set_goal({ objective, definitionOfDone, validators })` is offered while the
+  task's goal is still to be drafted (`submit({ draftGoal: true })`). The host
+  seals it at once; numeric checks must read host metrics (`goals.metrics`).
+
+The owner can change a goal at any time with `cascade.updateGoal(taskId, edit)`:
+it is re-sealed under a new revision, every unfinished task in the cascade is
+told at its next step, and a finished root task is reopened. See
+`docs/decisions/0069-goals-on-every-request.md`.
 
 Executors that cannot add tools can ignore them; the agent can instead end its
 reply with a fenced JSON block, which the cascade still reads:
@@ -80,7 +96,8 @@ reply with a fenced JSON block, which the cascade still reads:
 {"delegate_task": [{"to": "vp-research", "task": "Size the market", "definitionOfDone": "Three sources"}]}
 ```
 
-or `{"finish_task": {"status": "failed", "reason": "..."}}`. Directives recorded
+or `{"submit_work": {"summary": "...", "deliverables": [{"path": "..."}]}}`, or
+`{"declare_impossible": {"reason": "..."}}`. Directives recorded
 by the tools win over the reply text, and are saved with the turn's checkpoint.
 
 Children run as their own queued turns (one at a time per agent). The parent

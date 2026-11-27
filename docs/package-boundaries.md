@@ -282,7 +282,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 ### `@generic-ai/plugin-delegation`
 
-- Role: the delegation business model. Owns persistent agents (durable org-chart records with a memory file and a workspace or git worktree each), the cross-run delegation cascade (durable agent tasks, `delegate_task` and `finish_task` directives, parents waiting in the store while children run on the durable queue, results bubbling up), and run persistence for any `AgentHarnessAdapter`.
+- Role: the delegation business model. Owns persistent agents (durable org-chart records with a memory file and a workspace or git worktree each), the cross-run delegation cascade (durable agent tasks, `delegate_task`, `submit_work`, `declare_impossible`, `set_goal` and `ask_owner` turn tools, parents waiting in the store while children run on the durable queue, results bubbling up), and run persistence for any `AgentHarnessAdapter`.
 - Allowed deps: `@generic-ai/sdk`. Tests may use the SQLite and Postgres storage plugins as dev dependencies to exercise real durable backends.
 - Not responsible for: in-run child-session lifecycle (kernel), storage or queue implementations (storage plugins), or running agent turns (any SDK `AgentHarnessAdapter` or `AgentTaskExecutor`, such as core's `createTopologyTaskExecutor`).
 - Notes: the cascade talks to storage only through `RunStoreContract` and `DurableQueueContract`, and to runtimes only through `AgentTaskExecutor`, so it runs on Pi or the native runtime and on SQLite or Postgres. See `docs/decisions/0044-persistent-agents-and-delegation-cascade.md`.

@@ -2,6 +2,9 @@
 # the same way as on Railway (DATABASE_URL, migrations before the server
 # starts, a volume for agent data).
 #
+# The easy way to run it is ./apps/generic-corp/start-local.sh (see
+# RUN-LOCALLY.md). Directly:
+#
 #   docker compose -f apps/generic-corp/compose.yaml up --build
 #
 # Then open http://localhost:3000/auth/login and use the one-time setup token
@@ -44,6 +47,10 @@ services:
 
   app:
     image: generic-corp:local
+    # Lets the entrypoint add the firewall rule that limits agent commands to
+    # the egress allowlist. The server itself runs without it.
+    cap_add:
+      - NET_ADMIN
     depends_on:
       migrate:
         condition: service_completed_successfully

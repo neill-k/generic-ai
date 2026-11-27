@@ -40,12 +40,13 @@ ARG INSTALL_BROWSER=true
 
 # Agents get file and shell tools: bash and git for the shell, ripgrep and fd
 # for the native grep and find tools, python3 for the python tool's persistent
-# workspace (@generic-ai/rlm). tini forwards signals to node so a
+# workspace (@generic-ai/rlm). iptables walls the agent user off from
+# the network except through the egress proxy (see the entrypoint). tini forwards signals to node so a
 # redeploy drains cleanly; setpriv (util-linux) drops root after the
 # entrypoint fixes volume ownership.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      bash ca-certificates fd-find git python3 ripgrep sudo tini util-linux \
+      bash ca-certificates fd-find git iptables python3 ripgrep sudo tini util-linux \
  && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
  && rm -rf /var/lib/apt/lists/*
 

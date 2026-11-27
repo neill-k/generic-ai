@@ -19,12 +19,12 @@ afterEach(async () => {
 
 describe("company Python workspace", () => {
   it("is on by default when Python runs, and off when asked", () => {
-    const on = resolveCompanyRlm({}, shared, ok);
+    const on = resolveCompanyRlm({}, shared, { check: ok });
     expect(on.option).toMatchObject({ python: "python3" });
     expect(on.option?.launch).toBeUndefined();
     expect(on.description).toContain("server's own OS user");
 
-    const off = resolveCompanyRlm({ GENERIC_CORP_RLM: "off" }, shared, ok);
+    const off = resolveCompanyRlm({ GENERIC_CORP_RLM: "off" }, shared, { check: ok });
     expect(off.option).toBeUndefined();
     expect(off.description).toContain("off");
 
@@ -34,7 +34,7 @@ describe("company Python workspace", () => {
         GENERIC_AI_PYTHON: "/usr/bin/python3",
       },
       shared,
-      ok,
+      { check: ok },
     );
     expect(named.option).toMatchObject({
       python: "/usr/bin/python3",
@@ -44,19 +44,19 @@ describe("company Python workspace", () => {
 
   it("leaves the workspace out without Python, unless it is required", () => {
     const missing = () => "spawn python3 ENOENT";
-    const auto = resolveCompanyRlm({}, shared, missing);
+    const auto = resolveCompanyRlm({}, shared, { check: missing });
     expect(auto.option).toBeUndefined();
     expect(auto.description).toContain("ENOENT");
-    expect(() => resolveCompanyRlm({ GENERIC_CORP_RLM: "on" }, shared, missing)).toThrow(
+    expect(() => resolveCompanyRlm({ GENERIC_CORP_RLM: "on" }, shared, { check: missing })).toThrow(
       CompanyRlmError,
     );
-    expect(() => resolveCompanyRlm({ GENERIC_CORP_RLM: "maybe" }, shared, ok)).toThrow(
+    expect(() => resolveCompanyRlm({ GENERIC_CORP_RLM: "maybe" }, shared, { check: ok })).toThrow(
       /auto, on or off/,
     );
   });
 
   it("runs the kernel as the agent user with the command limits, minus the CPU cap", () => {
-    const rlm = resolveCompanyRlm({}, isolated, ok);
+    const rlm = resolveCompanyRlm({}, isolated, { check: ok });
     expect(rlm.description).toContain('"agent"');
     const launch = rlm.option?.launch?.({
       command: "python3",

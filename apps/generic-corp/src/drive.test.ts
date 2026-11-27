@@ -254,6 +254,25 @@ describe("drive API", () => {
     const prompts: AgentTaskExecutionInput[] = [];
     const server = await startServer(async (input) => {
       prompts.push(input);
+      const use = (name: string, params: Record<string, unknown>) =>
+        input.tools
+          ?.find((tool) => tool.name === name)
+          ?.execute(params as never, {
+            toolCallId: name,
+          });
+      // Every request gets a goal the CEO drafts, and work is handed in with submit_work.
+      await use("set_goal", {
+        objective: "Summarise the brief.",
+        definitionOfDone: ["A summary is handed in."],
+        validators: [
+          {
+            id: "handed-in",
+            kind: "output_schema",
+            schema: { type: "object", required: ["summary"] },
+          },
+        ],
+      });
+      await use("submit_work", { summary: "Read it.", deliverables: [] });
       return { status: "succeeded", outputText: "Read it." };
     });
     const call = (url: string, init?: RequestInit) =>

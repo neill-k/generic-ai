@@ -76,7 +76,7 @@ export interface AgentTaskExecutionInput {
    */
   readonly effectJournal?: ToolEffectJournal;
   /**
-   * Tools the cascade offers for this turn (`delegate_task`, `finish_task`). Pass them to the
+   * Tools the cascade offers for this turn (`delegate_task`, `submit_work`, ...). Pass them to the
    * harness as `AgentHarnessRunInput.hostTools`. Executors that cannot add tools can ignore them;
    * the prompt also describes the fenced-JSON fallback.
    */
