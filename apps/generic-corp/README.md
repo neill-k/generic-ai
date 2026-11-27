@@ -193,7 +193,9 @@ taken on Postgres 17 restores into 16. The Claude sign-in (`model-auth.json`)
 is left out on purpose.
 
 `GET /api/backups` lists them with the next scheduled time; `POST /api/backups`
-starts one, and `backups.updated` events follow it.
+starts one, and `backups.updated` events follow it. In the app, More → Backups
+(`#/backups`) shows the same, with a "Back up now" button and the restore
+command.
 
 To restore, stop the server, then:
 
@@ -219,7 +221,8 @@ its own after the reset. With `api_key`, turns use an Anthropic API key from
 `ANTHROPIC_API_KEY` or the secrets vault (`ANTHROPIC_API_KEY` secret) until
 the plan resets; without one it waits. The reset time comes from the
 provider's error when it gives one; otherwise the plan is tried again after 15
-minutes, doubling up to 5 hours.
+minutes, doubling up to 5 hours. The choice is on the Claude sign-in page
+(`#/sign-in`).
 
 ### Spending limits
 
@@ -229,7 +232,9 @@ agent, in dollars, tokens or both, over a day, week or month in server time
 is reached, the agents it covers are held: nothing new starts, and a running
 turn stops after its current step. Nothing is lost. The work shows as paused
 with the reason, and gets a fresh turn when the period ends or the owner
-raises or removes the limit.
+raises or removes the limit. The company limit and each agent's spending are
+on Usage and limits (`#/usage`); each agent's own limit and quality dial are in
+the Limits tab of its card on the org chart.
 
 ### Tools in the company file
 
