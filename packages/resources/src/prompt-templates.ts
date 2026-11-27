@@ -242,6 +242,11 @@ export interface LoadPromptTemplatesOptions {
   promptPaths: string[];
   /** Include default prompt directories. */
   includeDefaults: boolean;
+  /**
+   * Include `<cwd>/.generic-ai/prompts` with the defaults. Defaults to true; pass the project's
+   * trust (`resolveProjectTrusted`) so an untrusted repository's prompts stay out.
+   */
+  includeProjectResources?: boolean | undefined;
 }
 
 export interface LoadPromptTemplatesResult {
@@ -305,7 +310,9 @@ export function loadPromptTemplates(
 
   if (includeDefaults) {
     addResult(loadTemplatesFromDir(globalPromptsDir, getSourceInfo));
-    addResult(loadTemplatesFromDir(projectPromptsDir, getSourceInfo));
+    if (options.includeProjectResources !== false) {
+      addResult(loadTemplatesFromDir(projectPromptsDir, getSourceInfo));
+    }
   }
 
   // 3. Load explicit prompt paths

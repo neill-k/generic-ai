@@ -48,3 +48,22 @@ keep its own instructions away from an agent's workspace.
 In core, native sessions show them when `contextFiles` is set (`native.contextFiles` on a
 harness): `true` climbs to the filesystem root, `{ stopAt: workspaceRoot }` stops at the
 workspace. It is off by default.
+
+## Project trust
+
+A repository's own resources (`.generic-ai/extensions`, `skills`, `prompts`, `settings.json`,
+`mcp.json`, `SYSTEM.md`, `APPEND_SYSTEM.md`) only load for a trusted project, as in pi.
+`ProjectTrustStore(agentDir)` keeps decisions in `<agentDir>/trust.json`, keyed by directory; a
+decision covers everything below it unless a nearer directory has its own, and writes take a lock
+so concurrent processes don't lose updates. `resolveProjectTrusted({ cwd, store, ... })` decides:
+`trustOverride` wins; a project without trust-requiring resources is trusted unless "do not trust"
+is saved; otherwise the saved decision, then `defaultProjectTrust` (`always`, `never`, `ask`),
+then the `ask` callback, which gets pi's prompt and choices (`getProjectTrustOptions`: trust, trust
+the parent folder, do not trust, and session-only variants). Without `ask`, an undecided project
+is not trusted. Pass the answer as `includeProjectResources` to `loadSkills` and
+`loadPromptTemplates`, and as `includeProjectExtensions` to `discoverExtensions`. Context files
+(`AGENTS.md`) are instructions, not code, and are not gated.
+
+In core, `native.extensions.projectTrust` applies this to extension discovery: `true`/`false`
+decide directly, `{ agentDir, default?, ask? }` resolves the saved decision, and each session
+records a `project_trust` event.

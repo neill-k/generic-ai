@@ -116,6 +116,12 @@ export interface DiscoverExtensionsOptions {
   readonly paths?: readonly string[] | undefined;
   /** Search `<cwd>/.generic-ai/extensions` and `<agentDir>/extensions`. Defaults to true. */
   readonly includeDefaults?: boolean | undefined;
+  /**
+   * Include `<cwd>/.generic-ai/extensions` with the defaults. Defaults to true; pass the project's
+   * trust (`resolveProjectTrusted` in `@generic-ai/resources`) so an untrusted repository's
+   * extensions never run.
+   */
+  readonly includeProjectExtensions?: boolean | undefined;
 }
 
 /** Extension entry points from the project, the agent directory, and explicit paths, without duplicates. */
@@ -133,7 +139,9 @@ export function discoverExtensions(options: DiscoverExtensionsOptions): string[]
     }
   };
   if (options.includeDefaults !== false) {
-    add(discoverExtensionsInDir(join(cwd, EXTENSIONS_CONFIG_DIR, "extensions")));
+    if (options.includeProjectExtensions !== false) {
+      add(discoverExtensionsInDir(join(cwd, EXTENSIONS_CONFIG_DIR, "extensions")));
+    }
     if (options.agentDir !== undefined) {
       add(discoverExtensionsInDir(join(resolvePath(options.agentDir), "extensions")));
     }
