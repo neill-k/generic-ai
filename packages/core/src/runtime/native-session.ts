@@ -49,6 +49,8 @@ import {
   convertToLlm,
   DEFAULT_RETRY_POLICY,
   persistAgentMessages,
+  prepareSessionResume,
+  type ResumePoint,
   restoreAgentContext,
   runWithRetry,
   SessionManager,
@@ -106,6 +108,7 @@ import {
   runStopToolLoop,
   STOP_AND_RESPOND_TOOL_NAME,
   type StopAndRespondState,
+  stopToolContinuationPrompt,
 } from "./stop-tool-loop.js";
 
 const NATIVE_RUNTIME_EVENT_PLUGIN_ID = "generic-ai-runtime";
@@ -201,6 +204,15 @@ export interface RunCapabilityNativeAgentSessionOptions {
    * this process and are stopped when the session ends.
    */
   readonly subagents?: NativeSessionSubagents | boolean;
+  /**
+   * Continue the saved session from its last completed step instead of sending `prompt` (turn-level
+   * resume after a restart). A session ending in a user message or tool results is continued; a
+   * failed last response is set aside and retried; tool calls cut off before their results were
+   * saved get an error result saying so instead of running twice; a session ending in a finished
+   * answer (or a `stop_and_respond` call) returns that answer without a model call. A session with
+   * nothing saved sends `prompt` as usual.
+   */
+  readonly resume?: boolean;
   /**
    * Keep the session working toward a persistent thread goal (see `@generic-ai/autonomy`). `true`
    * gives the agent the goal tools without starting a goal. The goal is saved in the session, so a
@@ -427,6 +439,34 @@ async function loadSessionExtensions(
     commands: loaded.runner.getCommands().map((command) => command.invocationName),
   });
   return loaded.runner;
+}
+
+/** The `stop_and_respond` call whose result ends the conversation, if the agent had stopped. */
+function answeredStopCall(
+  messages: readonly unknown[],
+):
+  | { readonly response: string; readonly status: NonNullable<StopAndRespondState["status"]> }
+  | undefined {
+  const last = messages.at(-1) as
+    | { role?: string; toolName?: string; toolCallId?: string }
+    | undefined;
+  if (last?.role !== "toolResult" || last.toolName !== STOP_AND_RESPOND_TOOL_NAME) {
+    return undefined;
+  }
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index] as AssistantMessage | undefined;
+    if (message?.role !== "assistant") continue;
+    const call = message.content.find(
+      (block) => block.type === "toolCall" && block.id === last.toolCallId,
+    );
+    if (call === undefined || call.type !== "toolCall") return undefined;
+    const args = call.arguments as { response?: unknown; status?: unknown };
+    if (typeof args.response !== "string") return undefined;
+    const status =
+      args.status === "blocked" || args.status === "failed" ? args.status : "completed";
+    return { response: args.response.trim(), status };
+  }
+  return undefined;
 }
 
 function createSessionSubagentRoot(
@@ -787,7 +827,9 @@ export async function runCapabilityNativeAgentSession(
     },
   });
 
-  restoreAgentContext(agent, sessionManager);
+  const resumePoint: ResumePoint | undefined =
+    options.resume === true ? prepareSessionResume(agent, sessionManager) : undefined;
+  if (resumePoint === undefined) restoreAgentContext(agent, sessionManager);
   // A resumed session keeps the tools its earlier searches loaded.
   if (deferredTools.length > 0) {
     loadDeferredTools(toolsLoadedBySearch(agent.state.messages));
@@ -897,7 +939,9 @@ export async function runCapabilityNativeAgentSession(
     }
   };
 
-  const runModelPrompt = async (text: string) => {
+  const runModelPrompt = (text: string) => runModelStep(() => agent.prompt(text));
+
+  const runModelStep = async (step: () => Promise<void>) => {
     if (options.compaction !== false) {
       compacting = true;
       const compaction = await compactIfNeeded(agent, sessionManager, {
@@ -946,7 +990,7 @@ export async function runCapabilityNativeAgentSession(
         ? signal.reason
         : new Error("Native session run was aborted.");
     }
-    await runWithRetry(agent, () => agent.prompt(text), {
+    await runWithRetry(agent, step, {
       policy: retryPolicy ?? { enabled: false, maxRetries: 0, baseDelayMs: 0 },
       signal,
       contextWindow: options.model.contextWindow,
@@ -1131,6 +1175,54 @@ export async function runCapabilityNativeAgentSession(
   };
 
   try {
+    if (resumePoint !== undefined && resumePoint.kind !== "empty") {
+      await emitRuntimeEvent("session_resumed", {
+        state: resumePoint.kind,
+        ...(resumePoint.kind === "continue" ? { reason: resumePoint.reason } : {}),
+      });
+      const stopCall =
+        turnMode === "single-turn" ? undefined : answeredStopCall(agent.state.messages);
+      if (stopCall !== undefined) {
+        stopState.stopped = true;
+        stopState.response = stopCall.response;
+        stopState.status = stopCall.status;
+      } else if (resumePoint.kind === "continue") {
+        await runModelStep(() => agent.continue());
+      }
+      if (turnMode === "single-turn") {
+        while (longRun !== undefined) {
+          const next = await nextLongRunStep();
+          if (next === undefined) {
+            break;
+          }
+          await runModelPrompt(next);
+        }
+        await drainScheduled();
+        await options.lifecycleHooks?.onStop?.(eventContext);
+        const outputText = assistantText(latestAssistant(agent.state.messages));
+        return await finish(outputText === undefined ? {} : { outputText });
+      }
+      if (!stopState.stopped) {
+        const loop = await runStopToolLoop({
+          prompt: stopToolContinuationPrompt(2, options.maxTurns ?? Number.POSITIVE_INFINITY),
+          wrapPrompt: false,
+          state: stopState,
+          maxTurns: options.maxTurns,
+          runPrompt: (text) => runModelPrompt(text),
+        });
+        if (!loop.stopped) {
+          throw new Error(
+            `${STOP_AND_RESPOND_TOOL_NAME} was not called after ${loop.turnCount} turn(s).`,
+          );
+        }
+      }
+      await drainScheduled();
+      await options.lifecycleHooks?.onStop?.(eventContext);
+      return await finish({
+        ...(stopState.response === undefined ? {} : { outputText: stopState.response }),
+        ...(stopState.status === undefined ? {} : { terminalStatus: stopState.status }),
+      });
+    }
     const submitted =
       (await options.lifecycleHooks?.onUserPromptSubmit(eventContext, options.prompt)) ??
       options.prompt;
