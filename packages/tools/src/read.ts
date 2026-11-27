@@ -1,13 +1,10 @@
-import type { ImageContent, TextContent } from "@generic-ai/ai";
-
-/** Image resize hints; accepted for API parity with pi, not applied (see image-process.ts). */
-export type ModelImageResizeOptions = Record<string, unknown>;
-
 import { constants } from "node:fs";
 import { access as fsAccess, open as fsOpen, readFile as fsReadFile } from "node:fs/promises";
 import { TextDecoder } from "node:util";
+import type { ImageContent, TextContent } from "@generic-ai/ai";
 import { type Static, Type } from "@sinclair/typebox";
 import { processImage } from "./image-process.js";
+import type { ImageResizeOptions } from "./image-resize.js";
 import { detectSupportedImageMimeTypeFromFile } from "./mime.js";
 import { resolveReadPathAsync } from "./path-utils.js";
 import { type TypeBoxAgentTool, wrapToolDefinition } from "./tool-definition-wrapper.js";
@@ -109,6 +106,9 @@ async function* readLocalFileChunks(path: string): AsyncIterable<Uint8Array> {
     await handle.close();
   }
 }
+
+/** Resize limits for images the read tool attaches (see image-resize.ts). */
+export type ModelImageResizeOptions = ImageResizeOptions;
 
 export interface ReadToolOptions {
   /** Whether to auto-resize images. Default: true */
