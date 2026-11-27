@@ -182,18 +182,22 @@ export const DEFINITION_OF_DONE_VALIDATOR_ID = "definition-of-done";
 
 /**
  * Numeric checks read numbers the host measured, never numbers in the agent's own reply
- * (decision 11). Returns a problem, or undefined.
+ * (decision 11): a host metric, or a path into an artifact the host read itself (such as the
+ * deliverable file). Returns a problem, or undefined.
  */
 export function selfReportedNumberProblem(spec: GoalSpec): string | undefined {
   const offending = spec.validators.filter(
-    (validator) => validator.kind === "numeric" && !("metric" in validator.source),
+    (validator) =>
+      validator.kind === "numeric" &&
+      !("metric" in validator.source) &&
+      !(validator.source.target ?? "output").startsWith("artifact:"),
   );
   if (offending.length === 0) {
     return undefined;
   }
   return (
-    `Numeric checks must read a number the host measures ({"metric": "<name>"}), not one from ` +
-    `the agent's own reply: ${offending.map((validator) => validator.id).join(", ")}.`
+    `Numeric checks must read a number the host measures ({"metric": "<name>"}, or an ` +
+    `"outputPath" into an "artifact:<id>" target), not one from the agent's own reply: ${offending.map((validator) => validator.id).join(", ")}.`
   );
 }
 

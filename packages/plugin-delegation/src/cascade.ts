@@ -1874,7 +1874,9 @@ export function createDelegationCascade(
       metrics.length === 0
         ? "- Numeric checks are not available: the host measures no numbers for this company."
         : "- Numeric checks must read one of these host-measured metrics " +
-          '({"source": {"metric": "<name>"}}), never a number from your own reply:',
+          '({"source": {"metric": "<name>"}}) or a path into the deliverable file ' +
+          '({"source": {"outputPath": "<path>", "target": "artifact:deliverable"}}), never a ' +
+          "number from your own reply:",
       ...metrics.map(([name, description]) => `  - ${name}: ${description}`),
       ...(checks.length === 0
         ? []
