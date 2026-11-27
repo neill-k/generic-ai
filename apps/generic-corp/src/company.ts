@@ -1,14 +1,10 @@
 import type { PersistentAgentSeed } from "@generic-ai/plugin-delegation";
 import { McpRegistryError, parseMcpPluginConfig } from "@generic-ai/plugin-mcp";
 import type { WebSearchProviderConfig } from "@generic-ai/plugin-tools-web";
-import {
-  type ApprovalPolicy,
-  type GoalSpec,
-  GoalSpecError,
-  parseApprovalPolicy,
-  parseGoalSpec,
-} from "@generic-ai/sdk";
+import { type GoalSpec, GoalSpecError, parseGoalSpec } from "@generic-ai/sdk";
 import { parse as parseYaml } from "yaml";
+
+import { type CompanyPermissions, PermissionsError, parsePermissions } from "./permissions.js";
 
 /**
  * The company: who works at Generic Corp, whom they report to, and which
@@ -44,7 +40,8 @@ export interface CompanyAgentConfig {
 
 /**
  * Tools for generic work (D6), shared by every agent. Role policies decide who may call what,
- * and outward actions (sending, external writes, payments) wait for the owner's approval.
+ * and the owner's permissions decide which outward actions (sending, external writes, payments)
+ * are allowed at all.
  */
 export interface CompanyToolsConfig {
   /**
@@ -90,10 +87,11 @@ export interface CompanyConfig {
   readonly judgeModels?: readonly string[];
   readonly tools?: CompanyToolsConfig;
   /**
-   * Which agent actions wait for the owner. Defaults to the SDK's policy: sending messages,
-   * writing to outside systems, spending money and writing MCP tools all need approval.
+   * The starting permissions (see permissions.ts): reading outside systems on, sending messages,
+   * spending money and writing to outside systems off, unless this says otherwise. Once the owner
+   * saves permissions in the app, those replace these.
    */
-  readonly approvals?: ApprovalPolicy;
+  readonly permissions?: CompanyPermissions;
   /** Goals the owner can start from. */
   readonly goals?: readonly CompanyGoalTemplate[];
   readonly agents: readonly CompanyAgentConfig[];
@@ -157,7 +155,7 @@ export const DEFAULT_COMPANY: CompanyConfig = Object.freeze({
       reportsTo: "ceo",
       instructions:
         "You own operations: plans, schedules, correspondence drafts, spreadsheets and reports. " +
-        "Anything that leaves the company waits for the owner's approval.",
+        "Nothing leaves the company unless the owner's permissions allow it.",
     },
     {
       id: "vp-engineering",
@@ -409,13 +407,18 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
     };
   });
   const tools = readTools(input["tools"]);
-  let approvals: ApprovalPolicy | undefined;
   if (input["approvals"] !== undefined) {
+    throw new CompanyConfigError(
+      "company.approvals was replaced by company.permissions: agents never wait for approval, and actions outside the owner's permissions are refused.",
+    );
+  }
+  let permissions: CompanyPermissions | undefined;
+  if (input["permissions"] !== undefined) {
     try {
-      approvals = parseApprovalPolicy(input["approvals"]);
+      permissions = parsePermissions(input["permissions"]);
     } catch (error) {
       throw new CompanyConfigError(
-        `company.approvals: ${error instanceof Error ? error.message : String(error)}`,
+        `company.permissions: ${error instanceof PermissionsError ? error.message : String(error)}`,
       );
     }
   }
@@ -429,7 +432,7 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
     ...(models === undefined ? {} : { models }),
     ...(judgeModels === undefined ? {} : { judgeModels }),
     ...(tools === undefined ? {} : { tools }),
-    ...(approvals === undefined ? {} : { approvals }),
+    ...(permissions === undefined ? {} : { permissions }),
     ...(goals === undefined ? {} : { goals }),
     agents,
   };

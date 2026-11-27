@@ -35,7 +35,7 @@ agents:
     reportsTo: ceo
     instructions: >-
       You own operations: plans, schedules, correspondence drafts, spreadsheets and reports.
-      Anything that leaves the company waits for the owner's approval.
+      Nothing leaves the company unless the owner's permissions allow it.
 
   - id: vp-engineering
     role: vp-engineering
