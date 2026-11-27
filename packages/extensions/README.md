@@ -42,3 +42,26 @@ await runner.runPrompt("/status", (text) => agent.prompt(text));
   `genericAi.extensions`. TypeScript files load through Node's type stripping.
 - Extensions run with the process's permissions. In the harness, discovery is off unless
   `native.extensions.discover` is set.
+
+## Plan mode
+
+`createPlanMode()` is pi's plan mode without the TUI. While planning, `edit` and `write` are
+refused, bash commands must pass a read-only allowlist (`isSafeCommand`: `ls`, `cat`, `rg`,
+`git status`… and no redirects, installs or git writes), and the model is asked for a numbered
+`Plan:`. When the run ends the steps are extracted (`extractTodoItems`). `execute()` returns the
+prompt that starts the plan with full access, and `[DONE:n]` markers (or "all steps complete")
+tick steps off until the plan is done.
+
+```ts
+import { createPlanMode } from "@generic-ai/extensions";
+
+const planMode = createPlanMode({ enabled: true, onStateChange: save });
+// native.extensions: { factories: [planMode.extension] }, or runner.load(planMode.extension)
+await run("Plan the migration.");
+const next = planMode.execute(); // undefined when the answer had no plan
+if (next !== undefined) await run(next);
+```
+
+`/plan` toggles plan mode, `/plan on|off` sets it and `/plan execute` starts the latest plan.
+`initialState` restores a saved state; `blockedTools` and `bashTools` change which tools are
+refused or allowlisted.
