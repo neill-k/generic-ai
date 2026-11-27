@@ -142,7 +142,7 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | Plan mode: read-only planning (write tools and non-allowlisted bash refused), plan extraction, `[DONE:n]` execution tracking | ✓ | `packages/extensions/test/plan-mode-utils.test.ts` (pi's `plan-mode-utils` in full) and `plan-mode.test.ts` (`plan-mode-extension` cases adapted: headless, so the host calls `execute()` instead of a TUI select, and tools are blocked through `tool_call` rather than swapped) |
 | Tool search over deferred tools: BM25 ranker, `tool_search` loads matches for the next call, loaded tools survive resume (`native.toolSearch`) | ✓ | ported `tool-search` (codemode cases dropped) in `packages/tools/test`; `native-session-tool-search.test.ts` |
 | MCP client and OAuth | ○ | `mcp-*` (Generic AI already has `plugin-mcp`; port only what it lacks) |
-| RPC / print modes | ○ | `rpc*`, `print-mode` |
+| RPC and print modes: pi's JSONL framing, the RPC command set a library host can serve (prompt with steer or follow-up queueing, abort, `clear_queue`, new session, state, models, thinking levels, queue modes, compaction, stats, entries, session name, messages, commands), a typed `RpcClient`, and print mode's text and JSON output with exit codes | ✓ | `@generic-ai/session` `test/modes`: pi's `rpc-jsonl` in full; `rpc-prompt-response-semantics`, `rpc-client-clear-queue` and `print-mode` cases adapted to the faux provider. pi's `rpc.test.ts` needs a live model and is not ported; bash, fork, tree, clone and HTML export commands are left out (no CLI binary, so a host wires these modes to its own entry point) |
 | Interactive TUI, themes, clipboard, HTML export | — | out of scope: Generic AI's surfaces are the web UI and Hono transport |
 
 ### Durable runtime (pi `durable`, 109 test files)
@@ -182,7 +182,6 @@ pi (`badlogic/pi-mono`):
 | Image generation API, classifiers, deferred (batch) responses | `ai/src/images*`, `model-runtime-classifiers` | |
 | Code mode: model-written JavaScript in a QuickJS sandbox that calls tools, so nested tool results never enter the context | `codemode`, `coding-agent` `codemode-*`, `nested-tool-calls` | Closest to NOVA's "move work out of the model"; also Prime Agent's programmatic tool calling |
 | Project trust decisions for repository resources | `trust-manager`, `project-trust-saved-decision` | |
-| RPC and print modes (a JSONL protocol to drive an agent from another process) | `rpc*`, `print-mode` | Generic AI's surfaces are the Hono transport and the web UI |
 | Durable harness: every turn and tool call committed before it is shown, resumed after a crash mid-turn; remote execution environments over SSH | `durable` (107 test files), `env` | Generic AI has a durable run store, queue and effect journal, but not pi's turn-level commit-and-resume |
 | Standalone MCP client with OAuth refresh and the MCP conformance suite | `mcp`, `mcp-conformance`, `mcp-oauth-*` | `plugin-mcp` uses the official SDK; OAuth for remote servers is not covered |
 | Tool binary downloads (`rg`, `fd` fetched on first use) | `tools-manager` | Deploy images install them; a local user needs them on `PATH` |
