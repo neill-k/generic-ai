@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { RequestAuth, StreamFn } from "@generic-ai/agent";
 import {
   createFallbackModel,
@@ -47,11 +47,11 @@ import {
   type ResourceSelector,
   type RunActor,
   type RunEnvelope,
+  type ToolDefinition,
   type ToolEffectGuard,
   type ToolEffectJournal,
   type UsageBudgetLimits,
   type UsageSummary,
-  type ToolDefinition,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
@@ -1240,6 +1240,18 @@ export interface HarnessSessionRunOptions {
    * (native) route each response through it; the meter's signal is already merged into `signal`.
    */
   readonly usageMeter?: UsageMeter;
+  /**
+   * Native backend: the session file this turn reads and appends to, opened if it exists and
+   * created if not. Each finished message is saved as it ends, so the file holds every completed
+   * step. Takes precedence over the harness-wide `sessionDir`.
+   */
+  readonly sessionFile?: string;
+  /**
+   * Native backend: continue `sessionFile` from its last completed step instead of sending
+   * `prompt` (see `RunCapabilityNativeAgentSessionOptions.resume`). Use it to re-run a turn that a
+   * restart interrupted.
+   */
+  readonly resume?: boolean;
 }
 
 export interface HarnessSessionRunResult {
@@ -1332,7 +1344,7 @@ function createNativeSessionBackend(
     kind: "native" as const,
     label: "native",
     async run(runOptions: HarnessSessionRunOptions): Promise<HarnessSessionRunResult> {
-      const { role, usageMeter, ...rest } = runOptions;
+      const { role, usageMeter, sessionFile, resume, ...rest } = runOptions;
       const model = modelFor(role);
       const apiKey = apiKeyFor(model);
       const result = await runCapabilityNativeAgentSession({
@@ -1343,9 +1355,18 @@ function createNativeSessionBackend(
         ...(options.thinkingLevel === undefined ? {} : { thinkingLevel: options.thinkingLevel }),
         ...(options.streamFn === undefined ? {} : { streamFn: options.streamFn }),
         ...(options.systemPrompt === undefined ? {} : { systemPrompt: options.systemPrompt }),
-        ...(options.sessionDir === undefined
-          ? {}
-          : { sessionManager: NativeSessionManager.create(rest.cwd, options.sessionDir) }),
+        ...(sessionFile !== undefined
+          ? {
+              sessionManager: NativeSessionManager.open(
+                sessionFile,
+                dirname(sessionFile),
+                rest.cwd,
+              ),
+            }
+          : options.sessionDir === undefined
+            ? {}
+            : { sessionManager: NativeSessionManager.create(rest.cwd, options.sessionDir) }),
+        ...(resume === true ? { resume: true } : {}),
         ...(options.compaction === undefined ? {} : { compaction: options.compaction }),
         ...(options.retry === undefined ? {} : { retry: options.retry }),
         ...(usageMeter === undefined
@@ -2168,6 +2189,12 @@ function createSessionAgentHarnessAdapter(
           eventStream,
           usageMeter,
           ...(rootLifecycleHooks === undefined ? {} : { lifecycleHooks: rootLifecycleHooks }),
+          ...(input.session === undefined
+            ? {}
+            : {
+                sessionFile: input.session.file,
+                ...(input.session.resume === true ? { resume: true } : {}),
+              }),
           onSessionReady: async (context) => {
             rootRuntimeSessionId = context.sessionId;
             await observePermissionDecisions({

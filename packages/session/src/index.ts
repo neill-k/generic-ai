@@ -10,5 +10,6 @@ export * from "./modes/print-mode.js";
 export * from "./modes/rpc-client.js";
 export * from "./modes/rpc-mode.js";
 export type * from "./modes/rpc-types.js";
+export * from "./resume.js";
 export * from "./session-manager.js";
 export * from "./usage-totals.js";
