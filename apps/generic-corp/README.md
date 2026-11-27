@@ -9,6 +9,9 @@ approvals. Agents do generic work, not only software work.
 The decision to build it here, and the product decisions behind it, are in
 [`docs/decisions/0046-generic-corp-app-on-generic-ai.md`](../../docs/decisions/0046-generic-corp-app-on-generic-ai.md).
 
+**Run it on your machine:** [`RUN-LOCALLY.md`](RUN-LOCALLY.md) (one command,
+then sign in with Claude).
+
 ## Status
 
 The app server (roadmap R13) is in. It runs the company, gives its agents the
@@ -135,6 +138,7 @@ more) and send it as a bearer token.
 | `GENERIC_CORP_WORKERS` | `true` | Run agent turns in this process |
 | `GENERIC_CORP_WORKER_CONCURRENCY` | `4` | Agent turns this process runs at once (1 to 64), across different agents |
 | `GENERIC_CORP_TURN_LEASE_MS` | `30000` | How long a turn's lease lasts before another worker may take over after a crash (at least 1000) |
+| `GENERIC_CORP_NO_PROGRESS_MINUTES` | `15` | A turn with no tool activity for this long (and no tool still running) is stopped and retried; a turn also stops after 8 identical tool calls in a row. Turns have no fixed time limit (1 to 1440) |
 | `GENERIC_AI_PUBLIC_URL` / `RAILWAY_PUBLIC_DOMAIN` | none | Public origin for passkeys |
 | `GENERIC_AI_OWNER_SETUP_TOKEN` | printed at start | Pins the first-passkey setup token |
 | `GENERIC_AI_AUTH_TOKEN` | none | Break-glass static owner token |
