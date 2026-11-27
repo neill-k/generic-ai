@@ -478,3 +478,42 @@ describe("dashboard", () => {
     ).toBe(404);
   });
 });
+
+describe("Claude sign-in and API key", () => {
+  it("reports what powers the agents and stores an API key in the data directory", async () => {
+    const server = await createGenericCorpServer({
+      environment: environment(),
+      env: {},
+      company: COMPANY,
+      executor: () => ({ status: "succeeded", outputText: "ok" }),
+      authStore: createMemoryAuthStore(),
+      log: () => undefined,
+    });
+    cleanups.push(() => server.stop());
+    const call = (pathname: string, init?: RequestInit) =>
+      server.fetch(new Request(`http://127.0.0.1${pathname}`, init));
+
+    expect(await (await call("/api/model-auth")).json()).toMatchObject({ source: "none" });
+    const rejected = await call("/api/model-auth/api-key", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key: "nope" }),
+    });
+    expect(rejected.status).toBe(400);
+    const saved = await call("/api/model-auth/api-key", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key: "sk-ant-api-test" }),
+    });
+    expect(await saved.json()).toMatchObject({ source: "api_key" });
+    const finish = await call("/api/model-auth/claude/finish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ flowId: "missing", code: "x" }),
+    });
+    expect(finish.status).toBe(404);
+    expect(await (await call("/api/model-auth", { method: "DELETE" })).json()).toMatchObject({
+      source: "none",
+    });
+  });
+});
