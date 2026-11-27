@@ -41,6 +41,7 @@ import {
   parseCompanyYaml,
 } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
+import { companyLayout, createCompanyDrive } from "./drive.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
 import { createCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
@@ -305,6 +306,8 @@ export async function createGenericCorpServer(
     for (const name of secrets.weakNames()) {
       log(`Secret ${name} is too short to redact reliably. Use a longer value.`);
     }
+    const layout = companyLayout(environment.dataDir);
+    const drive = createCompanyDrive({ layout, kv: storage.kv });
     const processEnv = options.env ?? process.env;
     const modelAuth =
       options.modelAuth ??
@@ -325,6 +328,8 @@ export async function createGenericCorpServer(
         company,
         secrets,
         env: options.env ?? process.env,
+        // Every agent works from the company root: the shared drive and every agent's home.
+        toolRoot: () => layout.root,
         ...(agentIsolation.runAs === undefined ? {} : { runAs: agentIsolation.runAs }),
       });
     const companyToolkit = toolkit;
@@ -364,7 +369,8 @@ export async function createGenericCorpServer(
     const runtime = createCompanyRuntime({
       company,
       storage,
-      agentsRoot: path.join(environment.dataDir, "agents"),
+      agentsRoot: layout.agentsRoot,
+      drive,
       executor,
       cascade: {
         approvals,
@@ -384,6 +390,7 @@ export async function createGenericCorpServer(
             runStore: storage.runStore,
             cascade: () => started().cascade,
             directory: () => started().directory,
+            drive,
           }),
         },
       },
