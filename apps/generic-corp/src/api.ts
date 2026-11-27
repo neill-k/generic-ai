@@ -13,13 +13,15 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
-import { DriveError, type DriveFile } from "./drive.js";
+import { DriveError, type DriveFile, deliverablesFolder } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
+import { type GithubConnector, GithubError } from "./github.js";
 import { goalDetailView, listGoalViews } from "./goal-views.js";
+import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
-import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
 import type { RefusalLog } from "./refusals.js";
+import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
@@ -51,6 +53,10 @@ export interface CompanyApiOptions {
   readonly modelAuth?: CompanyModelAuth;
   /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
   readonly permissions?: PermissionStore;
+  /** The GitHub connector, at `/api/connectors/github`. Owner only. */
+  readonly github?: GithubConnector;
+  /** The company root, which pushes to GitHub read deliverables from. */
+  readonly companyRoot?: string;
 }
 
 /** What the secrets screen needs from the vault. */
@@ -192,6 +198,68 @@ function errorResponse(c: Context, status: number, message: string) {
   return c.json({ error: message }, status as 400);
 }
 
+const MAX_MEMORY_EDITS = 50;
+
+function readMemoryEdits(raw: unknown): MemoryEdit[] {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_MEMORY_EDITS) {
+    throw new ApiError(400, `Send edits as a list of 1 to ${MAX_MEMORY_EDITS} changes.`);
+  }
+  return raw.map((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new ApiError(400, "Each edit must be an object.");
+    }
+    const edit = value as Record<string, unknown>;
+    const action = edit["action"];
+    const kind = edit["kind"] ?? "memory";
+    if (action !== "create" && action !== "update" && action !== "delete") {
+      throw new ApiError(400, "Each edit needs an action: create, update or delete.");
+    }
+    if (typeof kind !== "string" || !REFINEMENT_KIND_NAMES.includes(kind)) {
+      throw new ApiError(400, `kind must be one of ${REFINEMENT_KIND_NAMES.join(", ")}.`);
+    }
+    const text = (key: string) => {
+      const field = edit[key];
+      if (field === undefined) {
+        return undefined;
+      }
+      if (typeof field !== "string") {
+        throw new ApiError(400, `${key} must be text.`);
+      }
+      return field;
+    };
+    const record = (key: string) => {
+      const field = edit[key];
+      if (field === undefined) {
+        return undefined;
+      }
+      if (typeof field !== "object" || field === null || Array.isArray(field)) {
+        throw new ApiError(400, `${key} must be an object.`);
+      }
+      return field as Record<string, unknown>;
+    };
+    const id = text("id");
+    const title = text("title");
+    const content = text("content");
+    const path = text("path");
+    const reference = record("reference");
+    const args = record("arguments");
+    return {
+      action,
+      kind: kind as MemoryEdit["kind"],
+      ...(id === undefined ? {} : { id }),
+      ...(title === undefined ? {} : { title }),
+      ...(content === undefined ? {} : { content }),
+      ...(path === undefined ? {} : { path }),
+      ...(reference === undefined ? {} : { reference }),
+      ...(args === undefined ? {} : { arguments: args }),
+    } as MemoryEdit;
+  });
+}
+
+function ownerId(c: Context<ApiEnv>): { id?: string } {
+  return { id: toRunActor(c.get("auth")).subjectId };
+}
+
 async function readJsonObject(c: Context): Promise<Record<string, unknown>> {
   let parsed: unknown;
   try {
@@ -302,6 +370,9 @@ export function createCompanyApi(
     }
     if (error instanceof DriveError) {
       return errorResponse(c, driveStatus(error), error.message);
+    }
+    if (error instanceof MemoryError) {
+      return errorResponse(c, error.status, error.message);
     }
     if (error instanceof RangeError) {
       return errorResponse(c, 404, error.message);
@@ -493,6 +564,110 @@ export function createCompanyApi(
     return c.json(permissionsView(store));
   });
 
+  // --- Connectors: GitHub ---------------------------------------------------
+  // The token never leaves the host. Which repos agents may write to is part of the permissions.
+
+  const requireGithub = (): GithubConnector => {
+    if (options.github === undefined) {
+      throw new ApiError(404, "The GitHub connector is not available.");
+    }
+    return options.github;
+  };
+  const githubCall = async <T>(call: () => Promise<T>): Promise<T> => {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof GithubError) {
+        const status =
+          error.status === 403 || error.status === 404 || error.status === 409 ? error.status : 400;
+        throw new ApiError(status, error.message);
+      }
+      throw error;
+    }
+  };
+  const githubView = async (github: GithubConnector) => {
+    const connection = await github.status();
+    const writable = new Set(options.permissions?.current().github.repos ?? []);
+    if (!connection.connected) {
+      return { ...connection, repos: [] };
+    }
+    const repos = await githubCall(() => github.repos());
+    return {
+      ...connection,
+      repos: repos.map((repo) => ({ ...repo, writable: writable.has(repo.fullName) })),
+    };
+  };
+
+  app.get("/connectors/github", async (c) => {
+    requireManage(c);
+    return c.json(await githubView(requireGithub()));
+  });
+
+  app.post("/connectors/github", async (c) => {
+    const github = requireGithub();
+    requireManage(c);
+    const token = (await readJsonObject(c))["token"];
+    if (typeof token !== "string") {
+      throw new ApiError(400, 'Send the GitHub token as {"token": "github_pat_..."}.');
+    }
+    await githubCall(() => github.connect(token));
+    return c.json(await githubView(github));
+  });
+
+  app.delete("/connectors/github", async (c) => {
+    const github = requireGithub();
+    requireManage(c);
+    return c.json({ ...(await github.disconnect()), repos: [] });
+  });
+
+  app.post("/connectors/github/push", async (c) => {
+    const github = requireGithub();
+    requireManage(c);
+    if (options.companyRoot === undefined) {
+      throw new ApiError(404, "This company has no drive.");
+    }
+    const body = await readJsonObject(c);
+    const goalId = body["goalId"];
+    if (typeof goalId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(goalId)) {
+      throw new ApiError(400, "goalId must be the id of a goal with deliverables.");
+    }
+    const repo = body["repo"];
+    const branch = body["branch"];
+    if (typeof repo !== "string" || typeof branch !== "string") {
+      throw new ApiError(400, 'Send {"goalId", "repo": "owner/name", "branch": "..."}.');
+    }
+    const message =
+      typeof body["message"] === "string" ? body["message"] : `Deliverables for ${goalId}`;
+    const to = typeof body["path"] === "string" ? body["path"] : undefined;
+    const companyRoot = options.companyRoot;
+    const pushed = await githubCall(() =>
+      github.pushFolder({
+        root: companyRoot,
+        from: deliverablesFolder(goalId),
+        repo,
+        branch,
+        message,
+        ...(to === undefined ? {} : { to }),
+      }),
+    );
+    const pull = body["openPullRequest"];
+    if (typeof pull === "object" && pull !== null) {
+      const request = pull as Record<string, unknown>;
+      const title = typeof request["title"] === "string" ? request["title"] : message;
+      const description = typeof request["body"] === "string" ? request["body"] : undefined;
+      const opened = await githubCall(() =>
+        github.openPullRequest({
+          repo,
+          head: pushed.branch,
+          title,
+          ...(description === undefined ? {} : { body: description }),
+        }),
+      );
+      return c.json({ pushed, pullRequest: opened });
+    }
+    return c.json({ pushed });
+  });
+
   // --- Refused actions -----------------------------------------------------
 
   app.get("/refusals", async (c) => {
@@ -573,14 +748,18 @@ export function createCompanyApi(
       throw new ApiError(404, `Agent ${agentId} was not found.`);
     }
     const [memory, tasks, reports, chain] = await Promise.all([
-      runtime.readMemory(agentId).catch(() => ""),
+      runtime.memory.list(parseMemoryScope(agentId)),
       runtime.listTasks({ agentId, limit: 50 }),
       runtime.directory.directReports(agentId),
       runtime.directory.managementChain(agentId),
     ]);
     return c.json({
       agent,
-      memory,
+      memory:
+        memory.length === 0
+          ? ""
+          : memory.map((entry) => `- ${entry.title}: ${entry.content}`).join("\n"),
+      memoryEntries: memory,
       reports: reports.map((report) => report.id),
       managementChain: chain.map((manager) => manager.id),
       tasks: tasks.map(summarizeTask),
@@ -620,6 +799,66 @@ export function createCompanyApi(
   app.get("/agents/:agentId/costs", async (c) =>
     c.json(await runtime.costs({ agentId: c.req.param("agentId") })),
   );
+
+  // --- Memory: the company handbook and each agent's private memory --------
+
+  app.get("/memory", async (c) => {
+    const [handbook, scopes] = await Promise.all([
+      runtime.memory.list("company"),
+      runtime.memory.scopes(),
+    ]);
+    return c.json({ handbook, scopes });
+  });
+
+  app.get("/memory/changes", async (c) => {
+    const rawScope = c.req.query("scope");
+    const rawLimit = Number(c.req.query("limit") ?? "100");
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 500) : 100;
+    return c.json({
+      changes: await runtime.memory.changes({
+        ...(rawScope === undefined || rawScope === "" ? {} : { scope: parseMemoryScope(rawScope) }),
+        limit,
+      }),
+    });
+  });
+
+  app.get("/memory/changes/:changeId", async (c) => {
+    const change = await runtime.memory.getChange(c.req.param("changeId"));
+    if (change === undefined) {
+      throw new ApiError(404, "That memory change was not found.");
+    }
+    return c.json({ change });
+  });
+
+  app.post("/memory/changes/:changeId/undo", async (c) => {
+    requireManage(c);
+    const result = await runtime.memory.undo(c.req.param("changeId"), {
+      kind: "owner",
+      ...ownerId(c),
+    });
+    return c.json(result);
+  });
+
+  app.get("/memory/:scope", async (c) => {
+    const scope = parseMemoryScope(c.req.param("scope"));
+    return c.json({ scope, entries: await runtime.memory.list(scope) });
+  });
+
+  app.post("/memory/:scope", async (c) => {
+    requireManage(c);
+    const scope = parseMemoryScope(c.req.param("scope"));
+    const body = await readJsonObject(c);
+    const edits = readMemoryEdits(body["edits"]);
+    const summary = typeof body["summary"] === "string" ? body["summary"].slice(0, 300) : undefined;
+    const result = await runtime.memory.apply({
+      scope,
+      actor: { kind: "owner", ...ownerId(c) },
+      origin: { kind: "owner" },
+      edits,
+      ...(summary === undefined ? {} : { summary }),
+    });
+    return c.json(result, result.change === undefined ? 400 : 200);
+  });
 
   // --- Chat with the CEO ---------------------------------------------------
 

@@ -41,12 +41,15 @@ import {
   resolveAgentNetwork,
 } from "./egress.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
+import { createGithubConnector, type GithubConnector } from "./github.js";
 import {
   COMPANY_GOAL_METRICS,
   createCompanyGoalEvidence,
   createCompanyHandInCheck,
   createModelJudge,
 } from "./goals.js";
+import { createCompanyMemory } from "./memory.js";
+import { createMemoryTools } from "./memory-tools.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import {
   type CompanyModelAuth,
@@ -329,6 +332,11 @@ export interface CreateGenericCorpServerOptions {
    * or the secrets vault.
    */
   readonly modelAuth?: CompanyModelAuth;
+  /**
+   * The GitHub connector. Defaults to a credential file at `<dataDir>/connectors/github.json`
+   * (or `GENERIC_CORP_GITHUB_TOKEN`). Tests pass one with a fake `fetch`.
+   */
+  readonly github?: GithubConnector;
   readonly log?: (message: string) => void;
 }
 
@@ -365,6 +373,12 @@ export async function createGenericCorpServer(
         fallback: async (provider) =>
           resolveProviderKeyFromEnv(provider, processEnv) ??
           (await secrets.get(providerKeyName(provider), "host")),
+      });
+    const github =
+      options.github ??
+      createGithubConnector({
+        credentialPath: path.join(environment.dataDir, "connectors", "github.json"),
+        env: processEnv,
       });
     const agentIsolation =
       options.agentIsolation ?? resolveAgentIsolation(options.env ?? process.env);
@@ -420,21 +434,40 @@ export async function createGenericCorpServer(
         env: options.env ?? process.env,
         // Every agent works from the company root: the shared drive and every agent's home.
         toolRoot: () => layout.root,
+        github,
         ...(agentIsolation.runAs === undefined ? {} : { runAs: agentIsolation.runAs }),
         ...(egressProxy === undefined
           ? {}
           : { commandEnv: (agentId: string) => egressProxy.envFor(agentId) }),
       });
     const companyToolkit = toolkit;
+    // One memory system (decision 17): the company handbook and each agent's private memory, in
+    // host storage where agent shells cannot reach it. Agents change their own through tools.
+    const memory = createCompanyMemory({
+      kv: storage.kv,
+      legacyNotes: (agentId) =>
+        readFile(path.join(layout.agentsRoot, agentId, "context.md"), "utf8"),
+    });
+    const withMemoryTools = (
+      bindings: ReturnType<CompanyToolkit["capabilities"]>,
+      input: Parameters<CompanyToolkit["capabilities"]>[0],
+    ): ReturnType<CompanyToolkit["capabilities"]> => ({
+      ...bindings,
+      customTools: [
+        ...(bindings.customTools ?? []),
+        ...createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId }),
+      ],
+    });
     // Every tool call is checked against the owner's permissions. An action outside them is
     // refused on the spot and logged; nothing waits for the owner (design decision 37).
     const defaultExecutor = createCompanyTaskExecutor({
       capabilities: (input) =>
-        gateToolsWithPermissions(companyToolkit.capabilities(input), {
+        gateToolsWithPermissions(withMemoryTools(companyToolkit.capabilities(input), input), {
           permissions: () => permissions.current(),
           refusals,
           agentId: input.agentId,
           taskId: input.taskId,
+          verifyGreenChecks: (call) => github.verifyGreenChecks(call),
         }),
       secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
       ...(environment.noProgressMinutes === undefined
@@ -475,6 +508,7 @@ export async function createGenericCorpServer(
       storage,
       agentsRoot: layout.agentsRoot,
       drive,
+      memory,
       executor,
       cascade: {
         worker: {
@@ -583,6 +617,8 @@ export async function createGenericCorpServer(
         refusals,
         modelAuth,
         permissions,
+        github,
+        companyRoot: layout.root,
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),

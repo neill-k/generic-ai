@@ -9,6 +9,8 @@ const state = {
   /** Drive files attached to the message being written. */
   attachments: [],
   drivePath: "drive",
+  /** The memory page's scope: "company" (the handbook) or an agent id. */
+  memoryScope: "company",
   company: undefined,
   refreshTimer: undefined,
   claudeFlowId: undefined,
@@ -155,6 +157,7 @@ const VIEWS = {
   permissions: renderPermissions,
   drive: renderDrive,
   deliverables: renderDeliverables,
+  memory: renderMemory,
 };
 
 function route() {
@@ -162,6 +165,9 @@ function route() {
   state.view = VIEWS[view] ? view : "chat";
   if (state.view === "chat") {
     state.threadId = id ? decodeURIComponent(id) : state.threadId;
+  }
+  if (state.view === "memory") {
+    state.memoryScope = id ? decodeURIComponent(id) : "company";
   }
   if (state.view === "drive") {
     state.drivePath = id ? decodeURIComponent(id) : "drive";
@@ -189,7 +195,8 @@ function scheduleRefresh() {
     state.view === "secrets" ||
     state.view === "power" ||
     state.view === "tools" ||
-    state.view === "permissions"
+    state.view === "permissions" ||
+    state.view === "memory"
   ) {
     return;
   }
@@ -718,8 +725,17 @@ async function showAgent(agentId) {
         ),
       ),
       agent.instructions ? [h("h3", {}, "Instructions"), h("pre", {}, agent.instructions)] : null,
-      h("h3", {}, "Memory (context.md)"),
+      h("h3", {}, "Memory"),
       h("div", { class: "memory" }, detail.memory || "Empty so far."),
+      h(
+        "p",
+        { class: "small" },
+        h(
+          "a",
+          { href: `#/memory/${encodeURIComponent(agent.id)}`, onClick: closeDrawer },
+          "Open and edit this agent's memory",
+        ),
+      ),
       h("h3", {}, "Recent tasks"),
       detail.tasks.length > 0
         ? taskList(detail.tasks)
@@ -1428,9 +1444,14 @@ const lines = (text) =>
     .filter((line) => line.length > 0);
 
 async function renderPermissions(message) {
-  const [{ permissions, saved }, { refusals }] = await Promise.all([
+  const [{ permissions, saved }, { refusals }, github] = await Promise.all([
     api("/permissions"),
     api("/refusals?limit=100"),
+    api("/connectors/github").catch((error) => ({
+      connected: false,
+      repos: [],
+      error: error.message,
+    })),
   ]);
   const checkbox = (checked, label, hint) => {
     const input = h("input", { type: "checkbox", checked });
@@ -1463,6 +1484,78 @@ async function renderPermissions(message) {
     placeholder: "owner/name",
   });
   repos.value = permissions.github.repos.join("\n");
+  // Ticking a repository adds it to the list above; Save stores it.
+  const repoPicker = github.repos.map((repo) => {
+    const box = checkbox(
+      lines(repos.value).includes(repo.fullName),
+      repo.fullName,
+      `${repo.private ? "private" : "public"}${repo.canPush ? "" : ", the token cannot push here"}`,
+    );
+    box.input.addEventListener("change", () => {
+      const current = lines(repos.value).filter((name) => name !== repo.fullName);
+      repos.value = (box.input.checked ? [...current, repo.fullName] : current).join("\n");
+    });
+    return box.row;
+  });
+  const tokenInput = h("input", {
+    type: "password",
+    autocomplete: "off",
+    "aria-label": "GitHub token",
+    placeholder: "github_pat_...",
+  });
+  const githubError = h("p", { class: "form-error", role: "alert", hidden: true });
+  const githubCall = async (path, options, done) => {
+    try {
+      await api(path, options);
+      await renderPermissions(done);
+    } catch (error) {
+      githubError.textContent = error.message;
+      githubError.hidden = false;
+    }
+  };
+  const githubPanel = h(
+    "div",
+    { class: "panel permissions-form" },
+    h("h2", {}, "GitHub connection"),
+    github.connected
+      ? h(
+          "p",
+          {},
+          `Connected${github.account ? ` as ${github.account}` : " with the server's token"}. Agents can read the repositories it can see. `,
+          github.source === "owner"
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  onClick: () =>
+                    githubCall("/connectors/github", { method: "DELETE" }, "GitHub disconnected."),
+                },
+                "Disconnect",
+              )
+            : null,
+        )
+      : h(
+          "form",
+          {
+            onSubmit: (event) => {
+              event.preventDefault();
+              githubCall(
+                "/connectors/github",
+                { method: "POST", body: JSON.stringify({ token: tokenInput.value }) },
+                "GitHub connected. It is read-only until you tick repositories below and save.",
+              );
+            },
+          },
+          h(
+            "p",
+            { class: "muted" },
+            "Paste a fine-grained GitHub token. Give it Contents and Pull requests (read and write) and Checks and Commit statuses (read) on the repositories you want. It stays on this server and agents never see it.",
+          ),
+          tokenInput,
+          h("p", {}, h("button", { type: "submit" }, "Connect GitHub")),
+        ),
+    githubError,
+  );
   const hosts = h("textarea", { rows: "6", "aria-label": "Hosts shell commands may reach" });
   hosts.value = permissions.shellHosts.join("\n");
   const rules = h("textarea", {
@@ -1509,13 +1602,19 @@ async function renderPermissions(message) {
         "div",
         { style: "display: grid; gap: 16px" },
         message ? h("div", { class: "notice", role: "status" }, message) : null,
+        githubPanel,
         h(
           "form",
           { class: "panel permissions-form", onSubmit: save },
           h("h2", {}, "Allowed"),
           toggles.map((toggle) => toggle.row),
           h("h2", {}, "GitHub"),
-          h("p", { class: "muted" }, "Repositories agents may write to, one owner/name per line."),
+          h(
+            "p",
+            { class: "muted" },
+            "Repositories agents may write to (push branches, open pull requests, merge with green checks). None means read-only.",
+          ),
+          repoPicker,
           repos,
           githubToggles.map((toggle) => toggle.row),
           h("h2", {}, "Network for shell commands"),
@@ -1928,6 +2027,265 @@ async function renderDeliverables() {
       goals.length === 0
         ? h("div", { class: "panel empty" }, h("p", {}, "No goals yet. Ask the CEO for something."))
         : h("div", { class: "deliverables" }, cards),
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Memory: the company handbook and each agent's private memory
+// ---------------------------------------------------------------------------
+
+const MEMORY_KIND_LABELS = {
+  memory: "Memory",
+  prompt: "Rule",
+  skill: "Procedure",
+  subagent: "Helper",
+};
+
+const MEMORY_ORIGIN_LABELS = {
+  owner: "You",
+  agent: "The agent, during work",
+  chat: "Noticed in your chats",
+  dream: "Dreaming",
+  import: "Imported from old notes",
+  undo: "Undo",
+};
+
+function describeOrigin(origin) {
+  if (!origin) {
+    return "Unknown";
+  }
+  const label = MEMORY_ORIGIN_LABELS[origin.kind] ?? origin.kind;
+  const parts = [label];
+  if (origin.note) {
+    parts.push(`“${origin.note}”`);
+  }
+  if (origin.ref) {
+    parts.push(origin.ref);
+  }
+  parts.push(formatTime(origin.at));
+  return parts.join(" · ");
+}
+
+function memoryForm(entry, onSave, onCancel) {
+  const title = h("input", {
+    name: "title",
+    required: true,
+    maxlength: 200,
+    placeholder: "Title",
+    "aria-label": "Title",
+    value: entry?.title ?? "",
+  });
+  const content = h("textarea", {
+    name: "content",
+    required: true,
+    rows: 4,
+    maxlength: 20000,
+    placeholder: "What should be remembered",
+    "aria-label": "Content",
+  });
+  content.value = entry?.content ?? "";
+  const error = h("p", { class: "form-error", role: "alert", hidden: true });
+  const submit = async (event) => {
+    event.preventDefault();
+    try {
+      await onSave({ title: title.value.trim(), content: content.value.trim() });
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    }
+  };
+  return h(
+    "form",
+    { class: "memory-form", onSubmit: submit },
+    title,
+    content,
+    h(
+      "div",
+      { class: "row-actions" },
+      h("button", { type: "submit" }, entry ? "Save" : "Add"),
+      onCancel
+        ? h("button", { type: "button", class: "ghost", onClick: onCancel }, "Cancel")
+        : null,
+    ),
+    error,
+  );
+}
+
+async function renderMemory(message) {
+  const scope = state.memoryScope ?? "company";
+  const [overview, listing, history, agents] = await Promise.all([
+    api("/memory"),
+    api(`/memory/${encodeURIComponent(scope)}`),
+    api(`/memory/changes?scope=${encodeURIComponent(scope)}&limit=50`),
+    api("/agents"),
+  ]);
+  const counts = new Map(overview.scopes.map((row) => [row.scope, row.entries]));
+  const isHandbook = scope === "company";
+  const scopeLabel = isHandbook ? "Company handbook" : scope;
+  const send = async (edits, summary) => {
+    const result = await api(`/memory/${encodeURIComponent(scope)}`, {
+      method: "POST",
+      body: JSON.stringify({ edits, ...(summary ? { summary } : {}) }),
+    });
+    const refused = result.edits.find((edit) => !edit.applied);
+    if (refused) {
+      throw new Error(refused.error ?? "The change was refused.");
+    }
+  };
+  const undo = async (change) => {
+    try {
+      const result = await api(`/memory/changes/${encodeURIComponent(change.id)}/undo`, {
+        method: "POST",
+      });
+      const skipped = result.edits.filter((edit) => !edit.applied);
+      await renderMemory(
+        skipped.length === 0
+          ? `Undone: ${change.summary}.`
+          : `Undone in part. ${skipped.length} entry changed again since and was left as it is.`,
+      );
+    } catch (error) {
+      await renderMemory(error.message);
+    }
+  };
+
+  const tabs = h(
+    "div",
+    { class: "memory-scopes", role: "tablist" },
+    h(
+      "a",
+      { href: "#/memory/company", class: isHandbook ? "active" : "", role: "tab" },
+      `Handbook (${counts.get("company") ?? 0})`,
+    ),
+    agents.agents.map((agent) =>
+      h(
+        "a",
+        {
+          href: `#/memory/${encodeURIComponent(agent.id)}`,
+          class: scope === agent.id ? "active" : "",
+          role: "tab",
+        },
+        `${agent.title ?? agent.role} (${counts.get(`agent:${agent.id}`) ?? 0})`,
+      ),
+    ),
+  );
+
+  const entryCard = (entry) => {
+    const card = h("article", { class: "memory-entry" });
+    const show = () => {
+      card.replaceChildren();
+      append(card, [
+        h(
+          "header",
+          {},
+          h(
+            "span",
+            { class: "status status-queued" },
+            MEMORY_KIND_LABELS[entry.kind] ?? entry.kind,
+          ),
+          " ",
+          h("strong", {}, entry.title),
+          entry.locked ? h("span", { class: "muted small" }, " · kept as you wrote it") : null,
+        ),
+        h("p", { class: "memory-content" }, entry.content),
+        typeof entry.reference?.command === "string"
+          ? h("p", { class: "small" }, h("code", {}, entry.reference.command))
+          : null,
+        h("p", { class: "muted small" }, `From: ${describeOrigin(entry.origin)}`),
+        h(
+          "div",
+          { class: "row-actions" },
+          h("button", { type: "button", class: "ghost", onClick: edit }, "Edit"),
+          h("button", { type: "button", class: "ghost", onClick: remove }, "Remove"),
+        ),
+      ]);
+    };
+    const edit = () => {
+      card.replaceChildren(
+        memoryForm(
+          entry,
+          async (fields) => {
+            await send([{ action: "update", kind: entry.kind, id: entry.id, ...fields }]);
+            await renderMemory(`Saved “${fields.title}”.`);
+          },
+          show,
+        ),
+      );
+    };
+    const remove = async () => {
+      try {
+        await send([{ action: "delete", kind: entry.kind, id: entry.id }]);
+        await renderMemory(`Removed “${entry.title}”. Undo it below if that was a mistake.`);
+      } catch (error) {
+        await renderMemory(error.message);
+      }
+    };
+    show();
+    return card;
+  };
+
+  const changeRow = (change) =>
+    h(
+      "li",
+      { class: "memory-change" },
+      h(
+        "div",
+        {},
+        h("strong", {}, change.summary),
+        h(
+          "div",
+          { class: "muted small" },
+          `${MEMORY_ORIGIN_LABELS[change.origin?.kind] ?? change.actor.kind} · ${formatTime(change.createdAt)}`,
+          change.rationale ? ` · ${change.rationale}` : "",
+          change.undoneBy ? " · undone" : "",
+        ),
+      ),
+      change.undoneBy || change.undoOf
+        ? null
+        : h("button", { type: "button", class: "ghost", onClick: () => undo(change) }, "Undo"),
+    );
+
+  setView(
+    h(
+      "div",
+      {},
+      h("h1", {}, "Memory"),
+      h(
+        "p",
+        { class: "subtitle" },
+        "What the company remembers. The handbook is read by every agent; each agent also keeps its own memory from its work. Your edits are kept as you wrote them, and any change can be undone.",
+      ),
+      tabs,
+      h(
+        "div",
+        { style: "display: grid; gap: 16px" },
+        message ? h("div", { class: "notice", role: "status" }, message) : null,
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, isHandbook ? "Add to the handbook" : `Add to ${scopeLabel}'s memory`),
+          memoryForm(undefined, async (fields) => {
+            await send([{ action: "create", kind: "memory", ...fields }]);
+            await renderMemory(`Added “${fields.title}”.`);
+          }),
+        ),
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, scopeLabel),
+          listing.entries.length === 0
+            ? h("p", { class: "muted" }, "Nothing here yet.")
+            : h("div", { class: "memory-entries" }, listing.entries.map(entryCard)),
+        ),
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, "History"),
+          history.changes.length === 0
+            ? h("p", { class: "muted" }, "No changes yet.")
+            : h("ul", { class: "memory-changes" }, history.changes.map(changeRow)),
+        ),
+      ),
     ),
   );
 }

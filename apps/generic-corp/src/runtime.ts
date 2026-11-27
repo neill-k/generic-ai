@@ -28,6 +28,7 @@ import { type CompanyConfig, ceoOf, companyAgentSeeds, tierOf } from "./company.
 import { type CompanyCosts, summarizeCompanyCosts } from "./costs.js";
 import { type CompanyDrive, type DriveEntry, describeDriveForAgent } from "./drive.js";
 import { type CompanyEventHub, createCompanyEventHub } from "./events.js";
+import { type CompanyMemory, createCompanyMemory } from "./memory.js";
 import type { CompanyStorage } from "./storage.js";
 import {
   type ChatMessageRecord,
@@ -55,6 +56,11 @@ export interface CompanyRuntimeOptions {
    * cancelled goal's folder is kept and marked abandoned.
    */
   readonly drive?: CompanyDrive;
+  /**
+   * The company memory (handbook plus private memory per agent; see memory.ts). Defaults to one
+   * kept in the company's storage. Every agent turn gets its handbook and memory section.
+   */
+  readonly memory?: CompanyMemory;
   /** Cascade limits and goal options (judges, checks). */
   readonly cascade?: Omit<
     CreateDelegationCascadeOptions,
@@ -165,6 +171,7 @@ export interface CompanyRuntime {
   readonly agentChat: AgentChat;
   readonly events: CompanyEventHub;
   readonly drive?: CompanyDrive;
+  readonly memory: CompanyMemory;
   /** Seeds agents and recovers interrupted work. Call once before `start`. */
   initialize(): Promise<void>;
   /** Starts the queue worker that runs agent turns. */
@@ -188,7 +195,6 @@ export interface CompanyRuntime {
 
   listAgents(): Promise<readonly PersistentAgentRecord[]>;
   orgChart(): Promise<OrgChartNode>;
-  readMemory(agentId: string): Promise<string>;
 
   listTasks(options?: ListTasksOptions): Promise<readonly AgentTaskRecord[]>;
   board(options?: { readonly limit?: number }): Promise<readonly BoardColumn[]>;
@@ -361,6 +367,13 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
   const drive = options.drive;
   // Filled in once the cascade exists; the executor only runs after `start`.
   let agentChat: AgentChat | undefined;
+  const memory =
+    options.memory ??
+    createCompanyMemory({
+      kv: storage.kv,
+      now,
+      legacyNotes: (agentId) => directory.readMemory(agentId),
+    });
   const executor: AgentTaskExecutor = async (input) => {
     let prompt = input.prompt;
     if (drive !== undefined) {
@@ -372,7 +385,11 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     if (input.agentId === ceoId && agentChat !== undefined) {
       prompt = withCeoNotes(prompt, await agentChat.takeCeoNotes().catch(() => []));
     }
-    return options.executor(prompt === input.prompt ? input : { ...input, prompt });
+    const taskAt = input.prompt.search(/^## Task /m);
+    const memorySection = await memory.promptSection(input.agentId, {
+      query: taskAt === -1 ? input.prompt : input.prompt.slice(taskAt),
+    });
+    return options.executor({ ...input, prompt: withDriveSection(prompt, memorySection) });
   };
 
   const cascade = createDelegationCascade({
@@ -395,6 +412,8 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     onEvent,
     now,
     createId,
+    // Memory comes from the company memory (memory.ts), not the old notes file.
+    memoryFile: false,
   });
 
   agentChat = createAgentChat({
@@ -564,6 +583,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     agentChat: chat,
     events,
     ...(drive === undefined ? {} : { drive }),
+    memory,
 
     async initialize() {
       await drive?.ensure();
@@ -692,7 +712,6 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
 
     listAgents: () => directory.list({ includeRetired: true }),
     orgChart: buildOrgChart,
-    readMemory: (agentId) => directory.readMemory(agentId),
     listTasks,
 
     async board(boardOptions = {}) {

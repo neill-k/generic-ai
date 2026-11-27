@@ -430,6 +430,17 @@ describe("delegation cascade (R9)", () => {
     expect((await cascade.get("plan"))?.childTaskIds).toEqual(["plan.0.1"]);
   });
 
+  it("leaves the memory file out of prompts when memoryFile is off", async () => {
+    const { executor, calls } = scriptedExecutor({});
+    const { cascade, directory } = await openHarness(executor, { memoryFile: false });
+    await directory.appendMemory("analyst", "secret old note");
+    await cascade.submit({ agentId: "analyst", instruction: "Write", taskId: "plain" });
+    await cascade.drain();
+    expect(calls[0]?.prompt).not.toContain("context.md");
+    expect(calls[0]?.prompt).not.toContain("secret old note");
+    expect(calls[0]?.prompt).toContain("Your workspace is");
+  });
+
   it("keeps the task going until the validator passes", async () => {
     const { executor, calls } = scriptedExecutor({
       analyst: (_input, turn) => ({
