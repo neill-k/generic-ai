@@ -1,6 +1,7 @@
 import { useCallback, useState } from "preact/hooks";
 
 import { api, fileUrl, type GoalDetail } from "../api.js";
+import { PushToGithub } from "../components/PushToGithub.js";
 import {
   Avatar,
   Checklist,
@@ -134,6 +135,9 @@ export function GoalView({ goalId }: { goalId: string }) {
                 ))}
               </ul>
             )}
+            {data.files.length > 0 ? (
+              <PushToGithub goalId={data.goalId} title={data.title} />
+            ) : null}
           </section>
 
           <Conversation goal={data} onSent={goal.reload} />

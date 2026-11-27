@@ -199,3 +199,74 @@ export interface PauseView {
 export function fileUrl(path: string, download = false): string {
   return `/api/drive/file?path=${encodeURIComponent(path)}${download ? "&download=1" : ""}`;
 }
+
+export interface GithubPermissions {
+  repos: string[];
+  push: boolean;
+  openPullRequests: boolean;
+  merge: boolean;
+}
+
+export interface CompanyPermissions {
+  readOutside: boolean;
+  sendMessages: boolean;
+  spendMoney: boolean;
+  writeOutside: boolean;
+  github: GithubPermissions;
+  shellHosts: string[];
+  standingRules: string[];
+}
+
+export interface PermissionsView {
+  permissions: CompanyPermissions;
+  saved: boolean;
+}
+
+export interface RefusedAction {
+  id?: string;
+  at: string;
+  agentId?: string;
+  action: string;
+  category: string;
+  reason: string;
+}
+
+export interface GithubRepo {
+  fullName: string;
+  private: boolean;
+  defaultBranch: string;
+  canPush: boolean;
+  writable: boolean;
+}
+
+export interface GithubConnection {
+  connected: boolean;
+  account?: string;
+  source?: string;
+  connectedAt?: string;
+  scopes?: string[];
+  repos: GithubRepo[];
+}
+
+export interface SecretView {
+  name: string;
+  set: boolean;
+  source?: string;
+  updatedAt?: string;
+  usedBy: string[];
+  optional?: boolean;
+}
+
+export interface ToolkitView {
+  tools: { name: string; group: string; description: string }[];
+  webSearch: { provider: string; configured: boolean } | null;
+  connectors: {
+    id: string;
+    connector?: string;
+    state: string;
+    toolCount: number;
+    lastError?: string;
+    serverName?: string;
+  }[];
+  skills: { name: string; description: string }[];
+}
