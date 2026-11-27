@@ -49,6 +49,7 @@ export const INBOX_DIR = `${DRIVE_DIR}/inbox`;
 export const GOALS_DIR = `${DRIVE_DIR}/goals`;
 export const DELIVERABLES_DIR = "deliverables";
 export const ABANDONED_NOTE = "ABANDONED.md";
+export const HANDOFFS_DIR = "handoffs";
 
 /** Where the company's files live on disk. */
 export interface CompanyLayout {
@@ -192,6 +193,11 @@ export interface CompanyDrive {
     reason?: string,
   ): Promise<GoalFolderRecord | undefined>;
   getGoal(goalId: string): Promise<GoalFolderRecord | undefined>;
+  /**
+   * Saves an agent's whole result for the one who delegated the work, in the goal's
+   * `handoffs/` folder, and returns its company-root path.
+   */
+  saveHandoff(goalId: string, name: string, text: string): Promise<string>;
   /** Every goal folder with the files in its `deliverables/`, newest first. */
   deliverables(): Promise<readonly DeliverableShelfEntry[]>;
 }
@@ -624,6 +630,12 @@ export function createCompanyDrive(options: CreateCompanyDriveOptions): CompanyD
     },
 
     getGoal: loadGoal,
+
+    async saveHandoff(goalId, name, text) {
+      const relative = `${goalFolder(goalId)}/${HANDOFFS_DIR}/${safeSegment(name, "file name")}`;
+      await write(relative, new TextEncoder().encode(text), { overwrite: true });
+      return relative;
+    },
 
     async deliverables() {
       const goals = (await listGoals()).sort((left, right) =>
