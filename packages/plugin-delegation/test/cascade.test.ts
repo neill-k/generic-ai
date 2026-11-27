@@ -1185,6 +1185,7 @@ describe("delegate_task and finish_task tools", () => {
     expect(child?.goal?.definitionOfDone).toBe("A signed contract");
     expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual([
       "delegate_task",
+      "ask_agent",
       "submit_work",
       "declare_impossible",
       "ask_owner",
@@ -1206,6 +1207,7 @@ describe("delegate_task and finish_task tools", () => {
     await cascade.drain();
 
     expect(calls[0]?.tools?.map((tool) => tool.name)).toEqual([
+      "ask_agent",
       "submit_work",
       "declare_impossible",
       "ask_owner",
@@ -1772,6 +1774,75 @@ describe("goals on every request (ADR 0069)", () => {
     expect(calls[2]?.prompt).toContain("A: APAC");
     expect(calls[2]?.prompt).not.toContain("## New since your last step");
     expect((await cascade.get("m"))?.outputText).toBe("Done for APAC");
+  });
+
+  it("lets any agent ask any other agent a question, outside its part of the org chart", async () => {
+    const { executor, calls, results } = toolExecutor({
+      analyst: async (input, use, turn) => {
+        if (turn === 1) {
+          // vp-ops is not in the analyst's chain: delegating fails, asking works.
+          await use("delegate_task", { tasks: [{ to: "vp-ops", task: "Book it" }] });
+          await use("ask_agent", { to: "analyst", question: "Me?" });
+          await use("ask_agent", { to: "vp-ops", question: "What is the travel budget?" });
+          await use("submit_work", { summary: "too early" });
+          return "asked";
+        }
+        const answered = input.prompt.includes("$4,000");
+        await use("submit_work", { summary: answered ? "Used $4,000" : "no answer" });
+        return "";
+      },
+      "vp-ops": async (input, use) => {
+        expect(input.prompt).toContain('A question from "analyst"');
+        await use("submit_work", { summary: "The travel budget is $4,000." });
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, { handIn: "tool" });
+    await cascade.submit({ agentId: "analyst", instruction: "Plan travel", taskId: "t" });
+    await cascade.drain();
+
+    const analystTools = calls[0]?.tools?.map((tool) => tool.name) ?? [];
+    expect(analystTools).toContain("ask_agent");
+    expect(analystTools).not.toContain("delegate_task");
+    expect(calls[0]?.prompt).toContain('"vp-ops": VP Operations');
+    const replies = results.filter((result) => result.agentId === "analyst");
+    expect(replies[1]?.text).toBe("You cannot ask yourself.");
+    expect(replies[2]?.isError).toBeUndefined();
+    expect(replies[3]?.isError).toBe(true);
+
+    const child = await cascade.get("t.0.1");
+    expect(child).toMatchObject({ agentId: "vp-ops", question: true, delegatedBy: "analyst" });
+    expect(child?.status).toBe("succeeded");
+    const resumed = calls.filter((call) => call.agentId === "analyst")[1];
+    expect(resumed?.prompt).toContain('### Answer from "vp-ops": succeeded');
+    expect(resumed?.prompt).toContain("Question: What is the travel budget?");
+    expect((await cascade.get("t"))?.outputText).toBe("Used $4,000");
+  });
+
+  it("refuses a question to an agent already waiting on this work", async () => {
+    const { executor, results } = toolExecutor({
+      ceo: async (_input, use, turn) => {
+        if (turn === 1) {
+          await use("delegate_task", { tasks: [{ to: "vp-research", task: "Research" }] });
+          return "";
+        }
+        await use("submit_work", { summary: "done" });
+        return "";
+      },
+      "vp-research": async (_input, use) => {
+        await use("ask_agent", { to: "ceo", question: "Which market?" });
+        await use("submit_work", { summary: "researched" });
+        return "";
+      },
+    });
+    const { cascade } = await openHarness(executor, { handIn: "tool" });
+    await cascade.submit({ agentId: "ceo", instruction: "Grow", taskId: "g" });
+    await cascade.drain();
+
+    const asked = results.find((result) => result.tool === "ask_agent");
+    expect(asked?.isError).toBe(true);
+    expect(asked?.text).toMatch(/already waiting on this work/);
+    expect((await cascade.get("g"))?.status).toBe("succeeded");
   });
 
   it("picks judges per agent so the judge can differ from the worker's model", async () => {

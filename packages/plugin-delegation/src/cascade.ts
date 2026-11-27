@@ -107,6 +107,11 @@ export interface DelegationDirective {
   readonly to: string;
   readonly task: string;
   readonly goal?: AgentTaskGoal;
+  /**
+   * A question asked with `ask_agent` rather than work handed down. Any active agent may be
+   * asked, wherever it sits in the org chart; work itself follows the chart (`delegationScope`).
+   */
+  readonly question?: boolean;
 }
 
 export interface TaskValidationInput {
@@ -201,6 +206,8 @@ export const DECLARE_IMPOSSIBLE_TOOL_NAME = "declare_impossible";
 export const SET_GOAL_TOOL_NAME = "set_goal";
 /** Writes a question down for the owner without waiting for the answer. */
 export const ASK_OWNER_TOOL_NAME = "ask_owner";
+/** Asks any other agent a question; the asker gets a new turn with the answer. */
+export const ASK_AGENT_TOOL_NAME = "ask_agent";
 /**
  * The fenced-JSON name `declare_impossible` replaced. Still read, with the same review.
  * @deprecated Use {@link DECLARE_IMPOSSIBLE_TOOL_NAME}.
@@ -307,6 +314,26 @@ const ASK_OWNER_PARAMETERS: JsonObject = {
   },
   required: ["question", "assumption"],
 };
+
+const ASK_AGENT_PARAMETERS: JsonObject = {
+  type: "object",
+  properties: {
+    to: { type: "string", description: "The id of the agent to ask." },
+    question: {
+      type: "string",
+      description: "The question, with the context they need to answer it.",
+    },
+  },
+  required: ["to", "question"],
+};
+
+/** What a child task asked with `ask_agent` must deliver. */
+const QUESTION_DEFINITION_OF_DONE =
+  "A direct answer to the question, handed in with submit_work. Answer from what you know or " +
+  "can find out quickly; do not take on other work.";
+
+/** At most this many agents are listed in a prompt as people the agent can ask. */
+const MAX_LISTED_AGENTS = 40;
 
 /** What a reviewer is shown when an agent says its task is impossible. */
 export interface ImpossibilityReviewInput {
@@ -862,26 +889,34 @@ export function createDelegationCascade(
   // Delegation
   // ---------------------------------------------------------------------------
 
+  /**
+   * Why `from` may not hand `to` this task, or undefined. Work follows the org chart
+   * (`delegationScope`); a question (`ask_agent`) may go to any active agent. Both refuse a retired
+   * agent, yourself, and anyone up the chain already waiting on this work.
+   */
   async function canDelegate(
     from: PersistentAgentRecord,
     to: PersistentAgentRecord,
     task: AgentTaskRecord,
+    question = false,
   ): Promise<string | undefined> {
     if (to.status !== "active") {
       return `Agent "${to.id}" is retired.`;
     }
     if (to.id === from.id) {
-      return "You cannot delegate to yourself.";
+      return question ? "You cannot ask yourself." : "You cannot delegate to yourself.";
     }
     // Never delegate back up the chain of the work itself: that would deadlock.
     let cursor: AgentTaskRecord | undefined = task;
     while (cursor?.parentTaskId !== undefined) {
       cursor = await load(cursor.parentTaskId);
       if (cursor?.agentId === to.id) {
-        return `Agent "${to.id}" is already waiting on this work; delegating to it would deadlock.`;
+        return question
+          ? `Agent "${to.id}" is already waiting on this work and cannot answer until you finish; put the question in your hand-in instead.`
+          : `Agent "${to.id}" is already waiting on this work; delegating to it would deadlock.`;
       }
     }
-    if (scope === "any") {
+    if (question || scope === "any") {
       return undefined;
     }
     if (scope === "direct-reports") {
@@ -912,7 +947,7 @@ export function createDelegationCascade(
         problems.push(`There is no agent "${directive.to}".`);
         continue;
       }
-      const problem = await canDelegate(agent, target, task);
+      const problem = await canDelegate(agent, target, task, directive.question === true);
       if (problem !== undefined) {
         problems.push(problem);
       }
@@ -942,6 +977,7 @@ export function createDelegationCascade(
         ...(task.actor === undefined ? {} : { actor: task.actor }),
         instruction: directive.task,
         ...(childGoal === undefined ? {} : { goal: childGoal }),
+        ...(directive.question === true ? { question: true } : {}),
         status: "queued",
         round: 0,
         attempts: 0,
@@ -967,6 +1003,7 @@ export function createDelegationCascade(
         childTaskId: child.taskId,
         agentId: child.agentId,
         task: child.instruction,
+        ...(child.question === true ? { question: true } : {}),
       });
       if (child.version === 1) {
         await logEvent(child, "run.created", {
@@ -1477,6 +1514,13 @@ export function createDelegationCascade(
   // Turn tools
   // ---------------------------------------------------------------------------
 
+  /** Every other active agent: anyone can be asked a question with `ask_agent`. */
+  async function askableAgents(agent: PersistentAgentRecord): Promise<PersistentAgentRecord[]> {
+    return (await directory.list()).filter(
+      (candidate) => candidate.id !== agent.id && candidate.status === "active",
+    );
+  }
+
   async function delegatableAgents(agent: PersistentAgentRecord): Promise<PersistentAgentRecord[]> {
     const candidates =
       scope === "direct-reports"
@@ -1659,6 +1703,61 @@ export function createDelegationCascade(
       });
     }
 
+    const askable = await askableAgents(agent);
+    if (task.depth < limits.maxDepth && askable.length > 0) {
+      tools.push({
+        name: ASK_AGENT_TOOL_NAME,
+        label: "Ask Agent",
+        description:
+          "Ask any other agent in the company a question, wherever they sit in the org chart. " +
+          "They answer in their own turn; you get a new turn with the answer once you end this " +
+          "one. Use delegate_task, not this, to hand off work.",
+        promptSnippet: "ask_agent: ask any agent a question and get the answer in your next turn",
+        parameters: ASK_AGENT_PARAMETERS,
+        effects: ["handoff.write"],
+        async execute(params) {
+          const refusal = blocked("ask another agent");
+          if (refusal !== undefined) {
+            return { text: refusal, isError: true };
+          }
+          const to = params["to"];
+          const question = params["question"];
+          if (typeof to !== "string" || to.trim().length === 0) {
+            return { text: 'Pass "to": the id of the agent to ask.', isError: true };
+          }
+          if (typeof question !== "string" || question.trim().length === 0) {
+            return { text: 'Pass the "question".', isError: true };
+          }
+          if (delegations.length + 1 > limits.maxChildren) {
+            return {
+              text: `You can delegate or ask at most ${limits.maxChildren} times in one turn.`,
+              isError: true,
+            };
+          }
+          const target = await directory.get(to.trim());
+          if (target === undefined) {
+            return { text: `There is no agent "${to.trim()}".`, isError: true };
+          }
+          const problem = await canDelegate(agent, target, task, true);
+          if (problem !== undefined) {
+            return { text: problem, isError: true };
+          }
+          delegations.push({
+            to: target.id,
+            task: question.trim(),
+            definitionOfDone: QUESTION_DEFINITION_OF_DONE,
+            question: true,
+          });
+          return {
+            text:
+              `Your question for "${target.id}" goes out when you end this turn. Ask others or ` +
+              "delegate more if you need to, then end your turn; you will get a new turn with the answers.",
+            details: { asked: target.id },
+          };
+        },
+      });
+    }
+
     tools.push({
       name: SUBMIT_WORK_TOOL_NAME,
       label: "Submit Work",
@@ -1676,7 +1775,7 @@ export function createDelegationCascade(
         }
         if (delegations.length > 0) {
           return {
-            text: "You delegated work this turn; wait for the results before handing in.",
+            text: "You delegated work or asked a question this turn; wait for the results before handing in.",
             isError: true,
           };
         }
@@ -2005,6 +2104,21 @@ export function createDelegationCascade(
     } else {
       lines.push("You have nobody to delegate to; do the work yourself.");
     }
+    const delegatableIds = new Set(delegatable.map((candidate) => candidate.id));
+    const others = (await askableAgents(agent)).filter(
+      (candidate) => !delegatableIds.has(candidate.id),
+    );
+    if (others.length > 0 && task.depth < limits.maxDepth) {
+      lines.push(
+        `Anyone in the company can be asked a question with ${ASK_AGENT_TOOL_NAME}, including:`,
+      );
+      for (const other of others.slice(0, MAX_LISTED_AGENTS)) {
+        lines.push(`- "${other.id}": ${other.title ?? other.role}`);
+      }
+      if (others.length > MAX_LISTED_AGENTS) {
+        lines.push(`- and ${others.length - MAX_LISTED_AGENTS} more`);
+      }
+    }
 
     if (options.memoryFile === false) {
       lines.push("", `Your workspace is ${agent.workspacePath}.`);
@@ -2022,7 +2136,12 @@ export function createDelegationCascade(
     }
 
     lines.push("", `## Task ${task.taskId}`);
-    if (task.delegatedBy !== undefined) {
+    if (task.question === true) {
+      lines.push(
+        `A question from "${task.delegatedBy ?? "another agent"}". Answer it directly and hand ` +
+          `the answer in with ${SUBMIT_WORK_TOOL_NAME}; do not take on other work.`,
+      );
+    } else if (task.delegatedBy !== undefined) {
       lines.push(`Assigned by "${task.delegatedBy}".`);
     }
     lines.push("", task.instruction);
@@ -2050,12 +2169,14 @@ export function createDelegationCascade(
 
     const finished = await childrenOf(task, task.pendingChildTaskIds);
     if (finished.length > 0) {
-      lines.push("", "## Results from the work you delegated");
+      lines.push("", "## Results from the work you delegated and questions you asked");
       for (const child of finished) {
         lines.push(
           "",
-          `### "${child.agentId}": ${child.status}`,
-          `Task: ${clip(child.instruction, 500)}`,
+          child.question === true
+            ? `### Answer from "${child.agentId}": ${child.status}`
+            : `### "${child.agentId}": ${child.status}`,
+          `${child.question === true ? "Question" : "Task"}: ${clip(child.instruction, 500)}`,
         );
         if (child.outputText !== undefined && child.outputText.length > 0) {
           lines.push("", ...(await childResultLines(child, child.outputText)));
@@ -2753,7 +2874,12 @@ export function parseDelegationEntries(raw: JsonValue): ParsedDirectives {
     }
     const fullGoal: AgentTaskGoal | undefined =
       spec === undefined ? goal : { ...(goal ?? {}), spec };
-    delegations.push({ to, task, ...(fullGoal === undefined ? {} : { goal: fullGoal }) });
+    delegations.push({
+      to,
+      task,
+      ...(fullGoal === undefined ? {} : { goal: fullGoal }),
+      ...(entry["question"] === true ? { question: true } : {}),
+    });
   }
   return { delegations };
 }
