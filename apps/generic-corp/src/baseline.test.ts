@@ -200,9 +200,11 @@ describe("baseline comparison", () => {
     for (const context of singleRequests) {
       expect(promptOf(context)).not.toContain("## Your memory");
       expect(toolNames(context)).not.toContain("python");
+      expect(toolNames(context)).not.toContain("remember");
     }
     for (const context of companyRequests) {
       expect(promptOf(context)).toContain("## Your memory");
+      expect(toolNames(context)).toContain("remember");
       // The Python workspace is on whenever this host can run Python 3.
       if (checkPython("python3") === undefined) {
         expect(toolNames(context)).toContain("python");

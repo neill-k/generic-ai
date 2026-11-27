@@ -33,7 +33,7 @@ export const BASELINE_FEATURE_LABELS: Readonly<Record<BaselineFeature, string>> 
   delegation: "delegation to a team",
   offload: "offloading large tool results to files",
   rlm: "the Python workspace (RLM)",
-  memory: "agent memory files",
+  memory: "agent memory",
 });
 
 export interface BaselineConfig {

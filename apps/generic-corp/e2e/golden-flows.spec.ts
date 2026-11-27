@@ -38,7 +38,7 @@ function sentEmails(): unknown[] {
 }
 
 async function send(page: import("@playwright/test").Page, text: string) {
-  await page.goto(`${server.url}/#/chat`);
+  await page.goto(`${server.url}/classic/#/chat`);
   // A fresh load of #/chat opens a new conversation, so each flow reads only its own thread.
   await expect(page.locator("#company-name")).toHaveText("Scripted Corp");
   await page.getByLabel("Message to the CEO").fill(text);
@@ -92,4 +92,25 @@ test("permissions: an action outside them is refused and listed, and runs once a
   await send(page, "Email the customer that the order shipped, please.");
   await expect(page.locator("#messages")).toContainText("Email sent.", { timeout: 30_000 });
   expect(sentEmails()).toEqual([{ to: "customer@example.com", body: "Your order shipped today." }]);
+});
+
+test("memory: the owner adds to the handbook, edits it, and undoes a removal", async ({ page }) => {
+  await page.goto(`${server.url}/classic/#/memory`);
+  await expect(page.locator("h1")).toHaveText("Memory");
+  await page.getByLabel("Title").fill("How Neill likes updates");
+  await page.getByLabel("Content").fill("Short, plain, on his phone.");
+  await page.getByRole("button", { name: "Add" }).click();
+  const entries = page.locator(".memory-entries");
+  await expect(entries).toContainText("Short, plain, on his phone.");
+  await expect(entries).toContainText("From: You");
+
+  await entries.getByRole("button", { name: "Edit" }).click();
+  await entries.getByLabel("Content").fill("Short and plain.");
+  await entries.getByRole("button", { name: "Save" }).click();
+  await expect(entries).toContainText("Short and plain.");
+
+  await entries.getByRole("button", { name: "Remove" }).click();
+  await expect(page.locator("#view")).toContainText("Nothing here yet.");
+  await page.locator(".memory-change").first().getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".memory-entries")).toContainText("Short and plain.");
 });

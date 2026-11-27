@@ -17,6 +17,13 @@ import { CheckupError, type CompanyCheckup } from "./checkup.js";
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import { DriveError, type DriveFile } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
+import { goalDetailView, listGoalViews } from "./goal-views.js";
+import {
+  type MemoryEdit,
+  MemoryError,
+  parseMemoryScope,
+  REFINEMENT_KIND_NAMES,
+} from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
 import type { RefusalLog } from "./refusals.js";
@@ -195,6 +202,68 @@ function errorResponse(c: Context, status: number, message: string) {
   return c.json({ error: message }, status as 400);
 }
 
+const MAX_MEMORY_EDITS = 50;
+
+function readMemoryEdits(raw: unknown): MemoryEdit[] {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_MEMORY_EDITS) {
+    throw new ApiError(400, `Send edits as a list of 1 to ${MAX_MEMORY_EDITS} changes.`);
+  }
+  return raw.map((value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      throw new ApiError(400, "Each edit must be an object.");
+    }
+    const edit = value as Record<string, unknown>;
+    const action = edit["action"];
+    const kind = edit["kind"] ?? "memory";
+    if (action !== "create" && action !== "update" && action !== "delete") {
+      throw new ApiError(400, "Each edit needs an action: create, update or delete.");
+    }
+    if (typeof kind !== "string" || !REFINEMENT_KIND_NAMES.includes(kind)) {
+      throw new ApiError(400, `kind must be one of ${REFINEMENT_KIND_NAMES.join(", ")}.`);
+    }
+    const text = (key: string) => {
+      const field = edit[key];
+      if (field === undefined) {
+        return undefined;
+      }
+      if (typeof field !== "string") {
+        throw new ApiError(400, `${key} must be text.`);
+      }
+      return field;
+    };
+    const record = (key: string) => {
+      const field = edit[key];
+      if (field === undefined) {
+        return undefined;
+      }
+      if (typeof field !== "object" || field === null || Array.isArray(field)) {
+        throw new ApiError(400, `${key} must be an object.`);
+      }
+      return field as Record<string, unknown>;
+    };
+    const id = text("id");
+    const title = text("title");
+    const content = text("content");
+    const path = text("path");
+    const reference = record("reference");
+    const args = record("arguments");
+    return {
+      action,
+      kind: kind as MemoryEdit["kind"],
+      ...(id === undefined ? {} : { id }),
+      ...(title === undefined ? {} : { title }),
+      ...(content === undefined ? {} : { content }),
+      ...(path === undefined ? {} : { path }),
+      ...(reference === undefined ? {} : { reference }),
+      ...(args === undefined ? {} : { arguments: args }),
+    } as MemoryEdit;
+  });
+}
+
+function ownerId(c: Context<ApiEnv>): { id?: string } {
+  return { id: toRunActor(c.get("auth")).subjectId };
+}
+
 async function readJsonObject(c: Context): Promise<Record<string, unknown>> {
   let parsed: unknown;
   try {
@@ -284,6 +353,14 @@ function sseFrame(event: CompanyEvent): string {
   return `id: ${event.id}\nevent: ${event.type}\ndata: ${JSON.stringify({ at: event.at, ...event.data })}\n\n`;
 }
 
+/**
+ * The same event as an unnamed frame with its type in the data, so one `onmessage` handler sees
+ * every event (`EventSource` has no wildcard listener). Used by the app with `?unnamed=1`.
+ */
+function unnamedSseFrame(event: CompanyEvent): string {
+  return `id: ${event.id}\ndata: ${JSON.stringify({ type: event.type, at: event.at, data: event.data })}\n\n`;
+}
+
 export function createCompanyApi(
   runtime: CompanyRuntime,
   options: CompanyApiOptions,
@@ -297,6 +374,9 @@ export function createCompanyApi(
     }
     if (error instanceof DriveError) {
       return errorResponse(c, driveStatus(error), error.message);
+    }
+    if (error instanceof MemoryError) {
+      return errorResponse(c, error.status, error.message);
     }
     if (error instanceof RangeError) {
       return errorResponse(c, 404, error.message);
@@ -362,6 +442,22 @@ export function createCompanyApi(
       goals: (runtime.company.goals ?? []).map(describeCompanyGoal),
     }),
   );
+
+  // --- Goals the owner has set: the home screen (decision 47) ------------
+
+  app.get("/goal-views", async (c) =>
+    c.json({
+      goals: await listGoalViews(runtime, { limit: readLimit(c.req.query("limit"), 200, 2000) }),
+    }),
+  );
+
+  app.get("/goal-views/:goalId", async (c) => {
+    const goal = await goalDetailView(runtime, c.req.param("goalId"));
+    if (goal === undefined) {
+      throw new ApiError(404, "Goal not found.");
+    }
+    return c.json({ goal });
+  });
 
   // --- Secrets -------------------------------------------------------------
 
@@ -632,14 +728,18 @@ export function createCompanyApi(
       throw new ApiError(404, `Agent ${agentId} was not found.`);
     }
     const [memory, tasks, reports, chain] = await Promise.all([
-      runtime.readMemory(agentId).catch(() => ""),
+      runtime.memory.list(parseMemoryScope(agentId)),
       runtime.listTasks({ agentId, limit: 50 }),
       runtime.directory.directReports(agentId),
       runtime.directory.managementChain(agentId),
     ]);
     return c.json({
       agent,
-      memory,
+      memory:
+        memory.length === 0
+          ? ""
+          : memory.map((entry) => `- ${entry.title}: ${entry.content}`).join("\n"),
+      memoryEntries: memory,
       reports: reports.map((report) => report.id),
       managementChain: chain.map((manager) => manager.id),
       tasks: tasks.map(summarizeTask),
@@ -649,6 +749,66 @@ export function createCompanyApi(
   app.get("/agents/:agentId/costs", async (c) =>
     c.json(await runtime.costs({ agentId: c.req.param("agentId") })),
   );
+
+  // --- Memory: the company handbook and each agent's private memory --------
+
+  app.get("/memory", async (c) => {
+    const [handbook, scopes] = await Promise.all([
+      runtime.memory.list("company"),
+      runtime.memory.scopes(),
+    ]);
+    return c.json({ handbook, scopes });
+  });
+
+  app.get("/memory/changes", async (c) => {
+    const rawScope = c.req.query("scope");
+    const rawLimit = Number(c.req.query("limit") ?? "100");
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 500) : 100;
+    return c.json({
+      changes: await runtime.memory.changes({
+        ...(rawScope === undefined || rawScope === "" ? {} : { scope: parseMemoryScope(rawScope) }),
+        limit,
+      }),
+    });
+  });
+
+  app.get("/memory/changes/:changeId", async (c) => {
+    const change = await runtime.memory.getChange(c.req.param("changeId"));
+    if (change === undefined) {
+      throw new ApiError(404, "That memory change was not found.");
+    }
+    return c.json({ change });
+  });
+
+  app.post("/memory/changes/:changeId/undo", async (c) => {
+    requireManage(c);
+    const result = await runtime.memory.undo(c.req.param("changeId"), {
+      kind: "owner",
+      ...ownerId(c),
+    });
+    return c.json(result);
+  });
+
+  app.get("/memory/:scope", async (c) => {
+    const scope = parseMemoryScope(c.req.param("scope"));
+    return c.json({ scope, entries: await runtime.memory.list(scope) });
+  });
+
+  app.post("/memory/:scope", async (c) => {
+    requireManage(c);
+    const scope = parseMemoryScope(c.req.param("scope"));
+    const body = await readJsonObject(c);
+    const edits = readMemoryEdits(body["edits"]);
+    const summary = typeof body["summary"] === "string" ? body["summary"].slice(0, 300) : undefined;
+    const result = await runtime.memory.apply({
+      scope,
+      actor: { kind: "owner", ...ownerId(c) },
+      origin: { kind: "owner" },
+      edits,
+      ...(summary === undefined ? {} : { summary }),
+    });
+    return c.json(result, result.change === undefined ? 400 : 200);
+  });
 
   // --- Chat with the CEO ---------------------------------------------------
 
@@ -910,6 +1070,7 @@ export function createCompanyApi(
 
   app.get("/events", (c) => {
     const lastEventId = Number(c.req.header("last-event-id") ?? c.req.query("since") ?? "0");
+    const frame = c.req.query("unnamed") === "1" ? unnamedSseFrame : sseFrame;
     const encoder = new TextEncoder();
     let unsubscribe: (() => void) | undefined;
     let keepAlive: ReturnType<typeof setInterval> | undefined;
@@ -933,10 +1094,10 @@ export function createCompanyApi(
         send(`retry: 3000\n: connected ${runtime.events.lastId}\n\n`);
         if (Number.isInteger(lastEventId) && lastEventId > 0) {
           for (const event of runtime.events.since(lastEventId)) {
-            send(sseFrame(event));
+            send(frame(event));
           }
         }
-        unsubscribe = runtime.events.subscribe((event) => send(sseFrame(event)));
+        unsubscribe = runtime.events.subscribe((event) => send(frame(event)));
         keepAlive = setInterval(() => send(": keep-alive\n\n"), keepAliveMs);
         c.req.raw.signal.addEventListener("abort", () => {
           close();

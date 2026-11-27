@@ -194,8 +194,8 @@ export interface CompanyEvalExecutorOptions {
   readonly modelAuth?: CompanyModelAuth;
   /**
    * Feature switches for the baseline comparison: `offload: false` keeps large tool results in
-   * context, `rlm: false` leaves out the Python workspace, `memory: false` leaves agents' memory
-   * files out of their prompts. Everything is on by default.
+   * context, `rlm: false` leaves out the Python workspace, `memory: false` gives agents no memory
+   * (no handbook or memory section, no remember and forget tools). Everything is on by default.
    */
   readonly features?: {
     readonly offload?: boolean;

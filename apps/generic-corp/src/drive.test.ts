@@ -162,6 +162,16 @@ describe("company drive", () => {
     expect(await drive.closeGoal("unknown", "done")).toBeUndefined();
   });
 
+  it("saves hand-offs in the goal's folder", async () => {
+    const drive = createCompanyDrive({ layout: companyLayout(tempDir()) });
+    await drive.ensure();
+    const saved = await drive.saveHandoff("g1", "analyst-g1.0.1.md", "long result");
+    expect(saved).toBe("drive/goals/g1/handoffs/analyst-g1.0.1.md");
+    await drive.saveHandoff("g1", "analyst-g1.0.1.md", "retried result");
+    expect(readFileSync((await drive.file(saved)).absolutePath, "utf8")).toBe("retried result");
+    await expect(drive.saveHandoff("g1", "../escape.md", "x")).rejects.toBeInstanceOf(DriveError);
+  });
+
   it("puts the drive section before the task in a prompt", () => {
     expect(withDriveSection("intro\n\n## Task t1\ndo it", "## The company drive")).toBe(
       "intro\n\n## The company drive\n\n## Task t1\ndo it",
