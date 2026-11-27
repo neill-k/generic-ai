@@ -55,6 +55,23 @@ describe("extensions discovery", () => {
     expect(names(result.extensions)).toEqual(["bar.ts", "foo.ts"]);
   });
 
+  it("skips project extensions for an untrusted project but keeps explicit paths", async () => {
+    fs.writeFileSync(path.join(extensionsDir, "project.ts"), extensionCode);
+    const explicit = path.join(tempDir, "explicit.ts");
+    fs.writeFileSync(explicit, extensionCode);
+
+    const result = await discoverAndLoadExtensions({
+      cwd: tempDir,
+      paths: [explicit],
+      includeProjectExtensions: false,
+    });
+
+    expect(result.errors).toHaveLength(0);
+    expect(result.extensions.map((extension) => path.basename(extension.path))).toEqual([
+      "explicit.ts",
+    ]);
+  });
+
   it("discovers direct .js and .mjs files in extensions/", async () => {
     fs.writeFileSync(path.join(extensionsDir, "foo.js"), extensionCode);
     fs.writeFileSync(path.join(extensionsDir, "bar.mjs"), extensionCode);

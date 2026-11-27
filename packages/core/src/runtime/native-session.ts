@@ -9,19 +9,39 @@ import {
 } from "@generic-ai/agent";
 import type { AssistantMessage, Model, RetryPolicy, ThinkingLevel } from "@generic-ai/ai";
 import {
+  type AutonomousStatus,
+  autonomousStatus,
+  type GoalState,
+  type ScheduledJob,
+} from "@generic-ai/autonomy";
+import {
+  formatRefinementNotice,
+  parseRefineCommand,
+  type RefinementResult,
+} from "@generic-ai/continual";
+import {
   discoverAndLoadExtensions,
   type ExtensionFactory,
   type ExtensionRunner,
 } from "@generic-ai/extensions";
 import {
   type ContextFile,
+  type DefaultProjectTrust,
   expandPromptTemplate,
   expandSkillCommand,
   formatContextFilesForPrompt,
   loadProjectContextFiles,
+  ProjectTrustStore,
   type PromptTemplate,
+  type ResolveProjectTrustedOptions,
+  resolveProjectTrusted,
   type Skill,
 } from "@generic-ai/resources";
+import {
+  goalTraceFromCanonicalEvents,
+  type RunEnvelope,
+  type RunEnvelopeMode,
+} from "@generic-ai/sdk";
 import {
   type CompactionSettings,
   compactIfNeeded,
@@ -34,22 +54,6 @@ import {
   SessionManager,
 } from "@generic-ai/session";
 import {
-  formatRefinementNotice,
-  parseRefineCommand,
-  type RefinementResult,
-} from "@generic-ai/continual";
-import {
-  type AutonomousStatus,
-  autonomousStatus,
-  type GoalState,
-  type ScheduledJob,
-} from "@generic-ai/autonomy";
-import {
-  goalTraceFromCanonicalEvents,
-  type RunEnvelope,
-  type RunEnvelopeMode,
-} from "@generic-ai/sdk";
-import {
   type AgentNode,
   createAgentChildSessionFactory,
   createSubagentRoot,
@@ -59,8 +63,8 @@ import {
 import {
   createToolBatchTool,
   createToolSearchTool,
-  TOOL_SEARCH_TOOL_NAME,
   type OffloadOptions,
+  TOOL_SEARCH_TOOL_NAME,
   type ToolBatchOptions,
   withOffload,
 } from "@generic-ai/tools";
@@ -82,15 +86,15 @@ import {
 } from "./capability-runtime.js";
 import { createNativeStopTool } from "./native.js";
 import {
-  createSessionLongRun,
-  type NativeSessionAutonomous,
-  type NativeSessionGoal,
-} from "./native-long-run.js";
-import {
   createSessionContinual,
   type NativeSessionContinual,
   type RefinementSource,
 } from "./native-continual.js";
+import {
+  createSessionLongRun,
+  type NativeSessionAutonomous,
+  type NativeSessionGoal,
+} from "./native-long-run.js";
 import { createSessionSchedules, type NativeSessionSchedules } from "./native-schedules.js";
 import {
   createScriptHarvest,
@@ -99,9 +103,9 @@ import {
 } from "./script-harvest.js";
 import {
   type AgentTurnMode,
+  runStopToolLoop,
   STOP_AND_RESPOND_TOOL_NAME,
   type StopAndRespondState,
-  runStopToolLoop,
 } from "./stop-tool-loop.js";
 
 const NATIVE_RUNTIME_EVENT_PLUGIN_ID = "generic-ai-runtime";
@@ -310,6 +314,39 @@ export interface NativeSessionExtensions {
    */
   readonly discover?: boolean;
   readonly agentDir?: string;
+  /**
+   * Whether the project's own `<cwd>/.generic-ai/extensions` may load when `discover` is on, as
+   * pi's project trust decides. `true` or `false` decide directly. An object resolves it with
+   * `resolveProjectTrusted` from `@generic-ai/resources`: a project with no trust-requiring
+   * resources is trusted unless "do not trust" is saved; otherwise the decision saved in
+   * `<agentDir>/trust.json`, then `default`, then `ask`. Defaults to trusted.
+   */
+  readonly projectTrust?: boolean | NativeProjectTrust;
+}
+
+export interface NativeProjectTrust {
+  /** Directory holding `trust.json`. */
+  readonly agentDir: string;
+  /** For an undecided project that has trust-requiring resources. Defaults to `"ask"`. */
+  readonly default?: DefaultProjectTrust;
+  /** Ask someone; without it, `"ask"` means not trusted. */
+  readonly ask?: ResolveProjectTrustedOptions["ask"];
+}
+
+/** Resolve the `projectTrust` setting for `cwd`. */
+export async function resolveNativeProjectTrust(
+  cwd: string,
+  setting: boolean | NativeProjectTrust | undefined,
+): Promise<boolean> {
+  if (setting === undefined || typeof setting === "boolean") {
+    return setting ?? true;
+  }
+  return resolveProjectTrusted({
+    cwd,
+    store: new ProjectTrustStore(setting.agentDir),
+    ...(setting.default === undefined ? {} : { defaultProjectTrust: setting.default }),
+    ...(setting.ask === undefined ? {} : { ask: setting.ask }),
+  });
 }
 
 export interface RunCapabilityNativeAgentSessionResult {
@@ -359,9 +396,17 @@ async function loadSessionExtensions(
   ) {
     return undefined;
   }
+  const projectTrusted =
+    config.discover === true
+      ? await resolveNativeProjectTrust(options.cwd, config.projectTrust)
+      : true;
+  if (config.discover === true) {
+    await emitRuntimeEvent("project_trust", { cwd: options.cwd, trusted: projectTrusted });
+  }
   const loaded = await discoverAndLoadExtensions({
     cwd: options.cwd,
     includeDefaults: config.discover === true,
+    includeProjectExtensions: projectTrusted,
     ...(config.agentDir === undefined ? {} : { agentDir: config.agentDir }),
     ...(config.paths === undefined ? {} : { paths: config.paths }),
     ...(config.factories === undefined ? {} : { factories: config.factories }),

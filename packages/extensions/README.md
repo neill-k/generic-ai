@@ -41,7 +41,10 @@ await runner.runPrompt("/status", (text) => agent.prompt(text));
   `*.js` files, or directories with an `index` file or a `package.json` listing
   `genericAi.extensions`. TypeScript files load through Node's type stripping.
 - Extensions run with the process's permissions. In the harness, discovery is off unless
-  `native.extensions.discover` is set.
+  `native.extensions.discover` is set, and `native.extensions.projectTrust` keeps an untrusted
+  project's own `.generic-ai/extensions` from loading (see project trust in
+  `@generic-ai/resources`). `includeProjectExtensions: false` does the same for
+  `discoverExtensions`.
 
 ## Plan mode
 
