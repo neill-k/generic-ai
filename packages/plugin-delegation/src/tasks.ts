@@ -182,6 +182,8 @@ export interface AgentTaskRecord {
    */
   readonly actor?: RunActor;
   readonly instruction: string;
+  /** Set when another agent asked this as a question with `ask_agent`; the answer is the hand-in. */
+  readonly question?: boolean;
   readonly goal?: AgentTaskGoal;
   /**
    * `pending` while the agent still has to draft the task's goal with `set_goal` (the CEO does
