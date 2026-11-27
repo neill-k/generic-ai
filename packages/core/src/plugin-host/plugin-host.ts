@@ -1,6 +1,6 @@
 import { createRegistry } from "../registries/index.js";
+import { PluginHostError, type DuplicatePluginIdIssue, type PluginHostIssue } from "./errors.js";
 import { resolvePluginOrder } from "./dependency-order.js";
-import { type DuplicatePluginIdIssue, PluginHostError, type PluginHostIssue } from "./errors.js";
 import type {
   PluginDefinition,
   PluginHost,

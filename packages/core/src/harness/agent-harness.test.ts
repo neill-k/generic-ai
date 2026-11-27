@@ -178,10 +178,7 @@ describe("createAgentHarness", () => {
     const harness = fauxHarness(
       { id: "test-harness", policyProfile: "benchmark-container", allowMcp: false },
       [
-        recording(
-          toolSets,
-          call("delegate_agent", { roleId: "builder", task: "write the answer" }),
-        ),
+        recording(toolSets, call("delegate_agent", { roleId: "builder", task: "write the answer" })),
         recording(toolSets, stop("builder done")),
         recording(toolSets, call("delegate_agent", { roleId: "verifier", task: "run the check" })),
         recording(toolSets, stop("verifier done")),
@@ -271,11 +268,7 @@ describe("createAgentHarness", () => {
                 capabilityTool("mcp__docs__search", ["mcp.read"]),
                 capabilityTool("mcp__docs__update", ["mcp.read", "mcp.write"]),
                 capabilityTool("mcp__mail__send_email", ["mcp.read", "mcp.write", "message.send"]),
-                capabilityTool("mcp__cal__create_event", [
-                  "mcp.read",
-                  "mcp.write",
-                  "external.write",
-                ]),
+                capabilityTool("mcp__cal__create_event", ["mcp.read", "mcp.write", "external.write"]),
               ];
             },
           },

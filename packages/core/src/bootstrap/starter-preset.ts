@@ -1,7 +1,7 @@
 import type {
   BootstrapCapabilityId,
-  BootstrapPluginSpec,
   BootstrapPortOverrides,
+  BootstrapPluginSpec,
   BootstrapPorts,
   BootstrapPresetDefinition,
   BootstrapPresetInput,
@@ -196,10 +196,7 @@ const freezeBootstrapPorts = (ports: BootstrapPortOverrides | undefined): Bootst
     pluginHost: Object.freeze({ ...starterPorts.pluginHost, ...(ports.pluginHost ?? {}) }),
     runMode: Object.freeze({ ...starterPorts.runMode, ...(ports.runMode ?? {}) }),
     runEnvelope: Object.freeze({ ...starterPorts.runEnvelope, ...(ports.runEnvelope ?? {}) }),
-    runtimeBoundary: Object.freeze({
-      ...starterPorts.runtimeBoundary,
-      ...(ports.runtimeBoundary ?? {}),
-    }),
+    runtimeBoundary: Object.freeze({ ...starterPorts.runtimeBoundary, ...(ports.runtimeBoundary ?? {}) }),
   });
 };
 

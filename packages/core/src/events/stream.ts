@@ -1,13 +1,13 @@
 import type { RunActor } from "@generic-ai/sdk";
 import {
+  createCanonicalEvent,
+  getCanonicalEventFamily,
   type CanonicalEvent,
   type CanonicalEventData,
   type CanonicalEventFamily,
   type CanonicalEventInput,
   type CanonicalEventName,
   type CanonicalEventOriginNamespace,
-  createCanonicalEvent,
-  getCanonicalEventFamily,
 } from "./taxonomy.js";
 
 export interface CanonicalEventSubscriptionFilter {
@@ -232,6 +232,11 @@ export function createCanonicalEventStream(
   };
 }
 
+export {
+  createCanonicalEvent,
+  createHandoffLifecycleEvent,
+  getCanonicalEventFamily,
+} from "./taxonomy.js";
 export type {
   CanonicalArtifactLifecycleName,
   CanonicalCoreEventName,
@@ -244,9 +249,4 @@ export type {
   CanonicalPolicyLifecycleName,
   CanonicalTerminalCommandLifecycleName,
   CanonicalToolCallLifecycleName,
-} from "./taxonomy.js";
-export {
-  createCanonicalEvent,
-  createHandoffLifecycleEvent,
-  getCanonicalEventFamily,
 } from "./taxonomy.js";

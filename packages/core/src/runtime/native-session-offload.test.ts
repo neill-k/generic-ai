@@ -10,8 +10,8 @@ import {
   registerFauxProvider,
 } from "@generic-ai/ai";
 import { loadSkillsFromDir } from "@generic-ai/resources";
-import { sealGoal } from "@generic-ai/sdk";
 import { createWriteTool } from "@generic-ai/tools";
+import { sealGoal } from "@generic-ai/sdk";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { runCapabilityNativeAgentSession } from "./native-session.js";

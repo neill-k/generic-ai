@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createPluginHost, PluginHostError } from "./index.js";
+import { PluginHostError, createPluginHost } from "./index.js";
 
 describe("createPluginHost", () => {
   it("resolves dependency order deterministically", () => {

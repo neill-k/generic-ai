@@ -1,4 +1,5 @@
-import path, { resolve } from "node:path";
+import path from "node:path";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type {
   GenericAIConfigLoader,

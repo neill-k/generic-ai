@@ -1,2 +1,2 @@
-export * from "./stream.js";
 export * from "./taxonomy.js";
+export * from "./stream.js";
