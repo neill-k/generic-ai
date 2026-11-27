@@ -5,18 +5,27 @@ import { CompanyPauseButton, PauseBanner, usePause } from "./components/pause.js
 import { useLiveStatus, useResource } from "./live.js";
 import { href, useRoute } from "./router.js";
 import "./styles.css";
+import { ActivityView } from "./views/Activity.js";
+import { CheckupView } from "./views/Checkup.js";
+import { ConnectionsView } from "./views/Connections.js";
 import { GoalView } from "./views/Goal.js";
 import { GoalsView } from "./views/Goals.js";
 import { MemoryView } from "./views/Memory.js";
 import { MoreView } from "./views/More.js";
 import { OrgView } from "./views/Org.js";
+import { PermissionsView } from "./views/Permissions.js";
 
 const NAV: readonly { view: string; label: string; icon: string }[] = [
   { view: "goals", label: "Goals", icon: "◎" },
+  { view: "activity", label: "Activity", icon: "↯" },
   { view: "org", label: "Org chart", icon: "⌗" },
   { view: "memory", label: "Memory", icon: "✎" },
   { view: "more", label: "More", icon: "≡" },
 ];
+
+/** Settings rooms live under More in the navigation. */
+const navView = (view: string) =>
+  ["connections", "permissions", "checkup"].includes(view) ? "more" : view;
 
 function App() {
   const route = useRoute();
@@ -32,6 +41,14 @@ function App() {
     page = <OrgView agentId={route.id} company={company.data} />;
   } else if (route.view === "memory") {
     page = <MemoryView scopeId={route.id} />;
+  } else if (route.view === "activity") {
+    page = <ActivityView />;
+  } else if (route.view === "connections") {
+    page = <ConnectionsView />;
+  } else if (route.view === "checkup") {
+    page = <CheckupView />;
+  } else if (route.view === "permissions") {
+    page = <PermissionsView />;
   } else if (route.view === "more") {
     page = <MoreView />;
   } else {
@@ -55,8 +72,8 @@ function App() {
             <a
               key={item.view}
               href={href(item.view)}
-              class={route.view === item.view ? "active" : undefined}
-              aria-current={route.view === item.view ? "page" : undefined}
+              class={navView(route.view) === item.view ? "active" : undefined}
+              aria-current={navView(route.view) === item.view ? "page" : undefined}
             >
               <span class="nav-icon" aria-hidden="true">
                 {item.icon}

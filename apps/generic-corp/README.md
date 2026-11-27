@@ -109,6 +109,9 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/org-chart` | The org chart as a tree, with each agent's tier, model and active task count |
 | `GET /api/agents`, `GET /api/agents/:id` | Agents; one agent's record, memory file, reporting line and recent tasks |
 | `GET /api/agents/:id/costs` | One agent's usage and cost |
+| `GET /api/quality` | The quality dial: the model behind best, balanced and cheap, and each agent's step and current model |
+| `PUT /api/agents/:id/quality` | Set an agent's step (`{"level": "best"}`, `"balanced"`, `"cheap"`, or `"default"` for the company file's model). Applies from its next turn. Needs `tokens:manage` |
+| `GET /api/backups`, `POST /api/backups` | Backups and the next scheduled one; start one now |
 | `GET /api/threads`, `POST /api/threads` | List chat threads; start one with `{"text": "..."}`, or `{"goalId": "..."}` to start from a company goal (the text defaults to the goal's request). `"attachments": ["drive/inbox/..."]` hands the CEO drive files |
 | `GET /api/threads/:id`, `POST /api/threads/:id/messages` | A thread with each message and the CEO's reply; send another message |
 | `PATCH /api/threads/:id` | Rename a thread |
@@ -279,6 +282,15 @@ Second opinions run on a model other than the worker's (decisions 10 and 12):
 the rubric judge, and the reviewer that must agree a task is impossible in
 principle before an agent may give up. The candidates are the company's
 `judgeModels`, then each tier's model. The owner is never the judge.
+
+### Quality dial
+
+The owner can set each agent to **best**, **balanced** or **cheap** (decision
+22). Each step is a model: by default Claude Opus, Sonnet and Haiku, or the
+company file's `qualityModels` (for example `qualityModels: {cheap: openai/gpt-6-mini}`).
+An agent with no step runs on the model the company file gives it. The setting
+is kept in host storage and applies from the agent's next turn; second
+opinions follow it, so they still pick a model other than the worker's.
 
 The owner can change a goal at any time with `PUT /api/tasks/:id/goal`
 (objective, definition of done, checks); every unfinished task under it is told

@@ -19,10 +19,11 @@ import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import { DriveError, type DriveFile, deliverablesFolder } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
 import { type GithubConnector, GithubError } from "./github.js";
-import { goalDetailView, listGoalViews } from "./goal-views.js";
+import { activityView, goalDetailView, listGoalViews } from "./goal-views.js";
 import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
+import { describeQuality, parseQualityLevel, QualityError, type QualityStore } from "./quality.js";
 import type { RefusalLog } from "./refusals.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
@@ -70,6 +71,8 @@ export interface CompanyApiOptions {
   readonly github?: GithubConnector;
   /** The company root, which pushes to GitHub read deliverables from. */
   readonly companyRoot?: string;
+  /** The per-agent quality dial, at `/api/quality` and `/api/agents/:id/quality`. */
+  readonly quality?: QualityStore;
 }
 
 /** What the secrets screen needs from the vault. */
@@ -847,6 +850,33 @@ export function createCompanyApi(
     return c.json(await backups.status(), 202);
   });
 
+  // --- The quality dial ---------------------------------------------------
+
+  const requireQuality = (): QualityStore => {
+    if (options.quality === undefined) {
+      throw new ApiError(404, "The quality dial is not available.");
+    }
+    return options.quality;
+  };
+
+  app.get("/quality", (c) => c.json(describeQuality(requireQuality(), runtime.company)));
+
+  app.put("/agents/:agentId/quality", async (c) => {
+    const quality = requireQuality();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    try {
+      const level = parseQualityLevel(body["level"]);
+      const subject = c.get("auth")?.subject.subjectId;
+      return c.json(await quality.set(c.req.param("agentId"), level, subject));
+    } catch (error) {
+      if (error instanceof QualityError) {
+        throw new ApiError(/not found/.test(error.message) ? 404 : 400, error.message);
+      }
+      throw error;
+    }
+  });
+
   // --- Agents and the org chart -------------------------------------------
 
   app.get("/agents", async (c) => c.json({ agents: await runtime.listAgents() }));
@@ -1295,6 +1325,10 @@ export function createCompanyApi(
     const cancelled = await runtime.cascade.cancel(taskId, reason);
     return c.json({ cancelled, task: await runtime.cascade.get(taskId) });
   });
+
+  app.get("/activity", async (c) =>
+    c.json(await activityView(runtime, { limit: readLimit(c.req.query("limit"), 100, 1000) })),
+  );
 
   app.get("/board", async (c) =>
     c.json({ columns: await runtime.board({ limit: readLimit(c.req.query("limit"), 300, 2000) }) }),

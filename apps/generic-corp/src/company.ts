@@ -86,6 +86,11 @@ export interface CompanyConfig {
    * this, the tier models are tried.
    */
   readonly judgeModels?: readonly string[];
+  /**
+   * The model behind each step of the per-agent quality dial (best, balanced, cheap; see
+   * quality.ts). Steps left out use `DEFAULT_QUALITY_MODELS`.
+   */
+  readonly qualityModels?: Partial<Readonly<Record<QualityLevel, string>>>;
   readonly tools?: CompanyToolsConfig;
   /**
    * The starting permissions (see permissions.ts): reading outside systems on, sending messages,
@@ -104,6 +109,17 @@ export class CompanyConfigError extends Error {
     this.name = "CompanyConfigError";
   }
 }
+
+/** Steps of the per-agent quality dial (design decision 22), best first. */
+export type QualityLevel = "best" | "balanced" | "cheap";
+export const QUALITY_LEVELS: readonly QualityLevel[] = ["best", "balanced", "cheap"];
+
+/** The model behind each quality step when the company file does not name one. */
+export const DEFAULT_QUALITY_MODELS: Readonly<Record<QualityLevel, string>> = Object.freeze({
+  best: "anthropic/claude-opus-5-5",
+  balanced: "anthropic/claude-sonnet-5-5",
+  cheap: "anthropic/claude-haiku-5-5",
+});
 
 export const DEFAULT_TIER_MODELS: Readonly<Record<OrgTier, string>> = Object.freeze({
   ceo: "anthropic/claude-opus-5-5",
@@ -372,6 +388,27 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
     }
   }
 
+  let qualityModels: Partial<Record<QualityLevel, string>> | undefined;
+  if (input["qualityModels"] !== undefined) {
+    if (!isRecord(input["qualityModels"])) {
+      throw new CompanyConfigError(
+        "company.qualityModels must map best, balanced and cheap to model references.",
+      );
+    }
+    qualityModels = {};
+    for (const [key, value] of Object.entries(input["qualityModels"])) {
+      if (!QUALITY_LEVELS.includes(key as QualityLevel)) {
+        throw new CompanyConfigError(
+          `company.qualityModels.${key} is not a quality step. Use ${QUALITY_LEVELS.join(", ")}.`,
+        );
+      }
+      if (typeof value !== "string" || value.trim().length === 0) {
+        throw new CompanyConfigError(`company.qualityModels.${key} must be a model reference.`);
+      }
+      qualityModels[key as QualityLevel] = value.trim();
+    }
+  }
+
   const rawAgents = input["agents"];
   if (!Array.isArray(rawAgents) || rawAgents.length === 0) {
     throw new CompanyConfigError("company.agents must list at least one agent.");
@@ -432,6 +469,7 @@ export function parseCompanyConfig(input: unknown): CompanyConfig {
     ...(mission === undefined ? {} : { mission }),
     ...(models === undefined ? {} : { models }),
     ...(judgeModels === undefined ? {} : { judgeModels }),
+    ...(qualityModels === undefined ? {} : { qualityModels }),
     ...(tools === undefined ? {} : { tools }),
     ...(permissions === undefined ? {} : { permissions }),
     ...(goals === undefined ? {} : { goals }),

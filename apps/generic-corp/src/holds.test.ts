@@ -88,11 +88,23 @@ describe("pause (decision 33)", () => {
 
     const goals = await (await server.fetch(new Request("http://127.0.0.1/api/goal-views"))).json();
     expect(goals.goals[0]).toMatchObject({ state: "paused", statusText: COMPANY_PAUSE_REASON });
+    const activity = await (
+      await server.fetch(new Request("http://127.0.0.1/api/activity"))
+    ).json();
+    expect(activity.now).toHaveLength(1);
+    expect(activity.now[0]).toMatchObject({
+      agentId: "vp-research",
+      held: true,
+      statusText: COMPANY_PAUSE_REASON,
+    });
 
     const resumed = await (await put(server, "/api/pause", false)).json();
     expect(resumed.company).toBe(false);
     await server.runtime.cascade.drain();
     expect(turns).toBe(1);
+    const after = await (await server.fetch(new Request("http://127.0.0.1/api/activity"))).json();
+    expect(after.now).toEqual([]);
+    expect(after.recent[0]).toMatchObject({ agentId: "vp-research", statusText: "Handed in." });
   });
 
   it("pauses one agent without holding the others", async () => {
