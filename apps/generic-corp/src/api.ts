@@ -22,10 +22,13 @@ import { type GithubConnector, GithubError } from "./github.js";
 import { activityView, goalDetailView, listGoalViews } from "./goal-views.js";
 import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
+import { OrgError } from "./org.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
+import { type PlanLimit, type PlanLimitBehaviour, parsePlanLimitBehaviour } from "./plan-limit.js";
 import { describeQuality, parseQualityLevel, QualityError, type QualityStore } from "./quality.js";
 import type { RefusalLog } from "./refusals.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
+import { parseSpendLimit, type SpendingLimits, SpendLimitError } from "./spend-limits.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
@@ -67,6 +70,10 @@ export interface CompanyApiOptions {
   readonly checkup?: CompanyCheckup;
   /** Nightly backups, listed and started at `/api/backups`. */
   readonly backups?: CompanyBackups;
+  /** Spending limits, at `/api/limits` and `/api/agents/:id/limit`. */
+  readonly limits?: SpendingLimits;
+  /** What happens at the Claude plan's usage limit, at `/api/settings/plan-limit`. */
+  readonly planLimit?: PlanLimit;
   /** The GitHub connector, at `/api/connectors/github`. Owner only. */
   readonly github?: GithubConnector;
   /** The company root, which pushes to GitHub read deliverables from. */
@@ -850,6 +857,75 @@ export function createCompanyApi(
     return c.json(await backups.status(), 202);
   });
 
+  // --- Spending limits ----------------------------------------------------
+
+  const requireLimits = (): SpendingLimits => {
+    if (options.limits === undefined) {
+      throw new ApiError(404, "Spending limits are not available.");
+    }
+    return options.limits;
+  };
+  const limitCall = async <T>(call: () => Promise<T>): Promise<T> => {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof SpendLimitError) {
+        throw new ApiError(/not found/.test(error.message) ? 404 : 400, error.message);
+      }
+      throw error;
+    }
+  };
+
+  app.get("/limits", (c) => c.json(requireLimits().view()));
+
+  // Body: {"limit": {"period": "day" | "week" | "month", "maxCostUsd"?, "maxTokens"?}} or
+  // {"limit": null} to remove it. Raising or removing a limit resumes held work.
+  app.put("/limits/company", async (c) => {
+    const limits = requireLimits();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    return c.json(
+      await limitCall(async () => limits.setCompanyLimit(parseSpendLimit(body["limit"]))),
+    );
+  });
+
+  app.put("/agents/:agentId/limit", async (c) => {
+    const limits = requireLimits();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    return c.json(
+      await limitCall(async () =>
+        limits.setAgentLimit(c.req.param("agentId"), parseSpendLimit(body["limit"])),
+      ),
+    );
+  });
+
+  // --- The Claude plan's usage limit --------------------------------------
+
+  const requirePlanLimit = (): PlanLimit => {
+    if (options.planLimit === undefined) {
+      throw new ApiError(404, "The plan limit setting is not available.");
+    }
+    return options.planLimit;
+  };
+
+  app.get("/settings/plan-limit", async (c) => c.json(await requirePlanLimit().status()));
+
+  // {"behaviour": "wait"} holds work until the plan resets; {"behaviour": "api_key"} uses an
+  // Anthropic API key from the environment or the secrets vault until then.
+  app.put("/settings/plan-limit", async (c) => {
+    const planLimit = requirePlanLimit();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    let behaviour: PlanLimitBehaviour;
+    try {
+      behaviour = parsePlanLimitBehaviour(body["behaviour"]);
+    } catch (error) {
+      throw new ApiError(400, error instanceof Error ? error.message : String(error));
+    }
+    return c.json(await planLimit.setBehaviour(behaviour));
+  });
+
   // --- The quality dial ---------------------------------------------------
 
   const requireQuality = (): QualityStore => {
@@ -882,6 +958,27 @@ export function createCompanyApi(
   app.get("/agents", async (c) => c.json({ agents: await runtime.listAgents() }));
 
   app.get("/org-chart", async (c) => c.json({ root: await runtime.orgChart() }));
+
+  // --- Org changes: the CEO designs the org, the owner can overrule (decision 51) ---
+
+  app.get("/org/changes", async (c) =>
+    c.json({
+      changes: await runtime.org.changes({ limit: readLimit(c.req.query("limit"), 50, 500) }),
+    }),
+  );
+
+  app.post("/org/changes/:changeId/overrule", async (c) => {
+    requireManage(c);
+    try {
+      const change = await runtime.org.overrule(c.req.param("changeId"));
+      return c.json({ change });
+    } catch (error) {
+      if (error instanceof OrgError) {
+        throw new ApiError(error.message === "No such org change." ? 404 : 409, error.message);
+      }
+      throw error;
+    }
+  });
 
   app.get("/agents/:agentId", async (c) => {
     const agentId = c.req.param("agentId");
