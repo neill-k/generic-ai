@@ -1,20 +1,20 @@
 import {
-  GenericAIToolError,
-  normalizeToolError,
-  withAgentHarnessToolEffects,
-  type ToolErrorEnvelope,
-} from "@generic-ai/sdk";
-import {
-  createBashTool,
-  createLocalBashOperations,
-  type BashOperations,
-  type BashSpawnHook,
-} from "@generic-ai/tools";
-import {
   createWorkspaceLayout,
   resolveSafeWorkspacePath,
   type WorkspaceRootInput,
 } from "@generic-ai/plugin-workspace-fs";
+import {
+  GenericAIToolError,
+  normalizeToolError,
+  type ToolErrorEnvelope,
+  withAgentHarnessToolEffects,
+} from "@generic-ai/sdk";
+import {
+  type BashOperations,
+  type BashSpawnHook,
+  createBashTool,
+  createLocalBashOperations,
+} from "@generic-ai/tools";
 
 export const name = "@generic-ai/plugin-tools-terminal" as const;
 export const kind = "tools-terminal" as const;
@@ -257,12 +257,22 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
+export interface WrapCommandForUserOptions {
+  /**
+   * Hand the command the caller's stdin. By default a command gets no stdin (the supervisor runs
+   * it in the background, which gives it `/dev/null`); a long-lived process that talks over stdin,
+   * such as the Python workspace kernel, needs this.
+   */
+  readonly keepStdin?: boolean;
+}
+
 /** Rewrites a command and its environment so it runs as `runAs.user`. */
 export function wrapCommandForUser(
   command: string,
   env: NodeJS.ProcessEnv,
   runAs: TerminalRunAsUser,
   workspaceRoot: string,
+  options: WrapCommandForUserOptions = {},
 ): { readonly command: string; readonly env: NodeJS.ProcessEnv } {
   if (!/^[a-z_][a-z0-9_-]*$/i.test(runAs.user)) {
     throw new Error(`Invalid runAs user "${runAs.user}".`);
@@ -283,10 +293,13 @@ export function wrapCommandForUser(
   outerEnv["LOGNAME"] = runAs.user;
   const limits = commandLimitScript(runAs.limits);
   const supervisor = [
+    ...(options.keepStdin === true ? ["exec 3<&0"] : []),
     `umask ${umask}`,
     ...limits.setup,
     'trap "kill -KILL 0" TERM HUP INT',
-    `${limits.prefix}${shellQuote(shell)} -c "$1" & wait "$!"`,
+    options.keepStdin === true
+      ? `${limits.prefix}${shellQuote(shell)} -c "$1" <&3 3<&- & wait "$!"`
+      : `${limits.prefix}${shellQuote(shell)} -c "$1" & wait "$!"`,
   ].join("; ");
   const wrapped = [
     "exec",
@@ -307,6 +320,30 @@ export function wrapCommandForUser(
     shellQuote(command),
   ].join(" ");
   return { command: wrapped, env: outerEnv };
+}
+
+/**
+ * Runs a long-lived process (argv, not a shell command) as `runAs.user` with the same limits as
+ * agent commands, keeping its stdin: for example the Python workspace kernel's `launch` hook.
+ */
+export function wrapProcessForUser(
+  launch: {
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly env: NodeJS.ProcessEnv;
+  },
+  runAs: TerminalRunAsUser,
+  workspaceRoot: string,
+): { readonly command: string; readonly args: readonly string[]; readonly env: NodeJS.ProcessEnv } {
+  const command = ["exec", ...[launch.command, ...launch.args].map(shellQuote)].join(" ");
+  const wrapped = wrapCommandForUser(command, launch.env, runAs, workspaceRoot, {
+    keepStdin: true,
+  });
+  return {
+    command: runAs.shellPath ?? "/bin/bash",
+    args: ["-c", wrapped.command],
+    env: wrapped.env,
+  };
 }
 
 function buildSpawnHook(

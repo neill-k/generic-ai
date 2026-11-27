@@ -30,7 +30,6 @@ import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
 import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
-import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
 import {
   type BackgroundModel,
   createBackgroundGate,
@@ -49,6 +48,7 @@ import {
   readEgressPort,
   resolveAgentNetwork,
 } from "./egress.js";
+import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
 import {
   COMPANY_GOAL_METRICS,
   createCompanyGoalEvidence,
@@ -62,6 +62,12 @@ import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
 import { createMemoryTools } from "./memory-tools.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import {
+  type CompanyModelAuth,
+  createCompanyModelAuth,
+  providerKeyName,
+  resolveProviderKeyFromEnv,
+} from "./model-auth.js";
+import {
   DEFAULT_PERMISSIONS,
   gateToolsWithPermissions,
   openPermissionStore,
@@ -69,12 +75,7 @@ import {
   permissionsBriefing,
 } from "./permissions.js";
 import { createRefusalLog, type RefusalLog } from "./refusals.js";
-import {
-  type CompanyModelAuth,
-  createCompanyModelAuth,
-  providerKeyName,
-  resolveProviderKeyFromEnv,
-} from "./model-auth.js";
+import { resolveCompanyRlm } from "./rlm.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import {
   createModelImpossibilityReviewer,
@@ -424,6 +425,14 @@ export async function createGenericCorpServer(
       egress = proxy;
     }
     const egressProxy = egress;
+    // Every role's Python workspace runs behind the same wall: as the agent user, with the
+    // command limits and this agent's egress proxy settings (rlm.ts).
+    const rlm = resolveCompanyRlm(options.env ?? process.env, agentIsolation, {
+      ...(egressProxy === undefined
+        ? {}
+        : { agentEnv: (agentId: string) => egressProxy.envFor(agentId) }),
+    });
+    log(rlm.description);
     toolkit =
       options.toolkit ??
       createCompanyToolkit({
@@ -479,6 +488,7 @@ export async function createGenericCorpServer(
       ...options.executorOptions,
       native: {
         getAuth: (provider) => modelAuth.getAuth(provider),
+        ...(rlm.option === undefined ? {} : { rlm: rlm.option }),
         ...options.executorOptions?.native,
       },
       runStore: storage.runStore,
