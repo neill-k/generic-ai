@@ -21,6 +21,7 @@
   "dependencies": {
     "@generic-ai/ai": "0.0.0",
     "@generic-ai/auth": "0.0.0",
+    "@generic-ai/continual": "0.0.0",
     "@generic-ai/core": "0.0.0",
     "@generic-ai/plugin-agent-skills": "0.0.0",
     "@generic-ai/plugin-approvals": "0.0.0",
@@ -37,6 +38,7 @@
     "@generic-ai/preset-starter-hono": "0.0.0",
     "@generic-ai/resources": "0.0.0",
     "@generic-ai/sdk": "0.0.0",
+    "@sinclair/typebox": "0.34.49",
     "hono": "^4.12.15",
     "yaml": "^2.8.3"
   },
@@ -46,8 +48,7 @@
   "license": "MIT",
   "private": true,
   "devDependencies": {
-    "@playwright/test": "1.63.0",
-    "@sinclair/typebox": "0.34.49"
+    "@playwright/test": "1.63.0"
   },
   "files": [
     "dist",

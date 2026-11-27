@@ -43,6 +43,8 @@ import {
 import { createDashboardRoutes } from "./dashboard.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
+import { createCompanyMemory } from "./memory.js";
+import { createMemoryTools } from "./memory-tools.js";
 import { createCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import {
@@ -348,6 +350,23 @@ export async function createGenericCorpServer(
         ...(agentIsolation.runAs === undefined ? {} : { runAs: agentIsolation.runAs }),
       });
     const companyToolkit = toolkit;
+    // One memory system (decision 17): the company handbook and each agent's private memory, in
+    // host storage where agent shells cannot reach it. Agents change their own through tools.
+    const memory = createCompanyMemory({
+      kv: storage.kv,
+      legacyNotes: (agentId) =>
+        readFile(path.join(layout.agentsRoot, agentId, "context.md"), "utf8"),
+    });
+    const withMemoryTools = (
+      bindings: ReturnType<CompanyToolkit["capabilities"]>,
+      input: Parameters<CompanyToolkit["capabilities"]>[0],
+    ): ReturnType<CompanyToolkit["capabilities"]> => ({
+      ...bindings,
+      customTools: [
+        ...(bindings.customTools ?? []),
+        ...createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId }),
+      ],
+    });
     // Outward actions (messages, external writes, payments, writing MCP tools) wait for the
     // owner. A gated call ends the agent's turn; the cascade parks the task as `waiting` and
     // resumes it once every request is decided.
@@ -361,7 +380,7 @@ export async function createGenericCorpServer(
             service: approvals,
             requester: approvalRequesterForTask(input, input.actor),
             policy: approvalPolicy,
-          }).wrapBindings(companyToolkit.capabilities(input)),
+          }).wrapBindings(withMemoryTools(companyToolkit.capabilities(input), input)),
         secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
         ...(environment.noProgressMinutes === undefined
           ? {}
@@ -389,6 +408,7 @@ export async function createGenericCorpServer(
       storage,
       agentsRoot: layout.agentsRoot,
       drive,
+      memory,
       executor,
       cascade: {
         approvals,

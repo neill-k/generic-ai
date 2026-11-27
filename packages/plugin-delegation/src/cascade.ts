@@ -248,6 +248,11 @@ export interface CreateDelegationCascadeOptions {
   readonly maxAttemptsPerTurn?: number;
   /** Characters of the agent's memory file included in its prompt. Defaults to 8000. */
   readonly memoryPromptChars?: number;
+  /**
+   * Whether the prompt points the agent at its memory file (`context.md` in its home) and shows
+   * it. Default true. Apps with their own memory system turn it off and add their own section.
+   */
+  readonly memoryFile?: boolean;
   /** Characters of each child result included in the parent's prompt. Defaults to 8000. */
   readonly childResultPromptChars?: number;
   readonly jobName?: string;
@@ -1374,7 +1379,7 @@ export function createDelegationCascade(
     const [chain, reports, memory] = await Promise.all([
       directory.managementChain(agent.id),
       directory.directReports(agent.id),
-      directory.readMemory(agent.id),
+      options.memoryFile === false ? Promise.resolve("") : directory.readMemory(agent.id),
     ]);
     const delegatable =
       scope === "direct-reports"
@@ -1404,13 +1409,17 @@ export function createDelegationCascade(
       lines.push("You have nobody to delegate to; do the work yourself.");
     }
 
-    lines.push(
-      "",
-      "## Your memory",
-      `Your memory file is ${agent.memoryPath}. It persists across tasks; update it with decisions and lessons worth keeping.`,
-      `Your workspace is ${agent.workspacePath}.`,
-    );
-    const trimmedMemory = memory.trim();
+    if (options.memoryFile === false) {
+      lines.push("", `Your workspace is ${agent.workspacePath}.`);
+    } else {
+      lines.push(
+        "",
+        "## Your memory",
+        `Your memory file is ${agent.memoryPath}. It persists across tasks; update it with decisions and lessons worth keeping.`,
+        `Your workspace is ${agent.workspacePath}.`,
+      );
+    }
+    const trimmedMemory = options.memoryFile === false ? "" : memory.trim();
     if (trimmedMemory.length > 0) {
       lines.push("", "```markdown", clip(trimmedMemory, limits.memoryChars, true), "```");
     }
