@@ -27,9 +27,6 @@ import {
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
-import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
-import { createDashboardRoutes } from "./dashboard.js";
-import { companyLayout, createCompanyDrive } from "./drive.js";
 import {
   type BackgroundModel,
   createBackgroundGate,
@@ -38,6 +35,10 @@ import {
   createModelBackground,
   DEFAULT_BACKGROUND_MODEL,
 } from "./background.js";
+import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
+import { createDashboardRoutes } from "./dashboard.js";
+import { createDreaming } from "./dreaming.js";
+import { companyLayout, createCompanyDrive } from "./drive.js";
 import {
   type AgentNetwork,
   type AgentNetworkProbe,
@@ -55,12 +56,10 @@ import {
   createCompanyHandInCheck,
   createModelJudge,
 } from "./goals.js";
-import { createDreaming } from "./dreaming.js";
 import { createCompanyHarvest } from "./harvest.js";
-import { createCompanyMemory } from "./memory.js";
-import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
-import { createMemoryTools } from "./memory-tools.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
+import { createCompanyMemory } from "./memory.js";
+import { createMemoryTools } from "./memory-tools.js";
 import {
   type CompanyModelAuth,
   createCompanyModelAuth,
@@ -74,6 +73,7 @@ import {
   type PermissionStore,
   permissionsBriefing,
 } from "./permissions.js";
+import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
 import { createRefusalLog, type RefusalLog } from "./refusals.js";
 import { resolveCompanyRlm } from "./rlm.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";

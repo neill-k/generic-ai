@@ -11,22 +11,16 @@ import {
 
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-
+import type { MemoryBackgroundStore } from "./background.js";
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import { DriveError, type DriveFile } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
 import { goalDetailView, listGoalViews } from "./goal-views.js";
-import {
-  type MemoryEdit,
-  MemoryError,
-  parseMemoryScope,
-  REFINEMENT_KIND_NAMES,
-} from "./memory.js";
+import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
-import type { MemoryBackgroundStore } from "./background.js";
-import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
 import type { RefusalLog } from "./refusals.js";
+import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
