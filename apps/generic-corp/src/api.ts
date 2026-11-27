@@ -23,6 +23,7 @@ import { activityView, goalDetailView, listGoalViews } from "./goal-views.js";
 import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
+import { describeQuality, parseQualityLevel, QualityError, type QualityStore } from "./quality.js";
 import type { RefusalLog } from "./refusals.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
@@ -70,6 +71,8 @@ export interface CompanyApiOptions {
   readonly github?: GithubConnector;
   /** The company root, which pushes to GitHub read deliverables from. */
   readonly companyRoot?: string;
+  /** The per-agent quality dial, at `/api/quality` and `/api/agents/:id/quality`. */
+  readonly quality?: QualityStore;
 }
 
 /** What the secrets screen needs from the vault. */
@@ -845,6 +848,33 @@ export function createCompanyApi(
     requireManage(c);
     void backups.run("manual").catch(() => undefined);
     return c.json(await backups.status(), 202);
+  });
+
+  // --- The quality dial ---------------------------------------------------
+
+  const requireQuality = (): QualityStore => {
+    if (options.quality === undefined) {
+      throw new ApiError(404, "The quality dial is not available.");
+    }
+    return options.quality;
+  };
+
+  app.get("/quality", (c) => c.json(describeQuality(requireQuality(), runtime.company)));
+
+  app.put("/agents/:agentId/quality", async (c) => {
+    const quality = requireQuality();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    try {
+      const level = parseQualityLevel(body["level"]);
+      const subject = c.get("auth")?.subject.subjectId;
+      return c.json(await quality.set(c.req.param("agentId"), level, subject));
+    } catch (error) {
+      if (error instanceof QualityError) {
+        throw new ApiError(/not found/.test(error.message) ? 404 : 400, error.message);
+      }
+      throw error;
+    }
   });
 
   // --- Agents and the org chart -------------------------------------------

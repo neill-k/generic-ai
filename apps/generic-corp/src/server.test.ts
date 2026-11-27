@@ -614,6 +614,45 @@ describe("Generic Corp server", () => {
   });
 });
 
+describe("quality dial", () => {
+  it("sets an agent's step and runs its next turn on that model", async () => {
+    const { server, calls } = await openServer();
+    const before = await api<{ levels: Array<{ level: string; model: string }> }>(
+      server,
+      "/api/quality",
+    );
+    expect(before.body.levels.map((entry) => entry.level)).toEqual(["best", "balanced", "cheap"]);
+
+    const put = (body: unknown) =>
+      api<{ level?: string; model: string; error?: string }>(server, "/api/agents/ceo/quality", {
+        ...post(body),
+        method: "PUT",
+      });
+    const set = await put({ level: "cheap" });
+    expect(set.status).toBe(200);
+    expect(set.body).toMatchObject({ level: "cheap", model: "anthropic/claude-haiku-5-5" });
+    expect((await put({ level: "turbo" })).status).toBe(400);
+    expect(
+      (
+        await api(server, "/api/agents/nobody/quality", {
+          ...post({ level: "best" }),
+          method: "PUT",
+        })
+      ).status,
+    ).toBe(404);
+
+    const chart = await api<{ root: OrgChartNode }>(server, "/api/org-chart");
+    expect(chart.body.root).toMatchObject({
+      quality: "cheap",
+      model: "anthropic/claude-haiku-5-5",
+    });
+
+    await api(server, "/api/threads", post({ text: "What is the answer?" }));
+    await server.runtime.cascade.drain();
+    expect(calls.find((call) => call.agentId === "ceo")?.model).toBe("anthropic/claude-haiku-5-5");
+  });
+});
+
 describe("backups", () => {
   it("lists backups and makes one on request", async () => {
     const { server } = await openServer();
