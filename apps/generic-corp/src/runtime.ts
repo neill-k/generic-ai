@@ -21,7 +21,9 @@ import { type CompanyConfig, ceoOf, companyAgentSeeds, tierOf } from "./company.
 import { type CompanyCosts, summarizeCompanyCosts } from "./costs.js";
 import { type CompanyDrive, type DriveEntry, describeDriveForAgent } from "./drive.js";
 import { type CompanyEventHub, createCompanyEventHub } from "./events.js";
+import type { CompanyHarvest } from "./harvest.js";
 import { type CompanyMemory, createCompanyMemory } from "./memory.js";
+import { syncMemorySkills } from "./memory-skills.js";
 import type { CompanyStorage } from "./storage.js";
 import {
   type ChatMessageRecord,
@@ -54,6 +56,11 @@ export interface CompanyRuntimeOptions {
    * kept in the company's storage. Every agent turn gets its handbook and memory section.
    */
   readonly memory?: CompanyMemory;
+  /**
+   * Script harvesting (decision 28). Scripts a task wrote are saved once the task is accepted and
+   * dropped when it fails or is cancelled; dreaming turns good ones into saved procedures.
+   */
+  readonly harvest?: CompanyHarvest;
   /** Cascade limits and goal options (judges, checks). */
   readonly cascade?: Omit<
     CreateDelegationCascadeOptions,
@@ -313,6 +320,18 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     if (event.type === "tool.effect.replayed" || event.type === "tool.effect.uncertain") {
       return;
     }
+    const harvest = options.harvest;
+    if (harvest !== undefined) {
+      const settle =
+        event.type === "task.succeeded"
+          ? harvest.taskSucceeded(event.task).then(() => undefined)
+          : event.type === "task.failed" || event.type === "task.cancelled"
+            ? harvest.taskEnded(event.task.taskId)
+            : undefined;
+      void settle?.catch((error: unknown) => {
+        options.log?.(`Could not harvest scripts from ${event.task.taskId}: ${String(error)}`);
+      });
+    }
     if (drive !== undefined && event.task.depth === 0) {
       const ending =
         event.type === "task.succeeded"
@@ -361,6 +380,14 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         describeDriveForAgent({ agentId: input.agentId, goalId: input.rootTaskId }),
       );
     }
+    await syncMemorySkills({
+      memory,
+      ...(options.harvest === undefined ? {} : { harvest: options.harvest }),
+      agentId: input.agentId,
+      home: input.workspaceRoot,
+    }).catch((error: unknown) => {
+      options.log?.(`Could not lay out ${input.agentId}'s saved procedures: ${String(error)}`);
+    });
     const taskAt = input.prompt.search(/^## Task /m);
     const memorySection = await memory.promptSection(input.agentId, {
       query: taskAt === -1 ? input.prompt : input.prompt.slice(taskAt),

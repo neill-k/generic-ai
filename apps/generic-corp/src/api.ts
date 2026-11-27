@@ -54,6 +54,7 @@ export interface CompanyApiOptions {
   readonly memoryBackground?: {
     readonly store: MemoryBackgroundStore;
     scan(): Promise<unknown>;
+    dream(agentId: string): Promise<unknown>;
   };
   /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
   readonly permissions?: PermissionStore;
@@ -678,6 +679,15 @@ export function createCompanyApi(
   app.post("/memory/background/scan", async (c) => {
     requireManage(c);
     return c.json({ result: await requireBackground().scan() });
+  });
+
+  app.post("/memory/background/dream/:agentId", async (c) => {
+    requireManage(c);
+    const agentId = c.req.param("agentId");
+    if ((await runtime.directory.get(agentId)) === undefined) {
+      throw new ApiError(404, `Agent ${agentId} was not found.`);
+    }
+    return c.json({ result: await requireBackground().dream(agentId) });
   });
 
   app.get("/memory/changes", async (c) => {

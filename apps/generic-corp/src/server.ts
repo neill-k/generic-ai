@@ -55,6 +55,8 @@ import {
   createCompanyHandInCheck,
   createModelJudge,
 } from "./goals.js";
+import { createDreaming } from "./dreaming.js";
+import { createCompanyHarvest } from "./harvest.js";
 import { createCompanyMemory } from "./memory.js";
 import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
 import { createMemoryTools } from "./memory-tools.js";
@@ -443,11 +445,18 @@ export async function createGenericCorpServer(
       legacyNotes: (agentId) =>
         readFile(path.join(layout.agentsRoot, agentId, "context.md"), "utf8"),
     });
+    // Scripts an agent writes are kept once its task is accepted (decision 28), outside the
+    // company folder, for dreaming to turn into saved procedures.
+    const harvest = createCompanyHarvest({
+      kv: storage.kv,
+      companyRoot: layout.root,
+      root: path.join(environment.dataDir, "harvest"),
+    });
     const withMemoryTools = (
       bindings: ReturnType<CompanyToolkit["capabilities"]>,
       input: Parameters<CompanyToolkit["capabilities"]>[0],
     ): ReturnType<CompanyToolkit["capabilities"]> => ({
-      ...bindings,
+      ...harvest.wrapBindings(bindings, input),
       customTools: [
         ...(bindings.customTools ?? []),
         ...createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId }),
@@ -502,6 +511,7 @@ export async function createGenericCorpServer(
       agentsRoot: layout.agentsRoot,
       drive,
       memory,
+      harvest,
       executor,
       cascade: {
         worker: {
@@ -587,6 +597,34 @@ export async function createGenericCorpServer(
           title: agent.title ?? agent.role,
         })),
     });
+    const sessionsRoot = path.join(environment.dataDir, "sessions");
+    const dreaming = createDreaming({
+      memory,
+      store: background,
+      model: backgroundModel,
+      gate: backgroundGate,
+      sessionsRoot,
+      harvest,
+      agents: async () => (await runtime.directory.list()).map((agent) => agent.id),
+      lastActive: async (agentId) => {
+        const tasks = await runtime.listTasks({ agentId, limit: 50 });
+        if (tasks.some((task) => ["queued", "running", "waiting"].includes(task.status))) {
+          return "working";
+        }
+        const latest = tasks
+          .map((task) => task.completedAt ?? task.updatedAt)
+          .sort()
+          .at(-1);
+        return latest === undefined ? undefined : new Date(latest);
+      },
+    });
+    const dreamingTimer = createBackgroundTimer(
+      async () => Math.min(30, (await background.settings()).dreaming.idleMinutes) * 60_000,
+      async () => {
+        await dreaming.tick();
+      },
+      (error) => log(`Dreaming failed: ${String(error)}`),
+    );
     const scannerTimer = createBackgroundTimer(
       async () => (await background.settings()).scanner.intervalMinutes * 60_000,
       async () => {
@@ -658,6 +696,7 @@ export async function createGenericCorpServer(
         memoryBackground: {
           store: background,
           scan: async () => scanner.scan(),
+          dream: async (agentId) => dreaming.dream(agentId, { force: true }),
         },
         refusals,
         modelAuth,
@@ -683,6 +722,7 @@ export async function createGenericCorpServer(
     if (environment.workers) {
       runtime.start();
       scannerTimer.start();
+      dreamingTimer.start();
     }
 
     return {
@@ -697,6 +737,7 @@ export async function createGenericCorpServer(
       agentNetwork,
       async stop() {
         await scannerTimer.stop();
+        await dreamingTimer.stop();
         await runtime.stop();
         await companyToolkit.close();
         await egressProxy?.stop();

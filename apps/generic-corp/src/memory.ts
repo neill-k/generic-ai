@@ -15,6 +15,8 @@ import {
 } from "@generic-ai/continual";
 import type { StorageContract } from "@generic-ai/sdk";
 
+import { skillCommand } from "./memory-skills.js";
+
 /**
  * The company's one memory system (design decision 17). It replaces the per-agent notes file
  * (`context.md`), the remember-and-search store and the session-local continual harness entries.
@@ -650,9 +652,16 @@ export function createCompanyMemory(options: CompanyMemoryOptions): CompanyMemor
       if (skills.length > 0) {
         lines.push("", "Procedures you saved:");
         for (const skill of rankHarnessEntries(skills, terms)) {
+          const rendered = skillCommand(
+            agentId,
+            skill,
+            typeof skill.metadata["scriptFile"] === "string"
+              ? skill.metadata["scriptFile"]
+              : undefined,
+          );
           const command =
-            typeof skill.reference["command"] === "string"
-              ? ` Run: \`${skill.reference["command"]}\``
+            rendered !== undefined
+              ? ` Run: \`${rendered}\``
               : typeof skill.reference["name"] === "string"
                 ? ` Skill: ${skill.reference["name"]}`
                 : "";

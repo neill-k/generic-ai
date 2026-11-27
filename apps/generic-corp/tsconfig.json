@@ -62,6 +62,9 @@
     },
     {
       "path": "../../packages/sdk"
+    },
+    {
+      "path": "../../packages/session"
     }
   ]
 }
