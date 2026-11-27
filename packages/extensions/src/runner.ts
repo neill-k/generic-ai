@@ -2,16 +2,16 @@
 // Copyright (c) 2026 Earendil Inc. MIT License; see THIRD_PARTY_NOTICES.md.
 
 import type {
+  AfterToolCallContext,
+  AfterToolCallResult,
   Agent,
   AgentEvent,
   AgentMessage,
   AgentTool,
-  AfterToolCallContext,
-  AfterToolCallResult,
   BeforeToolCallContext,
   BeforeToolCallResult,
 } from "@generic-ai/agent";
-import type { ImageContent, TextContent, ToolResultMessage } from "@generic-ai/ai";
+import type { ImageContent, Model, TextContent, ToolResultMessage } from "@generic-ai/ai";
 
 import type {
   BeforeAgentStartEventResult,
@@ -135,7 +135,57 @@ export class ExtensionRunner {
         }
         agent.steer(message);
       },
+      getModel: () => agent?.state.model,
+      setModel: async (model) => {
+        if (agent === undefined) {
+          throw new Error("setModel needs an agent; call bindAgent first.");
+        }
+        const previousModel = agent.state.model;
+        agent.state.model = model;
+        await this.emit({ type: "model_select", model, previousModel, source: "set" });
+      },
+      getThinkingLevel: () => agent?.state.thinkingLevel,
+      setThinkingLevel: async (level) => {
+        if (agent === undefined) {
+          throw new Error("setThinkingLevel needs an agent; call bindAgent first.");
+        }
+        const previousLevel = agent.state.thinkingLevel;
+        agent.state.thinkingLevel = level;
+        await this.emit({ type: "thinking_level_select", level, previousLevel });
+      },
     };
+  }
+
+  /** `before_provider_request`: each handler may replace the payload the next one sees. */
+  async emitBeforeProviderRequest(payload: unknown, model: Model): Promise<unknown> {
+    let current = payload;
+    await this.#dispatch(
+      "before_provider_request",
+      () => ({ type: "before_provider_request", payload: current, model }),
+      (result) => {
+        if (result !== undefined) {
+          current = result;
+        }
+        return false;
+      },
+    );
+    return current;
+  }
+
+  /** `before_provider_headers`: handlers mutate one header object; `null` removes a header. */
+  async emitBeforeProviderHeaders(
+    headers: Readonly<Record<string, string>>,
+    model: Model,
+  ): Promise<Record<string, string>> {
+    const working: Record<string, string | null> = { ...headers };
+    await this.emit({ type: "before_provider_headers", headers: working, model });
+    const result: Record<string, string> = {};
+    for (const [name, value] of Object.entries(working)) {
+      if (typeof value === "string") {
+        result[name] = value;
+      }
+    }
+    return result;
   }
 
   /** Dispatch an event whose handlers return nothing. */
@@ -340,6 +390,45 @@ export class ExtensionRunner {
     const previousTransform = agent.transformContext;
     const previousBefore = agent.beforeToolCall;
     const previousAfter = agent.afterToolCall;
+    const previousStreamFn = agent.streamFn;
+    const previousStreamOptions = agent.streamOptions;
+
+    // Provider hooks: payload replacement, header injection and response observation.
+    agent.streamOptions = {
+      ...(previousStreamOptions ?? {}),
+      onPayload: async (payload, model) => {
+        const earlier = await previousStreamOptions?.onPayload?.(payload, model);
+        const base = earlier === undefined ? payload : earlier;
+        return this.hasHandlers("before_provider_request")
+          ? this.emitBeforeProviderRequest(base, model)
+          : base;
+      },
+      onResponse: async (response, model) => {
+        await previousStreamOptions?.onResponse?.(response, model);
+        if (this.hasHandlers("after_provider_response")) {
+          const headers: Record<string, string> = {};
+          response.headers.forEach((value, name) => {
+            headers[name] = value;
+          });
+          await this.emit({
+            type: "after_provider_response",
+            status: response.status,
+            headers,
+            model,
+          });
+        }
+      },
+    };
+    agent.streamFn = async (model, context, options) => {
+      if (!this.hasHandlers("before_provider_headers")) {
+        return previousStreamFn(model, context, options);
+      }
+      const headers = await this.emitBeforeProviderHeaders(
+        { ...(model.headers ?? {}), ...(options?.headers ?? {}) },
+        model,
+      );
+      return previousStreamFn({ ...model, headers: {} }, context, { ...options, headers });
+    };
 
     agent.transformContext = async (messages, signal) => {
       const base =
@@ -433,6 +522,8 @@ export class ExtensionRunner {
       agent.transformContext = previousTransform;
       agent.beforeToolCall = previousBefore;
       agent.afterToolCall = previousAfter;
+      agent.streamFn = previousStreamFn;
+      agent.streamOptions = previousStreamOptions;
       agent.state.tools = agent.state.tools.filter((tool) => !added.includes(tool));
       if (this.#agent === agent) {
         this.#agent = undefined;
