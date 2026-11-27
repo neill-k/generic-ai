@@ -205,9 +205,9 @@ describe("saved sessions per agent per goal", () => {
 
     const a = await executor(turnInput(dataDir, "task-a", "Do task A.", 1));
     expect(a.status).toBe("succeeded");
-    const abandoned = executor(turnInput(dataDir, "task-b", "Do task B.", 1)).catch(
-      () => undefined,
-    );
+    const abandoned = Promise.resolve(
+      executor(turnInput(dataDir, "task-b", "Do task B.", 1)),
+    ).catch(() => undefined);
     await crashed;
 
     // A restarted server picks the task up again and resumes the saved session.
