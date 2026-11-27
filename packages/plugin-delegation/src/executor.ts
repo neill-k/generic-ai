@@ -5,6 +5,7 @@ import type {
   AgentHarnessRole,
   AgentHarnessRoleKind,
   AgentHarnessRunErrorCategory,
+  AgentHarnessRunSession,
   AgentTaskExecutionInput,
   AgentTaskExecutor,
 } from "@generic-ai/sdk";
@@ -37,6 +38,13 @@ export interface CreateAdapterTaskExecutorOptions<TCapabilities = unknown, TOutp
   readonly role?: (
     input: AgentTaskExecutionInput,
   ) => Partial<Omit<AgentHarnessRole, "id" | "kind" | "model">> | undefined;
+  /**
+   * The saved session a turn continues (native runtime): the file it reads and appends to, and
+   * whether to resume an interrupted turn from its last completed step instead of sending the prompt.
+   */
+  readonly session?: (
+    input: AgentTaskExecutionInput,
+  ) => AgentHarnessRunSession | undefined | Promise<AgentHarnessRunSession | undefined>;
 }
 
 const NON_RETRYABLE: ReadonlySet<AgentHarnessRunErrorCategory> = new Set([
@@ -90,6 +98,7 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
       options.turnTimeoutMs === undefined
         ? undefined
         : new Date(Date.now() + options.turnTimeoutMs).toISOString();
+    const session = await options.session?.(input);
 
     const result = await options.adapter.run(
       {
@@ -103,6 +112,7 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
         ...(capabilities === undefined ? {} : { capabilities }),
         ...(input.actor === undefined ? {} : { actor: input.actor }),
         ...(input.effectJournal === undefined ? {} : { effectJournal: input.effectJournal }),
+        ...(session === undefined ? {} : { session }),
         ...(input.tools === undefined || input.tools.length === 0
           ? {}
           : { hostTools: input.tools }),

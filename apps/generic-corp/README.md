@@ -131,7 +131,7 @@ more) and send it as a bearer token.
 | --- | --- | --- |
 | `PORT` | `3000` | Listen port |
 | `GENERIC_CORP_HOST` | `127.0.0.1` (`0.0.0.0` on Railway) | Listen address |
-| `GENERIC_CORP_DATA_DIR` | `~/.generic-corp` | SQLite database, run artifacts, and `company/` (the drive and agent homes) |
+| `GENERIC_CORP_DATA_DIR` | `~/.generic-corp` | SQLite database, run artifacts, `sessions/` (each agent's saved conversation per goal, used to resume a turn after a restart), and `company/` (the drive and agent homes) |
 | `DATABASE_URL` | none | Use Postgres instead of SQLite |
 | `GENERIC_CORP_COMPANY_FILE` | none | YAML company file; wins over the template |
 | `GENERIC_CORP_TEMPLATE` | `generic-corp` | Company template: `generic-corp`, `research-desk` or `back-office` |

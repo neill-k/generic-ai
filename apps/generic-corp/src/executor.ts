@@ -14,12 +14,14 @@ import {
   type AgentHarnessConfig,
   type AgentHarnessPolicyEvaluator,
   type AgentTaskExecutionInput,
+  type AgentTaskExecutionResult,
   type AgentTaskExecutor,
   type RunStoreContract,
   summarizeUsageEvents,
   type UsageTotals,
 } from "@generic-ai/sdk";
 
+import { type AgentSessionFiles, createAgentSessionFiles } from "./agent-sessions.js";
 import { DEFAULT_TIER_MODELS } from "./company.js";
 import {
   monitorCapabilities,
@@ -34,6 +36,12 @@ export interface CompanyExecutorOptions {
   readonly runStore: RunStoreContract;
   /** Where each turn's artifacts are written. Kept outside agent workspaces. */
   readonly artifactsRoot: string;
+  /**
+   * Where agents' saved sessions are kept, one per agent per goal (decision 16). A turn interrupted
+   * by a restart resumes from its last completed step (decision 30). Kept outside agent
+   * workspaces. Without it, every turn starts a fresh conversation.
+   */
+  readonly sessionsRoot?: string;
   /** Native runtime options: model resolution, API key, thinking level, stream override. */
   readonly native?: NativeAgentHarnessOptions;
   /**
@@ -100,10 +108,13 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
     const monitor = monitors.get(input.attemptRunId);
     return monitor === undefined ? bindings : monitorCapabilities(bindings, monitor);
   };
+  const sessions: AgentSessionFiles | undefined =
+    options.sessionsRoot === undefined ? undefined : createAgentSessionFiles(options.sessionsRoot);
   const runTurn = createAdapterTaskExecutor<PiCapabilityBindings, unknown>({
     adapter,
     harness,
     capabilities,
+    ...(sessions === undefined ? {} : { session: (input) => sessions.begin(input) }),
     ...(options.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: options.turnTimeoutMs }),
     role: (input) => {
       const secrets = options.secretGrants?.(input.agentId);
@@ -121,15 +132,28 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
       return budget === undefined ? context : { ...context, budget };
     },
   });
+  // A turn that throws (or a process that stops) leaves its session marked, so the next attempt
+  // resumes; one that ends, fails for good, or stalled starts the next turn from a fresh prompt.
+  const runAndSettle = async (
+    input: AgentTaskExecutionInput,
+    stalled: () => boolean,
+  ): Promise<AgentTaskExecutionResult> => {
+    const result = await runTurn(input);
+    await sessions?.settle(
+      input,
+      result.status === "failed" && result.retryable !== false && !stalled(),
+    );
+    return result;
+  };
   const noProgress = options.noProgress;
   const execute: AgentTaskExecutor =
     noProgress === false
-      ? runTurn
+      ? (input) => runAndSettle(input, () => false)
       : (input) =>
           runWithProgressCheck(input, noProgress ?? {}, async (monitored, monitor) => {
             monitors.set(monitored.attemptRunId, monitor);
             try {
-              return await runTurn(monitored);
+              return await runAndSettle(monitored, () => monitor.reason !== undefined);
             } finally {
               monitors.delete(monitored.attemptRunId);
             }

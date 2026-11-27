@@ -62,6 +62,15 @@ function textOf(message) {
     : message.content.map((part) => (part.type === "text" ? part.text : "")).join("\n");
 }
 
+/**
+ * This turn's rendered prompt. An agent keeps one saved session per goal, so earlier turns' prompts
+ * come first; the latest one naming the agent is the current turn's.
+ */
+function turnPrompt(messages) {
+  const latest = messages.findLast((m) => m.role === "user" && AGENT.test(textOf(m)));
+  return textOf(latest ?? messages[0]);
+}
+
 /** The owner's request: the text under "## Task <id>" up to the next section. */
 function taskOf(prompt) {
   const match = /## Task [^\n]*\n([\s\S]*?)(?:\n## |$)/.exec(prompt);
@@ -104,7 +113,7 @@ const statsFile = process.env.E2E_STATS_FILE;
 const inflight = { all: 0, byAgent: {} };
 const peak = { all: 0, byAgent: {}, calls: 0 };
 async function respond(context) {
-  const agent = AGENT.exec(textOf(context.messages[0]))?.[1] ?? "unknown";
+  const agent = AGENT.exec(turnPrompt(context.messages))?.[1] ?? "unknown";
   inflight.all += 1;
   inflight.byAgent[agent] = (inflight.byAgent[agent] ?? 0) + 1;
   peak.all = Math.max(peak.all, inflight.all);
@@ -125,7 +134,7 @@ async function decide(context) {
   if (delayMs > 0) {
     await sleep(delayMs);
   }
-  const prompt = textOf(context.messages[0]);
+  const prompt = turnPrompt(context.messages);
   const agent = AGENT.exec(prompt)?.[1];
   const task = taskOf(prompt);
   const last = context.messages.at(-1);
