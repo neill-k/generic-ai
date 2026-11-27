@@ -227,6 +227,9 @@ function cascadeEventData(event: DelegationCascadeEvent): Readonly<Record<string
     task: summarizeTask(event.task),
     ...(event.type === "task.delegated" ? { children: event.children.map(summarizeTask) } : {}),
     ...(event.type === "task.requeued" ? { reason: event.reason } : {}),
+    ...(event.type === "task.goal_changed" ? { source: event.source } : {}),
+    ...(event.type === "task.owner_question" ? { question: event.question } : {}),
+    ...(event.type === "task.impossibility_reviewed" ? { claim: event.claim } : {}),
     ...(event.type === "task.awaiting_approval"
       ? {
           approvals: event.approvals.map((approval) => ({
@@ -274,6 +277,8 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
   };
 
   const cascade = createDelegationCascade({
+    // The app moves to the submit_work hand-in with goals on every request (ADR 0069).
+    handIn: "reply",
     ...options.cascade,
     runStore: storage.runStore,
     queue: storage.queue,

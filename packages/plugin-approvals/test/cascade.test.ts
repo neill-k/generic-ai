@@ -111,6 +111,7 @@ async function open() {
     directory: agents,
     executor: agent.executor,
     approvals: service,
+    handIn: "reply",
     now: () => new Date(clock.now()),
     onEvent: (event) => events.push(event),
   });
@@ -217,6 +218,7 @@ describe("approvals in the delegation cascade", () => {
       }),
       executor: agent.executor,
       approvals: service,
+      handIn: "reply",
     });
     expect(await restarted.recover()).toBe(0);
     const [request] = await service.list({ status: "pending" });
