@@ -1250,3 +1250,97 @@ a.tab {
 .activity-card + .activity-card {
   margin-top: 1rem;
 }
+
+/* Settings pages: permissions and connections */
+.settings-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.settings-card + .settings-card {
+  margin-top: 1rem;
+}
+
+.settings-stack .settings-card + .settings-card {
+  margin-top: 0;
+}
+
+.settings-card h2 {
+  margin: 0.4rem 0 0;
+  font-size: 1rem;
+}
+
+.settings-card h3 {
+  margin: 0.4rem 0 0;
+  font-size: 0.9rem;
+}
+
+.toggle {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  cursor: pointer;
+}
+
+.toggle input {
+  margin-top: 0.25rem;
+  width: auto;
+  flex: none;
+}
+
+.repo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.notice {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--radius);
+  background: var(--accent-soft, var(--surface));
+  border: 1px solid var(--line);
+}
+
+.refusals,
+.secrets,
+.tool-groups {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.refusals li,
+.secrets li,
+.tool-groups li {
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+
+.refusals li:first-child,
+.secrets li:first-child,
+.tool-groups li:first-child {
+  border-top: none;
+}
+
+.secret-head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.secret-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.secret-form input {
+  flex: 1 1 12rem;
+}
