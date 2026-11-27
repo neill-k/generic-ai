@@ -9,6 +9,9 @@ approvals. Agents do generic work, not only software work.
 The decision to build it here, and the product decisions behind it, are in
 [`docs/decisions/0046-generic-corp-app-on-generic-ai.md`](../../docs/decisions/0046-generic-corp-app-on-generic-ai.md).
 
+**Run it on your machine:** [`RUN-LOCALLY.md`](RUN-LOCALLY.md) (one command,
+then sign in with Claude).
+
 ## Status
 
 The app server (roadmap R13) is in. It runs the company, gives its agents the
