@@ -6,11 +6,13 @@ import type { BashOperations } from "@generic-ai/tools";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  commandLimitScript,
   createTerminalToolPlugin,
   kind,
   name,
   resolveTerminalCwd,
   TerminalToolError,
+  wrapCommandForUser,
 } from "../src/index.js";
 
 const tempRoots: string[] = [];
@@ -213,6 +215,31 @@ describe("running agent commands as another OS user", () => {
     });
   });
 
+  it("limits each command's memory, CPU, files and processes unless turned off", () => {
+    const wrapped = wrapCommandForUser("make", {}, { user: "agent" }, "/work");
+    for (const flag of ["-c 0", "-d 4194304", "-t 3600", "-f 4194304", "-n 4096", "-u 1024"]) {
+      expect(wrapped.command).toContain(`ulimit ${flag} 2>/dev/null`);
+    }
+    expect(wrapped.command).toContain("nice -n 10 ");
+
+    const custom = wrapCommandForUser(
+      "make",
+      {},
+      { user: "agent", limits: { memoryMiB: 512, cpuSeconds: null, niceness: 0 } },
+      "/work",
+    );
+    expect(custom.command).toContain("ulimit -d 524288");
+    expect(custom.command).not.toContain("ulimit -t");
+    expect(custom.command).not.toContain("nice -n");
+
+    const off = wrapCommandForUser("make", {}, { user: "agent", limits: false }, "/work");
+    expect(off.command).not.toContain("ulimit -d");
+    expect(() =>
+      wrapCommandForUser("make", {}, { user: "agent", limits: { memoryMiB: -1 } }, "/work"),
+    ).toThrow(/Invalid command limit memoryMiB/);
+    expect(() => commandLimitScript({ niceness: 25 })).toThrow(/niceness/);
+  });
+
   it("refuses to combine runAs with the server's whole environment", async () => {
     expect(() =>
       createTerminalToolPlugin({
@@ -241,6 +268,10 @@ describe("running agent commands as another OS user", () => {
         expect(who.exitCode).toBe(0);
         expect(who.output.split("\n").slice(0, 3)).toEqual([runAsUser, root, "0007"]);
         expect((await plugin.run({ command: "exit 7" })).exitCode).toBe(7);
+        const limits = await plugin.run({ command: "ulimit -d; ulimit -u; nice" });
+        expect(limits.output.split("\n").slice(0, 3)).toEqual(["4194304", "1024", "10"]);
+        const raise = await plugin.run({ command: "ulimit -d unlimited" });
+        expect(raise.exitCode).not.toBe(0);
 
         const marker = `generic-ai-run-as-${process.pid}-${Date.now()}`;
         await plugin
