@@ -84,6 +84,20 @@ switch to `agent` (for example a platform that blocks sudo), it logs a
 `GENERIC_CORP_AGENT_ISOLATION=required` to refuse to start instead, once the
 first deploy shows `agentIsolation: user`. `off` turns the separate user off.
 
+**The Python workspace.** Every role also has the `python` tool
+(`@generic-ai/rlm`): one Python 3 process per agent turn that keeps its
+variables between calls, so the agent can load a large input once and work on
+it in code, call smaller models from code (`rlm.llm`) and call its other tools
+(`rlm.tool`). The kernel runs as `agent` through the same wrapper as shell
+commands, with the same environment allowlist and limits, except the hour of
+CPU, since it lives for the whole turn. It starts in the agent's home and
+stops when the turn ends. The server logs at startup whether roles have it.
+`GENERIC_CORP_RLM=off` leaves it out, `on` refuses to start without Python 3
+(the default, `auto`, turns it on when `python3` runs).
+`GENERIC_CORP_RLM_MODEL=provider/id` picks a smaller default model for
+`rlm.llm`; without it, sub-calls use the role's own model and are metered
+with the turn's usage.
+
 The image smoke test checks all of this on every PR. Its probe starts a
 non-node child holding the secrets, runs commands through the agents' shell
 tool and looks for the secret values in their environment and in every

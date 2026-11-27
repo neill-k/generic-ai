@@ -89,8 +89,8 @@ docker exec "$app" sh -c '
       awk "/^Uid:/ { print \$2 }" "$p/status"
     fi
   done' | grep -cx 1000 >/dev/null || fail "server is not running as uid 1000"
-docker exec -u node "$app" sh -c 'command -v bash && command -v git && command -v rg && command -v fd' >/dev/null \
-  || fail "bash, git, rg or fd missing"
+docker exec -u node "$app" sh -c 'command -v bash && command -v git && command -v rg && command -v fd && command -v python3' >/dev/null \
+  || fail "bash, git, rg, fd or python3 missing"
 docker exec -u node "$app" sh -c 'touch /data/.write-test && rm /data/.write-test' \
   || fail "/data is not writable by node"
 if docker exec -u node "$app" sh -c 'touch /app/apps/generic-corp/dist/run.js' 2>/dev/null; then
@@ -102,6 +102,10 @@ docker logs "$app" 2>&1 | grep -c 'Agent commands run as the OS user "agent"' >/
   || fail "the server did not switch agent commands to the agent user"
 curl -s "http://127.0.0.1:$port/ready" | grep -c '"agentIsolation":"user"' >/dev/null \
   || fail "/ready does not report agentIsolation user"
+docker logs "$app" 2>&1 | grep -c 'Roles have a Python workspace (the python tool), running as the OS user "agent"' >/dev/null \
+  || fail "roles did not get the Python workspace as the agent user"
+docker exec -u node "$app" sudo -n -u agent -- python3 -c 'import os, sys; sys.exit(0 if os.access(sys.argv[1], os.R_OK) else 1)' \
+  /app/packages/rlm/python/kernel.py || fail "the agent user cannot read the Python workspace kernel"
 if docker exec -u agent "$app" sudo -n true 2>/dev/null; then
   fail "the agent user can use sudo"
 fi

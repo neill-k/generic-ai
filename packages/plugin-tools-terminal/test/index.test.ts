@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +14,7 @@ import {
   resolveTerminalCwd,
   TerminalToolError,
   wrapCommandForUser,
+  wrapProcessForUser,
 } from "../src/index.js";
 
 const tempRoots: string[] = [];
@@ -240,6 +242,25 @@ describe("running agent commands as another OS user", () => {
     expect(() => commandLimitScript({ niceness: 25 })).toThrow(/niceness/);
   });
 
+  it("wraps a long-lived process so it keeps its stdin", () => {
+    const wrapped = wrapProcessForUser(
+      { command: "python3", args: ["-u", "/opt/it's/kernel.py"], env: { PATH: "/usr/bin" } },
+      { user: "agent", limits: { cpuSeconds: null } },
+      "/work",
+    );
+    expect(wrapped.command).toBe("/bin/bash");
+    expect(wrapped.args[0]).toBe("-c");
+    const script = wrapped.args[1] ?? "";
+    expect(script).toMatch(/^exec 'sudo' -n -u agent /);
+    expect(script).toContain("exec 3<&0");
+    expect(script).toContain("<&3 3<&- & wait");
+    expect(script).not.toContain("ulimit -t");
+    expect(script).toContain("exec");
+    expect(wrapped.env["HOME"]).toBe("/work");
+    // Plain commands still get no stdin.
+    expect(wrapCommandForUser("cat", {}, { user: "agent" }, "/work").command).not.toContain("3<&0");
+  });
+
   it("refuses to combine runAs with the server's whole environment", async () => {
     expect(() =>
       createTerminalToolPlugin({
@@ -282,6 +303,37 @@ describe("running agent commands as another OS user", () => {
           command: `pgrep -u ${runAsUser} -f 'sleep 30[01]' || true`,
         });
         expect(left.output.trim()).toBe("");
+      });
+    },
+    20_000,
+  );
+
+  it.skipIf(runAsUser === undefined)(
+    "runs a long-lived process as the other user with its stdin",
+    async () => {
+      await withTempRoot(async (root) => {
+        await chmod(root, 0o777);
+        const wrapped = wrapProcessForUser(
+          {
+            command: "/bin/sh",
+            args: ["-c", 'read line; echo "$(id -un):$line"'],
+            env: { PATH: process.env["PATH"] ?? "/usr/bin:/bin" },
+          },
+          { user: runAsUser as string },
+          root,
+        );
+        const child = spawn(wrapped.command, [...wrapped.args], {
+          cwd: root,
+          env: wrapped.env,
+          stdio: ["pipe", "pipe", "pipe"],
+        });
+        let out = "";
+        child.stdout.on("data", (chunk) => {
+          out += String(chunk);
+        });
+        child.stdin.end("hello\n");
+        await new Promise((resolve) => child.on("close", resolve));
+        expect(out.trim()).toBe(`${runAsUser}:hello`);
       });
     },
     20_000,

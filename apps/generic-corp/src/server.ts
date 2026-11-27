@@ -50,6 +50,7 @@ import {
   providerKeyName,
   resolveProviderKeyFromEnv,
 } from "./model-auth.js";
+import { resolveCompanyRlm } from "./rlm.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
 import { DEFAULT_TEMPLATE, listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
@@ -316,6 +317,8 @@ export async function createGenericCorpServer(
     const agentIsolation =
       options.agentIsolation ?? resolveAgentIsolation(options.env ?? process.env);
     log(describeAgentIsolation(agentIsolation));
+    const rlm = resolveCompanyRlm(options.env ?? process.env, agentIsolation);
+    log(rlm.description);
     toolkit =
       options.toolkit ??
       createCompanyToolkit({
@@ -343,6 +346,7 @@ export async function createGenericCorpServer(
         ...options.executorOptions,
         native: {
           getAuth: (provider) => modelAuth.getAuth(provider),
+          ...(rlm.option === undefined ? {} : { rlm: rlm.option }),
           ...options.executorOptions?.native,
         },
         runStore: storage.runStore,
