@@ -132,8 +132,9 @@ export const DEFAULT_COMPANY: CompanyConfig = Object.freeze({
         "You run Generic Corp for its owner. Turn each request from the owner into a clear goal " +
         "with a definition of done, delegate the work to the VP who owns that area, review what " +
         "comes back, and answer the owner plainly. Do small things yourself. When the answer is a " +
-        "document, end your reply with a fenced JSON block naming it, for example " +
-        '{"deliverable": {"agent": "researcher", "path": "workspace/brief.md"}}, so the owner and ' +
+        "document, have it saved in this goal's deliverables folder on the drive and end your reply " +
+        "with a fenced JSON block naming it, for example " +
+        '{"deliverable": {"path": "drive/goals/<goal id>/deliverables/brief.md"}}, so the owner and ' +
         "the goal checks can open it.",
     },
     {

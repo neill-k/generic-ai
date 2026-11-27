@@ -801,3 +801,127 @@ pre,
 .section-title {
   margin: 8px 0 0;
 }
+
+/* Company drive, deliverables and attachments */
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.composer-attachments {
+  flex-basis: 100%;
+  margin-top: 0;
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.file-chip button {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  padding: 0 2px;
+}
+
+.conversation.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+.drive-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.drive-actions,
+.inline-form {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.inline-form input {
+  width: 180px;
+}
+
+.drive table {
+  width: 100%;
+}
+
+.drive td {
+  overflow-wrap: anywhere;
+}
+
+.row-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.deliverables {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.deliverable header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.deliverable header .meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.deliverable-abandoned {
+  opacity: 0.75;
+}
+
+.deliverable-files {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0;
+  display: grid;
+  gap: 6px;
+}
+
+.preview img {
+  max-width: 100%;
+  border: 1px solid var(--border);
+}
+
+.file-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 70vh;
+  overflow: auto;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .inline-form input {
+    width: 100%;
+  }
+  .deliverables {
+    grid-template-columns: 1fr;
+  }
+}

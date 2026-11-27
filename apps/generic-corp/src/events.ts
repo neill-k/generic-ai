@@ -21,6 +21,8 @@ export type CompanyEventType =
   | "tool.effect.replayed"
   | "tool.effect.uncertain"
   | "thread.updated"
+  | "drive.updated"
+  | "drive.goal.updated"
   | "runtime.error";
 
 export interface CompanyEvent {

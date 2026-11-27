@@ -27,7 +27,8 @@ import type { CompanyConfig } from "./company.js";
 import { COMPANY_SKILLS_DIR } from "./templates.js";
 
 /**
- * The generic-work toolkit (D6) for every agent turn: files and a shell in the agent's home,
+ * The generic-work toolkit (D6) for every agent turn: files and a shell rooted at the company
+ * root (the shared drive plus every agent's home; see drive.ts),
  * web fetch and search, document reading and writing, and the company's MCP connectors (email,
  * calendar, chat, documents, browser, payments).
  *
@@ -177,6 +178,11 @@ export interface CreateCompanyToolkitOptions {
   readonly skillDirs?: readonly string[];
   /** Runs agent shell commands as another OS user (see `resolveAgentIsolation`). */
   readonly runAs?: TerminalRunAsUser;
+  /**
+   * Root and starting directory of a turn's file tools and shell. Defaults to the agent's home;
+   * the app server passes the company root so every agent sees the shared drive (see drive.ts).
+   */
+  readonly toolRoot?: (input: AgentTaskExecutionInput) => string;
 }
 
 const PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -288,7 +294,9 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
 
   return {
     capabilities(input) {
-      const { files, terminal, web, documents } = build(input.workspaceRoot);
+      const { files, terminal, web, documents } = build(
+        options.toolRoot?.(input) ?? input.workspaceRoot,
+      );
       return {
         fileTools: { piTools: files.piTools },
         terminalTools: { tool: terminal.tool },
