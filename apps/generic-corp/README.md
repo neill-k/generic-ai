@@ -65,9 +65,8 @@ dashboard at `/` with a permissions page and the refused-actions list.
   what it used, and the owner edits what done means in a side panel. The org chart
   opens each agent's current work and memory. It refreshes from
   `/api/events?unnamed=1`, and a signed-out browser goes to `/auth/login`.
-  `public/` is the earlier no-build dashboard, served at `/classic/` until its
-  remaining screens (activity, drive, usage, permissions and refused actions,
-  tools, secrets, Claude sign-in) move.
+  Activity, drive, deliverables, usage, permissions and refused actions,
+  connections, Claude sign-in and the checkup live in the same app.
 - **Permissions.** `permissions.ts`: the owner sets broad categories once
   (read outside systems: on; send messages, spend money, write to outside
   systems: off; GitHub pushes, pull requests and green-check merges in the
