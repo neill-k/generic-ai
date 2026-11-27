@@ -1251,6 +1251,54 @@ a.tab {
   margin-top: 1rem;
 }
 
+/* Daily summary (decision 35) */
+.daily-summary {
+  margin-bottom: 1rem;
+}
+
+.daily-headline {
+  font-size: 1.05rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.daily-goals,
+.daily-org {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+}
+
+.daily-goals li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.2rem 0;
+  overflow-wrap: anywhere;
+}
+
+.daily-mark {
+  flex: none;
+  width: 1rem;
+  font-weight: 700;
+}
+
+.daily-mark.done {
+  color: var(--good);
+}
+
+.daily-mark.ended {
+  color: var(--bad);
+}
+
+.daily-org li {
+  padding: 0.15rem 0;
+  color: var(--muted);
+}
+
+.daily-line {
+  margin: 0.35rem 0 0;
+}
+
 /* Settings pages: permissions and connections */
 .settings-stack {
   display: flex;

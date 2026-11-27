@@ -125,6 +125,7 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/tasks/:id`, `/tree`, `/events` | A task and its children, its whole cascade, its event log and harness run events |
 | `POST /api/tasks/:id/cancel` | Cancel a task and everything it delegated |
 | `GET /api/activity` | Work in motion and what just finished, each with who is on it and its status in plain words |
+| `GET /api/summary?hours=24` | The quiet daily summary: goals done and ended, goals set, work handed in, refused actions, org changes and spend in the window. Read from records already kept; no model call, nothing sent |
 | `GET /api/board` | Tasks in columns by status |
 | `GET /api/costs` | Tokens and dollars by agent, model and owner request, and cost per completed request |
 | `GET /api/permissions` | The permissions in force and whether the owner has saved them |

@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 
 import { api, type GoalTemplate, type GoalView } from "../api.js";
+import { useDailySummary } from "../components/DailySummary.js";
 import { Avatar, Empty, ErrorNote, Loading, StateBadge } from "../components/ui.js";
 import { formatTokens, timeAgo } from "../format.js";
 import { isWorkEvent, useResource } from "../live.js";
@@ -16,6 +17,7 @@ export function GoalsView() {
     isWorkEvent,
   );
   const [showFinished, setShowFinished] = useState(true);
+  const summary = useDailySummary();
 
   const open = goals.data?.filter((goal) => !FINISHED.has(goal.state)) ?? [];
   const finished = goals.data?.filter((goal) => FINISHED.has(goal.state)) ?? [];
@@ -32,6 +34,11 @@ export function GoalsView() {
                 ? "Nothing is in progress."
                 : `${open.length} in progress.`}
           </p>
+          {summary.data === undefined ? null : (
+            <p class="small daily-line">
+              <a href={href("activity")}>Last 24 hours:</a> {summary.data.headline}
+            </p>
+          )}
         </div>
       </header>
 

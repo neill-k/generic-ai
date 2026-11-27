@@ -24,12 +24,7 @@ import {
   createAgentChat,
   withCeoNotes,
 } from "./agent-chat.js";
-import {
-  type CompanyConfig,
-  ceoOf,
-  type QualityLevel,
-  tierOf,
-} from "./company.js";
+import { type CompanyConfig, ceoOf, type QualityLevel, tierOf } from "./company.js";
 import { type CompanyCosts, summarizeCompanyCosts } from "./costs.js";
 import { type CompanyDrive, type DriveEntry, describeDriveForAgent } from "./drive.js";
 import { type CompanyEventHub, createCompanyEventHub } from "./events.js";
@@ -226,7 +221,12 @@ export interface CompanyRuntime {
 
   listTasks(options?: ListTasksOptions): Promise<readonly AgentTaskRecord[]>;
   board(options?: { readonly limit?: number }): Promise<readonly BoardColumn[]>;
-  costs(options?: { readonly agentId?: string; readonly limit?: number }): Promise<CompanyCosts>;
+  costs(options?: {
+    readonly agentId?: string;
+    readonly limit?: number;
+    /** Only count runs started at or after this time (ISO). */
+    readonly since?: string;
+  }): Promise<CompanyCosts>;
 }
 
 export const BOARD_COLUMNS: readonly AgentTaskStatus[] = [
@@ -805,6 +805,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         completedRequestIds: new Set(completed.map((task) => task.taskId)),
         ...(costOptions.agentId === undefined ? {} : { agentId: costOptions.agentId }),
         ...(costOptions.limit === undefined ? {} : { limit: costOptions.limit }),
+        ...(costOptions.since === undefined ? {} : { since: costOptions.since }),
       });
     },
   };

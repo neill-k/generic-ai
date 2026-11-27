@@ -510,3 +510,115 @@ export async function activityView(
     recent: items.filter((item) => !item.active).slice(0, limit),
   };
 }
+
+/** One goal named in the daily summary. */
+export interface SummaryGoal {
+  readonly goalId: string;
+  readonly title: string;
+  readonly state: GoalState;
+}
+
+/**
+ * The quiet daily summary (decision 35): what the company did in a window, read from records
+ * already kept. Nothing is sent and no model is asked; the owner reads it when they look.
+ */
+export interface DailySummary {
+  readonly from: string;
+  readonly to: string;
+  /** One line in the company's voice, such as "2 goals done. 1 action refused. $0.84 spent." */
+  readonly headline: string;
+  /** Goals that reached done in the window. */
+  readonly done: readonly SummaryGoal[];
+  /** Goals that ended without being done: impossible, stopped or cancelled. */
+  readonly ended: readonly SummaryGoal[];
+  /** Goals the owner set in the window. */
+  readonly started: number;
+  /** Goals still open at the end of the window. */
+  readonly open: number;
+  /** Pieces of delegated work handed in by agents in the window. */
+  readonly handedIn: number;
+  readonly refused: number;
+  /** Changes to the org in the window, in the product's own words. */
+  readonly orgChanges: readonly string[];
+  readonly tokens: number;
+  readonly costUsd: number;
+}
+
+const plural = (count: number, one: string, many = `${one}s`) =>
+  `${count} ${count === 1 ? one : many}`;
+
+export async function dailySummary(
+  runtime: CompanyRuntime,
+  options: {
+    readonly now?: Date;
+    readonly hours?: number;
+    readonly refusals?: {
+      list(options?: { readonly limit?: number }): Promise<readonly { readonly at: string }[]>;
+    };
+  } = {},
+): Promise<DailySummary> {
+  const to = options.now ?? new Date();
+  const from = new Date(to.getTime() - (options.hours ?? 24) * 3_600_000);
+  const fromIso = from.toISOString();
+  const toIso = to.toISOString();
+  const inWindow = (at: string) => at >= fromIso && at <= toIso;
+  const [tasks, refusals, changes, costs] = await Promise.all([
+    runtime.listTasks({ limit: 5000 }),
+    options.refusals?.list({ limit: 1000 }) ?? Promise.resolve([]),
+    runtime.org.changes({ limit: 500 }),
+    runtime.costs({ since: fromIso, limit: 5000 }),
+  ]);
+  const roots = tasks.filter((task) => task.depth === 0);
+  const finished = roots
+    .filter((root) => FINISHED_STATES.has(goalStateOf(root)) && inWindow(root.updatedAt))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .map(
+      (root): SummaryGoal => ({
+        goalId: root.taskId,
+        title: titleOf(root),
+        state: goalStateOf(root),
+      }),
+    );
+  const done = finished.filter((goal) => goal.state === "done");
+  const ended = finished.filter((goal) => goal.state !== "done");
+  const started = roots.filter((root) => inWindow(root.createdAt)).length;
+  const open = roots.filter((root) => !FINISHED_STATES.has(goalStateOf(root))).length;
+  const handedIn = tasks.filter(
+    (task) => task.depth > 0 && task.status === "succeeded" && inWindow(task.updatedAt),
+  ).length;
+  const refused = refusals.filter((refusal) => inWindow(refusal.at)).length;
+  const orgChanges = changes
+    .filter((change) => inWindow(change.at))
+    .map((change) => change.summary);
+
+  const parts: string[] = [];
+  if (done.length > 0) parts.push(`${plural(done.length, "goal")} done.`);
+  if (ended.length > 0) parts.push(`${plural(ended.length, "goal")} ended without being done.`);
+  if (started > 0) parts.push(`${plural(started, "goal")} set.`);
+  if (handedIn > 0) parts.push(`${plural(handedIn, "piece")} of work handed in.`);
+  if (refused > 0) parts.push(`${plural(refused, "action")} refused.`);
+  if (orgChanges.length > 0) parts.push(`${plural(orgChanges.length, "change")} to the org.`);
+  if (costs.totals.costUsd > 0) parts.push(`$${costs.totals.costUsd.toFixed(2)} spent.`);
+  let headline = parts.join(" ");
+  if (parts.length === 0) {
+    headline =
+      open > 0
+        ? `Nothing finished. ${plural(open, "goal")} still open.`
+        : "Nothing happened. The office was quiet.";
+  }
+
+  return {
+    from: fromIso,
+    to: toIso,
+    headline,
+    done,
+    ended,
+    started,
+    open,
+    handedIn,
+    refused,
+    orgChanges,
+    tokens: costs.totals.totalTokens,
+    costUsd: costs.totals.costUsd,
+  };
+}
