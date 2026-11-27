@@ -23,6 +23,7 @@ export type CompanyEventType =
   | "task.impossibility_reviewed"
   | "task.held"
   | "company.paused"
+  | "org.changed"
   | "tool.effect.replayed"
   | "tool.effect.uncertain"
   | "thread.updated"
