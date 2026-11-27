@@ -26,6 +26,7 @@ import { type PermissionStore, PermissionsError } from "./permissions.js";
 import { describeQuality, parseQualityLevel, QualityError, type QualityStore } from "./quality.js";
 import type { RefusalLog } from "./refusals.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
+import { parseSpendLimit, type SpendingLimits, SpendLimitError } from "./spend-limits.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
@@ -67,6 +68,8 @@ export interface CompanyApiOptions {
   readonly checkup?: CompanyCheckup;
   /** Nightly backups, listed and started at `/api/backups`. */
   readonly backups?: CompanyBackups;
+  /** Spending limits, at `/api/limits` and `/api/agents/:id/limit`. */
+  readonly limits?: SpendingLimits;
   /** The GitHub connector, at `/api/connectors/github`. Owner only. */
   readonly github?: GithubConnector;
   /** The company root, which pushes to GitHub read deliverables from. */
@@ -848,6 +851,49 @@ export function createCompanyApi(
     requireManage(c);
     void backups.run("manual").catch(() => undefined);
     return c.json(await backups.status(), 202);
+  });
+
+  // --- Spending limits ----------------------------------------------------
+
+  const requireLimits = (): SpendingLimits => {
+    if (options.limits === undefined) {
+      throw new ApiError(404, "Spending limits are not available.");
+    }
+    return options.limits;
+  };
+  const limitCall = async <T>(call: () => Promise<T>): Promise<T> => {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof SpendLimitError) {
+        throw new ApiError(/not found/.test(error.message) ? 404 : 400, error.message);
+      }
+      throw error;
+    }
+  };
+
+  app.get("/limits", (c) => c.json(requireLimits().view()));
+
+  // Body: {"limit": {"period": "day" | "week" | "month", "maxCostUsd"?, "maxTokens"?}} or
+  // {"limit": null} to remove it. Raising or removing a limit resumes held work.
+  app.put("/limits/company", async (c) => {
+    const limits = requireLimits();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    return c.json(
+      await limitCall(async () => limits.setCompanyLimit(parseSpendLimit(body["limit"]))),
+    );
+  });
+
+  app.put("/agents/:agentId/limit", async (c) => {
+    const limits = requireLimits();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    return c.json(
+      await limitCall(async () =>
+        limits.setAgentLimit(c.req.param("agentId"), parseSpendLimit(body["limit"])),
+      ),
+    );
   });
 
   // --- The quality dial ---------------------------------------------------

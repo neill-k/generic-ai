@@ -39,6 +39,7 @@ export * from "./executor.js";
 export * from "./quality.js";
 export * from "./runtime.js";
 export * from "./server.js";
+export * from "./spend-limits.js";
 export * from "./storage.js";
 export * from "./threads.js";
 export * from "./toolkit.js";

@@ -91,6 +91,7 @@ import {
   secondOpinionModel,
   workerModelOf,
 } from "./second-opinion.js";
+import { openSpendingLimits, type SpendingLimits } from "./spend-limits.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
 import { DEFAULT_TEMPLATE, listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
 import { type CompanyToolkit, companySecretReferences, createCompanyToolkit } from "./toolkit.js";
@@ -312,6 +313,8 @@ export interface GenericCorpServer {
   /** How agent commands reach the network. */
   readonly agentNetwork: AgentNetwork;
   readonly backups: CompanyBackups;
+  /** Spending limits, company-wide and per agent. */
+  readonly limits: SpendingLimits;
   stop(): Promise<void>;
 }
 
@@ -414,6 +417,12 @@ export async function createGenericCorpServer(
     }
     const layout = companyLayout(environment.dataDir);
     const drive = createCompanyDrive({ layout, kv: storage.kv });
+    let releaseHeld: (() => Promise<unknown>) | undefined;
+    const limits = await openSpendingLimits({
+      kv: storage.kv,
+      agentIds: () => company.agents.map((agent) => agent.id),
+      onRelease: () => releaseHeld?.(),
+    });
     const processEnv = options.env ?? process.env;
     let publishBackupStatus: ((status: Readonly<Record<string, unknown>>) => void) | undefined;
     const backups =
@@ -562,7 +571,8 @@ export async function createGenericCorpServer(
         ...(rlm.option === undefined ? {} : { rlm: rlm.option }),
         ...options.executorOptions?.native,
       },
-      runStore: storage.runStore,
+      // Usage is counted toward spending limits as each turn writes it (spend-limits.ts).
+      runStore: limits.meter(storage.runStore),
       artifactsRoot: path.join(environment.dataDir, "artifacts"),
       sessionsRoot: path.join(environment.dataDir, "sessions"),
     });
@@ -575,8 +585,14 @@ export async function createGenericCorpServer(
         }));
     // The owner's quality dial picks the model for each turn (decision 22).
     const quality = await openQualityStore(storage.kv, company);
-    const executor: AgentTaskExecutor = (input) =>
-      baseExecutor({ ...input, model: quality.modelFor(input.agentId) });
+    const executor: AgentTaskExecutor = async (input) => {
+      const untrack = limits.trackRun(input.attemptRunId, input.agentId);
+      try {
+        return await baseExecutor({ ...input, model: quality.modelFor(input.agentId) });
+      } finally {
+        untrack();
+      }
+    };
     const workerModel = (agent: { readonly id: string; readonly model?: string }) =>
       workerModelOf(company, { ...agent, model: quality.modelFor(agent.id) });
     // A goal on the CEO's task is the company's goal: it is checked against the whole team's
@@ -651,6 +667,10 @@ export async function createGenericCorpServer(
     runtimeRef = runtime;
     await runtime.initialize();
     publishBackupStatus = (status) => runtime.events.publish("backups.updated", status);
+    // A reached spending limit holds the agents it covers (decision 42).
+    runtime.holds.register((agentId) => limits.holdFor(agentId));
+    releaseHeld = () => runtime.holds.changed();
+    limits.start();
 
     // Background memory work (decisions 18 and 19): frugal, pausable, one job at a time.
     const background = createMemoryBackgroundStore({ kv: storage.kv });
@@ -811,6 +831,7 @@ export async function createGenericCorpServer(
         github,
         companyRoot: layout.root,
         quality,
+        limits,
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),
@@ -854,11 +875,13 @@ export async function createGenericCorpServer(
       refusals,
       agentNetwork,
       backups,
+      limits,
       async stop() {
         await backups.stop();
         await scannerTimer.stop();
         await dreamingTimer.stop();
         await runtime.stop();
+        await limits.stop();
         await companyToolkit.close();
         await egress?.stop();
         await storage.close();
