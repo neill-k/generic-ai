@@ -64,6 +64,12 @@ export interface CompanyRuntimeOptions {
    */
   readonly memory?: CompanyMemory;
   /**
+   * Whether agent turns get the memory section (handbook and private memory) and their saved
+   * procedures. Defaults to true; the baseline comparison turns it off to measure what memory is
+   * worth.
+   */
+  readonly memoryInPrompts?: boolean;
+  /**
    * Script harvesting (decision 28). Scripts a task wrote are saved once the task is accepted and
    * dropped when it fails or is cancelled; dreaming turns good ones into saved procedures.
    */
@@ -401,6 +407,12 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         describeDriveForAgent({ agentId: input.agentId, goalId: input.rootTaskId }),
       );
     }
+    if (input.agentId === ceoId && agentChat !== undefined) {
+      prompt = withCeoNotes(prompt, await agentChat.takeCeoNotes().catch(() => []));
+    }
+    if (options.memoryInPrompts === false) {
+      return options.executor({ ...input, prompt });
+    }
     await syncMemorySkills({
       memory,
       ...(options.harvest === undefined ? {} : { harvest: options.harvest }),
@@ -409,9 +421,6 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     }).catch((error: unknown) => {
       options.log?.(`Could not lay out ${input.agentId}'s saved procedures: ${String(error)}`);
     });
-    if (input.agentId === ceoId && agentChat !== undefined) {
-      prompt = withCeoNotes(prompt, await agentChat.takeCeoNotes().catch(() => []));
-    }
     const taskAt = input.prompt.search(/^## Task /m);
     const memorySection = await memory.promptSection(input.agentId, {
       query: taskAt === -1 ? input.prompt : input.prompt.slice(taskAt),

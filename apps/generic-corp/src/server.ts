@@ -41,6 +41,7 @@ import {
   createCompanyBackups,
   readBackupSettings,
 } from "./backups.js";
+import { type CompanyCheckup, createCompanyCheckup } from "./checkup.js";
 import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { createDreaming } from "./dreaming.js";
@@ -359,6 +360,22 @@ export interface CreateGenericCorpServerOptions {
    */
   readonly modelAuth?: CompanyModelAuth;
   /**
+   * Whether agents have memory: the handbook and private-memory section in each prompt, and the
+   * remember and forget tools. Defaults to true; the baseline comparison turns it off to measure
+   * what memory is worth.
+   */
+  readonly agentMemory?: boolean;
+  /**
+   * The owner's checkup (the live baseline comparison, `/api/checkup`). Defaults to one that runs
+   * the company's own template with this server's model sign-in; `false` leaves it out.
+   */
+  readonly checkup?: CompanyCheckup | false;
+  /**
+   * An egress proxy to share instead of starting one, for a server started inside another (the
+   * checkup's companies). It is neither started nor stopped here.
+   */
+  readonly egressProxy?: Pick<EgressProxy, "envFor">;
+  /**
    * Nightly backups of the database and the company's files. Defaults to the schedule the
    * `GENERIC_CORP_BACKUP*` variables describe (backups.ts).
    */
@@ -451,7 +468,10 @@ export async function createGenericCorpServer(
       options.agentNetworkProbe,
     );
     log(describeAgentNetwork(agentNetwork));
-    if (networkPolicy !== "off") {
+    // A server started inside another (the checkup's companies) shares that server's proxy: the
+    // agent firewall only lets the agent user reach the one fixed egress port.
+    const sharedEgress = networkPolicy === "off" ? undefined : options.egressProxy;
+    if (networkPolicy !== "off" && sharedEgress === undefined) {
       const proxy = createEgressProxy({
         allow: () => permissions.current().shellHosts,
         port: environment.egressPort ?? 0,
@@ -470,7 +490,7 @@ export async function createGenericCorpServer(
       await proxy.start();
       egress = proxy;
     }
-    const egressProxy = egress;
+    const egressProxy: Pick<EgressProxy, "envFor"> | undefined = sharedEgress ?? egress;
     // Every role's Python workspace runs behind the same wall: as the agent user, with the
     // command limits and this agent's egress proxy settings (rlm.ts).
     const rlm = resolveCompanyRlm(options.env ?? process.env, agentIsolation, {
@@ -515,7 +535,9 @@ export async function createGenericCorpServer(
       ...harvest.wrapBindings(bindings, input),
       customTools: [
         ...(bindings.customTools ?? []),
-        ...createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId }),
+        ...(options.agentMemory === false
+          ? []
+          : createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId })),
       ],
     });
     // Every tool call is checked against the owner's permissions. An action outside them is
@@ -569,6 +591,7 @@ export async function createGenericCorpServer(
       agentsRoot: layout.agentsRoot,
       drive,
       memory,
+      ...(options.agentMemory === false ? { memoryInPrompts: false } : {}),
       harvest,
       executor,
       cascade: {
@@ -748,6 +771,18 @@ export async function createGenericCorpServer(
     }
 
     const ownerAuth = auth;
+    // The live baseline comparison, run only when the owner presses "run the checkup".
+    const checkup =
+      options.checkup === false
+        ? undefined
+        : (options.checkup ??
+          createCompanyCheckup({
+            kv: storage.kv,
+            modelAuth,
+            env: options.env ?? process.env,
+            ...(egressProxy === undefined ? {} : { egressProxy }),
+            log,
+          }));
     app.route(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
@@ -760,6 +795,7 @@ export async function createGenericCorpServer(
         refusals,
         modelAuth,
         permissions,
+        ...(checkup === undefined ? {} : { checkup }),
         backups,
         github,
         companyRoot: layout.root,
@@ -812,7 +848,7 @@ export async function createGenericCorpServer(
         await dreamingTimer.stop();
         await runtime.stop();
         await companyToolkit.close();
-        await egressProxy?.stop();
+        await egress?.stop();
         await storage.close();
       },
     };
