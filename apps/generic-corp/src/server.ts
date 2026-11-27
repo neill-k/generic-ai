@@ -43,7 +43,16 @@ import {
 import { createDashboardRoutes } from "./dashboard.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
+import {
+  type BackgroundModel,
+  createBackgroundGate,
+  createBackgroundTimer,
+  createMemoryBackgroundStore,
+  createModelBackground,
+  DEFAULT_BACKGROUND_MODEL,
+} from "./background.js";
 import { createCompanyMemory } from "./memory.js";
+import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
 import { createMemoryTools } from "./memory-tools.js";
 import { createCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
@@ -292,6 +301,14 @@ export interface CreateGenericCorpServerOptions {
     readonly judges?: GoalJudge | Readonly<Record<string, GoalJudge>>;
     readonly checks?: Readonly<Record<string, GoalCheck>>;
   };
+  /**
+   * The model background memory work uses (the preference scanner, dreaming). Defaults to
+   * `GENERIC_CORP_MEMORY_MODEL` or a small Claude model on the owner's sign-in. Background jobs
+   * only run while workers run.
+   */
+  readonly backgroundModel?: BackgroundModel;
+  /** Why background memory work may not spend now (spending limits, company pause). */
+  readonly canSpendInBackground?: () => Promise<string | undefined> | string | undefined;
   /** How agent commands run. Defaults to `resolveAgentIsolation` over the environment. */
   readonly agentIsolation?: AgentIsolation;
   /**
@@ -437,6 +454,54 @@ export async function createGenericCorpServer(
     runtimeRef = runtime;
     await runtime.initialize();
 
+    // Background memory work (decisions 18 and 19): frugal, pausable, one job at a time.
+    const background = createMemoryBackgroundStore({ kv: storage.kv });
+    const backgroundGate = createBackgroundGate({
+      store: background,
+      ...(options.canSpendInBackground === undefined
+        ? {}
+        : { canSpend: options.canSpendInBackground }),
+    });
+    const backgroundModel =
+      options.backgroundModel ??
+      createModelBackground({
+        model: processEnv["GENERIC_CORP_MEMORY_MODEL"]?.trim() || DEFAULT_BACKGROUND_MODEL,
+        getAuth: (provider) => modelAuth.getAuth(provider),
+      });
+    const scanner = createPreferenceScanner({
+      memory,
+      store: background,
+      model: backgroundModel,
+      gate: backgroundGate,
+      messages: async () => {
+        const threads = await runtime.threads.list();
+        const messages: OwnerMessage[] = threads.flatMap((thread) =>
+          thread.messages.map((message) => ({
+            messageId: message.messageId,
+            threadId: thread.threadId,
+            text: message.text,
+            createdAt: message.createdAt,
+            agentId: runtime.ceoId,
+          })),
+        );
+        return messages.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+      },
+      agents: async () =>
+        (await runtime.directory.list()).map((agent) => ({
+          id: agent.id,
+          title: agent.title ?? agent.role,
+        })),
+    });
+    const scannerTimer = createBackgroundTimer(
+      async () => (await background.settings()).scanner.intervalMinutes * 60_000,
+      async () => {
+        if ((await background.settings()).scanner.enabled) {
+          await scanner.scan();
+        }
+      },
+      (error) => log(`Preference scan failed: ${String(error)}`),
+    );
+
     let auth: OwnerAuth | undefined;
     const app = new Hono();
     app.get("/health", (c) => c.json({ ok: true }));
@@ -507,6 +572,10 @@ export async function createGenericCorpServer(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
         toolkit: companyToolkit,
+        memoryBackground: {
+          store: background,
+          scan: async () => scanner.scan(),
+        },
         modelAuth,
         secrets: {
           writable: secretsWritable,
@@ -528,6 +597,7 @@ export async function createGenericCorpServer(
 
     if (environment.workers) {
       runtime.start();
+      scannerTimer.start();
     }
 
     return {
@@ -539,6 +609,7 @@ export async function createGenericCorpServer(
       ...(auth === undefined ? {} : { auth }),
       approvals,
       async stop() {
+        await scannerTimer.stop();
         await runtime.stop();
         await companyToolkit.close();
         await storage.close();
