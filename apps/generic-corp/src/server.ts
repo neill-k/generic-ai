@@ -56,6 +56,12 @@ import {
 import { createCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import { createRefusalLog, type RefusalLog } from "./refusals.js";
+import {
+  type CompanyModelAuth,
+  createCompanyModelAuth,
+  providerKeyName,
+  resolveProviderKeyFromEnv,
+} from "./model-auth.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
 import { DEFAULT_TEMPLATE, listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
@@ -291,6 +297,12 @@ export interface CreateGenericCorpServerOptions {
   readonly agentIsolation?: AgentIsolation;
   /** Replaces the check that the agent user's firewall rule holds, for tests. */
   readonly agentNetworkProbe?: AgentNetworkProbe;
+  /**
+   * What powers the agents: the owner's Claude sign-in or an API key. Defaults to a credential
+   * file at `<dataDir>/model-auth.json`, falling back to the provider's key in the environment
+   * or the secrets vault.
+   */
+  readonly modelAuth?: CompanyModelAuth;
   readonly log?: (message: string) => void;
 }
 
@@ -317,6 +329,15 @@ export async function createGenericCorpServer(
     for (const name of secrets.weakNames()) {
       log(`Secret ${name} is too short to redact reliably. Use a longer value.`);
     }
+    const processEnv = options.env ?? process.env;
+    const modelAuth =
+      options.modelAuth ??
+      createCompanyModelAuth({
+        path: path.join(environment.dataDir, "model-auth.json"),
+        fallback: async (provider) =>
+          resolveProviderKeyFromEnv(provider, processEnv) ??
+          (await secrets.get(providerKeyName(provider), "host")),
+      });
     const agentIsolation =
       options.agentIsolation ?? resolveAgentIsolation(options.env ?? process.env);
     log(describeAgentIsolation(agentIsolation));
@@ -378,6 +399,10 @@ export async function createGenericCorpServer(
           }).wrapBindings(companyToolkit.capabilities(input)),
         secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
         ...options.executorOptions,
+        native: {
+          getAuth: (provider) => modelAuth.getAuth(provider),
+          ...options.executorOptions?.native,
+        },
         runStore: storage.runStore,
         artifactsRoot: path.join(environment.dataDir, "artifacts"),
       });
@@ -404,7 +429,10 @@ export async function createGenericCorpServer(
         goals: {
           judges:
             options.goals?.judges ??
-            createModelJudge({ model: company.models?.vp ?? DEFAULT_TIER_MODELS.vp }),
+            createModelJudge({
+              model: company.models?.vp ?? DEFAULT_TIER_MODELS.vp,
+              getAuth: (provider) => modelAuth.getAuth(provider),
+            }),
           ...(options.goals?.checks === undefined ? {} : { checks: options.goals.checks }),
           evidence: createCompanyGoalEvidence({
             runStore: storage.runStore,
@@ -490,6 +518,7 @@ export async function createGenericCorpServer(
       createCompanyApi(runtime, {
         toolkit: companyToolkit,
         refusals,
+        modelAuth,
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),
