@@ -104,8 +104,11 @@ company folder) and `GENERIC_CORP_BACKUPS=off` to stop the nightly run.
 
 ## Good to know
 
-- Your plan's usage limit applies. When it is reached, agent turns fail and
-  are retried, so heavy goals can stall until the limit resets.
+- Your plan's usage limit applies. When it is reached, work shows as
+  "Paused until your Claude plan resets" and picks up on its own afterwards.
+  To keep going on an API key instead, set `ANTHROPIC_API_KEY` and choose
+  that in Settings (`PUT /api/settings/plan-limit` with
+  `{"behaviour": "api_key"}`).
 - Running agents nonstop on a personal plan is your account's risk.
 - A turn that makes no progress for 15 minutes (no tool activity), or repeats
   the same tool call 8 times in a row, is stopped and retried. Change the
