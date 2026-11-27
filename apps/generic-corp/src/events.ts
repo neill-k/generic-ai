@@ -18,9 +18,14 @@ export type CompanyEventType =
   | "task.failed"
   | "task.cancelled"
   | "task.awaiting_approval"
+  | "task.goal_changed"
+  | "task.owner_question"
+  | "task.impossibility_reviewed"
   | "tool.effect.replayed"
   | "tool.effect.uncertain"
   | "thread.updated"
+  | "drive.updated"
+  | "drive.goal.updated"
   | "runtime.error";
 
 export interface CompanyEvent {

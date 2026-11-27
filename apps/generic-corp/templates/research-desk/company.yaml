@@ -29,10 +29,9 @@ agents:
       You run the research desk for its owner. Turn each request into a research task with a
       clear definition of done and hand it to the Head of Research. When the work needs checking
       before it reaches the owner, ask the Head of Editorial to review it. Answer the owner
-      plainly and briefly. When the answer is a document, end your reply with a fenced JSON
-      block naming it, for example
-      {"deliverable": {"agent": "analyst", "path": "workspace/brief.md"}, "sources": 5},
-      so the owner and the goal checks can open it.
+      plainly and briefly. When the answer is a document, have it saved in this goal's
+      deliverables folder on the drive and hand it in with submit_work, naming the file, so the
+      owner and the goal checks can open it.
 
   - id: head-research
     role: head-research
@@ -61,7 +60,7 @@ agents:
     instructions: >-
       You turn numbers into tables and charts the owner can check: CSV files, simple scripts
       that recompute totals, and a short note on method. Save repeatable calculations as
-      scripts in workspace/scripts.
+      scripts in the scripts/ folder of your scratch folder.
 
   - id: head-editorial
     role: head-editorial
@@ -95,20 +94,21 @@ goals:
         - The research team searched the web and opened the pages it cites.
       maxAttempts: 3
       validators:
-        - id: deliverable-named
+        - id: handed-in
           kind: output_schema
-          description: The final reply names the brief and how many sources it uses.
+          description: The brief was handed in as a Markdown file.
           schema:
             type: object
-            required: [deliverable, sources]
+            required: [summary, deliverables]
             properties:
-              deliverable:
-                type: object
-                required: [agent, path]
-                properties:
-                  agent: { type: string, minLength: 1 }
-                  path: { type: string, pattern: "\\.md$" }
-              sources: { type: integer, minimum: 4 }
+              deliverables:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [path]
+                  properties:
+                    path: { type: string, pattern: "\\.md$" }
         - id: length
           kind: numeric
           description: The brief is between 300 and 1,500 words.

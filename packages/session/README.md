@@ -70,3 +70,19 @@ console.log(await client.getLastAssistantText());
   prompt pipeline (extensions, retry), model lookup and list, compaction settings, the commands
   `get_commands` lists, and a `dispose` hook. There is no CLI binary; wire these modes to your own
   entry point.
+
+## Resuming after a restart
+
+Every finished message is appended to the session file as it ends, so after a crash the file holds
+each completed step. `findResumePoint(messages)` says where a conversation stopped, and
+`prepareSessionResume(agent, manager)` loads the session and gets the agent ready to carry on:
+
+- a session ending in a user message or tool results is continued as it is (`agent.continue()`);
+- a failed or aborted last response is set aside (the session branches from the entry before it)
+  and the step is tried again;
+- tool calls cut off before their results were saved get an error result saying so, instead of
+  running a second time, since a tool may already have taken effect;
+- a session ending in a finished answer is `complete`: nothing is left to do.
+
+Native sessions use this through their `resume` option, and harness runs through
+`session: { file, resume: true }`.

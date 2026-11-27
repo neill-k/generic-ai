@@ -83,7 +83,8 @@ ADRs must be written when:
 - [`0066-offloading.md`](0066-offloading.md) - long tool results saved to output files with a preview, `tool_batch` through each tool's own hooks, and scripts harvested from runs that pass their validators and promoted to skills by the host.
 - [`0067-continual-harness.md`](0067-continual-harness.md) - the continual harness: global and session-local refinement stores, refinements planned from the conversation after a turn and applied with a stale check, base prompt immutable, Prime's factory kind left out.
 - [`0068-native-runtime-default.md`](0068-native-runtime-default.md) - the native runtime is the default harness and LLM runtime adapter; `pi` and `openai-codex` stay available by name until they are removed.
-- [`0069-company-wall.md`](0069-company-wall.md) - the company is one trust zone; agent shell commands reach the network only through an allowlisting egress proxy made unavoidable by a firewall rule for the agent user, refusals logged for the owner, and per-command resource limits.
+- [`0069-goals-on-every-request.md`](0069-goals-on-every-request.md) - agents draft a locked goal for every request with `set_goal`, hand in work with `submit_work`, declare impossibility only with a second reviewer's agreement, write owner questions down without blocking, and the owner can edit the definition of done at any time.
+- [`0070-company-wall.md`](0070-company-wall.md) - the company is one trust zone; agent shell commands reach the network only through an allowlisting egress proxy made unavoidable by a firewall rule for the agent user, refusals logged for the owner, and per-command resource limits.
 
 ## Planning Baseline
 

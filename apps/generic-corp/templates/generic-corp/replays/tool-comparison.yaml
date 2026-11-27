@@ -36,16 +36,18 @@ agents:
             definitionOfDone: A Markdown comparison of three tools with a link per claim and one recommendation.
     - call: stop_and_respond
       args: { response: Research is comparing the tools. }
+    - call: submit_work
+      args:
+        summary: >-
+          A sourced comparison of three project management tools, ending in one recommendation: Planly.
+        deliverables:
+          - path: agents/researcher/workspace/pm-tools.md
     - call: stop_and_respond
       args:
         response: |-
           I recommend Planly. It costs USD 10 per person a month, the most of the three, but it
           is the only one that works fully offline, which you said matters. Trackwise is free
           for five people but is read-only offline.
-
-          ```json
-          {"deliverable": {"agent": "researcher", "path": "workspace/pm-tools.md"}, "recommendation": "Planly", "toolsCompared": 3}
-          ```
 
   vp-research:
     - call: delegate_task
@@ -59,6 +61,12 @@ agents:
             definitionOfDone: Three tools, every claim linked, one recommendation with a reason.
     - call: stop_and_respond
       args: { response: The researcher is on it. }
+    - call: submit_work
+      args:
+        summary: >-
+          Reviewed the comparison: three tools on price, ease of use and offline use, each claim linked.
+        deliverables:
+          - path: agents/researcher/workspace/pm-tools.md
     - call: stop_and_respond
       args:
         response: >-
@@ -92,6 +100,12 @@ agents:
           is the only tool that keeps working offline and syncs when you reconnect, which the
           owner named as a requirement. If offline use turns out not to matter, Trackwise is the
           cheapest good choice.
+    - call: submit_work
+      args:
+        summary: >-
+          Compared three tools on price, ease of use and offline use, with sources, and recommended one.
+        deliverables:
+          - path: workspace/pm-tools.md
     - call: stop_and_respond
       args:
         response: >-

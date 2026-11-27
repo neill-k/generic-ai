@@ -6,6 +6,9 @@ const state = {
   view: "chat",
   threadId: undefined,
   goalId: undefined,
+  /** Drive files attached to the message being written. */
+  attachments: [],
+  drivePath: "drive",
   company: undefined,
   refreshTimer: undefined,
   claudeFlowId: undefined,
@@ -150,6 +153,8 @@ const VIEWS = {
   secrets: renderSecrets,
   power: renderModelAuth,
   approvals: renderApprovals,
+  drive: renderDrive,
+  deliverables: renderDeliverables,
 };
 
 function route() {
@@ -157,6 +162,9 @@ function route() {
   state.view = VIEWS[view] ? view : "chat";
   if (state.view === "chat") {
     state.threadId = id ? decodeURIComponent(id) : state.threadId;
+  }
+  if (state.view === "drive") {
+    state.drivePath = id ? decodeURIComponent(id) : "drive";
   }
   for (const link of document.querySelectorAll(".nav a")) {
     link.classList.toggle("active", link.dataset.view === state.view);
@@ -218,6 +226,8 @@ function connectLiveEvents() {
     "task.cancelled",
     "task.awaiting_approval",
     "thread.updated",
+    "drive.updated",
+    "drive.goal.updated",
   ];
   for (const type of types) {
     source.addEventListener(type, scheduleRefresh);
@@ -330,6 +340,13 @@ async function renderChat() {
           { class: "bubble owner" },
           h("div", { class: "who" }, "You", " · ", formatTime(exchange.message.createdAt)),
           exchange.message.text,
+          (exchange.message.attachments ?? []).length === 0
+            ? null
+            : h(
+                "div",
+                { class: "attachments" },
+                exchange.message.attachments.map((filePath) => fileLink(filePath)),
+              ),
         ),
         replyBubble(exchange.reply),
       ]);
@@ -361,10 +378,17 @@ async function renderChat() {
             : "/threads";
           const result = await api(path, {
             method: "POST",
-            body: JSON.stringify(chosenGoal ? { text, goalId: chosenGoal.id } : { text }),
+            body: JSON.stringify({
+              text,
+              ...(chosenGoal ? { goalId: chosenGoal.id } : {}),
+              ...(state.attachments.length > 0
+                ? { attachments: state.attachments.map((file) => file.path) }
+                : {}),
+            }),
           });
           textarea.value = "";
           state.goalId = undefined;
+          state.attachments = [];
           state.threadId = result.thread.threadId;
           if (window.location.hash !== `#/chat/${encodeURIComponent(result.thread.threadId)}`) {
             window.location.hash = `#/chat/${encodeURIComponent(result.thread.threadId)}`;
@@ -397,9 +421,58 @@ async function renderChat() {
           ),
         )
       : null,
+    state.attachments.length === 0
+      ? null
+      : h(
+          "div",
+          { class: "attachments composer-attachments" },
+          state.attachments.map((file) =>
+            h(
+              "span",
+              { class: "file-chip" },
+              file.name,
+              h(
+                "button",
+                {
+                  type: "button",
+                  "aria-label": `Remove ${file.name}`,
+                  onClick: () => {
+                    state.attachments = state.attachments.filter((item) => item.path !== file.path);
+                    render();
+                  },
+                },
+                "×",
+              ),
+            ),
+          ),
+        ),
     textarea,
+    attachButton(async (files) => {
+      for (const file of files) {
+        state.attachments.push(await uploadToInbox(file));
+      }
+      render();
+    }),
     sendButton,
   );
+  const conversation = h("div", { class: "panel conversation" }, messages, form);
+  conversation.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    conversation.classList.add("dropping");
+  });
+  conversation.addEventListener("dragleave", () => conversation.classList.remove("dropping"));
+  conversation.addEventListener("drop", async (event) => {
+    event.preventDefault();
+    conversation.classList.remove("dropping");
+    try {
+      for (const file of event.dataTransfer?.files ?? []) {
+        state.attachments.push(await uploadToInbox(file));
+      }
+      render();
+    } catch (error) {
+      form.before(errorView(error));
+    }
+  });
   textarea.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       form.requestSubmit();
@@ -411,8 +484,8 @@ async function renderChat() {
       "div",
       {},
       h("h1", {}, current?.title ?? "Chat with the CEO"),
-      h("p", { class: "subtitle" }, "Cmd or Ctrl + Enter sends."),
-      h("div", { class: "chat" }, list, h("div", { class: "panel conversation" }, messages, form)),
+      h("p", { class: "subtitle" }, "Cmd or Ctrl + Enter sends. Drop files here to hand them in."),
+      h("div", { class: "chat" }, list, conversation),
     ),
   );
   if (scrolledToEnd || !previousDraft) {
@@ -1498,6 +1571,351 @@ async function renderApprovals() {
         recent.length > 0 ? h("h2", { class: "section-title" }, "Recently decided") : null,
         recent.map((approval) => approvalCard(approval, reload)),
       ),
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The company drive and the deliverables shelf
+// ---------------------------------------------------------------------------
+
+const GOAL_STATUS = {
+  active: { label: "in progress", status: "running" },
+  done: { label: "done", status: "succeeded" },
+  failed: { label: "failed", status: "failed" },
+  abandoned: { label: "abandoned", status: "cancelled" },
+};
+
+function fileUrl(filePath, download = false) {
+  return `/api/drive/file?path=${encodeURIComponent(filePath)}${download ? "&download=1" : ""}`;
+}
+
+function formatBytes(bytes = 0) {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function upload(url, file, method) {
+  const response = await fetch(url, { method, credentials: "same-origin", body: file });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new ApiError(response.status, body.error ?? `Upload failed (${response.status}).`);
+  }
+  return body.entry;
+}
+
+/** Puts a file the owner hands in into the drive's inbox, under a free name. */
+function uploadToInbox(file) {
+  return upload(`/api/drive/inbox?name=${encodeURIComponent(file.name)}`, file, "POST");
+}
+
+/** A button that opens the file picker and passes the chosen files on. */
+function attachButton(onFiles, label = "Attach") {
+  const input = h("input", { type: "file", multiple: true, hidden: true });
+  input.addEventListener("change", async () => {
+    const files = [...(input.files ?? [])];
+    input.value = "";
+    if (files.length > 0) {
+      try {
+        await onFiles(files);
+      } catch (error) {
+        viewRoot().prepend(errorView(error));
+      }
+    }
+  });
+  return h(
+    "span",
+    {},
+    input,
+    h("button", { type: "button", class: "ghost", onClick: () => input.click() }, label),
+  );
+}
+
+function fileLink(filePath, name) {
+  return h(
+    "a",
+    {
+      href: fileUrl(filePath),
+      class: "file-chip",
+      onClick: (event) => {
+        event.preventDefault();
+        previewFile({ path: filePath, name: name ?? filePath.split("/").pop() });
+      },
+    },
+    name ?? filePath.split("/").pop(),
+  );
+}
+
+/** Folders the drive keeps for itself; they cannot be deleted. */
+const DRIVE_OWN_FOLDERS = new Set(["drive/inbox", "drive/goals"]);
+
+const TEXT_PREVIEW = /^(text\/|application\/(json|yaml|xml))/;
+
+/** Shows a file in the drawer: text and images inline, anything else as a download. */
+async function previewFile(entry) {
+  const body = h("div", { class: "preview" });
+  const actions = h(
+    "p",
+    { class: "preview-actions" },
+    h(
+      "span",
+      { class: "muted" },
+      entry.path,
+      entry.size === undefined ? "" : ` · ${formatBytes(entry.size)}`,
+    ),
+    " ",
+    h("a", { href: fileUrl(entry.path, true) }, "Download"),
+    " ",
+    h("a", { href: fileUrl(entry.path), target: "_blank", rel: "noopener" }, "Open"),
+  );
+  body.append(actions);
+  openDrawer(entry.name, body);
+  const type = entry.mimeType ?? "";
+  if (type.startsWith("image/") && type !== "image/svg+xml") {
+    body.append(h("img", { src: fileUrl(entry.path), alt: entry.name }));
+    return;
+  }
+  if (!TEXT_PREVIEW.test(type) && type !== "") {
+    body.append(
+      h("p", { class: "muted" }, "No preview for this kind of file. Download it to open it."),
+    );
+    return;
+  }
+  const response = await fetch(fileUrl(entry.path), { credentials: "same-origin" });
+  if (!response.ok) {
+    body.append(errorView(new Error(`Could not open the file (${response.status}).`)));
+    return;
+  }
+  const text = await response.text();
+  const limit = 200_000;
+  body.append(
+    h(
+      "pre",
+      { class: "file-text" },
+      text.length > limit
+        ? `${text.slice(0, limit)}\n\n[Cut. Download the file to see all of it.]`
+        : text,
+    ),
+  );
+}
+
+async function renderDrive() {
+  const folder = state.drivePath;
+  const { path: current, entries } = await api(`/drive?path=${encodeURIComponent(folder)}`);
+  const segments = current.split("/");
+  const crumbs = segments.map((segment, index) => {
+    const target = segments.slice(0, index + 1).join("/");
+    const label = index === 0 ? "Drive" : segment;
+    return index === segments.length - 1
+      ? h("strong", {}, label)
+      : h("a", { href: `#/drive/${encodeURIComponent(target)}` }, label);
+  });
+  const message = h("div");
+  const fail = (error) => message.replaceChildren(errorView(error));
+
+  const rows = entries.map((entry) =>
+    h(
+      "tr",
+      {},
+      h(
+        "td",
+        {},
+        entry.kind === "folder"
+          ? h("a", { href: `#/drive/${encodeURIComponent(entry.path)}` }, `${entry.name}/`)
+          : fileLink(entry.path, entry.name),
+      ),
+      h("td", { class: "muted" }, entry.kind === "folder" ? "folder" : formatBytes(entry.size)),
+      h("td", { class: "muted" }, formatTime(entry.modifiedAt)),
+      h(
+        "td",
+        { class: "row-actions" },
+        entry.kind === "file" ? h("a", { href: fileUrl(entry.path, true) }, "Download") : null,
+        " ",
+        DRIVE_OWN_FOLDERS.has(entry.path)
+          ? null
+          : h(
+              "button",
+              {
+                type: "button",
+                class: "ghost",
+                onClick: async () => {
+                  if (!window.confirm(`Delete ${entry.path}?`)) {
+                    return;
+                  }
+                  try {
+                    await api(`/drive?path=${encodeURIComponent(entry.path)}`, {
+                      method: "DELETE",
+                    });
+                    await render();
+                  } catch (error) {
+                    fail(error);
+                  }
+                },
+              },
+              "Delete",
+            ),
+      ),
+    ),
+  );
+
+  const folderName = h("input", {
+    type: "text",
+    placeholder: "New folder name",
+    "aria-label": "New folder name",
+  });
+  setView(
+    h(
+      "div",
+      {},
+      h("h1", {}, "Company drive"),
+      h(
+        "p",
+        { class: "subtitle" },
+        "Every agent reads and writes here. Files you hand in land in inbox; each goal has a folder under goals.",
+      ),
+      message,
+      h(
+        "div",
+        { class: "panel drive" },
+        h(
+          "div",
+          { class: "drive-toolbar" },
+          h(
+            "nav",
+            { class: "crumbs", "aria-label": "Folder" },
+            crumbs.flatMap((crumb, index) => (index === 0 ? [crumb] : [" / ", crumb])),
+          ),
+          h(
+            "span",
+            { class: "drive-actions" },
+            attachButton(async (files) => {
+              for (const file of files) {
+                await upload(
+                  `/api/drive/file?path=${encodeURIComponent(`${current}/${file.name}`)}`,
+                  file,
+                  "PUT",
+                );
+              }
+              await render();
+            }, "Upload"),
+            h(
+              "form",
+              {
+                class: "inline-form",
+                onSubmit: async (event) => {
+                  event.preventDefault();
+                  const name = folderName.value.trim();
+                  if (!name) {
+                    return;
+                  }
+                  try {
+                    await api("/drive/folder", {
+                      method: "POST",
+                      body: JSON.stringify({ path: `${current}/${name}` }),
+                    });
+                    await render();
+                  } catch (error) {
+                    fail(error);
+                  }
+                },
+              },
+              folderName,
+              h("button", { type: "submit", class: "ghost" }, "Add folder"),
+            ),
+          ),
+        ),
+        entries.length === 0
+          ? h("p", { class: "muted empty-folder" }, "Nothing here yet.")
+          : h(
+              "table",
+              {},
+              h(
+                "thead",
+                {},
+                h(
+                  "tr",
+                  {},
+                  h("th", {}, "Name"),
+                  h("th", {}, "Size"),
+                  h("th", {}, "Changed"),
+                  h("th", {}, ""),
+                ),
+              ),
+              h("tbody", {}, rows),
+            ),
+      ),
+    ),
+  );
+}
+
+async function renderDeliverables() {
+  const { goals } = await api("/deliverables");
+  const cards = goals.map((goal) => {
+    const status = GOAL_STATUS[goal.status] ?? { label: goal.status, status: "queued" };
+    return h(
+      "article",
+      { class: `panel deliverable deliverable-${goal.status}` },
+      h(
+        "header",
+        {},
+        h("span", { class: `status status-${status.status}` }, status.label),
+        " ",
+        h("strong", {}, goal.title ?? goal.goalId),
+        h("span", { class: "meta" }, formatTime(goal.updatedAt)),
+      ),
+      goal.reason && goal.status !== "done" ? h("p", { class: "muted small" }, goal.reason) : null,
+      goal.files.length === 0
+        ? h(
+            "p",
+            { class: "muted small" },
+            goal.status === "active" ? "Nothing handed in yet." : "No files were handed in.",
+          )
+        : h(
+            "ul",
+            { class: "deliverable-files" },
+            goal.files.map((file) =>
+              h(
+                "li",
+                {},
+                fileLink(file.path, file.path.slice(goal.folder.length + 1)),
+                h("span", { class: "muted small" }, ` ${formatBytes(file.size)} · `),
+                h("a", { href: fileUrl(file.path, true), class: "small" }, "Download"),
+              ),
+            ),
+          ),
+      h(
+        "p",
+        { class: "small" },
+        h(
+          "a",
+          { href: `#/drive/${encodeURIComponent(goal.folder.replace(/\/deliverables$/, ""))}` },
+          "Open the goal's folder",
+        ),
+        goal.threadId ? " · " : null,
+        goal.threadId
+          ? h("a", { href: `#/chat/${encodeURIComponent(goal.threadId)}` }, "Open the conversation")
+          : null,
+      ),
+    );
+  });
+  setView(
+    h(
+      "div",
+      {},
+      h("h1", {}, "Deliverables"),
+      h(
+        "p",
+        { class: "subtitle" },
+        "Finished work from every goal. Cancelled goals keep their partial work, marked abandoned.",
+      ),
+      goals.length === 0
+        ? h("div", { class: "panel empty" }, h("p", {}, "No goals yet. Ask the CEO for something."))
+        : h("div", { class: "deliverables" }, cards),
     ),
   );
 }

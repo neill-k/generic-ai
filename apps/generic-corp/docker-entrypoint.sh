@@ -10,9 +10,9 @@ set -eu
 
 data_dir="${GENERIC_CORP_DATA_DIR:-/data}"
 
-# Files the server and agents create are not readable by other users. Agent
-# homes are shared with the `agent` group, so the server and agent commands
-# can both work in them.
+# Files the server and agents create are not readable by other users. The
+# company folder (the shared drive and every agent home) is shared with the
+# `agent` group, so the server and agent commands can both work in it.
 umask 0007
 
 # Adds the agent user's firewall rules in their own chains, replacing any from
@@ -37,24 +37,24 @@ wall_agent_network() {
 }
 
 if [ "$(id -u)" = "0" ]; then
-  agents_dir="$data_dir/agents"
-  mkdir -p "$agents_dir"
+  company_dir="$data_dir/company"
+  mkdir -p "$company_dir"
   # Only touch files that need it, so restarts stay fast.
   #
-  # Server data (database, artifacts, anything outside agent homes) belongs to
+  # Server data (database, artifacts, anything outside the company) belongs to
   # node and is closed to everyone else. Agent commands run as `agent`, which
   # may pass through /data but not list or read it.
-  find "$data_dir" -path "$agents_dir" -prune -o ! -user node -exec chown node:node {} +
-  find "$data_dir" -path "$agents_dir" -prune -o -perm /o=rwx -exec chmod o-rwx {} +
+  find "$data_dir" -path "$company_dir" -prune -o ! -user node -exec chown node:node {} +
+  find "$data_dir" -path "$company_dir" -prune -o -perm /o=rwx -exec chmod o-rwx {} +
   chmod 0711 "$data_dir"
-  # Agent homes: owned by node (which creates them), group `agent`, readable
+  # The company: owned by node (which creates it), group `agent`, readable
   # and writable by the group, and setgid so new files join the group.
   # Files an agent command created stay owned by `agent`.
-  find "$agents_dir" ! -user node ! -user agent -exec chown node {} +
-  find "$agents_dir" ! -group agent -exec chgrp agent {} +
-  find "$agents_dir" -type d ! -perm -2770 -exec chmod g+rwxs {} +
-  find "$agents_dir" ! -type d ! -type l ! -perm -0060 -exec chmod g+rw {} +
-  find "$agents_dir" ! -type l -perm /o=rwx -exec chmod o-rwx {} +
+  find "$company_dir" ! -user node ! -user agent -exec chown node {} +
+  find "$company_dir" ! -group agent -exec chgrp agent {} +
+  find "$company_dir" -type d ! -perm -2770 -exec chmod g+rwxs {} +
+  find "$company_dir" ! -type d ! -type l ! -perm -0060 -exec chmod g+rw {} +
+  find "$company_dir" ! -type l -perm /o=rwx -exec chmod o-rwx {} +
 
   # The network wall (design decision 36). Packets from the `agent` user may go
   # to the egress proxy on loopback and nowhere else: no other host, no DNS, no

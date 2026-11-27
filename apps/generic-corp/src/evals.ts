@@ -29,12 +29,16 @@ import { parse as parseYaml } from "yaml";
 import {
   type CompanyConfig,
   CompanyConfigError,
+  ceoOf,
   companyAgentSeeds,
   companyGoal,
   DEFAULT_TIER_MODELS,
+  modelFor,
   type OrgTier,
 } from "./company.js";
+import { companyLayout } from "./drive.js";
 import { collectCompanyGoalEvidence, createModelJudge } from "./goals.js";
+import { secondOpinionModel } from "./second-opinion.js";
 import { createGenericCorpServer } from "./server.js";
 import type { SpendCap } from "./spend.js";
 import { loadTemplateEvalSuite, type TemplateEvalSuite } from "./templates.js";
@@ -296,8 +300,13 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
             runStore: server.storage.runStore,
             cascade: () => server.runtime.cascade,
             directory: () => server.runtime.directory,
+            companyRoot: companyLayout(dataDir).root,
           },
-          { rootTaskId: task.taskId, outputText },
+          {
+            rootTaskId: task.taskId,
+            ...(settled.handIn === undefined ? {} : { handIn: settled.handIn }),
+            agentId: settled.agentId,
+          },
         );
         const problems = [
           ...(model?.unexpected.length
@@ -415,7 +424,12 @@ export function missingProviderKeys(
 /** Runs a template's goal eval suite and returns the report; `report.gate.passed` is the verdict. */
 export async function runTemplateEvals(options: RunTemplateEvalsOptions): Promise<TemplateEvalRun> {
   const loaded = await loadTemplateEvalSuite(options.templateId);
-  const judgeModel = loaded.company.models?.vp ?? DEFAULT_TIER_MODELS.vp;
+  // The company's goal is the CEO's, so the judge runs on a model other than the CEO's
+  // (decision 12), from the template's own models, so overriding tiers does not weaken grading.
+  const judgeModel = secondOpinionModel(
+    loaded.company,
+    modelFor(loaded.company, ceoOf(loaded.company).id),
+  );
   const template =
     options.models === undefined || Object.keys(options.models).length === 0
       ? loaded

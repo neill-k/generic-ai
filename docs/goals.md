@@ -169,10 +169,13 @@ task completion:
   structured output (the last fenced JSON block), and trace (the canonical
   events of the turn's persisted harness runs). Pass judges, checks, and extra
   evidence (metrics, artifacts) through the cascade's `goals` option.
-- `INCOMPLETE` re-queues the task with the report's feedback, up to the goal's
-  `maxAttempts` (or the cascade's `maxValidationAttempts`); then the task fails
-  and the failure bubbles to its parent. The latest report summary is kept on
-  the task as `lastGoalReport`.
+- `INCOMPLETE` re-queues the task with the report's feedback, as many times as
+  it takes: the cascade has no attempt or round limit by default, so a task ends
+  only when it is done, declared impossible, cancelled, or stopped by a spending
+  limit. A goal's `maxAttempts` does not fail a cascade task; set the cascade's
+  `maxValidationAttempts` or `maxRounds` to bring a limit back, after which the
+  failure bubbles to the parent. The latest report summary is kept on the task as
+  `lastGoalReport`.
 - A goal whose stored spec no longer matches its fingerprint never validates.
 
 ## Topologies

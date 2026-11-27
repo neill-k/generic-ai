@@ -37,6 +37,15 @@ function fauxModels() {
   return { provider, resolveModel };
 }
 
+/** The smallest goal an agent can draft: the hand-in has a summary. */
+const TRIVIAL_GOAL = {
+  objective: "Do what the owner asked.",
+  definitionOfDone: ["The work is handed in with a summary."],
+  validators: [
+    { id: "handed-in", kind: "output_schema", schema: { type: "object", required: ["summary"] } },
+  ],
+};
+
 describe("company task executor on the native runtime", () => {
   it("runs each agent on its tier's model, in its home, and persists the harness runs", async () => {
     const dataDir = mkdtempSync(path.join(tmpdir(), "generic-corp-exec-"));
@@ -47,10 +56,15 @@ describe("company task executor on the native runtime", () => {
     const { provider, resolveModel } = fauxModels();
     const seenModels: string[] = [];
     provider.setResponses([
-      // CEO turn 1: delegate to the engineer.
+      // CEO turn 1: set the goal, then delegate to the engineer.
       (_context, _options, _state, model) => {
         seenModels.push(model.id);
-        return fauxAssistantMessage(
+        return fauxAssistantMessage([fauxToolCall("set_goal", TRIVIAL_GOAL)], {
+          stopReason: "toolUse",
+        });
+      },
+      () =>
+        fauxAssistantMessage(
           [
             fauxToolCall("stop_and_respond", {
               response:
@@ -58,8 +72,7 @@ describe("company task executor on the native runtime", () => {
             }),
           ],
           { stopReason: "toolUse" },
-        );
-      },
+        ),
       // Engineer: write a file in its workspace, then answer.
       (_context, _options, _state, model) => {
         seenModels.push(model.id);
@@ -69,17 +82,36 @@ describe("company task executor on the native runtime", () => {
         );
       },
       () =>
-        fauxAssistantMessage([fauxToolCall("stop_and_respond", { response: "Wrote hello.txt." })], {
+        fauxAssistantMessage(
+          [
+            fauxToolCall("submit_work", {
+              summary: "Wrote hello.txt.",
+              deliverables: [{ path: "workspace/hello.txt" }],
+            }),
+          ],
+          { stopReason: "toolUse" },
+        ),
+      () =>
+        fauxAssistantMessage([fauxToolCall("stop_and_respond", { response: "Handed in." })], {
           stopReason: "toolUse",
         }),
-      // CEO turn 2: report back.
+      // CEO turn 2: hand in.
       (_context, _options, _state, model) => {
         seenModels.push(model.id);
         return fauxAssistantMessage(
-          [fauxToolCall("stop_and_respond", { response: "Done: the engineer wrote hello.txt." })],
+          [
+            fauxToolCall("submit_work", {
+              summary: "Done: the engineer wrote hello.txt.",
+              deliverables: [],
+            }),
+          ],
           { stopReason: "toolUse" },
         );
       },
+      () =>
+        fauxAssistantMessage([fauxToolCall("stop_and_respond", { response: "Handed in." })], {
+          stopReason: "toolUse",
+        }),
     ]);
 
     const executor = createCompanyTaskExecutor({
@@ -122,5 +154,106 @@ describe("company task executor on the native runtime", () => {
 
     const view = await runtime.getThread(thread.threadId);
     expect(view?.exchanges[0]?.reply.text).toBe("Done: the engineer wrote hello.txt.");
+  });
+});
+
+describe("saved sessions per agent per goal", () => {
+  function turnInput(dataDir: string, taskId: string, prompt: string, attempt: number) {
+    return {
+      taskId,
+      attemptRunId: `${taskId}-attempt-${attempt}`,
+      rootTaskId: "goal-1",
+      agentId: "engineer",
+      role: "engineer",
+      model: "faux/ic-model",
+      prompt,
+      workspaceRoot: path.join(dataDir, "home"),
+    };
+  }
+
+  function userTexts(context: { messages: readonly unknown[] }): string[] {
+    return context.messages.flatMap((message) => {
+      const { role, content } = message as { role: string; content: unknown };
+      if (role !== "user") return [];
+      if (typeof content === "string") return [content];
+      return (content as Array<{ type: string; text?: string }>)
+        .filter((block) => block.type === "text")
+        .map((block) => block.text ?? "");
+    });
+  }
+
+  it("keeps one conversation per agent per goal and resumes a cut-off turn", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "generic-corp-sessions-"));
+    cleanups.push(() => rmSync(dataDir, { recursive: true, force: true }));
+    const storage = await openCompanyStorage({ sqlitePath: path.join(dataDir, "company.sqlite") });
+    cleanups.push(() => storage.close());
+    const { provider, resolveModel } = fauxModels();
+    const seen: string[][] = [];
+    let reachedCrash: () => void = () => {};
+    const crashed = new Promise<void>((resolve) => {
+      reachedCrash = resolve;
+    });
+    let releaseCrash: () => void = () => {};
+    provider.setResponses([
+      // Task A finishes in one step.
+      (context) => {
+        seen.push(userTexts(context));
+        return fauxAssistantMessage(
+          [fauxToolCall("stop_and_respond", { response: "Task A done." })],
+          { stopReason: "toolUse" },
+        );
+      },
+      // Task B writes a file, then the process stops while the next model call is in flight.
+      (context) => {
+        seen.push(userTexts(context));
+        return fauxAssistantMessage([fauxToolCall("write", { path: "b.txt", content: "b" })], {
+          stopReason: "toolUse",
+        });
+      },
+      async () => {
+        reachedCrash();
+        await new Promise<void>((resolve) => {
+          releaseCrash = resolve;
+        });
+        throw new Error("the old process is gone");
+      },
+      // The retry resumes from the saved step instead of sending task B's prompt again.
+      (context) => {
+        seen.push(userTexts(context));
+        return fauxAssistantMessage(
+          [fauxToolCall("stop_and_respond", { response: "Task B done." })],
+          { stopReason: "toolUse" },
+        );
+      },
+    ]);
+    const executorOptions = {
+      runStore: storage.runStore,
+      artifactsRoot: path.join(dataDir, "artifacts"),
+      sessionsRoot: path.join(dataDir, "sessions"),
+      native: { resolveModel },
+      noProgress: false,
+    } as const;
+    const executor = createCompanyTaskExecutor(executorOptions);
+
+    const a = await executor(turnInput(dataDir, "task-a", "Do task A.", 1));
+    expect(a.status).toBe("succeeded");
+    const abandoned = Promise.resolve(
+      executor(turnInput(dataDir, "task-b", "Do task B.", 1)),
+    ).catch(() => undefined);
+    await crashed;
+
+    // A restarted server picks the task up again and resumes the saved session.
+    const restarted = createCompanyTaskExecutor(executorOptions);
+    const b2 = await restarted(turnInput(dataDir, "task-b", "Do task B.", 2));
+    expect(b2.status).toBe("succeeded");
+    expect(b2.outputText).toBe("Task B done.");
+    releaseCrash();
+    await abandoned;
+
+    // Task B's turn saw task A's conversation, and the retry did not resend task B's prompt.
+    expect(seen[1]?.some((text) => text.includes("Do task A."))).toBe(true);
+    const lastSeen = seen[2] ?? [];
+    expect(lastSeen.filter((text) => text.includes("Do task B.")).length).toBe(1);
+    expect(await readFile(path.join(dataDir, "home", "b.txt"), "utf8")).toBe("b");
   });
 });

@@ -66,6 +66,75 @@ export interface AgentTaskGoalReport {
   readonly evaluatedAt: string;
 }
 
+/** A file an agent handed in, as a path its file tools use (for Generic Corp, company-root relative). */
+export interface AgentTaskDeliverable {
+  readonly path: string;
+  readonly title?: string;
+}
+
+/**
+ * What an agent handed in with the `submit_work` tool (ADR 0069). Handing in is what finishes a
+ * task; the reply text around it is not parsed for results.
+ */
+export interface AgentTaskHandIn {
+  readonly summary: string;
+  readonly deliverables: readonly AgentTaskDeliverable[];
+  readonly round: number;
+  readonly submittedAt: string;
+}
+
+/** A second reviewer's verdict on an agent's claim that its task is impossible. */
+export interface AgentTaskImpossibilityReview {
+  readonly impossible: boolean;
+  readonly reasoning: string;
+  /** Who reviewed, for example the model reference. */
+  readonly reviewer?: string;
+}
+
+/** One `declare_impossible` claim and how the review went. */
+export interface AgentTaskImpossibilityClaim {
+  readonly reason: string;
+  readonly round: number;
+  readonly declaredAt: string;
+  readonly review?: AgentTaskImpossibilityReview;
+  /** Set when the review could not run, which never confirms the claim. */
+  readonly reviewError?: string;
+}
+
+/** A question for the owner. It never blocks: the agent states its assumption and keeps going. */
+export interface AgentTaskOwnerQuestion {
+  readonly id: string;
+  readonly agentId: string;
+  readonly question: string;
+  readonly assumption: string;
+  readonly round: number;
+  readonly askedAt: string;
+  readonly answer?: string;
+  readonly answeredAt?: string;
+}
+
+/** Something the agent is told at its next step: an owner edit to the goal, an answer, a note. */
+export interface AgentTaskNotice {
+  readonly id: string;
+  readonly kind: "goal-changed" | "owner-answer" | "owner-note";
+  readonly text: string;
+  readonly createdAt: string;
+  /** The round whose prompt first showed the notice. */
+  readonly deliveredRound?: number;
+}
+
+/** One version of a task's goal, kept so the owner's edits are auditable. */
+export interface AgentTaskGoalRevision {
+  readonly revision: number;
+  readonly fingerprint?: string;
+  readonly objective?: string;
+  readonly definitionOfDone: readonly string[];
+  readonly changedAt: string;
+  /** `agent` when the agent drafted it, `owner` for an owner edit, `submit` for the original. */
+  readonly source: "submit" | "agent" | "owner";
+  readonly changedBy?: string;
+}
+
 export interface AgentTaskRecord {
   readonly taskId: string;
   readonly rootTaskId: string;
@@ -82,6 +151,23 @@ export interface AgentTaskRecord {
   readonly actor?: RunActor;
   readonly instruction: string;
   readonly goal?: AgentTaskGoal;
+  /**
+   * `pending` while the agent still has to draft the task's goal with `set_goal` (the CEO does
+   * this for every owner request); `set` once the host has sealed it. Absent when the goal came
+   * with the task.
+   */
+  readonly goalDraft?: "pending" | "set";
+  /** Goal version, starting at 1 and raised by every owner edit. */
+  readonly goalRevision?: number;
+  readonly goalHistory?: readonly AgentTaskGoalRevision[];
+  /** The latest hand-in, accepted or not. */
+  readonly handIn?: AgentTaskHandIn;
+  /** Every claim that the task is impossible, in order. The last one decides a failed task. */
+  readonly impossibilityClaims?: readonly AgentTaskImpossibilityClaim[];
+  /** Set when a second reviewer confirmed the task is impossible in principle. */
+  readonly impossible?: AgentTaskImpossibilityClaim;
+  readonly ownerQuestions?: readonly AgentTaskOwnerQuestion[];
+  readonly notices?: readonly AgentTaskNotice[];
   readonly status: AgentTaskStatus;
   /**
    * Turn counter. Every time the task goes back to its agent (to resume

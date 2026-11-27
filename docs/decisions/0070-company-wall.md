@@ -1,4 +1,4 @@
-# 0069 — The wall is between the company and the outside world
+# 0070 — The wall is between the company and the outside world
 
 - Status: accepted
 - Date: 2026-11-27

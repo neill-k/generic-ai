@@ -1,4 +1,6 @@
-import type { AgentTaskStatus } from "@generic-ai/plugin-delegation";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
+import type { AgentTaskRecord, AgentTaskStatus, TaskGoalEdit } from "@generic-ai/plugin-delegation";
 import {
   AUTH_SCOPES,
   type AuthContext,
@@ -6,10 +8,12 @@ import {
   type SecretDescriptor,
   toRunActor,
 } from "@generic-ai/sdk";
+
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
+import { DriveError, type DriveFile } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
@@ -31,6 +35,8 @@ export interface CompanyApiOptions {
   readonly authenticate: CompanyApiAuthenticate;
   /** Largest JSON body accepted. Defaults to 256 KiB. */
   readonly maxBodyBytes?: number;
+  /** Largest file the owner can upload to the drive. Defaults to 100 MiB. */
+  readonly maxUploadBytes?: number;
   /** SSE keep-alive interval. Defaults to 15 seconds. */
   readonly keepAliveMs?: number;
   /** The agents' toolkit, listed at `/api/tools`. */
@@ -74,6 +80,71 @@ const TASK_STATUSES: ReadonlySet<string> = new Set(BOARD_COLUMNS);
 const MAX_MESSAGE_CHARS = 32_000;
 const SECRET_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const MAX_SECRET_CHARS = 16_384;
+const MAX_ATTACHMENTS = 20;
+export const DEFAULT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+/** Routes whose body is a file, limited by `maxUploadBytes` instead of `maxBodyBytes`. */
+const UPLOAD_ROUTES: ReadonlySet<string> = new Set(["/drive/file", "/drive/inbox"]);
+
+/** Types shown in the browser for a preview; anything else downloads. */
+const INLINE_TYPES =
+  /^(text\/(plain|markdown|csv|tab-separated-values|css|javascript)|application\/(json|yaml|xml|pdf)|image\/(png|jpeg|gif|webp)|audio\/|video\/)/;
+
+function driveStatus(error: DriveError): 400 | 403 | 404 | 409 {
+  switch (error.code) {
+    case "outside":
+      return 403;
+    case "not_found":
+      return 404;
+    case "exists":
+    case "not_empty":
+      return 409;
+    default:
+      return 400;
+  }
+}
+
+function contentDisposition(kind: "inline" | "attachment", name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
+function fileResponse(file: DriveFile, download: boolean): Response {
+  const type = file.entry.mimeType ?? "application/octet-stream";
+  // HTML and SVG could run scripts on the app's origin, so they preview as plain text.
+  const previewType = type === "text/html" || type === "image/svg+xml" ? "text/plain" : type;
+  const inline = !download && INLINE_TYPES.test(previewType);
+  const body = Readable.toWeb(createReadStream(file.absolutePath)) as ReadableStream<Uint8Array>;
+  return new Response(body, {
+    headers: {
+      "content-type":
+        inline && previewType.startsWith("text/")
+          ? `${previewType}; charset=utf-8`
+          : inline
+            ? previewType
+            : "application/octet-stream",
+      "content-length": String(file.entry.size ?? 0),
+      "content-disposition": contentDisposition(inline ? "inline" : "attachment", file.entry.name),
+      "x-content-type-options": "nosniff",
+      "content-security-policy":
+        "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'",
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function readAttachments(body: Record<string, unknown>): string[] | undefined {
+  const raw = body["attachments"];
+  if (raw === undefined || raw === null) {
+    return undefined;
+  }
+  if (!Array.isArray(raw) || raw.some((entry) => typeof entry !== "string")) {
+    throw new ApiError(400, "attachments must be a list of drive paths.");
+  }
+  if (raw.length > MAX_ATTACHMENTS) {
+    throw new ApiError(413, `Attach at most ${MAX_ATTACHMENTS} files to a message.`);
+  }
+  return raw as string[];
+}
 
 async function secretViews(admin: CompanySecretsAdmin): Promise<CompanySecretView[]> {
   const stored = new Map((await admin.list()).map((entry) => [entry.name, entry]));
@@ -217,19 +288,32 @@ export function createCompanyApi(
     if (error instanceof ApiError) {
       return errorResponse(c, error.status, error.message);
     }
+    if (error instanceof DriveError) {
+      return errorResponse(c, driveStatus(error), error.message);
+    }
     if (error instanceof RangeError) {
       return errorResponse(c, 404, error.message);
     }
     return errorResponse(c, 500, "Something went wrong. Check the server log.");
   });
 
-  app.use(
-    "*",
-    bodyLimit({
-      maxSize: options.maxBodyBytes ?? 256 * 1024,
-      onError: (c) => errorResponse(c, 413, "The request body is too large."),
-    }),
-  );
+  const jsonLimit = bodyLimit({
+    maxSize: options.maxBodyBytes ?? 256 * 1024,
+    onError: (c) => errorResponse(c, 413, "The request body is too large."),
+  });
+  const maxUploadBytes = options.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
+  const uploadLimit = bodyLimit({
+    maxSize: maxUploadBytes,
+    onError: (c) =>
+      errorResponse(
+        c,
+        413,
+        `Files are limited to ${Math.floor(maxUploadBytes / (1024 * 1024))} MB.`,
+      ),
+  });
+  const isUpload = (requestPath: string) =>
+    [...UPLOAD_ROUTES].some((route) => requestPath.endsWith(route));
+  app.use("*", (c, next) => (isUpload(c.req.path) ? uploadLimit : jsonLimit)(c, next));
 
   app.use("*", async (c, next) => {
     const result = await options.authenticate(c.req.raw);
@@ -449,8 +533,10 @@ export function createCompanyApi(
     const body = await readJsonObject(c);
     const goal = readGoalTemplate(runtime, body);
     const text = readMessageText(body, goal?.request);
+    const attachments = readAttachments(body);
     const { thread, task } = await runtime.sendMessage({
       text,
+      ...(attachments === undefined ? {} : { attachments }),
       actor: toRunActor(c.get("auth")),
       ...(goal === undefined ? {} : { goal: { spec: goal.spec } }),
     });
@@ -469,8 +555,10 @@ export function createCompanyApi(
     const body = await readJsonObject(c);
     const goal = readGoalTemplate(runtime, body);
     const text = readMessageText(body, goal?.request);
+    const attachments = readAttachments(body);
     const { thread, task } = await runtime.sendMessage({
       text,
+      ...(attachments === undefined ? {} : { attachments }),
       threadId: c.req.param("threadId"),
       actor: toRunActor(c.get("auth")),
       ...(goal === undefined ? {} : { goal: { spec: goal.spec } }),
@@ -491,6 +579,79 @@ export function createCompanyApi(
     await runtime.threads.rename(threadId, title);
     return c.json({ thread: await runtime.getThread(threadId) });
   });
+
+  // --- The company drive and the deliverables shelf -----------------------
+
+  const requireDrive = () => {
+    if (runtime.drive === undefined) {
+      throw new ApiError(404, "This company has no drive.");
+    }
+    return runtime.drive;
+  };
+
+  const readUpload = async (c: Context<ApiEnv>): Promise<Uint8Array> => {
+    const data = new Uint8Array(await c.req.arrayBuffer());
+    if (data.byteLength > maxUploadBytes) {
+      throw new ApiError(413, "The file is too large.");
+    }
+    return data;
+  };
+
+  const publishDrive = (paths: readonly string[]) => {
+    runtime.events.publish("drive.updated", { paths: [...paths] });
+  };
+
+  app.get("/drive", async (c) => {
+    const drive = requireDrive();
+    const folder = drive.normalize(c.req.query("path"));
+    return c.json({ path: folder, entries: await drive.list(folder) });
+  });
+
+  app.get("/drive/file", async (c) => {
+    const drive = requireDrive();
+    const download = c.req.query("download") === "1" || c.req.query("download") === "true";
+    return fileResponse(await drive.file(c.req.query("path") ?? ""), download);
+  });
+
+  app.put("/drive/file", async (c) => {
+    const drive = requireDrive();
+    const overwrite = c.req.query("overwrite") === "1" || c.req.query("overwrite") === "true";
+    const entry = await drive.write(c.req.query("path") ?? "", await readUpload(c), { overwrite });
+    publishDrive([entry.path]);
+    return c.json({ entry }, 201);
+  });
+
+  app.post("/drive/inbox", async (c) => {
+    const drive = requireDrive();
+    const name = c.req.query("name");
+    if (name === undefined || name.trim().length === 0) {
+      throw new ApiError(400, "Name the file with ?name=.");
+    }
+    const entry = await drive.addToInbox(name, await readUpload(c));
+    publishDrive([entry.path]);
+    return c.json({ entry }, 201);
+  });
+
+  app.post("/drive/folder", async (c) => {
+    const drive = requireDrive();
+    const folder = (await readJsonObject(c))["path"];
+    if (typeof folder !== "string" || folder.trim().length === 0) {
+      throw new ApiError(400, 'Send the folder as {"path": "drive/..."}.');
+    }
+    const entry = await drive.createFolder(folder);
+    publishDrive([entry.path]);
+    return c.json({ entry }, 201);
+  });
+
+  app.delete("/drive", async (c) => {
+    const drive = requireDrive();
+    const target = drive.normalize(c.req.query("path"));
+    await drive.remove(target);
+    publishDrive([target]);
+    return c.json({ deleted: true });
+  });
+
+  app.get("/deliverables", async (c) => c.json({ goals: await requireDrive().deliverables() }));
 
   // --- Tasks and the board -------------------------------------------------
 
@@ -537,6 +698,66 @@ export function createCompanyApi(
       })),
     );
     return c.json({ taskId: task.taskId, events: taskEvents, runs });
+  });
+
+  // --- The goal of a request: the owner can change it at any time (decision 8) ------
+
+  app.get("/tasks/:taskId/goal", async (c) => {
+    const task = await runtime.cascade.get(c.req.param("taskId"));
+    if (task === undefined) {
+      throw new ApiError(404, "Task not found.");
+    }
+    return c.json(describeTaskGoal(task));
+  });
+
+  app.put("/tasks/:taskId/goal", async (c) => {
+    const body = await readJsonObject(c);
+    const taskId = c.req.param("taskId");
+    if ((await runtime.cascade.get(taskId)) === undefined) {
+      throw new ApiError(404, "Task not found.");
+    }
+    const edit = readGoalEdit(body);
+    const actor = toRunActor(c.get("auth"));
+    try {
+      const task = await runtime.cascade.updateGoal(taskId, edit, {
+        changedBy: actor.displayName ?? actor.subjectId,
+      });
+      return c.json(describeTaskGoal(task));
+    } catch (error) {
+      throw new ApiError(409, error instanceof Error ? error.message : String(error));
+    }
+  });
+
+  // --- Questions agents wrote down for the owner. They never block (decision 6). ----
+
+  app.get("/questions", async (c) => {
+    const open = c.req.query("all") !== "1" && c.req.query("all") !== "true";
+    const tasks = await runtime.listTasks({ limit: readLimit(c.req.query("limit"), 300, 2000) });
+    const questions = tasks.flatMap((task) =>
+      (task.ownerQuestions ?? [])
+        .filter((question) => !open || question.answer === undefined)
+        .map((question) => ({ ...question, taskId: task.taskId, rootTaskId: task.rootTaskId })),
+    );
+    questions.sort((left, right) => right.askedAt.localeCompare(left.askedAt));
+    return c.json({ questions });
+  });
+
+  app.post("/tasks/:taskId/questions/:questionId/answer", async (c) => {
+    const body = await readJsonObject(c);
+    const answer = body["answer"];
+    if (typeof answer !== "string" || answer.trim().length === 0) {
+      throw new ApiError(400, 'Send the answer as {"answer": "..."}.');
+    }
+    const taskId = c.req.param("taskId");
+    if ((await runtime.cascade.get(taskId)) === undefined) {
+      throw new ApiError(404, "Task not found.");
+    }
+    try {
+      const task = await runtime.cascade.answerQuestion(taskId, c.req.param("questionId"), answer);
+      return c.json({ questions: task.ownerQuestions ?? [] });
+    } catch (error) {
+      throw new ApiError(404, error instanceof Error ? error.message : String(error));
+    }
   });
 
   app.post("/tasks/:taskId/cancel", async (c) => {
@@ -616,4 +837,66 @@ export function createCompanyApi(
   app.notFound((c) => errorResponse(c, 404, "Not found."));
 
   return app;
+}
+
+/** A request's goal as the owner sees it: what done means, how it is checked, and its history. */
+export function describeTaskGoal(task: AgentTaskRecord) {
+  const spec = task.goal?.spec;
+  return {
+    taskId: task.taskId,
+    status: task.status,
+    drafting: task.goalDraft === "pending",
+    ...(task.goalRevision === undefined ? {} : { revision: task.goalRevision }),
+    ...(spec === undefined
+      ? task.goal?.definitionOfDone === undefined
+        ? {}
+        : { definitionOfDone: task.goal.definitionOfDone.split("\n") }
+      : {
+          goalId: spec.id,
+          objective: spec.objective,
+          definitionOfDone: spec.definitionOfDone,
+          checks: spec.validators.map((validator) => ({
+            id: validator.id,
+            kind: validator.kind,
+            ...(validator.description === undefined ? {} : { description: validator.description }),
+            required: validator.required !== false,
+          })),
+        }),
+    history: task.goalHistory ?? [],
+    ...(task.lastGoalReport === undefined ? {} : { lastReport: task.lastGoalReport }),
+    ...(task.handIn === undefined ? {} : { handIn: task.handIn }),
+    ...(task.impossible === undefined ? {} : { impossible: task.impossible }),
+  };
+}
+
+/** Reads `{ definitionOfDone: string[] | string, objective?, title? }` for a goal edit. */
+function readGoalEdit(body: Record<string, unknown>): TaskGoalEdit {
+  const raw = body["definitionOfDone"];
+  const lines =
+    typeof raw === "string"
+      ? raw.split(/\r?\n/)
+      : Array.isArray(raw) && raw.every((line) => typeof line === "string")
+        ? (raw as string[])
+        : undefined;
+  const definitionOfDone = lines
+    ?.map((line) => line.replace(/^\s*[-*]\s+/, "").trim())
+    .filter((line) => line.length > 0);
+  const objective = body["objective"];
+  const title = body["title"];
+  if (definitionOfDone === undefined && typeof objective !== "string") {
+    throw new ApiError(
+      400,
+      'Send the new definition of done as {"definitionOfDone": ["...", "..."]}, and optionally "objective".',
+    );
+  }
+  if (definitionOfDone !== undefined && definitionOfDone.length === 0) {
+    throw new ApiError(400, "The definition of done needs at least one line.");
+  }
+  return {
+    ...(definitionOfDone === undefined ? {} : { definitionOfDone }),
+    ...(typeof objective === "string" && objective.trim().length > 0
+      ? { objective: objective.trim() }
+      : {}),
+    ...(typeof title === "string" && title.trim().length > 0 ? { title: title.trim() } : {}),
+  };
 }

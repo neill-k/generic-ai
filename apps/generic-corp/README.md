@@ -9,6 +9,9 @@ approvals. Agents do generic work, not only software work.
 The decision to build it here, and the product decisions behind it, are in
 [`docs/decisions/0046-generic-corp-app-on-generic-ai.md`](../../docs/decisions/0046-generic-corp-app-on-generic-ai.md).
 
+**Run it on your machine:** [`RUN-LOCALLY.md`](RUN-LOCALLY.md) (one command,
+then sign in with Claude).
+
 ## Status
 
 The app server (roadmap R13) is in. It runs the company, gives its agents the
@@ -26,8 +29,20 @@ dashboard at `/` with an approvals inbox.
   the CEO, and publishes live events. An owner message starts one root task for
   the CEO; the reply is that task's result once its goal checks pass.
 - **Executor.** `executor.ts` runs every agent turn on the native runtime with
-  the agent's own model and the toolkit below, rooted at the agent's home, and
-  persists each harness run so traces and costs are kept.
+  the agent's own model and the toolkit below, rooted at the company root (see
+  "Company drive"), and persists each harness run so traces and costs are kept.
+- **Company drive.** `drive.ts` keeps everything agents work on under
+  `<data dir>/company`: `drive/` is the shared drive every agent reads and
+  writes (`drive/inbox/` for what the owner hands in,
+  `drive/goals/<goalId>/` as each goal's working folder and
+  `drive/goals/<goalId>/deliverables/` for finished work), and
+  `agents/<id>/` is each agent's home with `workspace/` as its scratch folder.
+  Paths are relative to the company root, so the same path means the same
+  file to every agent, the goal checks and the owner. Agents are told to hand
+  work to each other as drive paths, not pasted text. The owner browses,
+  uploads, previews and downloads drive files, drops files into a chat, and
+  sees finished work on the deliverables shelf. Cancelling a goal keeps its
+  folder, marked abandoned, with an `ABANDONED.md` note.
 - **Toolkit.** `toolkit.ts` gives every agent tools for generic work (D6), not
   only code: files and a shell, `web_fetch` and `web_search`, `document_read`,
   `document_extract` and `document_write` (PDF, Word, Excel, CSV, HTML in;
@@ -75,7 +90,7 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/org-chart` | The org chart as a tree, with each agent's tier, model and active task count |
 | `GET /api/agents`, `GET /api/agents/:id` | Agents; one agent's record, memory file, reporting line and recent tasks |
 | `GET /api/agents/:id/costs` | One agent's usage and cost |
-| `GET /api/threads`, `POST /api/threads` | List chat threads; start one with `{"text": "..."}`, or `{"goalId": "..."}` to start from a company goal (the text defaults to the goal's request) |
+| `GET /api/threads`, `POST /api/threads` | List chat threads; start one with `{"text": "..."}`, or `{"goalId": "..."}` to start from a company goal (the text defaults to the goal's request). `"attachments": ["drive/inbox/..."]` hands the CEO drive files |
 | `GET /api/threads/:id`, `POST /api/threads/:id/messages` | A thread with each message and the CEO's reply; send another message |
 | `PATCH /api/threads/:id` | Rename a thread |
 | `GET /api/tasks?status=&agentId=&root=1&limit=` | Tasks, newest first |
@@ -89,8 +104,14 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/secrets` | Secret names the company uses or holds, where each is set, and who uses it. Never values |
 | `PUT /api/secrets/:name`, `DELETE /api/secrets/:name` | Save or remove a secret in the encrypted store (`{"value": "..."}`). Needs `tokens:manage` and `GENERIC_AI_SECRETS_KEY` |
 | `GET /api/goals` | The company's goals: request, definition of done and checks |
+| `GET /api/drive?path=drive/...` | A drive folder's files and folders |
+| `GET /api/drive/file?path=&download=1` | A drive file: shown in the browser for safe types (HTML and SVG as plain text), downloaded with `download=1` |
+| `PUT /api/drive/file?path=&overwrite=1` | Upload a file (the request body is the file). Refuses to replace one without `overwrite=1` |
+| `POST /api/drive/inbox?name=` | Upload into `drive/inbox/` under a free name, for files dropped into a chat |
+| `POST /api/drive/folder`, `DELETE /api/drive?path=` | Create a folder (`{"path": "drive/..."}`); delete a file or empty folder |
+| `GET /api/deliverables` | The deliverables shelf: every goal's folder, status (`active`, `done`, `failed`, `abandoned`) and finished files |
 | `GET /api/tools` | The agents' tools and skills, the web search backend and each MCP connector's state |
-| `GET /api/events` | Server-sent events: `task.*`, `thread.updated`, `runtime.error`. Supports `Last-Event-ID` |
+| `GET /api/events` | Server-sent events: `task.*`, `thread.updated`, `drive.updated`, `drive.goal.updated`, `runtime.error`. Supports `Last-Event-ID` |
 
 `GET /health` and `GET /ready` are public; `/ready` checks the database.
 `/auth/login` is the owner sign-in page.
@@ -110,13 +131,14 @@ more) and send it as a bearer token.
 | --- | --- | --- |
 | `PORT` | `3000` | Listen port |
 | `GENERIC_CORP_HOST` | `127.0.0.1` (`0.0.0.0` on Railway) | Listen address |
-| `GENERIC_CORP_DATA_DIR` | `~/.generic-corp` | SQLite database, agent homes, run artifacts |
+| `GENERIC_CORP_DATA_DIR` | `~/.generic-corp` | SQLite database, run artifacts, `sessions/` (each agent's saved conversation per goal, used to resume a turn after a restart), and `company/` (the drive and agent homes) |
 | `DATABASE_URL` | none | Use Postgres instead of SQLite |
 | `GENERIC_CORP_COMPANY_FILE` | none | YAML company file; wins over the template |
 | `GENERIC_CORP_TEMPLATE` | `generic-corp` | Company template: `generic-corp`, `research-desk` or `back-office` |
 | `GENERIC_CORP_WORKERS` | `true` | Run agent turns in this process |
 | `GENERIC_CORP_WORKER_CONCURRENCY` | `4` | Agent turns this process runs at once (1 to 64), across different agents |
 | `GENERIC_CORP_TURN_LEASE_MS` | `30000` | How long a turn's lease lasts before another worker may take over after a crash (at least 1000) |
+| `GENERIC_CORP_NO_PROGRESS_MINUTES` | `15` | A turn with no tool activity for this long (and no tool still running) is stopped and retried; a turn also stops after 8 identical tool calls in a row. Turns have no fixed time limit (1 to 1440) |
 | `GENERIC_AI_PUBLIC_URL` / `RAILWAY_PUBLIC_DOMAIN` | none | Public origin for passkeys |
 | `GENERIC_AI_OWNER_SETUP_TOKEN` | printed at start | Pins the first-passkey setup token |
 | `GENERIC_AI_AUTH_TOKEN` | none | Break-glass static owner token |
@@ -179,14 +201,35 @@ A template folder has:
 - `replays/`: recorded agent turns, search results, pages and rubric
   judgments for each case.
 
-How goals are checked. A goal on the CEO's task is the company's goal, so
-`goals.ts` checks it against the whole team: the trace includes every run
-delegated under the CEO (each event tagged with the agent that ran it), and
-when the CEO's reply ends with a fenced JSON block naming a deliverable
-(`{"deliverable": {"agent": "analyst", "path": "workspace/brief.md"}}`), that
-file is read from the agent's home as the `deliverable` artifact, with
-`deliverableWords`, `deliverableLines` and `deliverableLinks` metrics. Rubrics
-use a model judge on the company's VP model.
+How goals are checked (ADR 0069). Every owner message gets a goal: a
+template goal when the owner picks one, otherwise the CEO drafts the objective,
+definition of done and checks with `set_goal` before any other work, and the
+host locks them. Work finishes only through `submit_work`, which hands in a
+summary and the files made (paths relative to the company root, such as
+`drive/goals/<goalId>/deliverables/brief.md`, or to the agent's own home). A
+hand-in naming a file that does not exist is refused on the spot.
+
+A goal on the CEO's task is the company's goal, so `goals.ts` checks it
+against the whole team: the trace includes every run delegated under the CEO,
+and each handed-in text file is an artifact (`deliverable` for the first,
+`deliverable.<ext>` and `deliverable:<name>` for the rest). Numeric checks
+read only numbers the host measures (decision 11): `deliverableCount`,
+`deliverableWords`, `deliverableLines`, `deliverableLinks`,
+`deliverableTableRows`, `deliverableListItems` and `deliverableSections`, or a
+field of a handed-in JSON file (`outputPath` with `target: "artifact:deliverable.json"`).
+Checks look at results, never at which agent did the work.
+
+Second opinions run on a model other than the worker's (decisions 10 and 12):
+the rubric judge, and the reviewer that must agree a task is impossible in
+principle before an agent may give up. The candidates are the company's
+`judgeModels`, then each tier's model. The owner is never the judge.
+
+The owner can change a goal at any time with `PUT /api/tasks/:id/goal`
+(objective, definition of done, checks); every unfinished task under it is told
+at its next step and the checks run against the new version. Agents never wait
+on the owner: `ask_owner` writes a question down with the assumption the agent
+is working on, listed at `GET /api/questions` and answered with
+`POST /api/tasks/:id/questions/:questionId/answer`.
 
 Evals. `npm run evals -w @generic-ai/app-generic-corp` replays every
 template's suite offline: a fresh company per attempt, the recorded turns on a

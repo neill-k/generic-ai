@@ -4,6 +4,7 @@ import {
   AGENT_TASK_RUN_KIND,
   type AgentDirectory,
   type AgentTaskGoal,
+  type AgentTaskImpossibilityClaim,
   type AgentTaskRecord,
   type AgentTaskStatus,
   type CreateDelegationCascadeOptions,
@@ -18,6 +19,7 @@ import type { AgentTaskExecutor, RunActor } from "@generic-ai/sdk";
 
 import { type CompanyConfig, ceoOf, companyAgentSeeds, tierOf } from "./company.js";
 import { type CompanyCosts, summarizeCompanyCosts } from "./costs.js";
+import { type CompanyDrive, type DriveEntry, describeDriveForAgent } from "./drive.js";
 import { type CompanyEventHub, createCompanyEventHub } from "./events.js";
 import type { CompanyStorage } from "./storage.js";
 import {
@@ -40,6 +42,12 @@ export interface CompanyRuntimeOptions {
   /** Root for agent homes (memory file and workspace per agent). */
   readonly agentsRoot: string;
   readonly executor: AgentTaskExecutor;
+  /**
+   * The company drive. When set, every goal gets a working folder on it, agents are told where
+   * the drive and their goal's folder are, owner messages can attach drive files, and a
+   * cancelled goal's folder is kept and marked abandoned.
+   */
+  readonly drive?: CompanyDrive;
   /** Cascade limits and goal options (judges, checks). */
   readonly cascade?: Omit<
     CreateDelegationCascadeOptions,
@@ -111,7 +119,17 @@ export interface TaskSummary {
     readonly lastStatus?: string;
     readonly passed?: number;
     readonly required?: number;
+    /** Goal version: 1 when first set, one more for each owner edit. */
+    readonly revision?: number;
+    /** True while the agent is still drafting the goal with `set_goal`. */
+    readonly drafting?: boolean;
   };
+  /** Questions the agent wrote down for the owner that have no answer yet. */
+  readonly openQuestions?: number;
+  /** Files handed in with `submit_work`. */
+  readonly deliverables?: readonly string[];
+  /** Set when a second reviewer agreed the task is impossible in principle. */
+  readonly impossible?: { readonly reason: string; readonly reasoning?: string };
 }
 
 export interface ListTasksOptions {
@@ -123,6 +141,8 @@ export interface ListTasksOptions {
 
 export interface SendMessageInput {
   readonly text: string;
+  /** Drive paths of files the owner attached (uploaded or dropped into the chat). */
+  readonly attachments?: readonly string[];
   readonly threadId?: string;
   readonly actor?: RunActor;
   readonly goal?: AgentTaskGoal;
@@ -136,6 +156,7 @@ export interface CompanyRuntime {
   readonly cascade: DelegationCascade;
   readonly threads: ThreadStore;
   readonly events: CompanyEventHub;
+  readonly drive?: CompanyDrive;
   /** Seeds agents and recovers interrupted work. Call once before `start`. */
   initialize(): Promise<void>;
   /** Starts the queue worker that runs agent turns. */
@@ -177,12 +198,27 @@ function taskTitle(task: AgentTaskRecord): string {
   return line.length > 160 ? `${line.slice(0, 159)}…` : line;
 }
 
+function impossibleView(claim: AgentTaskImpossibilityClaim): {
+  readonly reason: string;
+  readonly reasoning?: string;
+} {
+  return {
+    reason: claim.reason,
+    ...(claim.review === undefined ? {} : { reasoning: claim.review.reasoning }),
+  };
+}
+
 export function summarizeTask(task: AgentTaskRecord): TaskSummary {
   const report = task.lastGoalReport;
+  const openQuestions = (task.ownerQuestions ?? []).filter(
+    (question) => question.answer === undefined,
+  ).length;
   const goal =
-    task.goal === undefined && report === undefined
+    task.goal === undefined && report === undefined && task.goalDraft === undefined
       ? undefined
       : {
+          ...(task.goalRevision === undefined ? {} : { revision: task.goalRevision }),
+          ...(task.goalDraft === "pending" ? { drafting: true } : {}),
           ...(task.goal?.definitionOfDone === undefined
             ? {}
             : { definitionOfDone: task.goal.definitionOfDone }),
@@ -205,6 +241,11 @@ export function summarizeTask(task: AgentTaskRecord): TaskSummary {
     updatedAt: task.updatedAt,
     ...(task.completedAt === undefined ? {} : { completedAt: task.completedAt }),
     ...(goal === undefined ? {} : { goal }),
+    ...(openQuestions === 0 ? {} : { openQuestions }),
+    ...(task.handIn === undefined
+      ? {}
+      : { deliverables: task.handIn.deliverables.map((deliverable) => deliverable.path) }),
+    ...(task.impossible === undefined ? {} : { impossible: impossibleView(task.impossible) }),
   };
 }
 
@@ -227,6 +268,9 @@ function cascadeEventData(event: DelegationCascadeEvent): Readonly<Record<string
     task: summarizeTask(event.task),
     ...(event.type === "task.delegated" ? { children: event.children.map(summarizeTask) } : {}),
     ...(event.type === "task.requeued" ? { reason: event.reason } : {}),
+    ...(event.type === "task.goal_changed" ? { source: event.source } : {}),
+    ...(event.type === "task.owner_question" ? { question: event.question } : {}),
+    ...(event.type === "task.impossibility_reviewed" ? { claim: event.claim } : {}),
     ...(event.type === "task.awaiting_approval"
       ? {
           approvals: event.approvals.map((approval) => ({
@@ -263,6 +307,28 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     if (event.type === "tool.effect.replayed" || event.type === "tool.effect.uncertain") {
       return;
     }
+    if (drive !== undefined && event.task.depth === 0) {
+      const ending =
+        event.type === "task.succeeded"
+          ? "done"
+          : event.type === "task.failed"
+            ? "failed"
+            : event.type === "task.cancelled"
+              ? "abandoned"
+              : undefined;
+      if (ending !== undefined) {
+        void drive
+          .closeGoal(event.task.taskId, ending, event.task.failureMessage)
+          .then((record) => {
+            if (record !== undefined) {
+              events.publish("drive.goal.updated", { ...record });
+            }
+          })
+          .catch((error: unknown) => {
+            options.log?.(`Could not record how goal ${event.task.taskId} ended: ${String(error)}`);
+          });
+      }
+    }
     const threadId = event.task.metadata?.["threadId"];
     if (event.task.depth === 0 && typeof threadId === "string") {
       events.publish("thread.updated", {
@@ -273,12 +339,25 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     }
   };
 
+  const drive = options.drive;
+  const executor: AgentTaskExecutor =
+    drive === undefined
+      ? options.executor
+      : (input) =>
+          options.executor({
+            ...input,
+            prompt: withDriveSection(
+              input.prompt,
+              describeDriveForAgent({ agentId: input.agentId, goalId: input.rootTaskId }),
+            ),
+          });
+
   const cascade = createDelegationCascade({
     ...options.cascade,
     runStore: storage.runStore,
     queue: storage.queue,
     directory,
-    executor: options.executor,
+    executor,
     onEvent,
     now,
     createId,
@@ -347,7 +426,11 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     };
   }
 
-  async function instructionFor(thread: ChatThreadRecord | undefined, text: string) {
+  async function instructionFor(
+    thread: ChatThreadRecord | undefined,
+    text: string,
+    attachments: readonly DriveEntry[] = [],
+  ) {
     const lines: string[] = [];
     const earlier = thread?.messages.slice(-contextMessages) ?? [];
     if (earlier.length > 0) {
@@ -363,7 +446,31 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
       lines.push("Message from the owner:");
     }
     lines.push(text);
+    if (attachments.length > 0) {
+      lines.push("", "The owner attached these files on the company drive:");
+      for (const file of attachments) {
+        lines.push(`- ${file.path} (${describeSize(file.size ?? 0)}, ${file.mimeType ?? "file"})`);
+      }
+    }
     return lines.join("\n");
+  }
+
+  async function attachedFiles(paths: readonly string[]): Promise<DriveEntry[]> {
+    if (paths.length === 0) {
+      return [];
+    }
+    if (drive === undefined) {
+      throw new RangeError("This company has no drive to attach files from.");
+    }
+    const files: DriveEntry[] = [];
+    for (const filePath of new Set(paths)) {
+      const entry = await drive.stat(filePath).catch(() => undefined);
+      if (entry === undefined || entry.kind !== "file") {
+        throw new RangeError(`The attachment ${filePath} is not a file on the drive.`);
+      }
+      files.push(entry);
+    }
+    return files;
   }
 
   async function buildOrgChart(): Promise<OrgChartNode> {
@@ -407,8 +514,10 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     cascade,
     threads,
     events,
+    ...(drive === undefined ? {} : { drive }),
 
     async initialize() {
+      await drive?.ensure();
       const seeded = await directory.seed(companyAgentSeeds(company));
       for (const agent of await directory.list()) {
         await directory.ensureWorkspace(agent.id);
@@ -435,15 +544,25 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
       if (input.threadId !== undefined && thread === undefined) {
         throw new RangeError(`Thread ${input.threadId} was not found.`);
       }
-      const instruction = await instructionFor(thread, text);
+      const attachments = await attachedFiles(input.attachments ?? []);
+      const instruction = await instructionFor(thread, text, attachments);
       if (thread === undefined) {
         thread = await threads.create({ title: threadTitleFrom(text) });
       }
+      const taskId = createId();
+      await drive?.openGoal({
+        goalId: taskId,
+        title: threadTitleFrom(text),
+        threadId: thread.threadId,
+      });
       const task = await cascade.submit({
+        taskId,
         agentId: ceoId,
         instruction,
         ...(input.actor === undefined ? {} : { actor: input.actor }),
-        ...(input.goal === undefined ? {} : { goal: input.goal }),
+        // Every request gets a goal (decision 6): a template's goal when the owner sent one,
+        // otherwise the CEO drafts it with set_goal before any work starts.
+        ...(input.goal === undefined ? { draftGoal: true } : { goal: input.goal }),
         metadata: { threadId: thread.threadId, source: "owner-chat", ownerText: text },
       });
       const message: ChatMessageRecord = {
@@ -451,6 +570,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         text,
         createdAt: now().toISOString(),
         taskId: task.taskId,
+        ...(attachments.length === 0 ? {} : { attachments: attachments.map((file) => file.path) }),
         ...(input.actor === undefined ? {} : { actor: input.actor }),
       };
       const updated = await threads.append(thread.threadId, message);
@@ -493,4 +613,23 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
       });
     },
   };
+}
+
+function describeSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Puts the drive section before the task in an agent's prompt, or at the end. */
+export function withDriveSection(prompt: string, section: string): string {
+  const marker = prompt.search(/^## Task /m);
+  if (marker === -1) {
+    return `${prompt}\n\n${section}`;
+  }
+  return `${prompt.slice(0, marker)}${section}\n\n${prompt.slice(marker)}`;
 }
