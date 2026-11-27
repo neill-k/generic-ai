@@ -4,8 +4,8 @@ import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative, resolve, sep } from "node:path";
 import {
   DEFAULT_OPENAI_CODEX_MODEL,
-  runAgentHarness,
   type RunAgentHarnessOptions,
+  runAgentHarness,
 } from "@generic-ai/core";
 import { createAgentSkillsPlugin } from "@generic-ai/plugin-agent-skills";
 import { createMcpRegistry } from "@generic-ai/plugin-mcp";
@@ -13,8 +13,8 @@ import { createFileMemoryStore } from "@generic-ai/plugin-memory-files";
 import { createMessagingService } from "@generic-ai/plugin-messaging";
 import { createRepoMapPlugin } from "@generic-ai/plugin-repo-map";
 import { createMemoryStorage } from "@generic-ai/plugin-storage-memory";
-import { createTerminalToolPlugin } from "@generic-ai/plugin-tools-terminal";
 import { createWorkspaceFileTools } from "@generic-ai/plugin-tools-files";
+import { createTerminalToolPlugin } from "@generic-ai/plugin-tools-terminal";
 import type {
   AgentHarnessAdapterKind,
   AgentHarnessEventProjection,
@@ -27,9 +27,9 @@ import type {
 } from "@generic-ai/sdk";
 import { createStableFingerprint } from "@generic-ai/sdk";
 import {
+  type CommandTranscript,
   createCommandTranscriptFromProjections,
   renderCommandTranscriptMarkdown,
-  type CommandTranscript,
 } from "./command-transcript.js";
 
 export const DEFAULT_BENCHMARK_ARTIFACT_DIR = "/logs/artifacts/generic-ai";
@@ -433,7 +433,7 @@ function appendTraceEventsFromHarness(input: {
     if (projection.type.startsWith("handoff.")) {
       traceEvents.push(
         input.addTraceEvent({
-          type: "protocol.action.planned",
+          type: "handoff.recorded",
           timestamp: projection.occurredAt,
           actorId: projection.roleId ?? "generic-ai",
           summary: projection.summary,
@@ -462,7 +462,7 @@ function traceDiagnostics(events: readonly TraceEvent[]): TraceDiagnostics {
   return Object.freeze({
     completeness: (required.length - missing.length) / required.length,
     missingRequiredEventTypes: Object.freeze(missing),
-    handoffCount: events.filter((event) => event.type === "protocol.action.planned").length,
+    handoffCount: events.filter((event) => event.type === "handoff.recorded").length,
     reworkCount: 0,
     policyDecisionCount: events.filter((event) => event.type === "policy.decision").length,
     artifactCount: events.filter((event) => event.type === "artifact.created").length,
@@ -525,31 +525,6 @@ export async function runBenchmarkProfile(
         allowNetwork: false,
         allowMcp: false,
         artifactDir: outputDir,
-        roles: [
-          {
-            id: "planner",
-            kind: "planner",
-            description: "Plan the Terminal-Bench task and identify likely verifier expectations.",
-            readOnly: true,
-          },
-          {
-            id: "explorer",
-            kind: "explorer",
-            description: "Inspect files, tests, and repo structure without mutating files.",
-            readOnly: true,
-          },
-          {
-            id: "builder",
-            kind: "builder",
-            description: "Implement the task changes in the shared Harbor workspace.",
-          },
-          {
-            id: "verifier",
-            kind: "verifier",
-            description: "Run targeted verification and summarize failures without editing files.",
-            readOnly: true,
-          },
-        ],
         metadata: {
           benchmark: "terminal-bench",
           harborArtifactDir: outputDir,

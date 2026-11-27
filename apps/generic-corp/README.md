@@ -116,6 +116,9 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/quality` | The quality dial: the model behind best, balanced and cheap, and each agent's step and current model |
 | `PUT /api/agents/:id/quality` | Set an agent's step (`{"level": "best"}`, `"balanced"`, `"cheap"`, or `"default"` for the company file's model). Applies from its next turn. Needs `tokens:manage` |
 | `GET /api/backups`, `POST /api/backups` | Backups and the next scheduled one; start one now |
+| `GET /api/settings/plan-limit`, `PUT /api/settings/plan-limit` | What happens at the Claude plan's usage limit: `{"behaviour": "wait"}` (the default) or `"api_key"`, with whether the plan is limited now and until when. Changing it needs `tokens:manage` |
+| `GET /api/limits` | Spending limits with what each has used this period, and each agent's spending today, this week and this month |
+| `PUT /api/limits/company`, `PUT /api/agents/:id/limit` | Set a limit (`{"limit": {"period": "day", "maxCostUsd": 20, "maxTokens": 2000000}}`, either amount optional) or remove it (`{"limit": null}`). Needs `tokens:manage` |
 | `GET /api/threads`, `POST /api/threads` | List chat threads; start one with `{"text": "..."}`, or `{"goalId": "..."}` to start from a company goal (the text defaults to the goal's request). `"attachments": ["drive/inbox/..."]` hands the CEO drive files |
 | `GET /api/threads/:id`, `POST /api/threads/:id/messages` | A thread with each message and the CEO's reply; send another message |
 | `PATCH /api/threads/:id` | Rename a thread |
@@ -207,6 +210,27 @@ as the server. Before replacing anything it saves the current state as a
 transaction: if it fails, the database is left as it was. With Docker, use
 `./apps/generic-corp/start-local.sh restore <id>` (RUN-LOCALLY.md).
 
+### The Claude plan's usage limit
+
+When agents run on the owner's Claude sign-in and the plan's usage limit is
+reached (decision 15), the setting decides what happens. With `wait`, the
+default, work shows as "Paused until your Claude plan resets" and picks up on
+its own after the reset. With `api_key`, turns use an Anthropic API key from
+`ANTHROPIC_API_KEY` or the secrets vault (`ANTHROPIC_API_KEY` secret) until
+the plan resets; without one it waits. The reset time comes from the
+provider's error when it gives one; otherwise the plan is tried again after 15
+minutes, doubling up to 5 hours.
+
+### Spending limits
+
+Both are optional (decision 42): one limit for the whole company and one per
+agent, in dollars, tokens or both, over a day, week or month in server time
+(weeks start on Monday). Usage is counted as each turn records it. When a limit
+is reached, the agents it covers are held: nothing new starts, and a running
+turn stops after its current step. Nothing is lost. The work shows as paused
+with the reason, and gets a fresh turn when the period ends or the owner
+raises or removes the limit.
+
 ### Tools in the company file
 
 ```yaml
@@ -253,7 +277,9 @@ Each folder under `templates/` is a company a person can start from:
 A template folder has:
 
 - `company.yaml`: the company file (org chart, models per tier, tools and
-  connectors, secret grants, starting permissions) plus `goals`. Each goal has the
+  connectors, secret grants, starting permissions) plus `goals`. Models from
+  Anthropic and OpenAI are supported; any other provider is untested, and the
+  server logs a line at startup for each untested model the company uses. Each goal has the
   owner's `request` and a goal spec: objective, definition of done, and
   validators covering NOVA's three checks (a number, a rubric, the actions
   taken) and usually an output schema.

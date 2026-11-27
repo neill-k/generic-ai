@@ -112,7 +112,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 - Role: native subagents and agent messaging: an in-process agent tree where each agent can spawn, list, collect, rename and delete children, message its parent, siblings and children, read an inbox, and post progress notes; an `Agent`-backed child session factory; and the agent tools over all of it. Follows Prime Agent's RLM child and agent-message rules under MIT.
 - Allowed deps: `@generic-ai/ai`, `@generic-ai/agent`.
-- Not responsible for: daemon processes or sessions that outlive their parent, durable child state, the topology scheduler, or Generic Corp's org chart and delegation cascade.
+- Not responsible for: daemon processes or sessions that outlive their parent, durable child state, or Generic Corp's org chart and delegation cascade.
 - Publishes as: `@generic-ai/subagents` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/rlm`
@@ -162,7 +162,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: public framework-facing SDK. Defines the contracts plugin authors and preset authors compile against.
 - Allowed deps: `@sinclair/typebox` and `zod` (third-party only).
 - Not responsible for: plugin implementations, config discovery, kernel internals, live provider execution, or report hosting.
-- Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
+- Harness note: owns Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, TraceEvent, BenchmarkReport, PolicySpec, HarnessPatch, `AgentHarness`, `AgentHarnessAdapter`, adapter run context, capability-effect descriptors, role, policy-profile, run-input/run-result, URI/hash artifact references, and typed harness event projection contracts plus deterministic compile/report helpers.
 - Tool note: owns the runtime-neutral agent tool contract (`defineTool`, `ToolDefinition`, `AgentToolResult`, `AgentToolUpdateCallback`) that plugins compile against and the session backends run.
 - Pi note: the `@generic-ai/sdk/pi` subpath was removed with the `pi` adapter (ADR 0068). The SDK has a single root entrypoint (plus `@generic-ai/sdk/testing`) focused on runtime-agnostic framework contracts and helpers.
 - Memory note: owns the public `MemoryService` contract and `defineMemory` helper so alternate memory plugins share the same read/write/search/forget baseline plus optional consolidation, provenance, timeline, and graph extensions.
@@ -251,7 +251,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: deterministic compact repository map and repo-orientation tool for harness roles.
 - Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`.
 - Not responsible for: semantic code navigation, diagnostics, or long-running indexing. Those belong to LSP or future search/index plugins.
-- Notes: declares `repo.inspect` and `fs.read` effects so it is safe for read-only planner and explorer roles and stable enough for trace-backed benchmark artifacts.
+- Notes: declares `repo.inspect` and `fs.read` effects so it is safe for read-only roles and stable enough for trace-backed benchmark artifacts.
 
 ### `@generic-ai/plugin-lsp`
 
@@ -284,7 +284,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 
 - Role: the delegation business model. Owns persistent agents (durable org-chart records with a memory file and a workspace or git worktree each), the cross-run delegation cascade (durable agent tasks, `delegate_task`, `submit_work`, `declare_impossible`, `set_goal` and `ask_owner` turn tools, parents waiting in the store while children run on the durable queue, results bubbling up), and run persistence for any `AgentHarnessAdapter`.
 - Allowed deps: `@generic-ai/sdk`. Tests may use the SQLite and Postgres storage plugins as dev dependencies to exercise real durable backends.
-- Not responsible for: in-run child-session lifecycle (kernel), storage or queue implementations (storage plugins), or running agent turns (any SDK `AgentHarnessAdapter` or `AgentTaskExecutor`, such as core's `createTopologyTaskExecutor`).
+- Not responsible for: in-run child-session lifecycle (kernel), storage or queue implementations (storage plugins), or running agent turns (any SDK `AgentHarnessAdapter` or `AgentTaskExecutor`).
 - Notes: the cascade talks to storage only through `RunStoreContract` and `DurableQueueContract`, and to runtimes only through `AgentTaskExecutor`, so it runs on Pi or the native runtime and on SQLite or Postgres. See `docs/decisions/0044-persistent-agents-and-delegation-cascade.md`.
 
 ### `@generic-ai/plugin-approvals`
@@ -351,7 +351,7 @@ Each row below captures the role, the allowed dependencies, the non-responsibili
 - Role: deterministic compact repository map and repo-orientation tool for harness roles.
 - Allowed deps: `@generic-ai/sdk`, `@generic-ai/plugin-workspace-fs`.
 - Not responsible for: semantic code navigation, diagnostics, or long-running indexing. Those belong to LSP or future search/index plugins.
-- Notes: declares `repo.inspect` and `fs.read` effects so it is safe for read-only planner and explorer roles and stable enough for trace-backed benchmark artifacts.
+- Notes: declares `repo.inspect` and `fs.read` effects so it is safe for read-only roles and stable enough for trace-backed benchmark artifacts.
 - Publishes as: `@generic-ai/plugin-repo-map` — public, independent versioning, `publishConfig.access: public`, provenance on.
 
 ### `@generic-ai/plugin-lsp`
@@ -453,12 +453,6 @@ layer when the roadmap resumes.
 - Role: runnable reference example for the starter preset (see `TRN-03`).
 - Allowed deps: the starter preset and any plugins it needs to demonstrate behavior.
 - Not responsible for: being imported by any package in `packages/`.
-
-### `examples/harness-shootout/`
-
-- Role: v0.1 package-composed harness shootout fixture. Demonstrates Harness DSL, MissionSpec, BenchmarkSpec, four candidate harnesses, and bounded report interpretation.
-- Allowed deps: public packages for demonstration code if a runnable script is added later.
-- Not responsible for: defining the SDK contract surface or being imported by any package inside `packages/`.
 
 ### `examples/terminal-bench/`
 

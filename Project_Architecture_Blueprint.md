@@ -64,7 +64,6 @@ packages/
 examples/
   starter-hono/                      # runnable server + React/shadcn UI
   terminal-bench/                    # private Terminal-Bench integration workspace
-  harness-shootout/                  # JSON-only public harness fixture
 
 contracts/                           # frozen JSON-Schema + canonical contract docs
   config/, run-envelope/, events/, harness/, pi-boundary/, sdk/
@@ -417,18 +416,8 @@ It imports `AgentHarnessRole`, `AgentHarnessCapabilityEffect`,
 `getAgentHarnessToolEffects`, `withAgentHarnessToolEffects` from the
 SDK and uses pi `AuthStorage` / `ModelRegistry` / `SessionManager`
 (`agent-harness.ts:33-39`). It enforces role allow-sets on tools
-before binding (role policy is one of `"coordinator" | "read-only" |
-"build" | "verify"`, `agent-harness.ts:59`).
-
-`benchmark-runner.ts:332-381` — `runHarnessBenchmark()` validates the
-mission ref, compiles all candidate harnesses through
-`compileHarnessDsl`, generates a deterministic run-id fingerprint, and
-runs trials × candidates. `runTrial` builds the prompt, resolves the
-runtime, emits trace events (21 event types declared in
-`sdk/harness/types.ts:364-384`), and scores via `scoreMission`.
-Standard metrics scored in `benchmark-runner.ts:147-206`:
-`task_success`, `artifact_completeness`, `trace_completeness`,
-`wall_time`, `cost_usd`, `handoff_count`, `policy_violations`.
+before binding (role policy is `"read-only"` for a role marked
+`readOnly`, otherwise `"build"`; every role is a full agent, ADR 0071).
 
 ---
 
@@ -459,7 +448,7 @@ behavior beyond utility factories.
 Owns **Harness DSL + Generic Agent IR**. `harness/types.ts:185-206`
 defines `HarnessDsl` with `kind: "generic-ai.harness"`,
 `schemaVersion: "0.1"`, plus `packages`, `capabilities`, `agents`,
-`spaces`, `relationships`, `protocols`, `policies`, `artifacts`.
+`spaces`, `relationships`, `policies`, `artifacts`.
 `AgentSpec` (`:46-57`), `CapabilitySpec` (`:28-44`),
 `PolicySpec` (`:116-127`) with effect enum
 `"allow"|"deny"|"require_approval"|"redact"|"rewrite"`.
@@ -469,18 +458,12 @@ defines `HarnessDsl` with `kind: "generic-ai.harness"`,
 and `BenchmarkSpec` (`:291-315`) define the evaluation harness inputs.
 `TraceEvent` (`:364-384`) lists 21 trace event types.
 
-`harness/protocols.ts` ships four standard protocols
-(`createPipelineProtocol`, `createVerifierLoopProtocol`,
-`createHierarchyProtocol`, `createSquadProtocol`) and a
-`STANDARD_PROTOCOLS` array. They are pure, stateful reducers over
-`ProtocolActionOutcome`s; core's `runHarnessTopology` (in
-`packages/core/src/harness/topology-runner.ts`) executes them, and
-`runAgentHarnessTopology` runs each actor as a Pi role session (see
-ADR 0042).
+There are no protocol reducers or fixed agent patterns (ADR 0071, which
+superseded ADR 0042). `harness/directives.ts` keeps `parseActorDirectives`,
+which the delegation cascade uses to read hand-ins.
 
 `harness/compiler.ts` provides `stableJson`,
-`createStableFingerprint` (sha256), and `compileHarness*` helpers used
-by `runHarnessBenchmark` in core.
+`createStableFingerprint` (sha256), and `compileHarness*` helpers.
 
 ### 6.3 `events/`, `scope/`, `run-envelope/`, `config/`, `pi/`
 

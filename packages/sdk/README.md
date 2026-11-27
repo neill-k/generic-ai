@@ -14,7 +14,7 @@ Current SDK contents:
 - `src/contracts/` for the typed contract surface
 - `src/helpers/` for ergonomic contract constructors
 - package-level docs and contract tests that keep the surface honest
-- Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec, protocol ABI,
+- Harness DSL, Generic Agent IR, MissionSpec, BenchmarkSpec,
   TraceEvent, BenchmarkReport, FaultInjectionSpec, PolicySpec, and HarnessPatch
   contracts
 - AgentHarness contracts, adapter run context, capability-effect descriptors,
@@ -24,16 +24,16 @@ Current SDK contents:
 - Repeated-run reliability profile contracts for pass@k, consistency, retry,
   skipped/excluded-trial, perturbation, and bounded failure-severity reporting
 - Capability BOM contracts and compiler helpers that make package, capability,
-  policy, protocol, and artifact inventory drift visible in benchmark reports
+  policy, and artifact inventory drift visible in benchmark reports
 - Structured tool-error recovery contracts for retryable, user-actionable,
   policy-blocked, timeout, and budget-exhausted tool attempts in benchmark
   evidence
 - Agent execution config for the default stop-tool loop and the
   `single-turn` opt-out used when a caller truly wants one provider turn. When
   `maxTurns` is omitted, stop-tool loop execution is unbounded by default.
-- Stateful standard protocol reducers (pipeline, verifier-loop, hierarchy,
-  squad), `ProtocolActionOutcome`, and `parseActorDirectives()` for the core
-  topology runner
+- `parseActorDirectives()`, which reads a `VERDICT:` line and the last JSON
+  block from an agent's output. There are no protocol reducers or fixed agent
+  patterns (ADR 0071).
 - Deterministic Harness DSL compiler and evidence report helpers
 - Goal contracts (`src/goals/`): `GoalSpec` with a definition of done and
   numeric, rubric, trace, output-schema, and host-check validators; `sealGoal`

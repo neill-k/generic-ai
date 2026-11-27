@@ -44,16 +44,16 @@ authoritative runtime contracts.
 
 | Slot | Package | Method family | Canonical harness usage |
 | --- | --- | --- | --- |
-| `planning` | `@generic-ai/plugin-repo-map` | `repo-map-orientation.v1` | Starter preset `repoMap` slot for repository orientation tools; attach to planner or explorer roles that need read-only repo context. |
+| `planning` | `@generic-ai/plugin-repo-map` | `repo-map-orientation.v1` | Starter preset `repoMap` slot for repository orientation tools; attach to agents that need repository context. |
 | `coordination` | `@generic-ai/plugin-delegation` | `delegation.v1` | Starter preset `delegation` slot for package-owned delegation semantics over kernel child sessions. |
 | `memory` | `@generic-ai/plugin-memory-files` | `file-backed-memory.v1` | Starter preset `memory` slot for local persistent memory; the fault-injection fixture models stale-memory boundary behavior against this slot family. |
 | `communication` | `@generic-ai/plugin-interaction` | `user-interaction.v1` | Use when a harness role may ask blocking user questions or expose task-tracking state. |
 | `communication` | `@generic-ai/plugin-messaging` | `storage-backed-messaging.v1` | Starter preset `messaging` slot for durable inter-agent messages across a run. |
 | `tool-policy` | `@generic-ai/plugin-approvals` | `owner-approvals.v1` | Wrap agent tools with `createApprovalGate` so outward actions (messages, external writes, payments, MCP writes) wait for the owner; pass the service to the delegation cascade's `approvals` option. |
 | `tool-policy` | `@generic-ai/plugin-lsp` | `lsp-read.v1` | Starter preset `lsp` slot for diagnostics, document symbols, definitions, and references. |
-| `tool-policy` | `@generic-ai/plugin-tools-files` | `local-file-tools.v1` | `examples/harness-shootout/candidates/*` as `capability.files`; starter preset `fileTools` slot. |
+| `tool-policy` | `@generic-ai/plugin-tools-files` | `local-file-tools.v1` | Starter preset `fileTools` slot. |
 | `tool-policy` | `@generic-ai/plugin-tools-terminal` | `local-terminal.v1` | Starter preset `terminalTools` slot when Docker sandboxing is disabled or unavailable. |
-| `tool-policy` | `@generic-ai/plugin-tools-terminal-sandbox` | `docker-sandbox-terminal.v1` | `examples/harness-shootout/candidates/*` as `capability.terminal`; starter preset sandbox selection when `GENERIC_AI_SANDBOX=docker` or production defaults request it. |
+| `tool-policy` | `@generic-ai/plugin-tools-terminal-sandbox` | `docker-sandbox-terminal.v1` | Starter preset sandbox selection when `GENERIC_AI_SANDBOX=docker` or production defaults request it. |
 | `tool-policy` | `@generic-ai/plugin-tools-web` | `web-fetch-search.v1` | Use for web fetch/search missions that need shared host allow/block policy enforcement. |
 | `reporting` | `@generic-ai/plugin-logging-otel` | `otel-tracing.v1` | Starter preset `logging` slot for structured logs and trace emission. |
 | `reporting` | `@generic-ai/plugin-output-default` | `default-final-output.v1` | Starter preset `output` slot for final response and output shaping outside the kernel. |

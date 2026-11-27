@@ -2,7 +2,7 @@
 
 Harness DSL is the Generic AI agents-as-code language. It describes an agent
 system independently of any one application: packages, agents, capabilities,
-spaces, relationships, protocols, policies, missions, evals, traces, artifacts,
+spaces, relationships, policies, missions, evals, traces, artifacts,
 and report expectations.
 
 The DSL compiles into Generic Agent IR. The compiled IR is the stable runtime
@@ -14,14 +14,14 @@ The v0.1 top-level object is `generic-ai.harness`:
 
 - `packages`: reusable packages the harness depends on.
 - `capabilities`: package-contributed tools, policies, graders, memory, trace,
-  report, protocol, or custom surfaces.
+  report, or custom surfaces.
 - `agents`: role/instruction/model declarations plus package and capability
   references.
 - `spaces`: workspaces, message threads, memory stores, artifact stores, or
   scratch spaces.
-- `relationships`: coordination edges between agents.
-- `protocols`: protocol package bindings that plan work without executing side
-  effects directly.
+- `relationships`: org-chart edges between agents (`delegates_to`,
+  `reports_to`, and so on). There are no protocol bindings or fixed
+  coordination patterns (ADR 0071).
 - `policies`: authority and capability rules.
 - `artifacts`: required, produced, and reviewed outputs.
 - `missionRefs` and `evalRefs`: links to reproducible missions and benchmarks.
@@ -32,7 +32,7 @@ The compiler validates references and topology, then emits:
 
 - compiled actors with invocation templates,
 - package version maps,
-- capability, protocol, policy, and artifact contracts,
+- capability, policy, and artifact contracts,
 - a deterministic capability BOM inventory and fingerprint,
 - stable source and compiled fingerprints,
 - deterministic diagnostics before runtime execution.
@@ -50,7 +50,7 @@ recommendations must honor that direction and must not turn missing primary
 metric samples into zero-valued evidence.
 
 Benchmark reports may attach capability BOMs for each compiled candidate
-harness. The BOM makes package, capability, protocol, policy, and artifact drift
+harness. The BOM makes package, capability, policy, and artifact drift
 visible as provenance evidence; it is not a trust approval or runtime permission
 grant.
 
@@ -62,13 +62,6 @@ severity alongside average score.
 
 ## Package Extension Boundary
 
-Packages may contribute schema fragments, capabilities, protocols, graders,
+Packages may contribute schema fragments, capabilities, graders,
 trace exporters, and report renderers. Package extension points must compile into
 typed IR and cannot bypass policy or artifact obligations.
-
-## Launch Fixture
-
-The first public fixture lives in
-[`examples/harness-shootout`](../../examples/harness-shootout). It declares one
-coding mission, four package-composed candidates, a repeated-trial benchmark,
-and a sample report.

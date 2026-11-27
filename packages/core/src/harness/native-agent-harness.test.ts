@@ -192,7 +192,7 @@ describe("native harness adapter", () => {
         model: "faux/root-model",
         policyProfile: "local-dev-full",
         roles: [
-          { id: "root", kind: "root", description: "Coordinates the work." },
+          { id: "root", kind: "root", description: "Owns the work." },
           {
             id: "builder",
             kind: "builder",
@@ -220,9 +220,9 @@ describe("native harness adapter", () => {
       "builder-model",
       "root-model",
     ]);
-    // The coordinator cannot write; the builder can.
+    // Both are full agents: the primary agent can write too, and delegates when it chooses.
     expect(seen[0]?.tools).toContain("delegate_agent");
-    expect(seen[0]?.tools).not.toContain("record_note");
+    expect(seen[0]?.tools).toContain("record_note");
     expect(seen[1]?.tools).toContain("record_note");
     expect(seen[1]?.tools).toContain(STOP_AND_RESPOND_TOOL_NAME);
 
@@ -273,7 +273,7 @@ describe("native harness adapter", () => {
         model: "faux/root-model",
         policyProfile: "local-dev-full",
         roles: [
-          { id: "root", kind: "root", description: "Coordinates the work." },
+          { id: "root", kind: "root", description: "Owns the work." },
           { id: "builder", kind: "builder", description: "Does the work." },
         ],
       },

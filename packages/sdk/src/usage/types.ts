@@ -33,7 +33,7 @@ export interface UsageRecordedEventData {
   readonly usage: ModelUsage;
   /** The agent that made the call. Defaults to the event's `sessionId` when rolled up. */
   readonly agentId?: string;
-  /** The harness role the agent runs as (planner, builder, ...). */
+  /** The harness role the agent runs as (builder, custom, ...). */
   readonly roleId?: string;
   /** The goal this spend counts toward. */
   readonly goalId?: string;

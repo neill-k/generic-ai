@@ -1,6 +1,3 @@
 schemaVersion: v1
-name: Generic AI hierarchical console template
-primaryAgent: hierarchical-planner
-primaryHarness: hierarchical
-metadata:
-  webUiTemplate: hierarchical
+name: Generic AI starter example
+primaryAgent: starter
