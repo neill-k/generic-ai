@@ -19,6 +19,25 @@ This package is the explicit host-execution path. It is intentionally local-firs
   backend failures are thrown as `TerminalToolError` with the same structured
   envelope for benchmark and trace consumers
 
+## Running commands as another user, with limits
+
+`runAs: { user }` runs every command as a separate, unprivileged OS user through
+`sudo` (see `TerminalRunAsUser`). Each such command also gets resource limits,
+set as both soft and hard limits so it cannot raise them:
+
+| Limit | Default | Shell |
+| --- | --- | --- |
+| `memoryMiB` | 4096 MiB per process | `ulimit -d` |
+| `cpuSeconds` | 3600 s per process | `ulimit -t` |
+| `fileSizeMiB` | 4096 MiB per file | `ulimit -f` |
+| `openFiles` | 4096 per process | `ulimit -n` |
+| `maxProcesses` | 1024 for the whole user | `ulimit -u` |
+| `niceness` | 10 | `nice -n` |
+
+Core dumps are off. Set a field to `null` to leave that resource unlimited, or
+`limits: false` to turn them all off. `wrapCommandForUser` and
+`commandLimitScript` are exported so other shell tools apply the same wrapper.
+
 Sandboxed code execution is tracked separately in [`docs/decisions/0013-sandboxed-execution.md`](../../docs/decisions/0013-sandboxed-execution.md). The planned migration path is a dedicated `@generic-ai/plugin-tools-terminal-sandbox` package that can replace this package in the starter preset's `terminalTools` slot without changing kernel boundaries.
 
 Planned responsibilities (see `docs/planning/02-architecture.md` section "Plugin Intent"):

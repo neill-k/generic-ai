@@ -57,6 +57,89 @@ export interface TerminalRunAsUser {
   readonly sudoPath?: string;
   readonly setprivPath?: string;
   readonly shellPath?: string;
+  /**
+   * Resource limits for each command, so one heavy script cannot starve the server or the other
+   * agents. Defaults to {@link DEFAULT_TERMINAL_COMMAND_LIMITS}; `false` turns them off. Limits are
+   * set as both soft and hard limits, so a command cannot raise them again.
+   */
+  readonly limits?: TerminalCommandLimits | false;
+}
+
+/**
+ * Per-command resource limits, applied with the shell's `ulimit` and `nice` before the command
+ * starts. Every process the command starts inherits them. A field left out keeps its default; a
+ * field set to `null` leaves that resource unlimited.
+ *
+ * `maxProcesses` counts every process of the OS user, so with one agent user it is shared by all
+ * agents' commands. It still keeps a fork bomb from reaching the server, which runs as another user.
+ */
+export interface TerminalCommandLimits {
+  /** Heap and other private writable memory per process, in MiB (`ulimit -d`). */
+  readonly memoryMiB?: number | null;
+  /** CPU seconds per process (`ulimit -t`). */
+  readonly cpuSeconds?: number | null;
+  /** Largest file a command may write, in MiB (`ulimit -f`). */
+  readonly fileSizeMiB?: number | null;
+  /** Open files per process (`ulimit -n`). */
+  readonly openFiles?: number | null;
+  /** Processes the OS user may have at once (`ulimit -u`). */
+  readonly maxProcesses?: number | null;
+  /** Scheduling niceness, 0 to 19, so the server stays responsive under load (`nice -n`). */
+  readonly niceness?: number | null;
+}
+
+export const DEFAULT_TERMINAL_COMMAND_LIMITS = Object.freeze({
+  memoryMiB: 4096,
+  cpuSeconds: 3600,
+  fileSizeMiB: 4096,
+  openFiles: 4096,
+  maxProcesses: 1024,
+  niceness: 10,
+}) satisfies Required<TerminalCommandLimits>;
+
+function limitValue(name: string, value: number | null | undefined): number | undefined {
+  if (value === null || value === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`Invalid command limit ${name}: ${String(value)}.`);
+  }
+  return value;
+}
+
+/**
+ * Shell lines that apply `limits` to everything started after them, and the `nice` prefix for the
+ * command itself. Exported so other shell tools that run as the agent user apply the same limits.
+ */
+export function commandLimitScript(limits: TerminalCommandLimits | false | undefined): {
+  readonly setup: readonly string[];
+  readonly prefix: string;
+} {
+  if (limits === false) {
+    return { setup: [], prefix: "" };
+  }
+  const merged = { ...DEFAULT_TERMINAL_COMMAND_LIMITS, ...limits };
+  const flags: string[] = ["-c 0"];
+  const memory = limitValue("memoryMiB", merged.memoryMiB);
+  if (memory !== undefined) flags.push(`-d ${memory * 1024}`);
+  const cpu = limitValue("cpuSeconds", merged.cpuSeconds);
+  if (cpu !== undefined) flags.push(`-t ${cpu}`);
+  const fileSize = limitValue("fileSizeMiB", merged.fileSizeMiB);
+  if (fileSize !== undefined) flags.push(`-f ${fileSize * 1024}`);
+  const openFiles = limitValue("openFiles", merged.openFiles);
+  if (openFiles !== undefined) flags.push(`-n ${openFiles}`);
+  const processes = limitValue("maxProcesses", merged.maxProcesses);
+  if (processes !== undefined) flags.push(`-u ${processes}`);
+  const niceness = limitValue("niceness", merged.niceness);
+  if (niceness !== undefined && niceness > 19) {
+    throw new Error(`Invalid command limit niceness: ${niceness}.`);
+  }
+  return {
+    // One `ulimit` per resource: bash stops at the first flag it cannot set, and a host whose
+    // hard limit is already lower than ours must still get the others.
+    setup: flags.map((flag) => `ulimit ${flag} 2>/dev/null`),
+    prefix: niceness === undefined || niceness === 0 ? "" : `nice -n ${niceness} `,
+  };
 }
 
 export interface TerminalRunRequest {
@@ -198,10 +281,12 @@ export function wrapCommandForUser(
   outerEnv["HOME"] = runAs.home ?? workspaceRoot;
   outerEnv["USER"] = runAs.user;
   outerEnv["LOGNAME"] = runAs.user;
+  const limits = commandLimitScript(runAs.limits);
   const supervisor = [
     `umask ${umask}`,
+    ...limits.setup,
     'trap "kill -KILL 0" TERM HUP INT',
-    `${shellQuote(shell)} -c "$1" & wait "$!"`,
+    `${limits.prefix}${shellQuote(shell)} -c "$1" & wait "$!"`,
   ].join("; ");
   const wrapped = [
     "exec",
