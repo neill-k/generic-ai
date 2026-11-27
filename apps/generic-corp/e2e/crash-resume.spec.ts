@@ -54,7 +54,7 @@ test("a process killed mid-turn resumes the cascade after restart", async ({ pag
       ]);
 
       // And the owner sees the answer in the dashboard of the new process.
-      await page.goto(`${second.url}/#/chat/${encodeURIComponent(threadId)}`);
+      await page.goto(`${second.url}/classic/#/chat/${encodeURIComponent(threadId)}`);
       await expect(page.locator("#messages")).toContainText("The VP reports: 42 chairs counted.");
     } finally {
       await second.stop();

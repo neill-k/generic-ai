@@ -38,7 +38,7 @@ function sentEmails(): unknown[] {
 }
 
 async function send(page: import("@playwright/test").Page, text: string) {
-  await page.goto(`${server.url}/#/chat`);
+  await page.goto(`${server.url}/classic/#/chat`);
   // A fresh load of #/chat opens a new conversation, so each flow reads only its own thread.
   await expect(page.locator("#company-name")).toHaveText("Scripted Corp");
   await page.getByLabel("Message to the CEO").fill(text);
@@ -95,7 +95,7 @@ test("permissions: an action outside them is refused and listed, and runs once a
 });
 
 test("memory: the owner adds to the handbook, edits it, and undoes a removal", async ({ page }) => {
-  await page.goto(`${server.url}/#/memory`);
+  await page.goto(`${server.url}/classic/#/memory`);
   await expect(page.locator("h1")).toHaveText("Memory");
   await page.getByLabel("Title").fill("How Neill likes updates");
   await page.getByLabel("Content").fill("Short, plain, on his phone.");

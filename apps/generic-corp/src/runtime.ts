@@ -369,6 +369,17 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
   };
 
   const cascade = createDelegationCascade({
+    // Long results reach the manager as a drive file and an excerpt, not a clipped paste.
+    ...(drive === undefined
+      ? {}
+      : {
+          saveChildResult: (child: AgentTaskRecord) =>
+            drive.saveHandoff(
+              child.rootTaskId,
+              `${child.agentId}-${child.taskId}.md`,
+              child.outputText ?? "",
+            ),
+        }),
     ...options.cascade,
     runStore: storage.runStore,
     queue: storage.queue,

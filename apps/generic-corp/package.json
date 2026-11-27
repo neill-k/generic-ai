@@ -8,15 +8,17 @@
   "scripts": {
     "check:node": "node ../../scripts/check-node-version.mjs",
     "prebuild": "node ../../scripts/check-node-version.mjs",
-    "build": "tsc -b",
-    "typecheck": "tsc -b --pretty",
+    "build": "tsc -b && npm run build:web",
+    "typecheck": "tsc -b --pretty && tsc -p web/tsconfig.json",
     "test": "vitest run --root ../.. --config vitest.config.ts apps/generic-corp/src",
     "e2e": "playwright test",
     "lint": "biome lint .",
     "prestart": "node ../../scripts/check-node-version.mjs",
     "start": "node dist/run.js",
     "evals": "node dist/evals-cli.js",
-    "reliability": "bash scripts/reliability.sh"
+    "reliability": "bash scripts/reliability.sh",
+    "build:web": "vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts"
   },
   "dependencies": {
     "@generic-ai/ai": "0.0.0",
@@ -49,7 +51,9 @@
   "license": "MIT",
   "private": true,
   "devDependencies": {
-    "@playwright/test": "1.63.0"
+    "@playwright/test": "1.63.0",
+    "preact": "^10.27.2",
+    "vite": "^8.4.0"
   },
   "files": [
     "dist",
