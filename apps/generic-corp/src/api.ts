@@ -12,13 +12,14 @@ import {
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
+import type { CompanyBackups } from "./backups.js";
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import { DriveError, type DriveFile } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
-import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
 import type { RefusalLog } from "./refusals.js";
+import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
@@ -50,6 +51,8 @@ export interface CompanyApiOptions {
   readonly modelAuth?: CompanyModelAuth;
   /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
   readonly permissions?: PermissionStore;
+  /** Nightly backups, listed and started at `/api/backups`. */
+  readonly backups?: CompanyBackups;
 }
 
 /** What the secrets screen needs from the vault. */
@@ -533,6 +536,25 @@ export function createCompanyApi(
     const modelAuth = requireModelAuth();
     requireManage(c);
     return c.json(await modelAuthCall(() => modelAuth.signOut()));
+  });
+
+  // --- Backups ------------------------------------------------------------
+
+  const requireBackups = (): CompanyBackups => {
+    if (options.backups === undefined) {
+      throw new ApiError(404, "Backups are not available.");
+    }
+    return options.backups;
+  };
+
+  app.get("/backups", async (c) => c.json(await requireBackups().status()));
+
+  // Starts a backup and answers at once; `backups.updated` events follow its progress.
+  app.post("/backups", async (c) => {
+    const backups = requireBackups();
+    requireManage(c);
+    void backups.run("manual").catch(() => undefined);
+    return c.json(await backups.status(), 202);
   });
 
   // --- Agents and the org chart -------------------------------------------

@@ -490,6 +490,31 @@ describe("Generic Corp server", () => {
   });
 });
 
+describe("backups", () => {
+  it("lists backups and makes one on request", async () => {
+    const { server } = await openServer();
+    const before = await api<{ enabled: boolean; backups: unknown[]; dir: string }>(
+      server,
+      "/api/backups",
+    );
+    expect(before.status).toBe(200);
+    expect(before.body.backups).toEqual([]);
+    expect(before.body.dir).toBe(path.join(server.environment.dataDir, "backups"));
+
+    const started = await api<{ running: boolean }>(server, "/api/backups", post({}));
+    expect(started.status).toBe(202);
+    expect(started.body.running).toBe(true);
+    await server.backups.run();
+
+    const after = await api<{ running: boolean; backups: Array<{ reason: string }> }>(
+      server,
+      "/api/backups",
+    );
+    expect(after.body.running).toBe(false);
+    expect(after.body.backups.map((backup) => backup.reason)).toEqual(["manual"]);
+  });
+});
+
 describe("dashboard", () => {
   it("serves the page and its assets with a strict content security policy", async () => {
     const { server } = await openServer({

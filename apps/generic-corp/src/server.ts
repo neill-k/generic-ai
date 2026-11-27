@@ -27,6 +27,12 @@ import {
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
+import {
+  BackupError,
+  type CompanyBackups,
+  createCompanyBackups,
+  readBackupSettings,
+} from "./backups.js";
 import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
@@ -289,6 +295,7 @@ export interface GenericCorpServer {
   readonly refusals: RefusalLog;
   /** How agent commands reach the network. */
   readonly agentNetwork: AgentNetwork;
+  readonly backups: CompanyBackups;
   stop(): Promise<void>;
 }
 
@@ -329,6 +336,11 @@ export interface CreateGenericCorpServerOptions {
    * or the secrets vault.
    */
   readonly modelAuth?: CompanyModelAuth;
+  /**
+   * Nightly backups of the database and the company's files. Defaults to the schedule the
+   * `GENERIC_CORP_BACKUP*` variables describe (backups.ts).
+   */
+  readonly backups?: CompanyBackups;
   readonly log?: (message: string) => void;
 }
 
@@ -358,6 +370,28 @@ export async function createGenericCorpServer(
     const layout = companyLayout(environment.dataDir);
     const drive = createCompanyDrive({ layout, kv: storage.kv });
     const processEnv = options.env ?? process.env;
+    let publishBackupStatus: ((status: Readonly<Record<string, unknown>>) => void) | undefined;
+    const backups =
+      options.backups ??
+      createCompanyBackups({
+        dataDir: environment.dataDir,
+        database:
+          environment.databaseUrl === undefined
+            ? { driver: "sqlite", path: path.join(environment.dataDir, "company.sqlite") }
+            : { driver: "postgres", connectionString: environment.databaseUrl },
+        settings: (() => {
+          try {
+            return readBackupSettings(processEnv, environment.dataDir);
+          } catch (error) {
+            if (error instanceof BackupError) {
+              throw new GenericCorpConfigError(error.message);
+            }
+            throw error;
+          }
+        })(),
+        log,
+        onChange: (status) => publishBackupStatus?.({ ...status }),
+      });
     const modelAuth =
       options.modelAuth ??
       createCompanyModelAuth({
@@ -521,6 +555,7 @@ export async function createGenericCorpServer(
     });
     runtimeRef = runtime;
     await runtime.initialize();
+    publishBackupStatus = (status) => runtime.events.publish("backups.updated", status);
 
     let auth: OwnerAuth | undefined;
     const app = new Hono();
@@ -583,6 +618,7 @@ export async function createGenericCorpServer(
         refusals,
         modelAuth,
         permissions,
+        backups,
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),
@@ -604,6 +640,14 @@ export async function createGenericCorpServer(
     if (environment.workers) {
       runtime.start();
     }
+    backups.start();
+    if (backups.settings.enabled) {
+      log(
+        `Backups: nightly at ${String(backups.settings.hour).padStart(2, "0")}:00 server time into ${backups.settings.dir}, keeping ${backups.settings.keep}.`,
+      );
+    } else {
+      log("Backups: nightly backups are off (GENERIC_CORP_BACKUPS=off).");
+    }
 
     return {
       app,
@@ -615,7 +659,9 @@ export async function createGenericCorpServer(
       permissions,
       refusals,
       agentNetwork,
+      backups,
       async stop() {
+        await backups.stop();
         await runtime.stop();
         await companyToolkit.close();
         await egressProxy?.stop();
