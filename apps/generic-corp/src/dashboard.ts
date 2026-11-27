@@ -8,21 +8,13 @@ import { Hono } from "hono";
  * Serves the owner's app.
  *
  * `/` is the app built from `apps/generic-corp/web` (Preact, bundled by Vite into
- * `dist/web`, decision 53). `/classic/` is the earlier dashboard from
- * `apps/generic-corp/public`, plain scripts with no build step, kept while its remaining
- * screens move into the new app. Neither page holds data: both call the authenticated API, and
- * an unauthenticated browser is sent to the owner login page.
+ * `dist/web`, decision 53). The page holds no data: it calls the authenticated API, and an
+ * unauthenticated browser is sent to the owner login page.
  */
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-export const DEFAULT_PUBLIC_DIR = path.resolve(HERE, "..", "public");
 /** Where `vite build` writes the app. From `src/` (tests) and `dist/` alike it is `dist/web`. */
 export const DEFAULT_WEB_DIR = path.resolve(HERE, "..", "dist", "web");
-
-const CLASSIC_ASSETS: Readonly<Record<string, string>> = Object.freeze({
-  "app.js": "text/javascript; charset=utf-8",
-  "styles.css": "text/css; charset=utf-8",
-});
 
 const WEB_CONTENT_TYPES: Readonly<Record<string, string>> = Object.freeze({
   ".js": "text/javascript; charset=utf-8",
@@ -56,14 +48,11 @@ export const DASHBOARD_SECURITY_HEADERS: Readonly<Record<string, string>> = Obje
 });
 
 export interface DashboardRoutesOptions {
-  /** The classic dashboard's files. */
-  readonly publicDir?: string;
   /** The built app (`index.html` plus `app/`). */
   readonly webDir?: string;
 }
 
 export function createDashboardRoutes(options: DashboardRoutesOptions = {}): Hono {
-  const publicDir = options.publicDir ?? DEFAULT_PUBLIC_DIR;
   const webDir = options.webDir ?? DEFAULT_WEB_DIR;
   const app = new Hono();
   const cache = new Map<string, Buffer>();
@@ -95,7 +84,7 @@ export function createDashboardRoutes(options: DashboardRoutesOptions = {}): Hon
     const html = await load(path.join(webDir, "index.html"));
     if (html === undefined) {
       return new Response(
-        "The app has not been built. Run `npm run build -w @generic-ai/app-generic-corp`, or use /classic/ meanwhile.",
+        "The app has not been built. Run `npm run build -w @generic-ai/app-generic-corp`.",
         { status: 500, headers: { "content-type": "text/plain; charset=utf-8" } },
       );
     }
@@ -124,29 +113,5 @@ export function createDashboardRoutes(options: DashboardRoutesOptions = {}): Hon
     });
   });
 
-  const classicPage = async () => {
-    const html = await load(path.join(publicDir, "index.html"));
-    if (html === undefined) {
-      return new Response("The dashboard files are missing from this build.", { status: 500 });
-    }
-    return htmlResponse(html);
-  };
-  app.get("/classic", (c) => c.redirect("/classic/"));
-  app.get("/classic/", classicPage);
-  app.get("/classic/assets/:file", async (c) => {
-    const file = c.req.param("file");
-    const contentType = CLASSIC_ASSETS[file];
-    const contents = contentType === undefined ? undefined : await load(path.join(publicDir, file));
-    if (contentType === undefined || contents === undefined) {
-      return c.notFound();
-    }
-    return new Response(new Uint8Array(contents), {
-      headers: {
-        ...DASHBOARD_SECURITY_HEADERS,
-        "content-type": contentType,
-        "cache-control": "no-cache",
-      },
-    });
-  });
   return app;
 }

@@ -679,7 +679,7 @@ describe("backups", () => {
 });
 
 describe("dashboard", () => {
-  it("serves the built app and the classic dashboard with a strict content security policy", async () => {
+  it("serves the built app with a strict content security policy", async () => {
     const { server } = await openServer({
       insecureNoAuth: false,
       authToken: "a-static-owner-token-for-tests",
@@ -696,18 +696,7 @@ describe("dashboard", () => {
       404,
     );
 
-    const classic = await server.fetch(new Request("http://127.0.0.1/classic/"));
-    expect(classic.status).toBe(200);
-    expect(classic.headers.get("content-security-policy")).toContain("script-src 'self'");
-    expect(await classic.text()).toContain('src="/classic/assets/app.js"');
-    const script = await server.fetch(new Request("http://127.0.0.1/classic/assets/app.js"));
-    expect(script.headers.get("content-type")).toContain("javascript");
-    expect(await script.text()).toContain("textContent");
-    const style = await server.fetch(new Request("http://127.0.0.1/classic/assets/styles.css"));
-    expect(style.status).toBe(200);
-    expect(
-      (await server.fetch(new Request("http://127.0.0.1/classic/assets/..%2Fpackage.json"))).status,
-    ).toBe(404);
+    expect((await server.fetch(new Request("http://127.0.0.1/classic/"))).status).toBe(404);
   });
 });
 

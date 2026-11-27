@@ -65,9 +65,8 @@ dashboard at `/` with a permissions page and the refused-actions list.
   what it used, and the owner edits what done means in a side panel. The org chart
   opens each agent's current work and memory. It refreshes from
   `/api/events?unnamed=1`, and a signed-out browser goes to `/auth/login`.
-  `public/` is the earlier no-build dashboard, served at `/classic/` until its
-  remaining screens (activity, drive, usage, permissions and refused actions,
-  tools, secrets, Claude sign-in) move.
+  Activity, drive, deliverables, usage, permissions and refused actions,
+  connections, Claude sign-in and the checkup live in the same app.
 - **Permissions.** `permissions.ts`: the owner sets broad categories once
   (read outside systems: on; send messages, spend money, write to outside
   systems: off; GitHub pushes, pull requests and green-check merges in the
@@ -126,6 +125,7 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/tasks/:id`, `/tree`, `/events` | A task and its children, its whole cascade, its event log and harness run events |
 | `POST /api/tasks/:id/cancel` | Cancel a task and everything it delegated |
 | `GET /api/activity` | Work in motion and what just finished, each with who is on it and its status in plain words |
+| `GET /api/summary?hours=24` | The quiet daily summary: goals done and ended, goals set, work handed in, refused actions, org changes and spend in the window. Read from records already kept; no model call, nothing sent |
 | `GET /api/board` | Tasks in columns by status |
 | `GET /api/costs` | Tokens and dollars by agent, model and owner request, and cost per completed request |
 | `GET /api/permissions` | The permissions in force and whether the owner has saved them |

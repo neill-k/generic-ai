@@ -19,7 +19,7 @@ import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import { DriveError, type DriveFile, deliverablesFolder } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
 import { type GithubConnector, GithubError } from "./github.js";
-import { activityView, goalDetailView, listGoalViews } from "./goal-views.js";
+import { activityView, dailySummary, goalDetailView, listGoalViews } from "./goal-views.js";
 import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { OrgError } from "./org.js";
@@ -1423,6 +1423,14 @@ export function createCompanyApi(
     return c.json({ cancelled, task: await runtime.cascade.get(taskId) });
   });
 
+  app.get("/summary", async (c) =>
+    c.json(
+      await dailySummary(runtime, {
+        hours: readLimit(c.req.query("hours"), 24, 24 * 31),
+        ...(options.refusals === undefined ? {} : { refusals: options.refusals }),
+      }),
+    ),
+  );
   app.get("/activity", async (c) =>
     c.json(await activityView(runtime, { limit: readLimit(c.req.query("limit"), 100, 1000) })),
   );
