@@ -75,7 +75,6 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
     const role: AgentHarnessRole = {
       description: `Persistent agent ${input.agentId} (${input.role}).`,
       ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
-      readOnly: kind !== "builder" && kind !== "custom",
       ...options.role?.(input),
       id: input.agentId,
       kind,

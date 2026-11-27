@@ -63,7 +63,7 @@ ADRs must be written when:
 - [`0038-tool-overuse-budget-evaluator.md`](0038-tool-overuse-budget-evaluator.md) - optional SDK tool-use discipline profiles and report summaries for benchmark harnesses.
 - [`0039-contextual-integrity-privacy-harness.md`](0039-contextual-integrity-privacy-harness.md) - optional SDK contextual-integrity privacy profiles and report summaries for workspace-agent benchmarks.
 - [`0041-structured-tool-error-recovery.md`](0041-structured-tool-error-recovery.md) - SDK structured tool-error envelopes, timeout budgets, and report summaries for recovery evidence.
-- [`0042-protocol-topology-runner.md`](0042-protocol-topology-runner.md) - stateful SDK protocol reducers plus the core topology runner that executes pipeline, verifier-loop, hierarchy, and squad harnesses.
+- [`0042-protocol-topology-runner.md`](0042-protocol-topology-runner.md) - stateful SDK protocol reducers plus the core topology runner that executes pipeline, verifier-loop, hierarchy, and squad harnesses. Superseded by 0071.
 - [`0043-durable-run-store-and-queue.md`](0043-durable-run-store-and-queue.md) - SDK run store and durable queue contracts, queue worker, conformance suites, and the Postgres and SQLite backends.
 - [`0044-persistent-agents-and-delegation-cascade.md`](0044-persistent-agents-and-delegation-cascade.md) - persistent org-chart agents with memory and workspaces, and the durable cross-run delegation cascade over the run store and queue.
 - [`0045-owner-auth-identity.md`](0045-owner-auth-identity.md) - single-owner auth: SDK identity contracts and run actor, Hono `authenticate` hook, passkey owner login, and revocable hashed API tokens.
@@ -85,6 +85,7 @@ ADRs must be written when:
 - [`0068-native-runtime-default.md`](0068-native-runtime-default.md) - the native runtime is the default harness and LLM runtime adapter; `pi` and `openai-codex` stay available by name until they are removed.
 - [`0069-goals-on-every-request.md`](0069-goals-on-every-request.md) - agents draft a locked goal for every request with `set_goal`, hand in work with `submit_work`, declare impossibility only with a second reviewer's agreement, write owner questions down without blocking, and the owner can edit the definition of done at any time.
 - [`0070-company-wall.md`](0070-company-wall.md) - the company is one trust zone; agent shell commands reach the network only through an allowlisting egress proxy made unavoidable by a firewall rule for the agent user, owner-set permission categories in place of approval cards, refusals logged for the owner, and per-command resource limits.
+- [`0071-no-fixed-agent-patterns.md`](0071-no-fixed-agent-patterns.md) - no fixed coordination patterns or restricted role kinds: agents delegate down the org chart, every role is a full agent, and the protocol reducers, topology runner, benchmark runner and shootout examples are removed.
 
 ## Planning Baseline
 

@@ -168,8 +168,8 @@ describe("createAdapterTaskExecutor", () => {
     expect(input?.harness.roles).toEqual([
       expect.objectContaining({
         id: "ceo",
-        kind: "planner",
-        readOnly: true,
+        // A stored restricted kind from before is now a full agent.
+        kind: "builder",
         instructions: "Run the company.",
       }),
     ]);
@@ -215,9 +215,10 @@ describe("createAdapterTaskExecutor", () => {
   });
 
   it("maps role kinds and routes executors per turn", async () => {
-    expect(resolveAgentRoleKind("verifier")).toBe("verifier");
+    expect(resolveAgentRoleKind("custom")).toBe("custom");
+    expect(resolveAgentRoleKind("verifier")).toBe("builder");
     expect(resolveAgentRoleKind("root")).toBe("builder");
-    expect(resolveAgentRoleKind("something-else", "explorer")).toBe("explorer");
+    expect(resolveAgentRoleKind("something-else", "custom")).toBe("custom");
     const routed = routeTaskExecutor(
       (input) =>
         input.agentId === "ceo"

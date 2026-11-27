@@ -307,7 +307,6 @@ export function createProvenanceBundle(input: CreateProvenanceBundleInput): Prov
         label: traceEvent.actorId,
         attributes: compactAttributes({
           packageId: traceEvent.packageId ?? null,
-          protocolId: traceEvent.protocolId ?? null,
         }),
       });
     }

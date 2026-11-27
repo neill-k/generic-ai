@@ -1,3 +1,4 @@
+import { providerSupport } from "@generic-ai/ai";
 import type { PersistentAgentSeed } from "@generic-ai/plugin-delegation";
 import { McpRegistryError, parseMcpPluginConfig } from "@generic-ai/plugin-mcp";
 import type { WebSearchProviderConfig } from "@generic-ai/plugin-tools-web";
@@ -111,8 +112,8 @@ export const DEFAULT_TIER_MODELS: Readonly<Record<OrgTier, string>> = Object.fre
 });
 
 /**
- * Every tier defaults to the `builder` role kind: managers write plans and
- * their own memory file, and generic work needs files at every level.
+ * Every agent is a full agent (ADR 0071): the `builder` role kind, with every tool its permissions
+ * allow, at every level of the org chart.
  */
 const DEFAULT_ROLE_KIND = "builder";
 
@@ -516,6 +517,24 @@ export function modelFor(company: CompanyConfig, agentId: string): string {
   const agent = company.agents.find((entry) => entry.id === agentId);
   const tier = tierOf(company, agentId);
   return agent?.model ?? company.models?.[tier] ?? DEFAULT_TIER_MODELS[tier];
+}
+
+/**
+ * Models the company uses whose provider is untested (decision 21): anything other than Anthropic
+ * and OpenAI. They may work; nobody has checked. One line per model, naming who uses it.
+ */
+export function untestedModels(company: CompanyConfig): readonly string[] {
+  const users = new Map<string, string[]>();
+  for (const agent of company.agents) {
+    const model = modelFor(company, agent.id);
+    users.set(model, [...(users.get(model) ?? []), agent.id]);
+  }
+  for (const model of company.judgeModels ?? []) {
+    users.set(model, [...(users.get(model) ?? []), "the rubric judge"]);
+  }
+  return [...users.entries()]
+    .filter(([model]) => providerSupport(model) === "untested")
+    .map(([model, who]) => `${model} (used by ${who.join(", ")})`);
 }
 
 /** Persistent agent seeds for the agent directory, with models and role kinds resolved. */

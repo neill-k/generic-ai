@@ -17,14 +17,12 @@ export type HarnessSchemaVersion = typeof HARNESS_SCHEMA_VERSION;
 export const AGENT_HARNESS_ADAPTER_KINDS = ["native", "external"] as const;
 /** The session backend a harness uses when its config names none. */
 export const DEFAULT_AGENT_HARNESS_ADAPTER = "native" as const;
-export const AGENT_HARNESS_ROLE_KINDS = [
-  "root",
-  "planner",
-  "explorer",
-  "builder",
-  "verifier",
-  "custom",
-] as const;
+/**
+ * Role kinds. Every role is a full agent with the tools its policy allows; there are no
+ * restricted planner, explorer or verifier roles and no fixed pattern between roles.
+ * `readOnly` on a role is the only tool restriction a role carries.
+ */
+export const AGENT_HARNESS_ROLE_KINDS = ["root", "builder", "custom"] as const;
 export const AGENT_HARNESS_POLICY_PROFILES = ["local-dev-full", "benchmark-container"] as const;
 export const AGENT_TURN_MODES = ["stop-tool-loop", "single-turn"] as const;
 export const AGENT_HARNESS_CAPABILITY_EFFECTS = [
@@ -90,7 +88,6 @@ export type DiagnosticSeverity = "error" | "warning";
 export type ObjectiveClass = "coding" | "research" | "operations" | "analysis" | "custom";
 export type PolicyEffect = "allow" | "deny" | "require_approval" | "redact" | "rewrite";
 export type ApprovalState = "not_required" | "pending" | "approved" | "rejected" | "expired";
-export type ProtocolTerminalState = "blocked" | "idle" | "ready" | "done" | "failed";
 export type RecommendationBoundary = "recommended" | "not_recommended" | "insufficient_evidence";
 export type BenchmarkTrialOutcomeStatus = "passed" | "failed" | "skipped" | "excluded";
 export type BenchmarkFailureSeverity = "none" | "low" | "medium" | "high" | "critical";
@@ -550,7 +547,6 @@ export interface CapabilitySpec {
   readonly kind:
     | "tool"
     | "memory"
-    | "protocol"
     | "grader"
     | "trace-exporter"
     | "report-renderer"
@@ -602,14 +598,6 @@ export interface RelationshipSpec {
   readonly fromAgentRef: string;
   readonly toAgentRef: string;
   readonly description?: string;
-}
-
-export interface ProtocolBindingSpec {
-  readonly id: string;
-  readonly protocol: string;
-  readonly packageRef: string;
-  readonly actorRefs: readonly string[];
-  readonly config?: JsonObject;
 }
 
 export interface ResourceSelector {
@@ -717,7 +705,6 @@ export interface HarnessDsl {
   readonly agents: readonly AgentSpec[];
   readonly spaces?: readonly SpaceSpec[];
   readonly relationships?: readonly RelationshipSpec[];
-  readonly protocols?: readonly ProtocolBindingSpec[];
   readonly policies?: readonly PolicySpec[];
   readonly artifacts?: readonly ArtifactContract[];
   readonly missionRefs?: readonly string[];
@@ -776,13 +763,6 @@ export interface CapabilityBOMCapability {
   readonly schemaHash?: string;
 }
 
-export interface CapabilityBOMProtocol {
-  readonly id: string;
-  readonly protocol: string;
-  readonly packageRef: string;
-  readonly actorRefs: readonly string[];
-}
-
 export interface CapabilityBOMPolicy {
   readonly id: string;
   readonly subject: string;
@@ -815,7 +795,6 @@ export interface CapabilityBOMArtifact {
 export interface CapabilityBOMSummary {
   readonly packageCount: number;
   readonly capabilityCount: number;
-  readonly protocolCount: number;
   readonly policyCount: number;
   readonly agentCount: number;
   readonly artifactCount: number;
@@ -830,7 +809,6 @@ export interface CapabilityBOM {
   readonly sourceId: string;
   readonly packages: readonly CapabilityBOMPackage[];
   readonly capabilities: readonly CapabilityBOMCapability[];
-  readonly protocols: readonly CapabilityBOMProtocol[];
   readonly policies: readonly CapabilityBOMPolicy[];
   readonly agentBindings: readonly CapabilityBOMAgentBinding[];
   readonly artifacts: readonly CapabilityBOMArtifact[];
@@ -862,7 +840,6 @@ export interface CompiledHarness {
   readonly agents: readonly CompiledActor[];
   readonly spaces: readonly SpaceSpec[];
   readonly relationships: readonly RelationshipSpec[];
-  readonly protocols: readonly ProtocolBindingSpec[];
   readonly policies: readonly PolicySpec[];
   readonly artifacts: readonly ArtifactContract[];
   readonly missionRefs: readonly string[];
@@ -1352,7 +1329,7 @@ export type TraceEventType =
   | "trial.started"
   | "actor.invoked"
   | "actor.completed"
-  | "protocol.action.planned"
+  | "handoff.recorded"
   | "tool.invoked"
   | "artifact.created"
   | "policy.decision"
@@ -1372,7 +1349,6 @@ export interface TraceEvent {
   readonly trialId?: string;
   readonly actorId?: string;
   readonly packageId?: string;
-  readonly protocolId?: string;
   readonly artifactId?: string;
   readonly parentEventId?: string;
   readonly causedByEventId?: string;
@@ -1394,103 +1370,6 @@ export interface TraceDiagnostics {
   readonly reworkCount: number;
   readonly policyDecisionCount: number;
   readonly artifactCount: number;
-}
-
-export interface ProtocolState {
-  readonly status: ProtocolTerminalState;
-  readonly data?: JsonObject;
-}
-
-export interface ProtocolAction {
-  readonly id: string;
-  readonly idempotencyKey: string;
-  readonly kind:
-    | "invoke_actor"
-    | "claim_work"
-    | "delegate_work"
-    | "review_artifact"
-    | "validate_goal"
-    | "request_approval"
-    | "emit_trace"
-    | "complete"
-    | "fail"
-    | "custom";
-  readonly actorRef?: string;
-  readonly artifactRef?: string;
-  readonly payload?: JsonObject;
-}
-
-export interface ProtocolSummary {
-  readonly status: ProtocolTerminalState;
-  readonly actionCount: number;
-  readonly blockerCount: number;
-  readonly notes?: readonly string[];
-}
-
-/**
- * Verdict an actor can attach to its output. Verifier-style protocols use it to
- * decide whether to loop; other protocols treat it as informational.
- */
-export type ProtocolActorVerdict = "pass" | "fail";
-
-/**
- * Result of executing one {@link ProtocolAction}. Topology runners record one
- * outcome per executed action and feed the full list back into
- * {@link ProtocolPlugin.reduce} so protocols can advance deterministically.
- */
-export interface ProtocolActionOutcome {
-  readonly actionId: string;
-  readonly idempotencyKey: string;
-  readonly kind: ProtocolAction["kind"];
-  readonly actorRef?: string;
-  readonly status: "succeeded" | "failed" | "skipped";
-  readonly outputText?: string;
-  readonly verdict?: ProtocolActorVerdict;
-  readonly failureMessage?: string;
-  /** Structured directives the actor returned, such as assignments or work items. */
-  readonly data?: JsonObject;
-  readonly payload?: JsonObject;
-  readonly step: number;
-  readonly attempt: number;
-}
-
-export interface ProtocolReduceInput {
-  readonly compiled: CompiledHarness;
-  readonly state: ProtocolState;
-  readonly events: readonly TraceEvent[];
-  /** Outcomes of every action executed so far, in completion order. */
-  readonly outcomes?: readonly ProtocolActionOutcome[];
-  /** The protocol binding being executed, when the runner selected one. */
-  readonly binding?: ProtocolBindingSpec;
-  /** The user-facing task the topology is working on. */
-  readonly instruction?: string;
-  /**
-   * The sealed goal the runner will check `validate_goal` actions against,
-   * when one was supplied. Protocols use it to decide whether to ask for
-   * validator checks; the runner owns the goal itself and the validators.
-   */
-  readonly goal?: ProtocolGoalRef;
-}
-
-export interface ProtocolGoalRef {
-  readonly id: string;
-  readonly fingerprint: string;
-}
-
-export interface ProtocolPlugin {
-  readonly manifest: {
-    readonly id: string;
-    readonly name: string;
-    readonly version: string;
-    readonly protocol: string;
-  };
-  readonly initialize?: (compiled: CompiledHarness) => Awaitable<ProtocolState>;
-  readonly validate?: (compiled: CompiledHarness) => Awaitable<readonly CompileDiagnostic[]>;
-  readonly reduce: (input: ProtocolReduceInput) => Awaitable<{
-    readonly state: ProtocolState;
-    readonly actions: readonly ProtocolAction[];
-    readonly summary: ProtocolSummary;
-  }>;
 }
 
 export interface BenchmarkTrialResult {

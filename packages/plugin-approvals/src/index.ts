@@ -19,7 +19,6 @@ export {
 export * from "./gate.js";
 export * from "./routes.js";
 export * from "./service.js";
-export * from "./topology.js";
 
 export const name = "@generic-ai/plugin-approvals" as const;
 export const kind = "approvals" as const;

@@ -52,12 +52,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function redactText(value: string): string {
   return SECRET_PATTERNS.reduce(
-    (text, pattern) => text.replace(pattern, (_match, prefix: string | undefined) => {
-      if (prefix !== undefined && /^(api|token|secret|password)/i.test(prefix)) {
-        return `${prefix}=<redacted>`;
-      }
-      return "<redacted>";
-    }),
+    (text, pattern) =>
+      text.replace(pattern, (_match, prefix: string | undefined) => {
+        if (prefix !== undefined && /^(api|token|secret|password)/i.test(prefix)) {
+          return `${prefix}=<redacted>`;
+        }
+        return "<redacted>";
+      }),
     value,
   );
 }
@@ -112,7 +113,9 @@ function textValue(data: unknown, names: readonly string[]): string | undefined 
 
   if (
     Array.isArray(found) &&
-    found.every((item): item is string | number | boolean => ["string", "number", "boolean"].includes(typeof item))
+    found.every((item): item is string | number | boolean =>
+      ["string", "number", "boolean"].includes(typeof item),
+    )
   ) {
     return excerpt(found.join(" "));
   }
@@ -204,7 +207,7 @@ function phaseFromTraceEvent(type: string): CommandTranscriptEntryPhase {
     return "completed";
   }
 
-  if (type === "protocol.action.planned") {
+  if (type === "handoff.recorded") {
     return "planned";
   }
 
@@ -297,7 +300,7 @@ export function createCommandTranscriptFromTraceEvents(input: {
     .filter(
       (event) =>
         event.type === "tool.invoked" ||
-        event.type === "protocol.action.planned" ||
+        event.type === "handoff.recorded" ||
         event.type === "policy.decision" ||
         event.type === "artifact.created" ||
         event.type === "grader.completed" ||

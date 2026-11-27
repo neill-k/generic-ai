@@ -1,11 +1,11 @@
-import { Type, type Static } from "@sinclair/typebox";
-import { withAgentHarnessToolEffects } from "@generic-ai/sdk";
 import {
-  defineTool,
   type AgentToolResult,
   type AgentToolUpdateCallback,
+  defineTool,
   type ToolDefinition,
+  withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
+import { type Static, Type } from "@sinclair/typebox";
 
 import type { WebUiPlugin } from "./types.js";
 
@@ -65,7 +65,8 @@ function createListConfigTool(
   return defineTool({
     name: "web_ui_list_config",
     label: "web_ui_list_config",
-    description: "List the currently resolved Generic AI config summary and available web UI templates.",
+    description:
+      "List the currently resolved Generic AI config summary and available web UI templates.",
     parameters: listConfigSchema,
     async execute(
       _toolCallId: string,

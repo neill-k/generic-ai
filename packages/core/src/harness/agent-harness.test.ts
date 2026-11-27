@@ -172,16 +172,27 @@ describe("createAgentHarness", () => {
     expect(result.outputText).toBe("native by default");
   });
 
-  it("passes role-filtered tools into root and delegated sessions", async () => {
+  it("gives the primary agent its full tools and filters a read-only role", async () => {
     const root = await mkdtemp(join(tmpdir(), "generic-ai-harness-"));
     const toolSets: string[][] = [];
     const harness = fauxHarness(
-      { id: "test-harness", policyProfile: "benchmark-container", allowMcp: false },
+      {
+        id: "test-harness",
+        policyProfile: "benchmark-container",
+        allowMcp: false,
+        roles: [
+          { id: "builder", kind: "builder" },
+          { id: "reviewer", kind: "builder", readOnly: true },
+        ],
+      },
       [
-        recording(toolSets, call("delegate_agent", { roleId: "builder", task: "write the answer" })),
+        recording(
+          toolSets,
+          call("delegate_agent", { roleId: "builder", task: "write the answer" }),
+        ),
         recording(toolSets, stop("builder done")),
-        recording(toolSets, call("delegate_agent", { roleId: "verifier", task: "run the check" })),
-        recording(toolSets, stop("verifier done")),
+        recording(toolSets, call("delegate_agent", { roleId: "reviewer", task: "read it over" })),
+        recording(toolSets, stop("reviewer done")),
         recording(toolSets, stop("root done")),
       ],
     );
@@ -200,16 +211,21 @@ describe("createAgentHarness", () => {
 
     expect(result.status).toBe("succeeded");
     expect(result.outputText).toBe("root done");
-    const [rootTools, builderTools, , verifierTools] = toolSets;
-    expect(rootTools).toContain("read");
-    expect(rootTools).toContain("delegate_agent");
-    expect(rootTools).toContain(STOP_AND_RESPOND_TOOL_NAME);
-    expect(rootTools).not.toContain("bash");
-    expect(rootTools).not.toContain("write");
+    const [rootTools, builderTools, , reviewerTools] = toolSets;
+    // The primary agent is a full agent: it works itself and may delegate.
+    expect(rootTools).toEqual(
+      expect.arrayContaining([
+        "bash",
+        "read",
+        "write",
+        "delegate_agent",
+        STOP_AND_RESPOND_TOOL_NAME,
+      ]),
+    );
     expect(builderTools).toEqual(expect.arrayContaining(["bash", "read", "write"]));
-    expect(verifierTools).toContain("bash");
-    expect(verifierTools).toContain("read");
-    expect(verifierTools).not.toContain("write");
+    expect(reviewerTools).toContain("read");
+    expect(reviewerTools).not.toContain("bash");
+    expect(reviewerTools).not.toContain("write");
     expect(result.projections.some((projection) => projection.type === "handoff.requested")).toBe(
       true,
     );
@@ -222,22 +238,22 @@ describe("createAgentHarness", () => {
       true,
     );
     expect(new Set(result.events.map((event) => event.rootSessionId)).size).toBe(1);
-    const deniedVerifierWrite = expect.objectContaining({
-      actorId: "verifier",
+    const deniedReviewerWrite = expect.objectContaining({
+      actorId: "reviewer",
       action: "bind_tool",
       decision: "denied",
     });
-    expect(result.policyDecisions).toEqual(expect.arrayContaining([deniedVerifierWrite]));
+    expect(result.policyDecisions).toEqual(expect.arrayContaining([deniedReviewerWrite]));
 
     const policyArtifact = result.artifacts.find((artifact) => artifact.id === "policy-decisions");
     expect(policyArtifact?.localPath).toBeDefined();
     const artifactDecisions = JSON.parse(
       await readFile(policyArtifact?.localPath ?? "", "utf-8"),
     ) as readonly PolicyDecisionRecord[];
-    expect(artifactDecisions).toEqual(expect.arrayContaining([deniedVerifierWrite]));
+    expect(artifactDecisions).toEqual(expect.arrayContaining([deniedReviewerWrite]));
   });
 
-  it("exposes MCP server tools to roles by effect: reads everywhere, writes only to builders", async () => {
+  it("exposes MCP server tools to roles by effect: writes only to roles that are not read-only", async () => {
     const runMcpHarness = async (harnessOptions: {
       readonly policyProfile?: "local-dev-full" | "benchmark-container";
       readonly allowMcp?: boolean;
@@ -246,12 +262,22 @@ describe("createAgentHarness", () => {
       const toolSets: string[][] = [];
       let harnessToolCalls = 0;
       const responses: FauxResponseStep[] = [];
-      for (const roleId of ["planner", "builder", "verifier"]) {
+      for (const roleId of ["reader", "builder"]) {
         responses.push(recording(toolSets, call("delegate_agent", { roleId, task: "use MCP" })));
         responses.push(recording(toolSets, stop("role done")));
       }
       responses.push(recording(toolSets, stop("root done")));
-      const harness = fauxHarness({ id: "mcp-harness", ...harnessOptions }, responses);
+      const harness = fauxHarness(
+        {
+          id: "mcp-harness",
+          ...harnessOptions,
+          roles: [
+            { id: "reader", kind: "builder", readOnly: true },
+            { id: "builder", kind: "builder" },
+          ],
+        },
+        responses,
+      );
 
       const result = await harness.run({
         instruction: "Use MCP.",
@@ -268,31 +294,40 @@ describe("createAgentHarness", () => {
                 capabilityTool("mcp__docs__search", ["mcp.read"]),
                 capabilityTool("mcp__docs__update", ["mcp.read", "mcp.write"]),
                 capabilityTool("mcp__mail__send_email", ["mcp.read", "mcp.write", "message.send"]),
-                capabilityTool("mcp__cal__create_event", ["mcp.read", "mcp.write", "external.write"]),
+                capabilityTool("mcp__cal__create_event", [
+                  "mcp.read",
+                  "mcp.write",
+                  "external.write",
+                ]),
               ];
             },
           },
         },
       });
       // Each role's first turn shows its tool set; the root's first turn is index 0.
-      const [rootTools, plannerTools, , builderTools, , verifierTools] = toolSets;
+      const [rootTools, readerTools, , builderTools] = toolSets;
       return {
         result,
         harnessToolCalls,
         toolSets,
-        roles: { rootTools, plannerTools, builderTools, verifierTools },
+        roles: { rootTools, readerTools, builderTools },
       };
     };
 
     const local = await runMcpHarness({});
     expect(local.result.status).toBe("succeeded");
     expect(local.harnessToolCalls).toBe(1);
-    const { rootTools, plannerTools, builderTools, verifierTools } = local.roles;
-    for (const readOnlyRole of [rootTools, plannerTools, verifierTools]) {
+    const { rootTools, readerTools, builderTools } = local.roles;
+    for (const readOnlyRole of [readerTools]) {
       expect(readOnlyRole).toContain("mcp__docs__search");
       expect(readOnlyRole).not.toContain("mcp__docs__update");
       expect(readOnlyRole).not.toContain("mcp__mail__send_email");
       expect(readOnlyRole).not.toContain("mcp__cal__create_event");
+    }
+    for (const fullAgent of [rootTools, builderTools]) {
+      expect(fullAgent).toEqual(
+        expect.arrayContaining(["mcp__docs__search", "mcp__docs__update", "mcp__mail__send_email"]),
+      );
     }
     expect(builderTools).toEqual(
       expect.arrayContaining([
@@ -306,7 +341,7 @@ describe("createAgentHarness", () => {
     expect(local.result.policyDecisions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          actorId: "planner",
+          actorId: "reader",
           action: "bind_tool",
           decision: "denied",
           reason: expect.stringContaining("mcp.write"),

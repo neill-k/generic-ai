@@ -41,7 +41,7 @@ const ORG: readonly PersistentAgentSeed[] = [
     id: "ceo",
     role: "ceo",
     title: "Chief Executive",
-    roleKind: "planner",
+    roleKind: "custom",
     model: "anthropic/opus",
   },
   { id: "vp-research", role: "vp", title: "VP Research", reportsTo: "ceo" },

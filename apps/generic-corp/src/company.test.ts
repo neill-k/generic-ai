@@ -12,10 +12,36 @@ import {
   modelFor,
   parseCompanyYaml,
   tierOf,
+  untestedModels,
 } from "./company.js";
 import { createSqliteStorageContract } from "./storage.js";
 
 describe("company config", () => {
+  it("names models from providers other than Anthropic and OpenAI as untested", () => {
+    expect(untestedModels(DEFAULT_COMPANY)).toEqual([]);
+    const company = parseCompanyYaml(`
+name: Acme
+models:
+  ceo: anthropic/claude-opus-5-5
+  vp: openai/gpt-5.5
+  ic: groq/llama-4
+judgeModels: [google/gemini-3-pro]
+agents:
+  - id: ceo
+    role: ceo
+  - id: vp
+    role: vp
+    reportsTo: ceo
+  - id: analyst
+    role: analyst
+    reportsTo: vp
+`);
+    expect(untestedModels(company)).toEqual([
+      "groq/llama-4 (used by analyst)",
+      "google/gemini-3-pro (used by the rubric judge)",
+    ]);
+  });
+
   it("parses YAML with per-tier models and per-agent overrides", () => {
     const company = parseCompanyYaml(`
 name: Acme

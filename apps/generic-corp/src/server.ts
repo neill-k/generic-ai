@@ -35,7 +35,12 @@ import {
   createModelBackground,
   DEFAULT_BACKGROUND_MODEL,
 } from "./background.js";
-import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
+import {
+  type CompanyConfig,
+  DEFAULT_COMPANY,
+  parseCompanyYaml,
+  untestedModels,
+} from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { createDreaming } from "./dreaming.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
@@ -365,6 +370,9 @@ export async function createGenericCorpServer(
   const log = options.log ?? ((message: string) => console.log(message));
   const environment = options.environment ?? loadGenericCorpEnvironment(options.env ?? process.env);
   const company = options.company ?? (await loadCompany(environment));
+  for (const line of untestedModels(company)) {
+    log(`Model ${line} is from an untested provider. Only Anthropic and OpenAI are supported.`);
+  }
   const storage = await openCompanyStorage({
     ...(environment.databaseUrl === undefined ? {} : { databaseUrl: environment.databaseUrl }),
     sqlitePath: path.join(environment.dataDir, "company.sqlite"),

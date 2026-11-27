@@ -19,8 +19,7 @@ const SECRET_KEY_PATTERN =
   /(api[_-]?key|authorization|bearer|client[_-]?secret|password|private[_-]?key|secret|token)/i;
 const SECRET_VALUE_PATTERN =
   /(bearer\s+[a-z0-9._~+/=-]{12,}|sk-[a-z0-9_-]{12,}|ghp_[a-z0-9_]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
-const ENV_ASSIGNMENT_PATTERN =
-  /^\s*[A-Z0-9_]*(API_KEY|AUTH|PASSWORD|SECRET|TOKEN)[A-Z0-9_]*\s*=/im;
+const ENV_ASSIGNMENT_PATTERN = /^\s*[A-Z0-9_]*(API_KEY|AUTH|PASSWORD|SECRET|TOKEN)[A-Z0-9_]*\s*=/im;
 
 export function summarizePayload(
   value: unknown,

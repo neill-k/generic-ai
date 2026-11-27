@@ -214,7 +214,9 @@ Each folder under `templates/` is a company a person can start from:
 A template folder has:
 
 - `company.yaml`: the company file (org chart, models per tier, tools and
-  connectors, secret grants, starting permissions) plus `goals`. Each goal has the
+  connectors, secret grants, starting permissions) plus `goals`. Models from
+  Anthropic and OpenAI are supported; any other provider is untested, and the
+  server logs a line at startup for each untested model the company uses. Each goal has the
   owner's `request` and a goal spec: objective, definition of done, and
   validators covering NOVA's three checks (a number, a rubric, the actions
   taken) and usually an output schema.

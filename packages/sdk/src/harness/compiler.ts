@@ -9,21 +9,19 @@ import type {
   CapabilityBOMGrant,
   CapabilityBOMPackage,
   CapabilityBOMPolicy,
-  CapabilityBOMProtocol,
   CapabilityBOMSummary,
   CapabilityGrant,
   CapabilitySpec,
   CompileDiagnostic,
-  CompileHarnessResult,
   CompiledActor,
   CompiledHarness,
+  CompileHarnessResult,
   HarnessDsl,
   HarnessFingerprint,
   HarnessSchemaVersion,
   PackageUseSpec,
   PolicyEffect,
   PolicySpec,
-  ProtocolBindingSpec,
   RelationshipSpec,
   ResourceSelector,
   SpaceSpec,
@@ -34,7 +32,6 @@ const COMPILER_VERSION = "0.1.0";
 const CAPABILITY_KINDS: readonly CapabilitySpec["kind"][] = Object.freeze([
   "tool",
   "memory",
-  "protocol",
   "grader",
   "trace-exporter",
   "report-renderer",
@@ -136,7 +133,6 @@ function validatePackageRefs(
   diagnostics: CompileDiagnostic[],
   packages: readonly PackageUseSpec[],
   capabilities: readonly CapabilitySpec[],
-  protocols: readonly ProtocolBindingSpec[],
   agents: readonly AgentSpec[],
 ): void {
   const packageIds = collectIds(packages);
@@ -149,17 +145,6 @@ function validatePackageRefs(
       "missing_package",
       "Capability package reference",
       `capabilities.${capability.id}.packageRef`,
-    );
-  }
-
-  for (const protocol of protocols) {
-    requireRef(
-      diagnostics,
-      packageIds,
-      protocol.packageRef,
-      "missing_package",
-      "Protocol package reference",
-      `protocols.${protocol.id}.packageRef`,
     );
   }
 
@@ -183,7 +168,6 @@ function validateAgentRefs(
   capabilities: readonly CapabilitySpec[],
   spaces: readonly SpaceSpec[],
   relationships: readonly RelationshipSpec[],
-  protocols: readonly ProtocolBindingSpec[],
   artifacts: readonly ArtifactContract[],
 ): void {
   const agentIds = collectIds(agents);
@@ -264,19 +248,6 @@ function validateAgentRefs(
       "Relationship target agent",
       `relationships.${relationship.id}.toAgentRef`,
     );
-  }
-
-  for (const protocol of protocols) {
-    for (const actorRef of protocol.actorRefs) {
-      requireRef(
-        diagnostics,
-        agentIds,
-        actorRef,
-        "missing_agent",
-        "Protocol actor reference",
-        `protocols.${protocol.id}.actorRefs`,
-      );
-    }
   }
 
   for (const artifact of artifacts) {
@@ -461,15 +432,6 @@ function capabilityBomEntry(capability: CapabilitySpec): CapabilityBOMCapability
   });
 }
 
-function protocolBomEntry(protocol: ProtocolBindingSpec): CapabilityBOMProtocol {
-  return Object.freeze({
-    id: protocol.id,
-    protocol: protocol.protocol,
-    packageRef: protocol.packageRef,
-    actorRefs: sortedStrings(protocol.actorRefs),
-  });
-}
-
 function policyBomEntry(policy: {
   readonly id: string;
   readonly subject: string;
@@ -521,7 +483,6 @@ function artifactBomEntry(artifact: ArtifactContract): CapabilityBOMArtifact {
 function capabilityBomSummary(input: {
   readonly packages: readonly CapabilityBOMPackage[];
   readonly capabilities: readonly CapabilityBOMCapability[];
-  readonly protocols: readonly CapabilityBOMProtocol[];
   readonly policies: readonly CapabilityBOMPolicy[];
   readonly agentBindings: readonly CapabilityBOMAgentBinding[];
   readonly artifacts: readonly CapabilityBOMArtifact[];
@@ -529,7 +490,6 @@ function capabilityBomSummary(input: {
   return Object.freeze({
     packageCount: input.packages.length,
     capabilityCount: input.capabilities.length,
-    protocolCount: input.protocols.length,
     policyCount: input.policies.length,
     agentCount: input.agentBindings.length,
     artifactCount: input.artifacts.length,
@@ -545,7 +505,6 @@ export function createCapabilityBOM(
   const capabilities = sortedById(
     compiled.capabilities.map((capability) => capabilityBomEntry(capability)),
   );
-  const protocols = sortedById(compiled.protocols.map((protocol) => protocolBomEntry(protocol)));
   const policies = sortedById(compiled.policies.map((policy) => policyBomEntry(policy)));
   const agentBindings = Object.freeze(
     compiled.agents
@@ -556,7 +515,6 @@ export function createCapabilityBOM(
   const summary = capabilityBomSummary({
     packages,
     capabilities,
-    protocols,
     policies,
     agentBindings,
     artifacts,
@@ -568,7 +526,6 @@ export function createCapabilityBOM(
     sourceId: compiled.sourceId,
     packages,
     capabilities,
-    protocols,
     policies,
     agentBindings,
     artifacts,
@@ -608,7 +565,6 @@ export function compileHarnessDsl(source: HarnessDsl): CompileHarnessResult {
   const capabilities = source.capabilities ?? [];
   const spaces = source.spaces ?? [];
   const relationships = source.relationships ?? [];
-  const protocols = source.protocols ?? [];
   const artifacts = source.artifacts ?? [];
   const policies = source.policies ?? [];
 
@@ -617,21 +573,12 @@ export function compileHarnessDsl(source: HarnessDsl): CompileHarnessResult {
   collectDuplicateIds(diagnostics, "Agent", "agents", source.agents);
   collectDuplicateIds(diagnostics, "Space", "spaces", spaces);
   collectDuplicateIds(diagnostics, "Relationship", "relationships", relationships);
-  collectDuplicateIds(diagnostics, "Protocol", "protocols", protocols);
   collectDuplicateIds(diagnostics, "Artifact", "artifacts", artifacts);
   collectDuplicateIds(diagnostics, "Policy", "policies", policies);
 
   validateTopology(diagnostics, source.agents);
-  validatePackageRefs(diagnostics, source.packages, capabilities, protocols, source.agents);
-  validateAgentRefs(
-    diagnostics,
-    source.agents,
-    capabilities,
-    spaces,
-    relationships,
-    protocols,
-    artifacts,
-  );
+  validatePackageRefs(diagnostics, source.packages, capabilities, source.agents);
+  validateAgentRefs(diagnostics, source.agents, capabilities, spaces, relationships, artifacts);
 
   if (diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return Object.freeze({ diagnostics: Object.freeze(diagnostics) });
@@ -651,7 +598,6 @@ export function compileHarnessDsl(source: HarnessDsl): CompileHarnessResult {
     agents: Object.freeze(source.agents.map((agent) => compileActor(agent))),
     spaces: Object.freeze([...spaces]),
     relationships: Object.freeze([...relationships]),
-    protocols: Object.freeze([...protocols]),
     policies: Object.freeze([...policies]),
     artifacts: Object.freeze([...artifacts]),
     missionRefs: Object.freeze([...(source.missionRefs ?? [])]),

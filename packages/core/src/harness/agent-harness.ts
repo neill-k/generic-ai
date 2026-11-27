@@ -42,17 +42,13 @@ import {
   DEFAULT_AGENT_HARNESS_ADAPTER,
   defineTool,
   getAgentHarnessToolEffects,
-  goalTraceFromCanonicalEvents,
   type JsonObject,
   type PolicyDecisionRecord,
   type ResourceSelector,
-  type RunActor,
   type RunEnvelope,
   type ToolDefinition,
   type ToolEffectGuard,
-  type ToolEffectJournal,
   type UsageBudgetLimits,
-  type UsageSummary,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
 import {
@@ -93,15 +89,6 @@ import {
   secretsPromptGuidance,
   wrapCapabilitiesWithSecrets,
 } from "./secrets.js";
-import {
-  type HarnessTopologyRunResult,
-  type RunHarnessTopologyOptions,
-  resolveTopologyActorRole,
-  runHarnessTopology,
-  type TopologyActorInvocation,
-  type TopologyActorResult,
-  type TopologyActorRunner,
-} from "./topology-runner.js";
 
 type AgentHarnessAdapterRegistry<TCapabilities, TOutput> = Readonly<
   Partial<Record<AgentHarnessAdapterKind, AgentHarnessAdapter<TCapabilities, TOutput>>>
@@ -219,7 +206,7 @@ export interface CreateAgentHarnessOptions<
 
 export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilityBindings> {}
 
-type AgentHarnessRolePolicy = "coordinator" | "read-only" | "build" | "verify";
+type AgentHarnessRolePolicy = "read-only" | "build";
 type AgentHarnessTurnMode = NonNullable<NonNullable<AgentHarnessConfig["execution"]>["turnMode"]>;
 
 interface EffectPolicy {
@@ -287,10 +274,6 @@ function effectSet(
 }
 
 const ROLE_EFFECT_POLICIES: Readonly<Record<AgentHarnessRolePolicy, EffectPolicy>> = Object.freeze({
-  coordinator: {
-    allow: effectSet([...READ_EFFECTS, ...HANDOFF_EFFECTS]),
-    denyUnknown: true,
-  },
   "read-only": {
     allow: effectSet(READ_EFFECTS),
     denyUnknown: true,
@@ -299,40 +282,14 @@ const ROLE_EFFECT_POLICIES: Readonly<Record<AgentHarnessRolePolicy, EffectPolicy
     allow: effectSet(ALL_LOCAL_EFFECTS),
     denyUnknown: true,
   },
-  verify: {
-    allow: effectSet([...READ_EFFECTS, "artifact.write"]),
-    allowByCategory: {
-      terminal: effectSet([...READ_EFFECTS, "process.spawn", "fs.write", "network.egress"]),
-    },
-    denyUnknown: true,
-  },
 });
 
-export const DEFAULT_AGENT_HARNESS_ROLES: readonly AgentHarnessRole[] = Object.freeze([
-  {
-    id: "planner",
-    kind: "planner",
-    description: "Decompose the task, identify risks, and produce a concise plan.",
-    readOnly: true,
-  },
-  {
-    id: "explorer",
-    kind: "explorer",
-    description: "Inspect the workspace and gather evidence without changing files.",
-    readOnly: true,
-  },
-  {
-    id: "builder",
-    kind: "builder",
-    description: "Make the requested code, config, or artifact changes.",
-  },
-  {
-    id: "verifier",
-    kind: "verifier",
-    description: "Run checks and report failures without mutating source files.",
-    readOnly: true,
-  },
-]);
+/**
+ * Roles a harness offers its primary agent when its config names none: none. The primary agent
+ * is a full agent with every tool its policy profile allows, and delegates only to roles the
+ * config declares. No fixed plan, explore, build or verify pattern is built in.
+ */
+export const DEFAULT_AGENT_HARNESS_ROLES: readonly AgentHarnessRole[] = Object.freeze([]);
 
 function getToolName(tool: { readonly name?: string }): string {
   const name = tool.name?.trim();
@@ -653,20 +610,8 @@ async function applyRolePolicy(input: {
   };
 }
 
-function policyForRole(role: AgentHarnessRole, isRoot: boolean): AgentHarnessRolePolicy {
-  if (isRoot || role.kind === "root") {
-    return "coordinator";
-  }
-
-  if (role.kind === "builder") {
-    return "build";
-  }
-
-  if (role.kind === "verifier") {
-    return "verify";
-  }
-
-  return "read-only";
+function policyForRole(role: AgentHarnessRole): AgentHarnessRolePolicy {
+  return role.readOnly === true ? "read-only" : "build";
 }
 
 function resolveRoles(config: AgentHarnessConfig): readonly AgentHarnessRole[] {
@@ -706,18 +651,17 @@ function buildRootPrompt(input: {
   readonly turnMode?: AgentHarnessTurnMode;
 }): string {
   return [
-    "You are the root coordinator for a Generic AI composable agent harness run.",
-    "Use model-directed Plan/Explore/Build/Verify topology. Delegate whenever another role should do focused work.",
-    "Planner and explorer roles are read-only. Builder may edit and run terminal commands. Verifier may run terminal checks but must not use file write/edit tools.",
-    "Before finishing, delegate a verifier pass that reruns the important command from the final state instead of trusting stale builder logs.",
-    "Keep durable handoffs in the delegation messages and preserve concrete evidence from tools.",
+    "You are the primary agent for a Generic AI agent harness run. You have every tool this run allows; do the work yourself.",
+    "Keep concrete evidence from tools, and check your result from the final state before finishing.",
     `Policy profile: ${input.policyProfile}.`,
     stopToolRunInstruction(input.turnMode),
-    "",
-    "Available roles:",
-    roleDirectory(input.roles),
-    "",
-    "Use delegate_agent with roleId and task to hand work to a role. Finish only after useful verification or a clear blocker.",
+    ...(input.roles.length === 0
+      ? []
+      : [
+          "",
+          "Other agents you can hand work to with delegate_agent (roleId and task), when that helps:",
+          roleDirectory(input.roles),
+        ]),
     "",
     "User task:",
     input.instruction,
@@ -1446,7 +1390,7 @@ async function runRoleSession(input: {
   readonly usageMeter?: UsageMeter;
 }): Promise<RoleSessionResult> {
   const { role } = input;
-  const rolePolicy = policyForRole(role, false);
+  const rolePolicy = policyForRole(role);
   const rolePolicyResult = await applyRolePolicy({
     capabilities: input.capabilities,
     rolePolicy,
@@ -1566,7 +1510,7 @@ function createDelegateTool(input: {
     defineTool({
       name: "delegate_agent",
       label: "Delegate Agent",
-      description: "Delegate a focused task to a Plan/Explore/Build/Verify harness role.",
+      description: "Hand a focused task to another agent role declared in this harness.",
       promptSnippet: "delegate focused work to another harness role",
       promptGuidelines: [
         "Use delegate_agent when planning, exploration, building, or verification should be isolated.",
@@ -1574,7 +1518,7 @@ function createDelegateTool(input: {
       ],
       parameters: Type.Object({
         roleId: Type.String({
-          description: "Role id to delegate to, such as planner, explorer, builder, or verifier.",
+          description: "Id of the role to hand the task to, from the list in your instructions.",
         }),
         task: Type.String({
           description: "Focused task for the delegated role.",
@@ -2108,19 +2052,17 @@ function createSessionAgentHarnessAdapter(
         roleId: rootAgentId,
       };
       const rootRole = roles.find((role) => role.id === rootAgentId);
-      // A primary agent declared as a non-root role (a persistent agent's single-role turn)
-      // works under its own role's policy; otherwise the primary is the coordinator.
+      // The primary agent is a full agent under its own role's policy (read-only only when its
+      // role says so); it delegates when the config declares other roles.
       const rootRolePolicy: AgentHarnessRolePolicy =
-        rootRole === undefined || rootRole.kind === "root"
-          ? "coordinator"
-          : policyForRole(rootRole, false);
+        rootRole === undefined ? "build" : policyForRole(rootRole);
       const delegateRoles = roles.filter((role) => role.id !== rootAgentId);
       const rootPolicyResult = await applyRolePolicy({
         capabilities: {
           ...baseCapabilities,
           customTools: [
             ...(baseCapabilities.customTools ?? []),
-            ...(delegateRoles.length === 0 && rootRolePolicy !== "coordinator"
+            ...(delegateRoles.length === 0
               ? []
               : [
                   createDelegateTool({
@@ -2193,7 +2135,7 @@ function createSessionAgentHarnessAdapter(
           capabilities: rootCapabilities,
           prompt: `${buildRootPrompt({
             instruction,
-            roles,
+            roles: delegateRoles,
             policyProfile: profile,
             ...(turnMode === undefined ? {} : { turnMode }),
           })}${rootSecretsGuidance}`,
@@ -2315,347 +2257,4 @@ export async function runAgentHarness(
 ): Promise<AgentHarnessRunResult<unknown>> {
   const harness = createAgentHarness(options.harness);
   return harness.run(options);
-}
-
-export interface RunAgentHarnessTopologyOptions
-  extends Omit<RunHarnessTopologyOptions, "runner" | "deadline"> {
-  readonly harness: AgentHarnessConfig;
-  readonly workspaceRoot: string;
-  readonly capabilities?: PiCapabilityBindings;
-  readonly hooks?: AgentHarnessRunInput["hooks"];
-  readonly artifactDir?: string;
-  readonly rootScopeId?: string;
-  readonly deadline?: string;
-  /** Options for the native runtime. */
-  readonly native?: NativeAgentHarnessOptions;
-  readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
-  readonly policy?: AgentHarnessPolicyEvaluator;
-  /** Redaction-safe identity of whoever started the run; stamped on every run event. */
-  readonly actor?: RunActor;
-  /** Journal for outward tool calls, shared by every role session in the topology (ADR 0059). */
-  readonly effectJournal?: ToolEffectJournal;
-  /**
-   * Token and dollar caps for the whole topology run, shared by every actor session. When a cap is
-   * reached the running sessions stop, the run fails with `budget_exceeded`, and no new actions start.
-   */
-  readonly budget?: AgentHarnessBudget;
-  /**
-   * Replace the role-session runner, for example to route some actors to an
-   * external runtime. The replacement still gets the scheduler's retries,
-   * concurrency, budgets, and trace.
-   */
-  readonly runner?: TopologyActorRunner;
-}
-
-export interface AgentHarnessTopologyRunResult extends HarnessTopologyRunResult {
-  readonly projections: readonly AgentHarnessEventProjection[];
-  readonly hookDecisions: readonly AgentLifecycleHookDecisionRecord[];
-  /** Model usage of every actor session, when the backend meters it (native does). */
-  readonly usage?: UsageSummary;
-}
-
-/**
- * Run a compiled harness's protocol topology (pipeline, verifier-loop,
- * hierarchy, squad, or a custom protocol) with each actor executed as a
- * policy-scoped role session on the harness's backend (pi or native).
- *
- * Shares the agent harness's policy profile, role effect policies, lifecycle
- * hooks, canonical event stream, and artifact layout, and adds the topology
- * trace and per-action outcomes as artifacts.
- */
-export async function runAgentHarnessTopology(
-  options: RunAgentHarnessTopologyOptions,
-): Promise<AgentHarnessTopologyRunResult> {
-  const runId = options.runId ?? randomUUID();
-  const rootScopeId = options.rootScopeId ?? "scope/root";
-  const harness = options.harness;
-  const profile = harness.policyProfile ?? LOCAL_DEV_FULL_POLICY_PROFILE;
-  const allowMcp = harness.allowMcp ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
-  const allowNetwork = harness.allowNetwork ?? profile === LOCAL_DEV_FULL_POLICY_PROFILE;
-  const turnMode = harness.execution?.turnMode;
-  const maxTurns = harness.execution?.maxTurns;
-  const topologySessionId = `${runId}:topology`;
-  const eventStream = createCanonicalEventStream(
-    options.actor === undefined ? {} : { actor: options.actor },
-  );
-  const hookExecutor = createAgentLifecycleHookExecutor(options.hooks ?? harness.hooks, {
-    eventStream,
-    ...(options.hookHandlers === undefined ? {} : { inProcessHandlers: options.hookHandlers }),
-  });
-  const policy =
-    options.policy ?? createPolicyEvaluator({ runId, actorId: harness.primaryAgent ?? "topology" });
-  const profiledCapabilities = applyProfilePolicy(options.capabilities ?? {}, profile, allowMcp);
-  const baseCapabilities =
-    options.effectJournal === undefined
-      ? profiledCapabilities
-      : guardCapabilityEffects(
-          await expandMcpCapabilityTools(profiledCapabilities),
-          createToolEffectGuard(options.effectJournal),
-        );
-  const deniedEffects = profileDeniedEffects({ profile, allowNetwork, allowMcp });
-  const policyDecisions: PolicyDecisionRecord[] = [
-    ...createPolicyDecisions({
-      runId,
-      actorId: harness.primaryAgent ?? "topology",
-      profile,
-      allowNetwork,
-      allowMcp,
-    }),
-  ];
-  const artifactStore = createLocalArtifactStore({
-    runId,
-    artifactDir: resolve(
-      options.artifactDir ??
-        harness.artifactDir ??
-        join(options.workspaceRoot, ".generic-ai", "artifacts", runId),
-    ),
-  });
-  const usageMeter = createUsageMeter({
-    eventStream,
-    ...(options.budget === undefined ? {} : { budget: usageBudgetLimits(options.budget) }),
-  });
-  const goalId = options.goal?.spec.id;
-  if (goalId !== undefined) {
-    // Every actor's spend counts toward the goal, so the result reports tokens per completed goal.
-    usageMeter.ledger.assignRunToGoal(runId, goalId);
-  }
-  const runSignal = createDeadlineSignal({
-    signal: withUsageSignal(options.signal, usageMeter),
-    ...(options.deadline === undefined ? {} : { deadline: new Date(options.deadline) }),
-  });
-  const adapterKind = harness.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER;
-  if (adapterKind !== "native") {
-    throw new Error(
-      `Topology runs need the native adapter; harness "${harness.id}" names "${adapterKind}".`,
-    );
-  }
-  const backend = createNativeSessionBackend(harness, options.native ?? {});
-  const eventContext = {
-    runId,
-    scopeId: rootScopeId,
-    rootSessionId: topologySessionId,
-    sessionId: topologySessionId,
-  };
-  for (const decision of policyDecisions) {
-    await emitPolicyDecision(eventStream, { ...eventContext, decision });
-  }
-
-  const roleRunner: TopologyActorRunner = async (
-    invocation: TopologyActorInvocation,
-  ): Promise<TopologyActorResult> => {
-    const role = resolveTopologyActorRole(invocation.actor, harness.roles);
-    const delegationId = `${runId}:topology:${invocation.action.id}:${invocation.attempt}`;
-    const handoffContext = { ...eventContext, delegationId };
-    await eventStream.emit({
-      ...handoffContext,
-      name: "handoff.requested",
-      data: {
-        roleId: role.id,
-        protocol: invocation.protocol,
-        actionId: invocation.action.id,
-        actionKind: invocation.action.kind,
-        attempt: invocation.attempt,
-        task: invocation.task,
-      },
-    });
-    await eventStream.emit({
-      ...handoffContext,
-      name: "handoff.accepted",
-      data: { roleId: role.id },
-    });
-    const delegatedTask = [
-      invocation.task,
-      ...(invocation.goalBrief === undefined ? [] : ["", invocation.goalBrief]),
-      ...(invocation.context.length > 0
-        ? ["", "Context from other agents:", invocation.context]
-        : []),
-    ].join("\n");
-    let roleResult: RoleSessionResult;
-    try {
-      roleResult = await runRoleSession({
-        runId,
-        rootScopeId,
-        workspaceRoot: options.workspaceRoot,
-        backend,
-        role,
-        prompt: buildRolePrompt({
-          role,
-          instruction: delegatedTask,
-          parentTask: invocation.instruction,
-          ...(turnMode === undefined ? {} : { turnMode }),
-        }),
-        ...(turnMode === undefined ? {} : { turnMode }),
-        ...(maxTurns === undefined ? {} : { maxTurns }),
-        capabilities: baseCapabilities,
-        deniedEffects,
-        hookExecutor,
-        policy,
-        ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
-        eventStream,
-        rootSessionId: topologySessionId,
-        parentSessionId: topologySessionId,
-        recordPolicyDecisions: (decisions) => {
-          policyDecisions.push(...decisions);
-        },
-        usageMeter,
-      });
-    } catch (error) {
-      const failureMessage = error instanceof Error ? error.message : String(error);
-      await eventStream.emit({
-        ...handoffContext,
-        name: "handoff.failed",
-        data: { roleId: role.id, status: "failed", failureMessage },
-      });
-      throw error;
-    }
-    const status = roleResult.failureMessage === undefined ? "succeeded" : "failed";
-    await eventStream.emit({
-      ...handoffContext,
-      name: status === "succeeded" ? "handoff.completed" : "handoff.failed",
-      data: {
-        roleId: role.id,
-        status,
-        outputText: roleResult.outputText,
-        ...(roleResult.failureMessage === undefined
-          ? {}
-          : { failureMessage: roleResult.failureMessage }),
-      },
-    });
-    const sessionUsage = usageMeter
-      .summary()
-      .byAgent.find((entry) => entry.runId === runId && entry.agentId === roleResult.sessionId);
-    return {
-      status,
-      outputText: roleResult.outputText,
-      ...(roleResult.failureMessage === undefined
-        ? {}
-        : { failureMessage: roleResult.failureMessage }),
-      ...(sessionUsage === undefined || sessionUsage.totals.responses === 0
-        ? {}
-        : { costUsd: sessionUsage.totals.costUsd }),
-    };
-  };
-
-  const rest = options;
-  const topologyResult = await runHarnessTopology({
-    compiled: rest.compiled,
-    instruction: rest.instruction,
-    runId,
-    runner: options.runner ?? roleRunner,
-    ...(rest.protocol === undefined ? {} : { protocol: rest.protocol }),
-    ...(rest.protocols === undefined ? {} : { protocols: rest.protocols }),
-    ...(rest.maxSteps === undefined ? {} : { maxSteps: rest.maxSteps }),
-    ...(rest.maxConcurrency === undefined ? {} : { maxConcurrency: rest.maxConcurrency }),
-    ...(rest.maxAttempts === undefined ? {} : { maxAttempts: rest.maxAttempts }),
-    ...(rest.deadline === undefined ? {} : { deadline: rest.deadline }),
-    ...(runSignal.signal === undefined ? {} : { signal: runSignal.signal }),
-    ...(rest.approve === undefined ? {} : { approve: rest.approve }),
-    ...(rest.onTraceEvent === undefined ? {} : { onTraceEvent: rest.onTraceEvent }),
-    ...(rest.onOutcome === undefined ? {} : { onOutcome: rest.onOutcome }),
-    ...(rest.resumeFrom === undefined ? {} : { resumeFrom: rest.resumeFrom }),
-    ...(rest.goal === undefined ? {} : { goal: rest.goal }),
-    ...(rest.goalValidators === undefined ? {} : { goalValidators: rest.goalValidators }),
-    collectGoalEvidence: async (evidenceInput) => {
-      const custom = await rest.collectGoalEvidence?.(evidenceInput);
-      return {
-        trace: goalTraceFromCanonicalEvents(eventStream.snapshot()),
-        ...(custom ?? {}),
-      };
-    },
-  }).finally(() => {
-    runSignal.cleanup();
-  });
-  const budgetStop = usageMeter.exceeded;
-  if (goalId !== undefined) {
-    usageMeter.ledger.setGoalOutcome(
-      goalId,
-      budgetStop !== undefined
-        ? "failed"
-        : topologyResult.status === "succeeded"
-          ? "completed"
-          : topologyResult.status === "cancelled"
-            ? "cancelled"
-            : "failed",
-    );
-  }
-  const usage = usageMeter.summary();
-  const topology: HarnessTopologyRunResult =
-    budgetStop === undefined
-      ? topologyResult
-      : {
-          ...topologyResult,
-          status: "failed",
-          failureMessage: budgetStop.message,
-          errorCategory: "budget_exceeded",
-        };
-
-  policyDecisions.push(...topology.policyDecisions);
-  const finalPolicyDecisions = Object.freeze([...policyDecisions]);
-  const hookDecisions = hookExecutor.snapshot();
-  const preArtifactEvents = eventStream.snapshot();
-  const topologyArtifacts: AgentHarnessArtifactRef[] = [];
-  for (const artifact of [
-    {
-      id: "topology-trace",
-      kind: "trace" as const,
-      description: "Topology runner trace events.",
-      value: topology.trace,
-    },
-    {
-      id: "topology-outcomes",
-      kind: "report" as const,
-      description: "Outcome of every protocol action the topology runner executed.",
-      value: topology.outcomes,
-    },
-  ]) {
-    topologyArtifacts.push(
-      await artifactStore.write({
-        id: artifact.id,
-        kind: artifact.kind,
-        bytes: `${JSON.stringify(artifact.value, null, 2)}\n`,
-        contentType: "application/json",
-        description: artifact.description,
-        ownerId: topology.protocol,
-        namespace: "topology",
-      }),
-    );
-  }
-  const harnessArtifacts = await writeHarnessArtifacts({
-    artifactStore,
-    eventStream,
-    runId,
-    scopeId: rootScopeId,
-    rootAgentId: harness.primaryAgent ?? "topology",
-    rootSessionId: topologySessionId,
-    sessionId: topologySessionId,
-    events: preArtifactEvents,
-    projections: Object.freeze(preArtifactEvents.map(projectEvent)),
-    policyDecisions: finalPolicyDecisions,
-    hookDecisions,
-    summary: jsonObject({
-      harnessId: harness.id,
-      compiledHarnessId: topology.harnessId,
-      adapter: harness.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER,
-      mode: "topology",
-      protocol: topology.protocol,
-      bindingId: topology.bindingId ?? null,
-      status: topology.status,
-      outputText: topology.outputText,
-      steps: topology.steps,
-      actionCount: topology.outcomes.length,
-      failureMessage: topology.failureMessage ?? null,
-      notes: [...topology.notes],
-    }),
-  });
-  const finalEvents = eventStream.snapshot();
-
-  return Object.freeze({
-    ...topology,
-    events: Object.freeze([...finalEvents, ...topology.events]),
-    projections: Object.freeze(finalEvents.map(projectEvent)),
-    policyDecisions: finalPolicyDecisions,
-    hookDecisions,
-    artifacts: Object.freeze([...topology.artifacts, ...topologyArtifacts, ...harnessArtifacts]),
-    ...(usage.totals.responses === 0 ? {} : { usage }),
-  });
 }

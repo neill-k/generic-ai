@@ -3,8 +3,7 @@
 A goal eval answers one question: does the agent actually reach its goals,
 how reliably, and at what cost? It replays goals, scores each attempt from
 its trace, and rolls the scores into a report whose gate the reliability gate
-reads. The code lives in `@generic-ai/sdk` (`packages/sdk/src/evals/`), with a
-topology executor in `@generic-ai/core`.
+reads. The code lives in `@generic-ai/sdk` (`packages/sdk/src/evals/`).
 
 Goal evals build on [goals and validators](goals.md). A goal says what "done"
 means; an eval measures how often the agent gets there.
@@ -102,12 +101,9 @@ never the held-out validators or hidden paths. An executor that throws counts
 as a failed attempt, not as a crash of the eval. Executors must not share
 state between attempts, or pass^k stops meaning anything.
 
-`createTopologyGoalEvalExecutor` (core) runs each attempt through the
-harness's real protocol topology (pipeline, verifier-loop, hierarchy, squad)
-with any `TopologyActorRunner`, for example `createAdapterTopologyActorRunner`
-over the native or pi adapter. Each actor step is added to the trace as
-`actor.completed` or `actor.failed` with the actor id as the role, so a
-`trace` validator can require that, say, a verifier ran after the writer.
+Generic Corp's executor runs each attempt as a real company request through
+the delegation cascade, so the trace holds every agent's turn
+(`apps/generic-corp/src/evals.ts`).
 
 ### Scoring stored runs
 
@@ -145,16 +141,5 @@ These checks read the trace. They are tripwires, not a sandbox: keep answer
 keys and validator files outside the agent's workspace as well.
 
 ## Benchmarks
-
-`runHarnessBenchmark` uses the same pieces:
-
-- With `createActorRunner`, candidates whose harness declares a protocol
-  binding run through `runHarnessTopology` instead of one prompt to one model.
-  The topology's actor, handoff, and policy events become trial evidence, and
-  usage from the actors' events fills the trial's usage and `cost_usd`.
-- `MissionSpec.goal` adds a goal to a mission. The prompt includes it, its
-  validators run on each trial's output and trace, and `task_success` is 1
-  only when the run finished and the goal is COMPLETE. Trials also report
-  `goal_complete` and `goal_validators_passed`.
 
 Benchmark reports' `pass^k` uses the same estimator as goal evals.
