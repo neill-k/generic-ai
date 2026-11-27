@@ -41,6 +41,24 @@ rule as the agent user and reports `agentNetwork` on `/ready`: `walled`,
 `proxy-only` (no rule: no `NET_ADMIN`, or no separate agent user) or `open`
 (`GENERIC_CORP_AGENT_NETWORK=off`). `required` refuses to start unless walled.
 
+**Permissions instead of approvals (decisions 37–39, 41).** The owner sets
+broad categories once: read outside systems (on), send messages on the
+owner's behalf (off), spend money (off), write to outside systems (off),
+GitHub writes in repos the owner picks (push, open pull requests, merge only
+with confirmed green checks), the shell's network allowlist, and standing
+rules. Every tool call is checked against them by its effect tags
+(`message.send`, `payment.spend`, `external.write`, `mcp.write`, reads), and a
+GitHub connector call by its repository. A call outside them fails on the spot
+with the reason and is logged to the refused-actions list; nothing ever waits
+for the owner, and the approval gate, inbox and routes are gone from the app
+(`@generic-ai/plugin-approvals` stays in the framework and now exports
+`interceptToolExecute` and `wrapToolBindings`). A merge is refused unless a
+checks verifier confirms green checks; none exists until the GitHub connector
+lands, so merges are refused until then. Permissions and standing rules live in
+host storage (the database, outside the company drive), written only by the
+owner's API, so no agent tool and no later background job (dreaming) can
+change them. Each agent turn starts with the standing rules and what is off.
+
 **Resource limits (decision 32).** The runAs wrapper applies hard `ulimit`
 limits and `nice 10` to every agent command (see the
 `@generic-ai/plugin-tools-terminal` README). There is no cgroup access inside
@@ -61,7 +79,12 @@ a Railway container, so there is no total per-agent cap.
   terminates TLS and allows only read requests, with its CA in the agent's
   trust store; deferred.
 - MCP connectors and the browser connector run as the server, outside the
-  shell wall. They are governed by the owner's permission categories instead.
+  shell wall. They are governed by the permission categories instead. The
+  browser connector's navigation counts as reading, so a page can still be
+  opened with data in its URL; turning off "read outside systems" closes it.
+- Permissions are read from memory on every call and written through to
+  storage; a second server process would not see the owner's change until it
+  restarts. One process is the v1 deployment.
 - The web tools can still carry data out in a URL's query string. They send
   no bodies or custom headers; the permission categories and the
   refused-actions list are the control there.

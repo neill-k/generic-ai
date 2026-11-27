@@ -86,7 +86,7 @@ export class ApprovalWaitTimeoutError extends Error {
 const MAX_OCCURRENCES = 100;
 const SUMMARY_INPUT_CHARS = 300;
 
-type ExecutableTool = { readonly name?: string; execute: (...args: unknown[]) => unknown };
+export type ExecutableTool = { readonly name?: string; execute: (...args: unknown[]) => unknown };
 
 function isExecutable(tool: unknown): tool is ExecutableTool {
   return (
@@ -359,59 +359,11 @@ export function createApprovalGate(options: CreateApprovalGateOptions): Approval
   }
 
   function wrapTool<TTool>(tool: TTool): TTool {
-    if (!isExecutable(tool)) {
-      return tool;
-    }
-    const original = tool.execute.bind(tool);
-    const wrapped = Object.create(Object.getPrototypeOf(tool)) as ExecutableTool;
-    // Copy everything but `execute`: a frozen tool's descriptors are not configurable, so
-    // copying `execute` first would make the replacement below throw.
-    const descriptors: Record<string, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool);
-    Reflect.deleteProperty(descriptors, "execute");
-    Object.defineProperties(wrapped, descriptors);
-    Object.defineProperty(wrapped, "execute", {
-      enumerable: true,
-      configurable: true,
-      writable: true,
-      value(...args: unknown[]) {
-        return gated(tool, args, async () => original(...args));
-      },
-    });
-    return wrapped as TTool;
+    return interceptToolExecute(tool, gated);
   }
 
   function wrapBindings<TBindings extends ToolBindingsLike>(bindings: TBindings): TBindings {
-    const mcp = bindings.mcp;
-    const harnessTools = mcp?.harnessTools;
-    return {
-      ...bindings,
-      ...(bindings.terminalTools === undefined
-        ? {}
-        : {
-            terminalTools: {
-              ...bindings.terminalTools,
-              tool: wrapTool(bindings.terminalTools.tool),
-            },
-          }),
-      ...(bindings.fileTools === undefined
-        ? {}
-        : {
-            fileTools: {
-              ...bindings.fileTools,
-              piTools: bindings.fileTools.piTools.map((tool) => wrapTool(tool)),
-            },
-          }),
-      ...(bindings.customTools === undefined
-        ? {}
-        : { customTools: bindings.customTools.map((tool) => wrapTool(tool)) }),
-      ...(mcp === undefined || harnessTools === undefined
-        ? {}
-        : {
-            mcp: bindMcp(mcp, async () =>
-              (await harnessTools.call(mcp)).map((tool) => wrapTool(tool)),
-            ),
-          }),
-    };
+    return wrapToolBindings(bindings, wrapTool);
   }
 
   return Object.freeze({
@@ -422,6 +374,77 @@ export function createApprovalGate(options: CreateApprovalGateOptions): Approval
     wrapBindings,
     pending: () => Object.freeze([...pendingRequests.values()]),
   });
+}
+
+/**
+ * Returns a copy of `tool` whose `execute` goes through `handler`, which decides whether to call
+ * the original. Tools without `execute` come back unchanged. Works on frozen tools.
+ */
+export function interceptToolExecute<TTool>(
+  tool: TTool,
+  handler: (
+    tool: ExecutableTool,
+    args: unknown[],
+    execute: () => Promise<unknown>,
+  ) => Promise<unknown>,
+): TTool {
+  if (!isExecutable(tool)) {
+    return tool;
+  }
+  const original = tool.execute.bind(tool);
+  const wrapped = Object.create(Object.getPrototypeOf(tool)) as ExecutableTool;
+  // Copy everything but `execute`: a frozen tool's descriptors are not configurable, so
+  // copying `execute` first would make the replacement below throw.
+  const descriptors: Record<string, PropertyDescriptor> = Object.getOwnPropertyDescriptors(tool);
+  Reflect.deleteProperty(descriptors, "execute");
+  Object.defineProperties(wrapped, descriptors);
+  Object.defineProperty(wrapped, "execute", {
+    enumerable: true,
+    configurable: true,
+    writable: true,
+    value(...args: unknown[]) {
+      return handler(tool, args, async () => original(...args));
+    },
+  });
+  return wrapped as TTool;
+}
+
+/** Applies `wrapTool` to every tool in a capability bindings object (terminal, files, custom, MCP). */
+export function wrapToolBindings<TBindings extends ToolBindingsLike>(
+  bindings: TBindings,
+  wrapTool: <TTool>(tool: TTool) => TTool,
+): TBindings {
+  const mcp = bindings.mcp;
+  const harnessTools = mcp?.harnessTools;
+  return {
+    ...bindings,
+    ...(bindings.terminalTools === undefined
+      ? {}
+      : {
+          terminalTools: {
+            ...bindings.terminalTools,
+            tool: wrapTool(bindings.terminalTools.tool),
+          },
+        }),
+    ...(bindings.fileTools === undefined
+      ? {}
+      : {
+          fileTools: {
+            ...bindings.fileTools,
+            piTools: bindings.fileTools.piTools.map((tool) => wrapTool(tool)),
+          },
+        }),
+    ...(bindings.customTools === undefined
+      ? {}
+      : { customTools: bindings.customTools.map((tool) => wrapTool(tool)) }),
+    ...(mcp === undefined || harnessTools === undefined
+      ? {}
+      : {
+          mcp: bindMcp(mcp, async () =>
+            (await harnessTools.call(mcp)).map((tool) => wrapTool(tool)),
+          ),
+        }),
+  };
 }
 
 /**

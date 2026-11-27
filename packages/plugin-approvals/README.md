@@ -23,6 +23,9 @@ Decision record: `docs/decisions/0061-owner-approvals-for-outward-actions.md`.
   inbox over Hono, with an SSE stream for live views.
 - `createTopologyApprover({ service, requester })`: plugs into the topology
   runner's `approve` hook.
+- `interceptToolExecute(tool, handler)` and `wrapToolBindings(bindings, wrap)`:
+  the wrapping the gate uses, for other per-call checks. Generic Corp's
+  permission gate (refuse on the spot, never wait) is built on them.
 
 ## With the delegation cascade
 
