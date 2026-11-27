@@ -114,6 +114,7 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
         ...(input.effectJournal === undefined ? {} : { effectJournal: input.effectJournal }),
         ...(session === undefined ? {} : { session }),
         ...(input.steering === undefined ? {} : { steering: input.steering }),
+        ...(input.stopRequested === undefined ? {} : { stopRequested: input.stopRequested }),
         ...(input.tools === undefined || input.tools.length === 0
           ? {}
           : { hostTools: input.tools }),

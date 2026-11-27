@@ -28,6 +28,7 @@ import { type CompanyConfig, ceoOf, companyAgentSeeds, tierOf } from "./company.
 import { type CompanyCosts, summarizeCompanyCosts } from "./costs.js";
 import { type CompanyDrive, type DriveEntry, describeDriveForAgent } from "./drive.js";
 import { type CompanyEventHub, createCompanyEventHub } from "./events.js";
+import { type CompanyHolds, createCompanyHolds } from "./holds.js";
 import { type CompanyMemory, createCompanyMemory } from "./memory.js";
 import type { CompanyStorage } from "./storage.js";
 import {
@@ -169,6 +170,8 @@ export interface CompanyRuntime {
   readonly cascade: DelegationCascade;
   readonly threads: ThreadStore;
   readonly agentChat: AgentChat;
+  /** Pauses and other holds on work (decisions 15 and 33). */
+  readonly holds: CompanyHolds;
   readonly events: CompanyEventHub;
   readonly drive?: CompanyDrive;
   readonly memory: CompanyMemory;
@@ -392,6 +395,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     return options.executor({ ...input, prompt: withDriveSection(prompt, memorySection) });
   };
 
+  const holds = createCompanyHolds({ kv: storage.kv, now });
   const cascade = createDelegationCascade({
     // Long results reach the manager as a drive file and an excerpt, not a clipped paste.
     ...(drive === undefined
@@ -405,6 +409,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
             ),
         }),
     ...options.cascade,
+    holdFor: (agentId) => holds.holdFor(agentId),
     runStore: storage.runStore,
     queue: storage.queue,
     directory,
@@ -416,6 +421,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     memoryFile: false,
   });
 
+  holds.attach(cascade);
   agentChat = createAgentChat({
     kv: storage.kv,
     cascade,
@@ -581,6 +587,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     cascade,
     threads,
     agentChat: chat,
+    holds,
     events,
     ...(drive === undefined ? {} : { drive }),
     memory,
@@ -592,6 +599,8 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         await directory.ensureWorkspace(agent.id);
       }
       const recovered = await cascade.recover();
+      // Work held when the server stopped resumes now if its hold has lifted meanwhile.
+      await cascade.resumeHeld();
       options.log?.(
         `Company "${company.name}": ${seeded.created.length} agents created, ${seeded.updated.length} updated, ` +
           `${seeded.retired.length} retired; ${recovered} interrupted tasks re-queued.`,

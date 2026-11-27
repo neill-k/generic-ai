@@ -766,6 +766,47 @@ export function createCompanyApi(
     });
   });
 
+  // --- Pause: the whole company or one agent (decision 33) ------------
+  // Pausing lets each running turn finish its current step, then holds the work.
+
+  const pauseView = async () => {
+    const state = await runtime.holds.pauseState();
+    return {
+      company: state.company !== undefined,
+      ...(state.company === undefined ? {} : { since: state.company.since }),
+      agents: Object.keys(state.agents),
+    };
+  };
+  const readPaused = (body: Record<string, unknown>): boolean => {
+    const paused = body["paused"];
+    if (typeof paused !== "boolean") {
+      throw new ApiError(400, 'Send {"paused": true} or {"paused": false}.');
+    }
+    return paused;
+  };
+
+  app.get("/pause", async (c) => c.json(await pauseView()));
+
+  app.put("/pause", async (c) => {
+    const paused = readPaused(await readJsonObject(c));
+    await runtime.holds.pauseCompany(paused);
+    const view = await pauseView();
+    runtime.events.publish("company.paused", view);
+    return c.json(view);
+  });
+
+  app.put("/agents/:agentId/pause", async (c) => {
+    const agentId = c.req.param("agentId");
+    if ((await runtime.directory.get(agentId)) === undefined) {
+      throw new ApiError(404, `Agent ${agentId} was not found.`);
+    }
+    const paused = readPaused(await readJsonObject(c));
+    await runtime.holds.pauseAgent(agentId, paused);
+    const view = await pauseView();
+    runtime.events.publish("company.paused", view);
+    return c.json(view);
+  });
+
   // --- Direct messages to any agent (decisions 4 and 5) -----------------
 
   app.get("/agents/:agentId/messages", async (c) => {

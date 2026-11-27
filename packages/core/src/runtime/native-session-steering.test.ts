@@ -69,4 +69,31 @@ describe("native session steering", () => {
     expect(seen.filter((text) => text.includes("Austin venue"))).toHaveLength(1);
     expect(polls).toBeGreaterThan(0);
   });
+
+  it("stops after the current step when a stop is requested (decision 33)", async () => {
+    const registration = registerFauxProvider({ models: [{ id: "stopping" }] });
+    registrations.push(registration);
+    let stop = false;
+    registration.setResponses([
+      () => {
+        stop = true; // the owner presses pause while this step runs
+        return fauxAssistantMessage(fauxToolCall("missing_tool", {}), { stopReason: "toolUse" });
+      },
+      () => fauxAssistantMessage("Kept going anyway."),
+    ]);
+
+    const result = await runCapabilityNativeAgentSession({
+      cwd: "/tmp/work",
+      model: registration.getModel(),
+      capabilities: {},
+      prompt: "Book the offsite venue.",
+      turnMode: "single-turn",
+      sessionManager: SessionManager.inMemory("/tmp/work"),
+      compaction: false,
+      retry: false,
+      stopRequested: () => stop,
+    });
+
+    expect(result.outputText).not.toBe("Kept going anyway.");
+  });
 });

@@ -45,6 +45,7 @@ import {
   validateTaskGoal,
 } from "./goals.js";
 import {
+  type AgentHold,
   type AgentTaskDeliverable,
   type AgentTaskGoal,
   type AgentTaskGoalRevision,
@@ -148,6 +149,8 @@ export type DelegationCascadeEvent =
       readonly approvals: readonly ApprovalRequest[];
     }
   | { readonly type: "task.resumed"; readonly task: AgentTaskRecord }
+  /** The task's agent is held (paused or over a limit); the task waits for `resumeHeld`. */
+  | { readonly type: "task.held"; readonly task: AgentTaskRecord }
   | { readonly type: "task.succeeded"; readonly task: AgentTaskRecord }
   | { readonly type: "task.failed"; readonly task: AgentTaskRecord }
   | { readonly type: "task.cancelled"; readonly task: AgentTaskRecord }
@@ -343,6 +346,13 @@ export interface CreateDelegationCascadeOptions {
    */
   readonly handIn?: "tool" | "reply";
   /**
+   * Holds (decisions 15 and 33): while it returns a hold for an agent, that agent starts no new
+   * turns and a running turn stops after its current step. Its tasks wait with `task.hold` set
+   * until `resumeHeld` finds the hold lifted. The owner's pause and spending or plan limits are
+   * all holds.
+   */
+  readonly holdFor?: (agentId: string) => Promise<AgentHold | undefined> | AgentHold | undefined;
+  /**
    * Checks a hand-in while the agent is still in its turn, for example that every deliverable
    * exists. Return a problem and the agent can fix it before the turn ends.
    */
@@ -490,6 +500,8 @@ export interface DelegationCascade {
    * and waiting tasks whose children have all settled. Run it on startup.
    */
   recover(): Promise<number>;
+  /** Gives held tasks whose hold has lifted a fresh turn. Returns how many. Call it when a hold may have lifted. */
+  resumeHeld(): Promise<number>;
   /** Processes available jobs in this process until none are left. For tests and scripts. */
   drain(options?: DrainOptions): Promise<number>;
   start(): QueueWorker;
@@ -555,6 +567,22 @@ export function createDelegationCascade(
   // ---------------------------------------------------------------------------
   // Store helpers
   // ---------------------------------------------------------------------------
+
+  async function holdOf(agentId: string): Promise<AgentHold | undefined> {
+    try {
+      return (await options.holdFor?.(agentId)) ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function park(taskId: string, hold: AgentHold): Promise<void> {
+    const task = await update(taskId, (current) => ({
+      status: current.status === "running" ? "queued" : current.status,
+      hold: { ...hold, since: current.hold?.since ?? now().toISOString() },
+    }));
+    emit({ type: "task.held", task });
+  }
 
   /** Owner notes not yet shown to a running turn, marked as delivered in this round. */
   async function takeOwnerNotes(taskId: string, round: number): Promise<string[]> {
@@ -812,7 +840,7 @@ export function createDelegationCascade(
     return task;
   }
 
-  async function requeue(taskId: string, feedback: string, extra: Partial<AgentTaskRecord> = {}) {
+  async function requeue(taskId: string, feedback: string, extra: TaskPatch = {}) {
     const task = await update(taskId, (current) => ({
       status: "queued",
       round: current.round + 1,
@@ -1059,6 +1087,11 @@ export function createDelegationCascade(
       });
       return { taskId, round, outcome: "failed" };
     }
+    const hold = await holdOf(agent.id);
+    if (hold !== undefined) {
+      await park(taskId, hold);
+      return skipped;
+    }
     await directory.ensureWorkspace(agent.id);
 
     const resuming = initial.status === "waiting";
@@ -1163,6 +1196,7 @@ export function createDelegationCascade(
         // Owner messages that arrive while the turn runs reach the agent at its next step
         // (decision 5) instead of waiting for the next round's prompt.
         steering: () => takeOwnerNotes(taskId, round),
+        stopRequested: async () => (await holdOf(agent.id)) !== undefined,
         signal,
         metadata: { round, attempt: attemptNumber, depth: task.depth },
       });
@@ -1174,6 +1208,14 @@ export function createDelegationCascade(
       };
     }
 
+    const heldMidTurn =
+      result.status === "failed" && !signal.aborted ? await holdOf(agent.id) : undefined;
+    if (heldMidTurn !== undefined) {
+      // Held mid-turn: the turn stopped after a finished step. The saved session keeps what it
+      // did; the task waits and picks up from there when the hold lifts.
+      await park(taskId, heldMidTurn);
+      return skipped;
+    }
     const toolDirectives = turnTools.collected();
     if (result.status === "succeeded" && !signal.aborted) {
       // Save the answer before acting on it, so a crash from here on resumes from it.
@@ -2451,6 +2493,10 @@ export function createDelegationCascade(
             if (task === undefined) {
               continue;
             }
+            if (task.hold !== undefined) {
+              // Held work waits for `resumeHeld`, which checks the hold first.
+              continue;
+            }
             if (task.status === "waiting") {
               if (await resumeIfReady(task)) {
                 requeued += 1;
@@ -2478,6 +2524,41 @@ export function createDelegationCascade(
         }
       }
       return requeued;
+    },
+    async resumeHeld() {
+      let resumed = 0;
+      for (const status of ["created", "running"] as const) {
+        let createdBefore: string | undefined;
+        for (;;) {
+          const page = await store.listRuns({
+            status,
+            limit: 200,
+            ...(createdBefore === undefined ? {} : { createdBefore }),
+          });
+          for (const record of page) {
+            const task = runToTask(record);
+            if (task?.hold === undefined) {
+              continue;
+            }
+            const hold = await holdOf(task.agentId);
+            if (hold !== undefined) {
+              if (hold.reason !== task.hold.reason || hold.until !== task.hold.until) {
+                await park(task.taskId, hold);
+              }
+              continue;
+            }
+            await requeue(task.taskId, "The hold is lifted. Carry on where you left off.", {
+              hold: undefined,
+            });
+            resumed += 1;
+          }
+          if (page.length < 200) {
+            break;
+          }
+          createdBefore = page[page.length - 1]?.createdAt;
+        }
+      }
+      return resumed;
     },
     async drain(drainOptions = {}) {
       const maxJobs = drainOptions.maxJobs ?? 1_000;
