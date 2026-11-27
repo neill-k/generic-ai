@@ -112,6 +112,7 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/quality` | The quality dial: the model behind best, balanced and cheap, and each agent's step and current model |
 | `PUT /api/agents/:id/quality` | Set an agent's step (`{"level": "best"}`, `"balanced"`, `"cheap"`, or `"default"` for the company file's model). Applies from its next turn. Needs `tokens:manage` |
 | `GET /api/backups`, `POST /api/backups` | Backups and the next scheduled one; start one now |
+| `GET /api/settings/plan-limit`, `PUT /api/settings/plan-limit` | What happens at the Claude plan's usage limit: `{"behaviour": "wait"}` (the default) or `"api_key"`, with whether the plan is limited now and until when. Changing it needs `tokens:manage` |
 | `GET /api/limits` | Spending limits with what each has used this period, and each agent's spending today, this week and this month |
 | `PUT /api/limits/company`, `PUT /api/agents/:id/limit` | Set a limit (`{"limit": {"period": "day", "maxCostUsd": 20, "maxTokens": 2000000}}`, either amount optional) or remove it (`{"limit": null}`). Needs `tokens:manage` |
 | `GET /api/threads`, `POST /api/threads` | List chat threads; start one with `{"text": "..."}`, or `{"goalId": "..."}` to start from a company goal (the text defaults to the goal's request). `"attachments": ["drive/inbox/..."]` hands the CEO drive files |
@@ -203,6 +204,17 @@ as the server. Before replacing anything it saves the current state as a
 (`--no-safety-backup` skips that). The Postgres restore runs in one
 transaction: if it fails, the database is left as it was. With Docker, use
 `./apps/generic-corp/start-local.sh restore <id>` (RUN-LOCALLY.md).
+
+### The Claude plan's usage limit
+
+When agents run on the owner's Claude sign-in and the plan's usage limit is
+reached (decision 15), the setting decides what happens. With `wait`, the
+default, work shows as "Paused until your Claude plan resets" and picks up on
+its own after the reset. With `api_key`, turns use an Anthropic API key from
+`ANTHROPIC_API_KEY` or the secrets vault (`ANTHROPIC_API_KEY` secret) until
+the plan resets; without one it waits. The reset time comes from the
+provider's error when it gives one; otherwise the plan is tried again after 15
+minutes, doubling up to 5 hours.
 
 ### Spending limits
 

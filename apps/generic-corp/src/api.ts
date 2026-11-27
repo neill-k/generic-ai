@@ -23,6 +23,7 @@ import { goalDetailView, listGoalViews } from "./goal-views.js";
 import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
+import { type PlanLimit, type PlanLimitBehaviour, parsePlanLimitBehaviour } from "./plan-limit.js";
 import { describeQuality, parseQualityLevel, QualityError, type QualityStore } from "./quality.js";
 import type { RefusalLog } from "./refusals.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
@@ -70,6 +71,8 @@ export interface CompanyApiOptions {
   readonly backups?: CompanyBackups;
   /** Spending limits, at `/api/limits` and `/api/agents/:id/limit`. */
   readonly limits?: SpendingLimits;
+  /** What happens at the Claude plan's usage limit, at `/api/settings/plan-limit`. */
+  readonly planLimit?: PlanLimit;
   /** The GitHub connector, at `/api/connectors/github`. Owner only. */
   readonly github?: GithubConnector;
   /** The company root, which pushes to GitHub read deliverables from. */
@@ -894,6 +897,32 @@ export function createCompanyApi(
         limits.setAgentLimit(c.req.param("agentId"), parseSpendLimit(body["limit"])),
       ),
     );
+  });
+
+  // --- The Claude plan's usage limit --------------------------------------
+
+  const requirePlanLimit = (): PlanLimit => {
+    if (options.planLimit === undefined) {
+      throw new ApiError(404, "The plan limit setting is not available.");
+    }
+    return options.planLimit;
+  };
+
+  app.get("/settings/plan-limit", async (c) => c.json(await requirePlanLimit().status()));
+
+  // {"behaviour": "wait"} holds work until the plan resets; {"behaviour": "api_key"} uses an
+  // Anthropic API key from the environment or the secrets vault until then.
+  app.put("/settings/plan-limit", async (c) => {
+    const planLimit = requirePlanLimit();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    let behaviour: PlanLimitBehaviour;
+    try {
+      behaviour = parsePlanLimitBehaviour(body["behaviour"]);
+    } catch (error) {
+      throw new ApiError(400, error instanceof Error ? error.message : String(error));
+    }
+    return c.json(await planLimit.setBehaviour(behaviour));
   });
 
   // --- The quality dial ---------------------------------------------------

@@ -71,6 +71,7 @@ import { createMemoryTools } from "./memory-tools.js";
 import {
   type CompanyModelAuth,
   createCompanyModelAuth,
+  MODEL_AUTH_PROVIDER,
   providerKeyName,
   resolveProviderKeyFromEnv,
 } from "./model-auth.js";
@@ -81,6 +82,7 @@ import {
   type PermissionStore,
   permissionsBriefing,
 } from "./permissions.js";
+import { createPlanLimit } from "./plan-limit.js";
 import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
 import { openQualityStore } from "./quality.js";
 import { createRefusalLog, type RefusalLog } from "./refusals.js";
@@ -460,6 +462,15 @@ export async function createGenericCorpServer(
         credentialPath: path.join(environment.dataDir, "connectors", "github.json"),
         env: processEnv,
       });
+    // The Claude plan's usage limit: wait for the reset or use an API key (decision 15).
+    const planLimit = await createPlanLimit({
+      kv: storage.kv,
+      source: async () => (await modelAuth.status()).source,
+      apiKey: async () =>
+        resolveProviderKeyFromEnv(MODEL_AUTH_PROVIDER, processEnv) ??
+        (await secrets.get(providerKeyName(MODEL_AUTH_PROVIDER), "host")),
+      onRelease: () => releaseHeld?.(),
+    });
     const agentIsolation =
       options.agentIsolation ?? resolveAgentIsolation(options.env ?? process.env);
     log(describeAgentIsolation(agentIsolation));
@@ -567,7 +578,7 @@ export async function createGenericCorpServer(
         : { noProgress: { idleMs: environment.noProgressMinutes * 60_000 } }),
       ...options.executorOptions,
       native: {
-        getAuth: (provider) => modelAuth.getAuth(provider),
+        getAuth: (provider) => planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
         ...(rlm.option === undefined ? {} : { rlm: rlm.option }),
         ...options.executorOptions?.native,
       },
@@ -588,7 +599,14 @@ export async function createGenericCorpServer(
     const executor: AgentTaskExecutor = async (input) => {
       const untrack = limits.trackRun(input.attemptRunId, input.agentId);
       try {
-        return await baseExecutor({ ...input, model: quality.modelFor(input.agentId) });
+        const turn = { ...input, model: quality.modelFor(input.agentId) };
+        const result = await baseExecutor(turn);
+        // A turn that hit the plan's limit runs again at once on the API key when the owner
+        // chose that; otherwise the plan-reset hold parks it until the plan resets.
+        if ((await planLimit.observe(turn, result)) && (await planLimit.status()).usingApiKey) {
+          return await baseExecutor(turn);
+        }
+        return result;
       } finally {
         untrack();
       }
@@ -633,7 +651,7 @@ export async function createGenericCorpServer(
           options.goals?.impossibility ??
           createModelImpossibilityReviewer({
             modelFor: (agent) => secondOpinionModel(company, workerModel(agent)),
-            getAuth: (provider) => modelAuth.getAuth(provider),
+            getAuth: (provider) => planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
           }),
         goals: {
           ...(options.goals?.judges === undefined
@@ -644,7 +662,8 @@ export async function createGenericCorpServer(
                   if (judge === undefined) {
                     judge = createModelJudge({
                       model,
-                      getAuth: (provider) => modelAuth.getAuth(provider),
+                      getAuth: (provider) =>
+                        planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
                     });
                     judgeByModel.set(model, judge);
                   }
@@ -669,6 +688,8 @@ export async function createGenericCorpServer(
     publishBackupStatus = (status) => runtime.events.publish("backups.updated", status);
     // A reached spending limit holds the agents it covers (decision 42).
     runtime.holds.register((agentId) => limits.holdFor(agentId));
+    runtime.holds.register((agentId) => planLimit.holdFor(agentId));
+    planLimit.start();
     releaseHeld = () => runtime.holds.changed();
     limits.start();
 
@@ -684,7 +705,7 @@ export async function createGenericCorpServer(
       options.backgroundModel ??
       createModelBackground({
         model: processEnv["GENERIC_CORP_MEMORY_MODEL"]?.trim() || DEFAULT_BACKGROUND_MODEL,
-        getAuth: (provider) => modelAuth.getAuth(provider),
+        getAuth: (provider) => planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
       });
     const scanner = createPreferenceScanner({
       memory,
@@ -832,6 +853,7 @@ export async function createGenericCorpServer(
         companyRoot: layout.root,
         quality,
         limits,
+        planLimit,
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),
@@ -882,6 +904,7 @@ export async function createGenericCorpServer(
         await dreamingTimer.stop();
         await runtime.stop();
         await limits.stop();
+        planLimit.stop();
         await companyToolkit.close();
         await egress?.stop();
         await storage.close();
