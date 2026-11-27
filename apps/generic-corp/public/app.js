@@ -2089,6 +2089,20 @@ async function renderMemory(message) {
       await renderMemory(error.message);
     }
   };
+  const dreamNow = async () => {
+    try {
+      const { result } = await api(`/memory/background/dream/${encodeURIComponent(scope)}`, {
+        method: "POST",
+      });
+      await renderMemory(
+        result.skipped
+          ? result.skipped
+          : `Dreamed over ${result.sessions} sessions and ${result.scripts} scripts: ${result.applied} changes.`,
+      );
+    } catch (error) {
+      await renderMemory(error.message);
+    }
+  };
   const jobLine = (label, job) =>
     h(
       "p",
@@ -2124,6 +2138,9 @@ async function renderMemory(message) {
                 "Pause",
               ),
           h("button", { type: "button", class: "ghost", onClick: scanNow }, "Scan chats now"),
+          isHandbook
+            ? null
+            : h("button", { type: "button", class: "ghost", onClick: dreamNow }, "Dream now"),
         ),
       )
     : null;

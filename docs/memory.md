@@ -45,6 +45,45 @@ prompt or tool asks:
 Memory is kept in host storage (`generic-corp-memory` key-value namespace), outside the company
 folder that agent tools and shells are rooted at, so agents change it only through their tools.
 
+## The preference scanner (decision 18)
+
+Every 15 minutes, and only when the owner has sent new messages, a small model (Claude Haiku by
+default; `GENERIC_CORP_MEMORY_MODEL` changes it) reads up to 30 new owner messages and files each
+lasting preference as a prompt note: in the handbook when it applies to everyone, or in one agent's
+memory when it is only about that agent's work. Each one points at the message it came from and
+quotes the owner's words. Most messages hold none, and an empty answer is the usual one. It can
+update an earlier preference when the owner changes his mind, but never an entry he wrote or
+edited. It never writes permissions.
+
+## Dreaming (decision 19)
+
+When an agent has been idle for 30 minutes, at most every 6 hours, and only when it has new saved
+sessions or harvested scripts since its last dream, a background job rereads its 4 most recent
+sessions (`<dataDir>/sessions/<agent>/`) and new scripts and runs the refine planner ported from
+Prime Agent (`@generic-ai/continual`) offline. The planner keeps what is worth keeping, merges
+duplicates, drops what turned out wrong, and saves procedures. The handbook is shown to it as
+read-only context. One dream is one recorded change, so the owner undoes a whole dream with one
+click. At most one agent dreams at a time.
+
+## Script harvesting (decision 28)
+
+The scripts an agent writes with `write` and `edit` (`.sh`, `.py`, `.js`, `.ts` and friends, or
+anything under `scripts/` or `bin/`) are noted against the task. When the task is accepted, they are
+copied with their checksum to `<dataDir>/harvest/`, outside the company folder, so a later edit by
+the agent does not change them; scripts from failed or cancelled tasks are dropped. Dreaming sees
+new harvested scripts and can save one as a skill (`metadata.harvestId`, with `{script}` in its
+command). Before every turn, the agent's saved procedures are laid out as skill folders in
+`agents/<id>/.agents/memory-skills/`, rebuilt from memory each time, so undoing a dream removes the
+skill from the next turn.
+
+## Keeping background work cheap
+
+Both jobs run only while workers run, use a small model, call it only when there is something new,
+and stop while paused (`PUT /api/memory/background {"paused": true}`, or the Pause button on the
+memory page). `canSpendInBackground` on the server is where spending limits and the company pause
+plug in. Calls and tokens are tallied per job at `GET /api/memory/background`. No automated test
+calls a real model; tests use scripted replies.
+
 ## API
 
 - `GET /api/memory`: the handbook and every scope with its entry count.
@@ -52,5 +91,9 @@ folder that agent tools and shells are rooted at, so agents change it only throu
 - `POST /api/memory/:scope` with `{ "edits": [{ "action": "create|update|delete", "kind": "memory", "id", "title", "content" }], "summary"? }`: owner edits.
 - `GET /api/memory/changes?scope=&limit=`: history, newest first.
 - `POST /api/memory/changes/:id/undo`: undo a change.
+- `GET /api/memory/background`, `PUT /api/memory/background`: settings (pause, scanner and
+  dreaming on or off, intervals) and each job's last run and usage.
+- `POST /api/memory/background/scan`: scan the owner's chats now.
+- `POST /api/memory/background/dream/:agentId`: dream for one agent now.
 
 Writes need the `tokens:manage` scope.

@@ -114,3 +114,13 @@ test("memory: the owner adds to the handbook, edits it, and undoes a removal", a
   await page.locator(".memory-change").first().getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".memory-entries")).toContainText("Short and plain.");
 });
+
+test("memory: a preference from the owner's chat lands in the handbook", async ({ page }) => {
+  await send(page, "From now on, always use metric units.");
+  await page.goto(`${server.url}/#/memory`);
+  await page.getByRole("button", { name: "Scan chats now" }).click();
+  const entries = page.locator(".memory-entries");
+  await expect(entries).toContainText("Use metric units.");
+  await expect(entries).toContainText("From: Noticed in your chats");
+  await expect(page.locator("#view")).toContainText("Preference scanner: last ran");
+});
