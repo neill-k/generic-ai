@@ -47,6 +47,8 @@ import {
   createCompanyHandInCheck,
   createModelJudge,
 } from "./goals.js";
+import { createCompanyMemory } from "./memory.js";
+import { createMemoryTools } from "./memory-tools.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import {
   type CompanyModelAuth,
@@ -426,11 +428,28 @@ export async function createGenericCorpServer(
           : { commandEnv: (agentId: string) => egressProxy.envFor(agentId) }),
       });
     const companyToolkit = toolkit;
+    // One memory system (decision 17): the company handbook and each agent's private memory, in
+    // host storage where agent shells cannot reach it. Agents change their own through tools.
+    const memory = createCompanyMemory({
+      kv: storage.kv,
+      legacyNotes: (agentId) =>
+        readFile(path.join(layout.agentsRoot, agentId, "context.md"), "utf8"),
+    });
+    const withMemoryTools = (
+      bindings: ReturnType<CompanyToolkit["capabilities"]>,
+      input: Parameters<CompanyToolkit["capabilities"]>[0],
+    ): ReturnType<CompanyToolkit["capabilities"]> => ({
+      ...bindings,
+      customTools: [
+        ...(bindings.customTools ?? []),
+        ...createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId }),
+      ],
+    });
     // Every tool call is checked against the owner's permissions. An action outside them is
     // refused on the spot and logged; nothing waits for the owner (design decision 37).
     const defaultExecutor = createCompanyTaskExecutor({
       capabilities: (input) =>
-        gateToolsWithPermissions(companyToolkit.capabilities(input), {
+        gateToolsWithPermissions(withMemoryTools(companyToolkit.capabilities(input), input), {
           permissions: () => permissions.current(),
           refusals,
           agentId: input.agentId,
@@ -475,6 +494,7 @@ export async function createGenericCorpServer(
       storage,
       agentsRoot: layout.agentsRoot,
       drive,
+      memory,
       executor,
       cascade: {
         worker: {

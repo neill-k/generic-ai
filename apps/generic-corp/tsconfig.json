@@ -13,6 +13,9 @@
       "path": "../../packages/auth"
     },
     {
+      "path": "../../packages/continual"
+    },
+    {
       "path": "../../packages/core"
     },
     {
