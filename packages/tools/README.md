@@ -29,5 +29,10 @@ const agent = new Agent({
 - `createToolSearchTool` gives the agent `tool_search` over deferred tools (for example many MCP
   tools): a BM25 ranker over names, descriptions and schema text loads the best matches so they are
   declared from the next model call. The core native session turns it on with `toolSearch`.
-- Images read by `read` are attached as-is for PNG, JPEG, GIF, and WebP up to 5 MB; other formats
-  are omitted with a note (pi resizes and converts them).
+- Images read by `read` are resized to fit 2000x2000 and 4.5 MB of base64 (smaller of PNG and JPEG,
+  then lower JPEG quality, then smaller sizes), with a note that maps coordinates back to the
+  original. EXIF orientation is applied, and formats providers can't take inline, such as BMP, are
+  converted to PNG. This uses Photon (`@silvia-odwyer/photon-node`, WASM); if it can't load, PNG,
+  JPEG, GIF and WebP up to 5 MB are attached as-is and other formats are omitted. `processImage`,
+  `resizeImage` and `convertImageBytesToPng` are exported. Turn resizing off with
+  `read: { autoResizeImages: false }`.

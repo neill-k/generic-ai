@@ -5,6 +5,20 @@ import { createFindTool, type FindToolOptions } from "./find.js";
 import { createGrepTool, type GrepToolOptions } from "./grep.js";
 import { createLsTool, type LsToolOptions } from "./ls.js";
 import { createReadTool, type ReadToolOptions } from "./read.js";
+
+export {
+  type ProcessImageOptions,
+  type ProcessImageResult,
+  processImage,
+} from "./image-process.js";
+export {
+  convertImageBytesToPng,
+  formatDimensionNote,
+  type ImageResizeOptions,
+  type ResizedImage,
+  resizeImage,
+} from "./image-resize.js";
+
 import { createWriteTool, type WriteToolOptions } from "./write.js";
 
 export {

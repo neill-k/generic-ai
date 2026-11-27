@@ -251,17 +251,22 @@ describe("Coding Agent Tools", () => {
       });
     });
 
-    // Adapted: Generic AI does not convert images (pi converts BMP to PNG), so an unsupported
-    // format is omitted with a note instead of attached.
-    it("should omit BMP files with a note instead of converting them", async () => {
+    it("should read BMP files from disk as PNG image attachments", async () => {
       const testFile = join(testDir, "image.bmp");
       writeFileSync(testFile, createTinyBmp1x1Red24bpp());
 
       const result = await readTool.execute("test-call-img-bmp", { path: testFile });
 
       expect(result.content[0]?.type).toBe("text");
-      expect(getTextOutput(result)).toContain("Read image file [image/bmp]");
-      expect(result.content.some((c) => c.type === "image")).toBe(false);
+      expect(getTextOutput(result)).toContain("Read image file [image/png]");
+      expect(getTextOutput(result)).toContain("[Image converted from image/bmp to image/png.]");
+
+      const imageBlock = result.content.find(
+        (c): c is { type: "image"; mimeType: string; data: string } => c.type === "image",
+      );
+      expect(imageBlock).toBeDefined();
+      expect(imageBlock?.mimeType).toBe("image/png");
+      expect(Buffer.from(imageBlock?.data ?? "", "base64")[0]).toBe(0x89);
     });
 
     it("should treat files with image extension but non-image content as text", async () => {
