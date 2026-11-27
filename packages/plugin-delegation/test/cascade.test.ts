@@ -430,6 +430,17 @@ describe("delegation cascade (R9)", () => {
     expect((await cascade.get("plan"))?.childTaskIds).toEqual(["plan.0.1"]);
   });
 
+  it("leaves the memory file out of prompts when memoryFile is off", async () => {
+    const { executor, calls } = scriptedExecutor({});
+    const { cascade, directory } = await openHarness(executor, { memoryFile: false });
+    await directory.appendMemory("analyst", "secret old note");
+    await cascade.submit({ agentId: "analyst", instruction: "Write", taskId: "plain" });
+    await cascade.drain();
+    expect(calls[0]?.prompt).not.toContain("context.md");
+    expect(calls[0]?.prompt).not.toContain("secret old note");
+    expect(calls[0]?.prompt).toContain("Your workspace is");
+  });
+
   it("keeps the task going until the validator passes", async () => {
     const { executor, calls } = scriptedExecutor({
       analyst: (_input, turn) => ({
@@ -881,6 +892,9 @@ describe("goal-gated tasks (R24)", () => {
     expect(task?.status).toBe("succeeded");
     expect(task?.validationFailures).toBe(1);
     expect(task?.lastGoalReport?.passed).toBe(2);
+    // Each check's outcome is kept so the owner sees a live checklist.
+    expect(task?.lastGoalReport?.checks?.length).toBeGreaterThan(0);
+    expect(task?.lastGoalReport?.checks?.every((check) => check.status === "passed")).toBe(true);
   });
 
   it("fails closed when a goal's check is not registered", async () => {
@@ -1595,6 +1609,14 @@ describe("goals on every request (ADR 0069)", () => {
 
     const root = await cascade.get("offsite");
     expect(root?.status).toBe("succeeded");
+    // Each line of the definition of done has its own tick on the owner's checklist.
+    const dod = root?.lastGoalReport?.checks?.find(
+      (check) => check.validatorId === "definition-of-done",
+    );
+    expect(dod?.criteria?.map((criterion) => [criterion.criterionId, criterion.passed])).toEqual([
+      ["dod-1", true],
+      ["dod-2", true],
+    ]);
     expect(root?.goalHistory?.map((entry) => [entry.revision, entry.source])).toEqual([
       [1, "submit"],
       [2, "owner"],

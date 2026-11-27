@@ -64,6 +64,24 @@ export interface AgentTaskGoalReport {
   readonly errored: number;
   readonly feedback: string;
   readonly evaluatedAt: string;
+  /**
+   * How each check went, so the owner sees the definition of done as a live checklist. Rubric
+   * checks list each criterion (the host's `definition-of-done` rubric has one per line).
+   */
+  readonly checks?: readonly AgentTaskGoalCheck[];
+}
+
+export interface AgentTaskGoalCheck {
+  readonly validatorId: string;
+  readonly kind: string;
+  readonly required: boolean;
+  readonly status: "passed" | "failed" | "error";
+  readonly message: string;
+  readonly criteria?: readonly {
+    readonly criterionId: string;
+    readonly passed: boolean;
+    readonly score?: number;
+  }[];
 }
 
 /** A file an agent handed in, as a path its file tools use (for Generic Corp, company-root relative). */

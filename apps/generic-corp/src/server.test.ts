@@ -326,6 +326,64 @@ describe("Generic Corp server", () => {
     expect(lastCeoTurn?.prompt).toContain("And then?");
   });
 
+  it("keeps the handbook and agent memory, puts them in prompts, and undoes edits", async () => {
+    const { server, calls } = await openServer();
+    const added = await api<{ change: { id: string } }>(
+      server,
+      "/api/memory/company",
+      post({ edits: [{ action: "create", title: "Owner", content: "Neill likes short answers." }] }),
+    );
+    expect(added.status).toBe(200);
+    await api(
+      server,
+      "/api/memory/researcher",
+      post({ edits: [{ action: "create", title: "Sources", content: "Cite the primary source." }] }),
+    );
+    const overview = await api<{ handbook: unknown[]; scopes: Array<{ scope: string }> }>(
+      server,
+      "/api/memory",
+    );
+    expect(overview.body.handbook).toHaveLength(1);
+    expect(overview.body.scopes.map((row) => row.scope)).toEqual(
+      expect.arrayContaining(["company", "agent:researcher"]),
+    );
+
+    await api(server, "/api/threads", post({ text: "What is the answer?" }));
+    await server.runtime.cascade.drain();
+    const researcher = calls.find((call) => call.agentId === "researcher");
+    expect(researcher?.prompt).toContain("Neill likes short answers.");
+    expect(researcher?.prompt).toContain("Cite the primary source.");
+    expect(researcher?.prompt).not.toContain("context.md");
+    const ceo = calls.find((call) => call.agentId === "ceo");
+    expect(ceo?.prompt).not.toContain("Cite the primary source.");
+    // The memory sections come before the task.
+    expect(researcher?.prompt.indexOf("## Company handbook")).toBeLessThan(
+      researcher?.prompt.indexOf("## Task ") ?? 0,
+    );
+
+    const undone = await api<{ change: { undoOf: string } }>(
+      server,
+      `/api/memory/changes/${added.body.change.id}/undo`,
+      { method: "POST" },
+    );
+    expect(undone.body.change.undoOf).toBe(added.body.change.id);
+    const handbook = await api<{ entries: unknown[] }>(server, "/api/memory/company");
+    expect(handbook.body.entries).toHaveLength(0);
+    const changes = await api<{ changes: Array<{ summary: string }> }>(
+      server,
+      "/api/memory/changes?scope=company",
+    );
+    expect(changes.body.changes.map((change) => change.summary)).toEqual([
+      'Undid: Added "Owner"',
+      'Added "Owner"',
+    ]);
+
+    const bad = await api(server, "/api/memory/company", post({ edits: [{ action: "nope" }] }));
+    expect(bad.status).toBe(400);
+    const badScope = await api(server, "/api/memory/..%2Fetc");
+    expect(badScope.status).toBe(400);
+  });
+
   it("cancels a request and everything it delegated", async () => {
     const { server } = await openServer();
     const created = await api<{ taskId: string }>(server, "/api/threads", post({ text: "Go" }));
@@ -516,22 +574,34 @@ describe("backups", () => {
 });
 
 describe("dashboard", () => {
-  it("serves the page and its assets with a strict content security policy", async () => {
+  it("serves the built app and the classic dashboard with a strict content security policy", async () => {
     const { server } = await openServer({
       insecureNoAuth: false,
       authToken: "a-static-owner-token-for-tests",
     });
     const page = await server.fetch(new Request("http://127.0.0.1/"));
-    expect(page.status).toBe(200);
-    expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
-    expect(await page.text()).toContain('src="/assets/app.js"');
-    const script = await server.fetch(new Request("http://127.0.0.1/assets/app.js"));
+    // The built app is served when `vite build` has run; a clear message otherwise.
+    if (page.status === 200) {
+      expect(page.headers.get("content-security-policy")).toContain("script-src 'self'");
+      expect(await page.text()).toContain('src="/app/');
+    } else {
+      expect(await page.text()).toContain("has not been built");
+    }
+    expect((await server.fetch(new Request("http://127.0.0.1/app/..%2Fpackage.json"))).status).toBe(
+      404,
+    );
+
+    const classic = await server.fetch(new Request("http://127.0.0.1/classic/"));
+    expect(classic.status).toBe(200);
+    expect(classic.headers.get("content-security-policy")).toContain("script-src 'self'");
+    expect(await classic.text()).toContain('src="/classic/assets/app.js"');
+    const script = await server.fetch(new Request("http://127.0.0.1/classic/assets/app.js"));
     expect(script.headers.get("content-type")).toContain("javascript");
     expect(await script.text()).toContain("textContent");
-    const style = await server.fetch(new Request("http://127.0.0.1/assets/styles.css"));
+    const style = await server.fetch(new Request("http://127.0.0.1/classic/assets/styles.css"));
     expect(style.status).toBe(200);
     expect(
-      (await server.fetch(new Request("http://127.0.0.1/assets/..%2Fpackage.json"))).status,
+      (await server.fetch(new Request("http://127.0.0.1/classic/assets/..%2Fpackage.json"))).status,
     ).toBe(404);
   });
 });
