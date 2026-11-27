@@ -5,7 +5,6 @@ import { CompanyPauseButton, usePause } from "../components/pause.js";
  * classic page in place; the list shrinks as screens arrive here.
  */
 const CLASSIC: readonly { hash: string; title: string; text: string }[] = [
-  { hash: "board", title: "Activity", text: "Every task in the company, as it moves." },
   { hash: "deliverables", title: "Deliverables", text: "Everything handed in, by goal." },
   { hash: "drive", title: "Drive", text: "The company's shared files. Upload and download." },
   { hash: "costs", title: "Usage", text: "Tokens and spend by agent, model and goal." },

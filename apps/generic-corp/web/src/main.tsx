@@ -5,6 +5,7 @@ import { CompanyPauseButton, PauseBanner, usePause } from "./components/pause.js
 import { useLiveStatus, useResource } from "./live.js";
 import { href, useRoute } from "./router.js";
 import "./styles.css";
+import { ActivityView } from "./views/Activity.js";
 import { GoalView } from "./views/Goal.js";
 import { GoalsView } from "./views/Goals.js";
 import { MemoryView } from "./views/Memory.js";
@@ -13,6 +14,7 @@ import { OrgView } from "./views/Org.js";
 
 const NAV: readonly { view: string; label: string; icon: string }[] = [
   { view: "goals", label: "Goals", icon: "◎" },
+  { view: "activity", label: "Activity", icon: "↯" },
   { view: "org", label: "Org chart", icon: "⌗" },
   { view: "memory", label: "Memory", icon: "✎" },
   { view: "more", label: "More", icon: "≡" },
@@ -32,6 +34,8 @@ function App() {
     page = <OrgView agentId={route.id} company={company.data} />;
   } else if (route.view === "memory") {
     page = <MemoryView scopeId={route.id} />;
+  } else if (route.view === "activity") {
+    page = <ActivityView />;
   } else if (route.view === "more") {
     page = <MoreView />;
   } else {
