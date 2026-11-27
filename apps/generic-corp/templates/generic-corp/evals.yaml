@@ -16,20 +16,21 @@ cases:
     goal: launch-plan
     replay: replays/launch-plan.yaml
     holdoutValidators:
-      - id: ceo-did-not-write
-        kind: trace
-        description: The CEO delegated instead of writing the plan.
-        forbid:
-          - { tool: write, role: ceo }
+      - id: plan-has-substance
+        kind: numeric
+        description: The plan is more than a table, at least 120 words.
+        source: { metric: deliverableWords }
+        operator: gte
+        value: 120
   - id: tool-comparison
     goal: tool-comparison
     replay: replays/tool-comparison.yaml
     holdoutValidators:
-      - id: one-recommendation
+      - id: one-file
         kind: output_schema
-        description: The recommendation names a single tool.
+        description: The comparison is handed in as a single file.
         schema:
           type: object
-          required: [recommendation]
+          required: [deliverables]
           properties:
-            recommendation: { type: string, maxLength: 40 }
+            deliverables: { type: array, minItems: 1, maxItems: 1 }

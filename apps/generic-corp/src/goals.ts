@@ -1,11 +1,14 @@
-import { readFile, realpath } from "node:fs/promises";
+import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
 import { type AssistantMessage, complete, type Model, resolveModel } from "@generic-ai/ai";
-import type {
-  AgentDirectory,
-  DelegationCascade,
-  TaskGoalEvidenceInput,
+import {
+  type AgentDirectory,
+  type AgentTaskDeliverable,
+  type AgentTaskHandIn,
+  type DelegationCascade,
+  handInOutput,
+  type TaskGoalEvidenceInput,
 } from "@generic-ai/plugin-delegation";
 import {
   buildRubricJudgePrompt,
@@ -15,7 +18,6 @@ import {
   type GoalJudgment,
   goalTraceFromCanonicalEvents,
   type JsonValue,
-  parseActorDirectives,
   parseGoalJudgment,
   type RunStoreContract,
 } from "@generic-ai/sdk";
@@ -25,14 +27,27 @@ import {
  * whole team's work, not only on the CEO's last turn:
  *
  * - **Trace**: the CEO's turn plus every run of every task delegated under it, so a goal can
- *   require that the research team searched the web or that someone wrote a document.
- * - **Deliverable**: when the final reply ends with a fenced JSON block naming a deliverable
- *   (`{"deliverable": {"agent": "vp-research", "path": "workspace/brief.md"}}`), the file is
- *   read from that agent's home and offered to validators as the `deliverable` artifact, with
- *   `deliverableWords`, `deliverableLines` and `deliverableLinks` (distinct web links) metrics. Rubrics then grade the work itself, not
- *   the CEO's summary of it.
+ *   require that someone searched the web or wrote a document. Checks never ask who did it.
+ * - **Deliverables**: the files an agent hands in with `submit_work`. The host reads each text
+ *   file and offers it to validators as an artifact, and measures it (decision 11: numeric checks
+ *   read host-measured numbers, never numbers the agent reports about its own work).
+ *
+ * Deliverable paths are relative to the company root (`drive/goals/<id>/deliverables/x.md`,
+ * `agents/<id>/workspace/x.md`), or to the agent's own home (`workspace/x.md`). A path that
+ * leaves the company root is ignored.
  */
 export const DELIVERABLE_ARTIFACT = "deliverable" as const;
+
+/** Numbers the host measures for every hand-in, shown to agents drafting a goal. */
+export const COMPANY_GOAL_METRICS: Readonly<Record<string, string>> = {
+  deliverableCount: "files handed in",
+  deliverableWords: "words across the text files handed in",
+  deliverableLines: "non-empty lines across the text files handed in",
+  deliverableLinks: "distinct web links across the text files handed in",
+  deliverableTableRows: "Markdown table rows, header and divider rows not counted",
+  deliverableListItems: "bulleted or numbered list items",
+  deliverableSections: 'second-level Markdown headings ("## ...")',
+};
 
 /** Largest deliverable read into evidence. Longer files are cut, and the cut is noted. */
 const MAX_DELIVERABLE_BYTES = 200_000;
@@ -47,6 +62,14 @@ export interface CompanyGoalEvidenceOptions {
   /** Looked up when evidence is collected, so it can be wired before the runtime exists. */
   readonly cascade: () => Pick<DelegationCascade, "tree">;
   readonly directory: () => Pick<AgentDirectory, "get">;
+  /** The company root deliverable paths are relative to. Files outside it are never read. */
+  readonly companyRoot: string;
+  /**
+   * Folders under the company root that deliverables may come from, when not all of it is the
+   * agents' (the data folder also holds the database and the owner's sign-in). Defaults to the
+   * whole company root.
+   */
+  readonly readableRoots?: readonly string[];
 }
 
 export interface CompanyGoalEvidence {
@@ -56,59 +79,184 @@ export interface CompanyGoalEvidence {
   readonly metrics?: Readonly<Record<string, number>>;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function countWords(text: string): number {
   const words = text.trim().match(/\S+/g);
   return words === null ? 0 : words.length;
 }
 
-async function readDeliverable(
-  directory: Pick<AgentDirectory, "get">,
-  reference: unknown,
-): Promise<{ text: string } | undefined> {
-  if (!isRecord(reference)) {
-    return undefined;
-  }
-  const agentId = reference["agent"];
-  const filePath = reference["path"];
-  if (
-    typeof agentId !== "string" ||
-    typeof filePath !== "string" ||
-    !TEXT_DELIVERABLE.test(filePath)
-  ) {
-    return undefined;
-  }
-  const agent = await directory.get(agentId);
-  if (agent === undefined) {
-    return undefined;
-  }
-  const home = await realpath(agent.homePath);
-  const resolved = path.resolve(home, filePath);
-  try {
-    const real = await realpath(resolved);
-    if (real !== home && !real.startsWith(`${home}${path.sep}`)) {
-      return undefined;
+const TABLE_DIVIDER = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+
+function countTableRows(lines: readonly string[]): number {
+  let rows = 0;
+  let block: string[] = [];
+  const flush = () => {
+    rows += block.length >= 2 && TABLE_DIVIDER.test(block[1] ?? "") ? block.length - 2 : 0;
+    block = [];
+  };
+  for (const line of lines) {
+    if (line.trim().startsWith("|")) {
+      block.push(line);
+    } else {
+      flush();
     }
-    const buffer = await readFile(real);
-    const text = buffer.subarray(0, MAX_DELIVERABLE_BYTES).toString("utf8");
-    return {
-      text:
-        buffer.length > MAX_DELIVERABLE_BYTES
-          ? `${text}\n\n[Cut at ${MAX_DELIVERABLE_BYTES} bytes of ${buffer.length}.]`
-          : text,
-    };
+  }
+  flush();
+  return rows;
+}
+
+/** The host's measurements of a set of text files (see `COMPANY_GOAL_METRICS`). */
+export function measureDeliverables(
+  texts: readonly string[],
+  count: number,
+): Record<string, number> {
+  const lines = texts.flatMap((text) => text.split("\n"));
+  return {
+    deliverableCount: count,
+    deliverableWords: texts.reduce((sum, text) => sum + countWords(text), 0),
+    deliverableLines: lines.filter((line) => line.trim().length > 0).length,
+    deliverableLinks: new Set(texts.flatMap((text) => text.match(LINK) ?? [])).size,
+    deliverableTableRows: texts.reduce((sum, text) => sum + countTableRows(text.split("\n")), 0),
+    deliverableListItems: lines.filter((line) => /^\s*([-*+]|\d+[.)])\s+\S/.test(line)).length,
+    deliverableSections: lines.filter((line) => /^##\s+\S/.test(line)).length,
+  };
+}
+
+function inside(root: string, candidate: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
+}
+
+/**
+ * Where a handed-in path lives: under the company root first, then under the submitter's home.
+ * Undefined when the file does not exist or resolves outside the company root.
+ */
+export async function resolveDeliverablePath(
+  companyRoot: string,
+  home: string | undefined,
+  filePath: string,
+  readableRoots: readonly string[] = [companyRoot],
+): Promise<string | undefined> {
+  let root: string;
+  const readable: string[] = [];
+  try {
+    root = await realpath(companyRoot);
+    for (const folder of readableRoots) {
+      readable.push(await realpath(folder).catch(() => path.resolve(folder)));
+    }
   } catch {
     return undefined;
   }
+  const bases = [root];
+  if (home !== undefined) {
+    try {
+      bases.push(await realpath(home));
+    } catch {
+      // A home that does not exist yet holds no files.
+    }
+  }
+  for (const base of bases) {
+    try {
+      const real = await realpath(path.resolve(base, filePath));
+      if (
+        inside(root, real) &&
+        readable.some((folder) => inside(folder, real)) &&
+        (await stat(real)).isFile()
+      ) {
+        return real;
+      }
+    } catch {
+      // Not here; try the next base.
+    }
+  }
+  return undefined;
+}
+
+async function readText(file: string): Promise<string> {
+  const buffer = await readFile(file);
+  const text = buffer.subarray(0, MAX_DELIVERABLE_BYTES).toString("utf8");
+  return buffer.length > MAX_DELIVERABLE_BYTES
+    ? `${text}\n\n[Cut at ${MAX_DELIVERABLE_BYTES} bytes of ${buffer.length}.]`
+    : text;
+}
+
+async function homeOf(
+  options: CompanyGoalEvidenceOptions,
+  agentId: string | undefined,
+): Promise<string | undefined> {
+  return agentId === undefined ? undefined : (await options.directory().get(agentId))?.homePath;
+}
+
+/**
+ * Reads the text files of a hand-in into artifacts: `deliverable` is the first text file,
+ * `deliverable.<ext>` the first file of each extension, `deliverable:<name>` each file by name.
+ */
+async function readDeliverables(
+  options: CompanyGoalEvidenceOptions,
+  handIn: AgentTaskHandIn,
+  submitterId: string | undefined,
+): Promise<Pick<CompanyGoalEvidence, "artifacts" | "metrics">> {
+  const home = await homeOf(options, submitterId);
+  const artifacts: Record<string, string> = {};
+  const texts: string[] = [];
+  for (const deliverable of handIn.deliverables) {
+    if (!TEXT_DELIVERABLE.test(deliverable.path)) {
+      continue;
+    }
+    const file = await resolveDeliverablePath(
+      options.companyRoot,
+      home,
+      deliverable.path,
+      options.readableRoots,
+    );
+    if (file === undefined) {
+      continue;
+    }
+    const text = await readText(file);
+    texts.push(text);
+    const extension = path.extname(file).slice(1).toLowerCase();
+    artifacts[DELIVERABLE_ARTIFACT] ??= text;
+    artifacts[`${DELIVERABLE_ARTIFACT}.${extension}`] ??= text;
+    artifacts[`${DELIVERABLE_ARTIFACT}:${path.basename(file)}`] ??= text;
+  }
+  return {
+    ...(texts.length === 0 ? {} : { artifacts }),
+    metrics: measureDeliverables(texts, handIn.deliverables.length),
+  };
+}
+
+/**
+ * The `checkHandIn` hook: refuses a hand-in naming a file that does not exist, so the agent
+ * fixes the path in the same turn instead of failing the goal later.
+ */
+export function createCompanyHandInCheck(
+  options: Pick<CompanyGoalEvidenceOptions, "companyRoot" | "readableRoots">,
+): (input: {
+  readonly agent: { readonly homePath: string };
+  readonly deliverables: readonly AgentTaskDeliverable[];
+}) => Promise<string | undefined> {
+  return async (input) => {
+    const home = input.agent.homePath;
+    const missing: string[] = [];
+    for (const deliverable of input.deliverables) {
+      if (
+        (await resolveDeliverablePath(
+          options.companyRoot,
+          home,
+          deliverable.path,
+          options.readableRoots,
+        )) === undefined
+      ) {
+        missing.push(deliverable.path);
+      }
+    }
+    return missing.length === 0
+      ? undefined
+      : `no file at ${missing.map((item) => `"${item}"`).join(", ")}. Paths are relative to the company root (for example agents/<agent>/workspace/x.md) or to your own home (workspace/x.md).`;
+  };
 }
 
 /**
  * Events of every run under a task: its own turns and everything delegated beneath it. Each run
- * belongs to one agent, so events that do not name a role are tagged with that agent's id; a
- * trace validator can then require that, say, the analyst wrote the brief.
+ * belongs to one agent, so events that do not name a role are tagged with that agent's id.
  */
 async function teamEvents(
   options: CompanyGoalEvidenceOptions,
@@ -143,14 +291,16 @@ async function teamEvents(
   return events;
 }
 
-/** The company's evidence for a task: team trace, structured output and deliverable. */
+/** The company's evidence for a task: team trace, the hand-in and its deliverables. */
 export async function collectCompanyGoalEvidence(
   options: CompanyGoalEvidenceOptions,
   input: {
     readonly rootTaskId: string;
-    readonly outputText: string;
+    /** What the task's agent handed in with `submit_work`. */
+    readonly handIn?: AgentTaskHandIn;
     /** Runs of the turn being checked, which the task record may not list yet. */
     readonly runIds?: readonly string[];
+    /** The agent that owns the task and handed in. */
     readonly agentId?: string;
   },
 ): Promise<CompanyGoalEvidence> {
@@ -158,23 +308,13 @@ export async function collectCompanyGoalEvidence(
     runIds: input.runIds ?? [],
     ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
   });
-  const output = parseActorDirectives(input.outputText).data;
-  const deliverable = isRecord(output)
-    ? await readDeliverable(options.directory(), output["deliverable"])
-    : undefined;
+  if (input.handIn === undefined) {
+    return { events };
+  }
   return {
-    ...(output === undefined ? {} : { output: output as JsonValue }),
+    output: handInOutput(input.handIn),
     events,
-    ...(deliverable !== undefined && "text" in deliverable
-      ? {
-          artifacts: { [DELIVERABLE_ARTIFACT]: deliverable.text },
-          metrics: {
-            deliverableWords: countWords(deliverable.text),
-            deliverableLines: deliverable.text.split("\n").filter((line) => line.trim()).length,
-            deliverableLinks: new Set(deliverable.text.match(LINK) ?? []).size,
-          },
-        }
-      : {}),
+    ...(await readDeliverables(options, input.handIn, input.agentId)),
   };
 }
 
@@ -185,7 +325,7 @@ export function createCompanyGoalEvidence(
   return async (input) => {
     const collected = await collectCompanyGoalEvidence(options, {
       rootTaskId: input.task.taskId,
-      outputText: input.outputText,
+      ...(input.handIn === undefined ? {} : { handIn: input.handIn }),
       runIds: input.turnRunIds,
       agentId: input.task.agentId,
     });

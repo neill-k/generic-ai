@@ -95,20 +95,21 @@ goals:
         - The research team searched the web and opened the pages it cites.
       maxAttempts: 3
       validators:
-        - id: deliverable-named
+        - id: handed-in
           kind: output_schema
-          description: The final reply names the brief and how many sources it uses.
+          description: The brief was handed in as a Markdown file.
           schema:
             type: object
-            required: [deliverable, sources]
+            required: [summary, deliverables]
             properties:
-              deliverable:
-                type: object
-                required: [agent, path]
-                properties:
-                  agent: { type: string, minLength: 1 }
-                  path: { type: string, pattern: "\\.md$" }
-              sources: { type: integer, minimum: 4 }
+              deliverables:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [path]
+                  properties:
+                    path: { type: string, pattern: "\\.md$" }
         - id: length
           kind: numeric
           description: The brief is between 300 and 1,500 words.

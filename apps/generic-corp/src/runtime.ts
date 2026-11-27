@@ -277,8 +277,6 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
   };
 
   const cascade = createDelegationCascade({
-    // The app moves to the submit_work hand-in with goals on every request (ADR 0069).
-    handIn: "reply",
     ...options.cascade,
     runStore: storage.runStore,
     queue: storage.queue,
@@ -448,7 +446,9 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         agentId: ceoId,
         instruction,
         ...(input.actor === undefined ? {} : { actor: input.actor }),
-        ...(input.goal === undefined ? {} : { goal: input.goal }),
+        // Every request gets a goal (decision 6): a template's goal when the owner sent one,
+        // otherwise the CEO drafts it with set_goal before any work starts.
+        ...(input.goal === undefined ? { draftGoal: true } : { goal: input.goal }),
         metadata: { threadId: thread.threadId, source: "owner-chat", ownerText: text },
       });
       const message: ChatMessageRecord = {

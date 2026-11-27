@@ -21,16 +21,19 @@ agents:
             definitionOfDone: A Markdown plan with at least eight dated, owned tasks and three risks.
     - call: stop_and_respond
       args: { response: Operations is writing the launch plan. }
+    - call: submit_work
+      args:
+        summary: >-
+          The launch plan is ready: ten dated, owned tasks to launch day on 1 June and four
+          risks with fallbacks. The price decision is needed by 12 May.
+        deliverables:
+          - path: agents/operations-associate/workspace/newsletter-launch-plan.md
     - call: stop_and_respond
       args:
         response: |-
           The launch plan is ready: ten dated tasks from today to launch day on 1 June, each
           with one owner, and four risks with a fallback for each. The one decision I need from
           you is the price, by 12 May.
-
-          ```json
-          {"deliverable": {"agent": "operations-associate", "path": "workspace/newsletter-launch-plan.md"}, "tasks": 10, "risks": 4}
-          ```
 
   vp-operations:
     - call: delegate_task
@@ -44,6 +47,12 @@ agents:
             definitionOfDone: At least eight dated, owned tasks ending on launch day, and three risks.
     - call: stop_and_respond
       args: { response: The associate is drafting the plan. }
+    - call: submit_work
+      args:
+        summary: >-
+          Reviewed the plan: ten tasks in date order, one owner each, four risks with fallbacks.
+        deliverables:
+          - path: agents/operations-associate/workspace/newsletter-launch-plan.md
     - call: stop_and_respond
       args:
         response: >-
@@ -83,6 +92,12 @@ agents:
              contacts.
           4. **The platform rejects the account.** Fallback: a second platform is shortlisted on
              6 May and can be set up in a day.
+    - call: submit_work
+      args:
+        summary: >-
+          Drafted the launch plan: ten dated tasks with owners and four risks with fallbacks.
+        deliverables:
+          - path: workspace/newsletter-launch-plan.md
     - call: stop_and_respond
       args:
         response: >-

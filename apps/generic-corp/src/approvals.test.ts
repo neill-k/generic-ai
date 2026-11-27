@@ -24,6 +24,15 @@ afterEach(async () => {
   }
 });
 
+/** The smallest goal an agent can draft: the hand-in has a summary. */
+const TRIVIAL_GOAL = {
+  objective: "Do what the owner asked.",
+  definitionOfDone: ["The work is handed in with a summary."],
+  validators: [
+    { id: "handed-in", kind: "output_schema", schema: { type: "object", required: ["summary"] } },
+  ],
+};
+
 describe("owner approvals in Generic Corp", () => {
   it("parks an outward action until the owner approves it, then sends it once", async () => {
     const dataDir = mkdtempSync(path.join(tmpdir(), "generic-corp-approvals-"));
@@ -73,7 +82,8 @@ describe("owner approvals in Generic Corp", () => {
     const email = { to: "customer@example.com", body: "Your order shipped." };
     const gatedResults: string[] = [];
     provider.setResponses([
-      // Turn 1: try to send; the gate holds the call.
+      // Turn 1: set the goal, then try to send; the gate holds the call.
+      () => fauxAssistantMessage([fauxToolCall("set_goal", TRIVIAL_GOAL)], { stopReason: "toolUse" }),
       () => fauxAssistantMessage([fauxToolCall("send_email", email)], { stopReason: "toolUse" }),
       (context) => {
         const last = context.messages.at(-1);
@@ -86,7 +96,12 @@ describe("owner approvals in Generic Corp", () => {
       // Turn 2, after approval: repeat the identical call, which now runs.
       () => fauxAssistantMessage([fauxToolCall("send_email", email)], { stopReason: "toolUse" }),
       () =>
-        fauxAssistantMessage([fauxToolCall("stop_and_respond", { response: "Email sent." })], {
+        fauxAssistantMessage(
+          [fauxToolCall("submit_work", { summary: "Email sent.", deliverables: [] })],
+          { stopReason: "toolUse" },
+        ),
+      () =>
+        fauxAssistantMessage([fauxToolCall("stop_and_respond", { response: "Handed in." })], {
           stopReason: "toolUse",
         }),
     ]);

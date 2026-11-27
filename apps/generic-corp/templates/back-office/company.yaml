@@ -137,19 +137,17 @@ goals:
         - The total and the total for each category are correct to the cent.
         - Every likely duplicate or error is flagged with the reason.
         - The totals come from a script the bookkeeper ran, kept for next month.
-        - A close note in the bookkeeper's workspace shows the totals and the flags.
+        - The totals are handed in as a JSON file (total, byCategory, flagged) beside a Markdown close note showing the totals and the flags.
       maxAttempts: 3
       validators:
-        - id: figures-reported
+        - id: figures-handed-in
           kind: output_schema
-          description: The final reply gives the total, the totals by category and the flags.
+          description: The totals were handed in as a JSON file with the total, the category totals and the flags.
+          target: "artifact:deliverable.json"
           schema:
             type: object
-            required: [deliverable, total, byCategory, flagged]
+            required: [total, byCategory, flagged]
             properties:
-              deliverable:
-                type: object
-                required: [agent, path]
               total: { type: number }
               byCategory:
                 type: object
@@ -163,7 +161,7 @@ goals:
         - id: total
           kind: numeric
           description: The month's total is right.
-          source: { outputPath: total }
+          source: { outputPath: total, target: "artifact:deliverable.json" }
           operator: eq
           value: 2337.75
           tolerance: 0.005
@@ -171,7 +169,7 @@ goals:
         - id: travel
           kind: numeric
           description: The travel total is right.
-          source: { outputPath: byCategory.Travel }
+          source: { outputPath: byCategory.Travel, target: "artifact:deliverable.json" }
           operator: eq
           value: 848.5
           tolerance: 0.005
@@ -179,7 +177,7 @@ goals:
         - id: office
           kind: numeric
           description: The office total is right.
-          source: { outputPath: byCategory.Office }
+          source: { outputPath: byCategory.Office, target: "artifact:deliverable.json" }
           operator: eq
           value: 280.95
           tolerance: 0.005
@@ -187,13 +185,13 @@ goals:
         - id: duplicate-flagged
           kind: numeric
           description: The second CloudCo charge is flagged.
-          source: { outputPath: flagged.0.amount }
+          source: { outputPath: flagged.0.amount, target: "artifact:deliverable.json" }
           operator: eq
           value: 420
           tolerance: 0.005
         - id: note-quality
           kind: rubric
-          target: "artifact:deliverable"
+          target: "artifact:deliverable.md"
           passThreshold: 0.75
           criteria:
             - id: figures
@@ -206,9 +204,9 @@ goals:
               description: The note says how the totals were computed and where the script is.
         - id: scripted
           kind: trace
-          description: The bookkeeper ran a script for the totals.
+          description: A script computed the totals.
           require:
-            - { tool: bash, role: bookkeeper }
+            - { tool: bash }
 
   - id: support-replies
     title: Support replies
@@ -226,23 +224,28 @@ goals:
         - One reply per customer, each answering their actual question.
         - Ana is offered a refund, Ben an exchange instead of a refund, and Chloe a tracking update.
         - No reply promises a shipping refund or anything else outside the policy.
-        - Nothing is sent; the drafts are in the support agent's workspace.
+        - Nothing is sent; the drafts are one Markdown file with a section per customer.
       maxAttempts: 3
       validators:
-        - id: drafts-reported
+        - id: handed-in
           kind: output_schema
+          description: The drafts were handed in as a Markdown file.
           schema:
             type: object
-            required: [deliverable, drafts]
+            required: [summary, deliverables]
             properties:
-              deliverable:
-                type: object
-                required: [agent, path]
-              drafts: { type: integer }
+              deliverables:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [path]
+                  properties:
+                    path: { type: string, pattern: "\\.md$" }
         - id: three-drafts
           kind: numeric
-          description: Exactly three drafts.
-          source: { outputPath: drafts }
+          description: Exactly three drafts (second-level sections, counted by the host).
+          source: { metric: deliverableSections }
           operator: eq
           value: 3
         - id: replies-quality
@@ -261,6 +264,6 @@ goals:
               description: Warm, plain and short; no jargon.
         - id: drafted-not-sent
           kind: trace
-          description: The support agent wrote the drafts in its workspace.
+          description: The drafts were written to a file.
           require:
-            - { tool: write, role: support-agent }
+            - { tool: write }

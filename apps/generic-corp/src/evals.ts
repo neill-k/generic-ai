@@ -296,8 +296,14 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
             runStore: server.storage.runStore,
             cascade: () => server.runtime.cascade,
             directory: () => server.runtime.directory,
+            companyRoot: dataDir,
+            readableRoots: [path.join(dataDir, "agents")],
           },
-          { rootTaskId: task.taskId, outputText },
+          {
+            rootTaskId: task.taskId,
+            ...(settled.handIn === undefined ? {} : { handIn: settled.handIn }),
+            agentId: settled.agentId,
+          },
         );
         const problems = [
           ...(model?.unexpected.length
