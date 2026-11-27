@@ -42,7 +42,7 @@ const COMPANY: CompanyConfig = {
   ],
 };
 
-function json(value: unknown): string {
+function _json(value: unknown): string {
   return `\n\`\`\`json\n${JSON.stringify(value)}\n\`\`\`\n`;
 }
 
@@ -86,6 +86,15 @@ function usageEvent(runId: string, tokens: number, cost: number): CanonicalEvent
   } as CanonicalEvent;
 }
 
+/** The smallest goal an agent can draft: the hand-in has a summary. */
+const TRIVIAL_GOAL = {
+  objective: "Answer the owner.",
+  definitionOfDone: ["The answer is handed in."],
+  validators: [
+    { id: "handed-in", kind: "output_schema", schema: { type: "object", required: ["summary"] } },
+  ],
+};
+
 /**
  * A scripted company: the CEO delegates to the VP, the VP to the researcher,
  * and results come back up. Each turn records a harness run with usage so
@@ -120,25 +129,35 @@ function scriptedCompany(getRunStore: () => RunStoreContract) {
     await store.appendEvents(input.attemptRunId, [usageEvent(input.attemptRunId, 100, 0.01)]);
     const runIds = [input.attemptRunId];
 
+    const use = async (name: string, params: Record<string, unknown>) => {
+      const tool = input.tools?.find((candidate) => candidate.name === name);
+      if (tool === undefined) {
+        throw new Error(`${input.agentId} has no ${name} tool`);
+      }
+      return tool.execute(params as never, { toolCallId: `${name}-${turn}` });
+    };
+    const handIn = async (summary: string) => {
+      await use("submit_work", { summary, deliverables: [] });
+      return { status: "succeeded" as const, outputText: "Handed in.", runIds };
+    };
+
     if (input.agentId === "ceo") {
-      return turn === 1
-        ? {
-            status: "succeeded",
-            outputText: json({ delegate_task: [{ to: "vp-research", task: "Find the answer" }] }),
-            runIds,
-          }
-        : { status: "succeeded", outputText: "The answer is 42.", runIds };
+      if (turn === 1) {
+        // Every owner message starts with the CEO drafting the goal (decision 6).
+        await use("set_goal", TRIVIAL_GOAL);
+        await use("delegate_task", { tasks: [{ to: "vp-research", task: "Find the answer" }] });
+        return { status: "succeeded", outputText: "Delegated.", runIds };
+      }
+      return handIn("The answer is 42.");
     }
     if (input.agentId === "vp-research") {
-      return turn === 1
-        ? {
-            status: "succeeded",
-            outputText: json({ delegate_task: [{ to: "researcher", task: "Look it up" }] }),
-            runIds,
-          }
-        : { status: "succeeded", outputText: "Research says 42.", runIds };
+      if (turn === 1) {
+        await use("delegate_task", { tasks: [{ to: "researcher", task: "Look it up" }] });
+        return { status: "succeeded", outputText: "Delegated.", runIds };
+      }
+      return handIn("Research says 42.");
     }
-    return { status: "succeeded", outputText: "42", runIds };
+    return handIn("42");
   };
   return { executor, calls };
 }
@@ -193,6 +212,19 @@ describe("Generic Corp server", () => {
 
     const ready = await server.fetch(new Request("http://127.0.0.1/ready"));
     expect(ready.status).toBe(200);
+    // Tests run commands as the server's own user, so no firewall rule can single them out.
+    expect(((await ready.json()) as { agentNetwork: string }).agentNetwork).toBe("proxy-only");
+    await server.refusals.record({
+      kind: "network",
+      agentId: "researcher",
+      category: "network",
+      action: "CONNECT evil.example.com:443",
+      reason: "evil.example.com is not on the network allowlist",
+    });
+    const refusals = await api<{ refusals: { action: string }[] }>(server, "/api/refusals");
+    expect(refusals.body.refusals.map((entry) => entry.action)).toEqual([
+      "CONNECT evil.example.com:443",
+    ]);
 
     // Every agent gets the generic-work toolkit.
     const tools = await api<CompanyToolkitDescription>(server, "/api/tools");

@@ -1,7 +1,9 @@
 # 0061 — Owner approvals for outward actions
 
-- Status: accepted
+- Status: accepted; superseded for Generic Corp by `0070-company-wall.md`
 - Date: 2026-11-26
+- Amended: 2026-11-27 (Generic Corp replaced approval cards with owner-set
+  permissions that refuse on the spot; the framework package stays)
 - Roadmap item: R11 (approvals and governance runtime) of the Generic Corp
   production roadmap.
 - Related: `0014-runtime-governance-and-security-controls.md`,

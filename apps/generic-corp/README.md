@@ -3,8 +3,8 @@
 Generic Corp is the flagship app built on Generic AI. One owner runs a company
 of persistent, goal-driven agents: the owner chats with a CEO agent, work is
 delegated down an org chart and results come back up, and a dashboard shows
-the conversation, the org chart, the board, agent activity, costs and
-approvals. Agents do generic work, not only software work.
+the conversation, the org chart, the board, agent activity, costs and the
+owner's permissions. Agents do generic work, not only software work.
 
 The decision to build it here, and the product decisions behind it, are in
 [`docs/decisions/0046-generic-corp-app-on-generic-ai.md`](../../docs/decisions/0046-generic-corp-app-on-generic-ai.md).
@@ -16,7 +16,7 @@ then sign in with Claude).
 
 The app server (roadmap R13) is in. It runs the company, gives its agents the
 generic-work toolkit, serves a JSON API with live events, and serves the owner
-dashboard at `/` with an approvals inbox.
+dashboard at `/` with a permissions page and the refused-actions list.
 
 - **Company.** `company.ts` defines the org chart as plain data (YAML via
   `GENERIC_CORP_COMPANY_FILE`, a template via `GENERIC_CORP_TEMPLATE`, or the
@@ -49,7 +49,7 @@ dashboard at `/` with an approvals inbox.
   Markdown, HTML, Word, Excel, CSV out), and the company's MCP connectors for
   email, calendar, chat, documents, a headless browser and payments. Connector
   tools that send, write to an outside system or spend money carry outward
-  effect tags for the approvals gate.
+  effect tags the permissions gate checks.
 - **Secrets.** Credentials come from the secrets vault
   (`@generic-ai/plugin-secrets`): `GENERIC_AI_SECRET_<NAME>` variables, files in
   `GENERIC_AI_SECRETS_DIR`, or the encrypted store when `GENERIC_AI_SECRETS_KEY`
@@ -61,11 +61,19 @@ dashboard at `/` with an approvals inbox.
   memory and tasks, the board, costs, the agents' tools and connectors, and a
   secrets screen that shows which secrets are missing and saves new ones. It
   refreshes from `/api/events`, and a signed-out browser goes to `/auth/login`.
-- **Approvals.** Outward actions wait for the owner (`@generic-ai/plugin-approvals`):
-  sending messages, writing to outside systems, spending money and writing MCP
-  tools, or whatever `approvals:` in the company file says. A gated call ends
-  the agent's turn and its task waits without holding a worker. Approving runs
-  the exact call once when the agent repeats it; the task resumes on its own.
+- **Permissions.** `permissions.ts`: the owner sets broad categories once
+  (read outside systems: on; send messages, spend money, write to outside
+  systems: off; GitHub pushes, pull requests and green-check merges in the
+  repos the owner picks; the shell's network allowlist; standing rules). Every
+  tool call is checked against them. An action outside them fails on the spot
+  with the reason, the agent finds another route, and the refusal lands on the
+  refused-actions list. Nothing waits for the owner. Permissions live in host
+  storage that no agent tool reaches; `permissions:` in the company file sets
+  the starting values, and the owner's saved ones replace them. Every agent
+  turn starts with the standing rules and what is off.
+- **Network wall.** Agent shell commands reach the network only through an
+  allowlisting egress proxy, enforced by a firewall rule in the image (see
+  `egress.ts`, DEPLOY.md and ADR 0070). Refusals land on the same list.
 - **Templates and goals.** `templates/` holds ready-made companies (see
   "Company templates" below). A company lists goals it knows how to pursue;
   the owner starts from one on the dashboard, and the CEO's task only
@@ -98,9 +106,9 @@ All routes are under `/api` and need an owner credential: reads need
 | `POST /api/tasks/:id/cancel` | Cancel a task and everything it delegated |
 | `GET /api/board` | Tasks in columns by status |
 | `GET /api/costs` | Tokens and dollars by agent, model and owner request, and cost per completed request |
-| `GET /api/approvals?status=pending`, `GET /api/approvals/:id` | Approval requests, with each one's audit events |
-| `POST /api/approvals/:id/approve`, `/reject` | Decide a request (`{"comment": "..."}` optional). Needs `approvals:decide` |
-| `GET /api/approvals/stream` | Server-sent approval events |
+| `GET /api/permissions` | The permissions in force and whether the owner has saved them |
+| `PUT /api/permissions`, `DELETE /api/permissions` | Change any of them (fields left out keep their value), or go back to the company file's. Needs `tokens:manage` |
+| `GET /api/refusals?limit=` | Actions refused on the spot (permissions and network), newest first |
 | `GET /api/secrets` | Secret names the company uses or holds, where each is set, and who uses it. Never values |
 | `PUT /api/secrets/:name`, `DELETE /api/secrets/:name` | Save or remove a secret in the encrypted store (`{"value": "..."}`). Needs `tokens:manage` and `GENERIC_AI_SECRETS_KEY` |
 | `GET /api/goals` | The company's goals: request, definition of done and checks |
@@ -113,7 +121,8 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/tools` | The agents' tools and skills, the web search backend and each MCP connector's state |
 | `GET /api/events` | Server-sent events: `task.*`, `thread.updated`, `drive.updated`, `drive.goal.updated`, `runtime.error`. Supports `Last-Event-ID` |
 
-`GET /health` and `GET /ready` are public; `/ready` checks the database.
+`GET /health` and `GET /ready` are public; `/ready` checks the database and
+reports `agentIsolation` and `agentNetwork`.
 `/auth/login` is the owner sign-in page.
 
 ## Running it
@@ -191,7 +200,7 @@ Each folder under `templates/` is a company a person can start from:
 A template folder has:
 
 - `company.yaml`: the company file (org chart, models per tier, tools and
-  connectors, secret grants, approvals) plus `goals`. Each goal has the
+  connectors, secret grants, starting permissions) plus `goals`. Each goal has the
   owner's `request` and a goal spec: objective, definition of done, and
   validators covering NOVA's three checks (a number, a rubric, the actions
   taken) and usually an output schema.
@@ -201,15 +210,35 @@ A template folder has:
 - `replays/`: recorded agent turns, search results, pages and rubric
   judgments for each case.
 
-How goals are checked. A goal on the CEO's task is the company's goal, so
-`goals.ts` checks it against the whole team: the trace includes every run
-delegated under the CEO (each event tagged with the agent that ran it), and
-when the CEO's reply ends with a fenced JSON block naming a deliverable
-(`{"deliverable": {"path": "drive/goals/<goalId>/deliverables/brief.md"}}`, a
-company-root path; the older `{"agent": "analyst", "path": "workspace/brief.md"}`
-form reads from that agent's home), that file is the `deliverable` artifact, with
-`deliverableWords`, `deliverableLines` and `deliverableLinks` metrics. Rubrics
-use a model judge on the company's VP model.
+How goals are checked (ADR 0069). Every owner message gets a goal: a
+template goal when the owner picks one, otherwise the CEO drafts the objective,
+definition of done and checks with `set_goal` before any other work, and the
+host locks them. Work finishes only through `submit_work`, which hands in a
+summary and the files made (paths relative to the company root, such as
+`drive/goals/<goalId>/deliverables/brief.md`, or to the agent's own home). A
+hand-in naming a file that does not exist is refused on the spot.
+
+A goal on the CEO's task is the company's goal, so `goals.ts` checks it
+against the whole team: the trace includes every run delegated under the CEO,
+and each handed-in text file is an artifact (`deliverable` for the first,
+`deliverable.<ext>` and `deliverable:<name>` for the rest). Numeric checks
+read only numbers the host measures (decision 11): `deliverableCount`,
+`deliverableWords`, `deliverableLines`, `deliverableLinks`,
+`deliverableTableRows`, `deliverableListItems` and `deliverableSections`, or a
+field of a handed-in JSON file (`outputPath` with `target: "artifact:deliverable.json"`).
+Checks look at results, never at which agent did the work.
+
+Second opinions run on a model other than the worker's (decisions 10 and 12):
+the rubric judge, and the reviewer that must agree a task is impossible in
+principle before an agent may give up. The candidates are the company's
+`judgeModels`, then each tier's model. The owner is never the judge.
+
+The owner can change a goal at any time with `PUT /api/tasks/:id/goal`
+(objective, definition of done, checks); every unfinished task under it is told
+at its next step and the checks run against the new version. Agents never wait
+on the owner: `ask_owner` writes a question down with the assumption the agent
+is working on, listed at `GET /api/questions` and answered with
+`POST /api/tasks/:id/questions/:questionId/answer`.
 
 Evals. `npm run evals -w @generic-ai/app-generic-corp` replays every
 template's suite offline: a fresh company per attempt, the recorded turns on a
@@ -264,7 +293,7 @@ and numeric, rubric and trace validators.
 ## End-to-end, crash and load tests
 
 `e2e/` holds Playwright tests that start a real server (dashboard, API, cascade,
-approvals gate, durable queue) on a scripted model, so no key is needed and
+permissions gate, durable queue) on a scripted model, so no key is needed and
 nothing is spent. CI runs them in the `e2e` job of the Quality Gate workflow when the app or
 packages change.
 
@@ -275,8 +304,8 @@ npm run e2e -w @generic-ai/app-generic-corp
 ```
 
 - `golden-flows.spec.ts`: chat with the CEO, delegation to a VP (board and org
-  chart), and an outward action that waits for the owner's approval and then
-  runs exactly once.
+  chart), and an email refused because sending is off, shown on the
+  refused-actions list, then sent exactly once after the owner turns sending on.
 - `crash-resume.spec.ts`: the process is killed (SIGKILL) mid-turn; a new
   process over the same data picks the cascade up once the lease lapses and
   answers the owner, with the work done once.

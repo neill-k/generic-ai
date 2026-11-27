@@ -47,6 +47,10 @@ services:
 
   app:
     image: generic-corp:local
+    # Lets the entrypoint add the firewall rule that limits agent commands to
+    # the egress allowlist. The server itself runs without it.
+    cap_add:
+      - NET_ADMIN
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -4,7 +4,7 @@
 name: Back Office
 mission: >-
   Keep the business running: books closed on time, calendars and suppliers handled, and every
-  customer answered. Nothing is sent, booked or paid without the owner's approval.
+  customer answered. Nothing is sent, booked or paid unless the owner's permissions allow it.
 
 models:
   ceo: anthropic/claude-opus-5-5
@@ -13,8 +13,8 @@ models:
 
 tools:
   # Connectors for mailbox, calendar and shared documents. Each is off until its secrets are on
-  # the secrets screen; set enabled to true once they are. The approvals gate holds every send,
-  # booking and external write for the owner.
+  # the secrets screen; set enabled to true once they are. Sending, booking and external writes
+  # stay off until the owner turns them on in Permissions.
   mcp:
     servers:
       - id: email
@@ -36,19 +36,16 @@ tools:
         headers: { Authorization: "Bearer ${DOCUMENTS_MCP_TOKEN}" }
         enabled: false
 
-# Payments are refused outright; sending, booking and writing to outside systems wait for the
-# owner.
-approvals:
-  rules:
-    - id: no-payments
-      decision: deny
-      effects: [payment.spend]
-      reason: The back office never moves money. Prepare the payment and ask the owner to make it.
-    - id: outward-actions
-      decision: require_approval
-      effects: [message.send, external.write, mcp.write]
-      reason: This reaches outside the company, so the owner signs off first.
-  defaultDecision: allow
+# Starting permissions. The back office reads mail, calendars and documents, and drafts replies,
+# bookings and payments for the owner; nothing is sent, booked or paid until the owner turns that
+# on in Permissions.
+permissions:
+  readOutside: true
+  sendMessages: false
+  spendMoney: false
+  writeOutside: false
+  standingRules:
+    - Never move money. Prepare the payment and leave it for the owner.
 
 agents:
   - id: manager
@@ -58,10 +55,9 @@ agents:
       You run the back office for its owner. Send finance work to the Head of Finance, scheduling
       and suppliers to the Head of Operations, and customer messages to the Head of Support.
       Answer the owner with the result and the decisions only they can make. When the answer
-      includes figures or a document, have the document saved in this goal's deliverables folder
-      on the drive and end your reply with a fenced JSON block with the figures and the
-      deliverable, for example
-      {"deliverable": {"path": "drive/goals/<goal id>/deliverables/close.md"}, "total": 0}.
+      includes figures or a document, have them saved in this goal's deliverables folder on the
+      drive (figures as a JSON file) and hand the files in with submit_work, so the owner and the
+      goal checks can open them.
 
   - id: head-finance
     role: head-finance
@@ -112,7 +108,7 @@ agents:
     secrets: ["HELPDESK_*"]
     instructions: >-
       You draft replies to customers in a warm, plain voice. Drafts go in your workspace for
-      review; sending waits for the owner's approval.
+      review; sending is refused unless the owner has turned it on.
 
 goals:
   - id: month-end-close
@@ -138,19 +134,17 @@ goals:
         - The total and the total for each category are correct to the cent.
         - Every likely duplicate or error is flagged with the reason.
         - The totals come from a script the bookkeeper ran, kept for next month.
-        - A close note in the bookkeeper's workspace shows the totals and the flags.
+        - The totals are handed in as a JSON file (total, byCategory, flagged) beside a Markdown close note showing the totals and the flags.
       maxAttempts: 3
       validators:
-        - id: figures-reported
+        - id: figures-handed-in
           kind: output_schema
-          description: The final reply gives the total, the totals by category and the flags.
+          description: The totals were handed in as a JSON file with the total, the category totals and the flags.
+          target: "artifact:deliverable.json"
           schema:
             type: object
-            required: [deliverable, total, byCategory, flagged]
+            required: [total, byCategory, flagged]
             properties:
-              deliverable:
-                type: object
-                required: [agent, path]
               total: { type: number }
               byCategory:
                 type: object
@@ -164,7 +158,7 @@ goals:
         - id: total
           kind: numeric
           description: The month's total is right.
-          source: { outputPath: total }
+          source: { outputPath: total, target: "artifact:deliverable.json" }
           operator: eq
           value: 2337.75
           tolerance: 0.005
@@ -172,7 +166,7 @@ goals:
         - id: travel
           kind: numeric
           description: The travel total is right.
-          source: { outputPath: byCategory.Travel }
+          source: { outputPath: byCategory.Travel, target: "artifact:deliverable.json" }
           operator: eq
           value: 848.5
           tolerance: 0.005
@@ -180,7 +174,7 @@ goals:
         - id: office
           kind: numeric
           description: The office total is right.
-          source: { outputPath: byCategory.Office }
+          source: { outputPath: byCategory.Office, target: "artifact:deliverable.json" }
           operator: eq
           value: 280.95
           tolerance: 0.005
@@ -188,13 +182,13 @@ goals:
         - id: duplicate-flagged
           kind: numeric
           description: The second CloudCo charge is flagged.
-          source: { outputPath: flagged.0.amount }
+          source: { outputPath: flagged.0.amount, target: "artifact:deliverable.json" }
           operator: eq
           value: 420
           tolerance: 0.005
         - id: note-quality
           kind: rubric
-          target: "artifact:deliverable"
+          target: "artifact:deliverable.md"
           passThreshold: 0.75
           criteria:
             - id: figures
@@ -207,9 +201,9 @@ goals:
               description: The note says how the totals were computed and where the script is.
         - id: scripted
           kind: trace
-          description: The bookkeeper ran a script for the totals.
+          description: A script computed the totals.
           require:
-            - { tool: bash, role: bookkeeper }
+            - { tool: bash }
 
   - id: support-replies
     title: Support replies
@@ -227,23 +221,28 @@ goals:
         - One reply per customer, each answering their actual question.
         - Ana is offered a refund, Ben an exchange instead of a refund, and Chloe a tracking update.
         - No reply promises a shipping refund or anything else outside the policy.
-        - Nothing is sent; the drafts are in the support agent's workspace.
+        - Nothing is sent; the drafts are one Markdown file with a section per customer.
       maxAttempts: 3
       validators:
-        - id: drafts-reported
+        - id: handed-in
           kind: output_schema
+          description: The drafts were handed in as a Markdown file.
           schema:
             type: object
-            required: [deliverable, drafts]
+            required: [summary, deliverables]
             properties:
-              deliverable:
-                type: object
-                required: [agent, path]
-              drafts: { type: integer }
+              deliverables:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [path]
+                  properties:
+                    path: { type: string, pattern: "\\.md$" }
         - id: three-drafts
           kind: numeric
-          description: Exactly three drafts.
-          source: { outputPath: drafts }
+          description: Exactly three drafts (second-level sections, counted by the host).
+          source: { metric: deliverableSections }
           operator: eq
           value: 3
         - id: replies-quality
@@ -262,6 +261,6 @@ goals:
               description: Warm, plain and short; no jargon.
         - id: drafted-not-sent
           kind: trace
-          description: The support agent wrote the drafts in its workspace.
+          description: The drafts were written to a file.
           require:
-            - { tool: write, role: support-agent }
+            - { tool: write }

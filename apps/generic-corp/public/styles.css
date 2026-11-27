@@ -762,41 +762,37 @@ pre,
 .badge[hidden] {
   display: none;
 }
-.approval-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
+.permissions-form {
+  display: grid;
+  gap: 10px;
 }
-.approval-head h2 {
-  margin: 0;
+.permissions-form h2 {
+  margin: 12px 0 0;
 }
-.effects {
-  color: var(--waiting);
-  font-weight: 500;
+.permissions-form h2:first-child {
+  margin-top: 0;
 }
-.approval-input {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+.permissions-form textarea {
+  width: 100%;
+  font-family: var(--mono, ui-monospace, monospace);
   font-size: 13px;
 }
-.approval-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  gap: 8px;
+.permission-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
 }
-@media (max-width: 640px) {
-  .approval-actions {
-    grid-template-columns: 1fr 1fr;
-  }
-  .approval-actions input {
-    grid-column: 1 / -1;
-  }
+.permission-row input {
+  flex: none;
+  width: auto;
+  margin: 0;
+}
+.permission-row span {
+  flex: 1;
+}
+.refusals td {
+  vertical-align: top;
+  word-break: break-word;
 }
 .section-title {
   margin: 8px 0 0;

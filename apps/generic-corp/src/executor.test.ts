@@ -37,6 +37,15 @@ function fauxModels() {
   return { provider, resolveModel };
 }
 
+/** The smallest goal an agent can draft: the hand-in has a summary. */
+const TRIVIAL_GOAL = {
+  objective: "Do what the owner asked.",
+  definitionOfDone: ["The work is handed in with a summary."],
+  validators: [
+    { id: "handed-in", kind: "output_schema", schema: { type: "object", required: ["summary"] } },
+  ],
+};
+
 describe("company task executor on the native runtime", () => {
   it("runs each agent on its tier's model, in its home, and persists the harness runs", async () => {
     const dataDir = mkdtempSync(path.join(tmpdir(), "generic-corp-exec-"));
@@ -47,10 +56,15 @@ describe("company task executor on the native runtime", () => {
     const { provider, resolveModel } = fauxModels();
     const seenModels: string[] = [];
     provider.setResponses([
-      // CEO turn 1: delegate to the engineer.
+      // CEO turn 1: set the goal, then delegate to the engineer.
       (_context, _options, _state, model) => {
         seenModels.push(model.id);
-        return fauxAssistantMessage(
+        return fauxAssistantMessage([fauxToolCall("set_goal", TRIVIAL_GOAL)], {
+          stopReason: "toolUse",
+        });
+      },
+      () =>
+        fauxAssistantMessage(
           [
             fauxToolCall("stop_and_respond", {
               response:
@@ -58,8 +72,7 @@ describe("company task executor on the native runtime", () => {
             }),
           ],
           { stopReason: "toolUse" },
-        );
-      },
+        ),
       // Engineer: write a file in its workspace, then answer.
       (_context, _options, _state, model) => {
         seenModels.push(model.id);
@@ -69,17 +82,36 @@ describe("company task executor on the native runtime", () => {
         );
       },
       () =>
-        fauxAssistantMessage([fauxToolCall("stop_and_respond", { response: "Wrote hello.txt." })], {
+        fauxAssistantMessage(
+          [
+            fauxToolCall("submit_work", {
+              summary: "Wrote hello.txt.",
+              deliverables: [{ path: "workspace/hello.txt" }],
+            }),
+          ],
+          { stopReason: "toolUse" },
+        ),
+      () =>
+        fauxAssistantMessage([fauxToolCall("stop_and_respond", { response: "Handed in." })], {
           stopReason: "toolUse",
         }),
-      // CEO turn 2: report back.
+      // CEO turn 2: hand in.
       (_context, _options, _state, model) => {
         seenModels.push(model.id);
         return fauxAssistantMessage(
-          [fauxToolCall("stop_and_respond", { response: "Done: the engineer wrote hello.txt." })],
+          [
+            fauxToolCall("submit_work", {
+              summary: "Done: the engineer wrote hello.txt.",
+              deliverables: [],
+            }),
+          ],
           { stopReason: "toolUse" },
         );
       },
+      () =>
+        fauxAssistantMessage([fauxToolCall("stop_and_respond", { response: "Handed in." })], {
+          stopReason: "toolUse",
+        }),
     ]);
 
     const executor = createCompanyTaskExecutor({

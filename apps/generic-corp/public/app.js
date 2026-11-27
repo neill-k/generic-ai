@@ -154,7 +154,7 @@ const VIEWS = {
   tools: renderTools,
   secrets: renderSecrets,
   power: renderModelAuth,
-  approvals: renderApprovals,
+  permissions: renderPermissions,
   drive: renderDrive,
   deliverables: renderDeliverables,
   memory: renderMemory,
@@ -195,7 +195,7 @@ function scheduleRefresh() {
     state.view === "secrets" ||
     state.view === "power" ||
     state.view === "tools" ||
-    state.view === "approvals" ||
+    state.view === "permissions" ||
     state.view === "memory"
   ) {
     return;
@@ -231,7 +231,6 @@ function connectLiveEvents() {
     "task.succeeded",
     "task.failed",
     "task.cancelled",
-    "task.awaiting_approval",
     "thread.updated",
     "drive.updated",
     "drive.goal.updated",
@@ -955,7 +954,7 @@ async function renderTools() {
       h(
         "p",
         { class: "subtitle" },
-        "Every agent works with these tools in its own home folder. Actions that send messages, change outside systems or spend money wait for your approval.",
+        "Every agent works with these tools in its own home folder. What they may do outside the company is set under Permissions.",
       ),
       h(
         "div",
@@ -1413,179 +1412,192 @@ async function renderSecrets(message) {
 }
 
 // ---------------------------------------------------------------------------
-// Approvals
+// Permissions and refused actions
 // ---------------------------------------------------------------------------
 
-const APPROVAL_STATUS = {
-  pending: "waiting",
-  approved: "succeeded",
-  rejected: "failed",
-  denied: "failed",
-  expired: "cancelled",
-  cancelled: "cancelled",
+const PERMISSION_TOGGLES = [
+  ["readOutside", "Read outside systems", "Connector reads, web pages and web search."],
+  ["sendMessages", "Send messages on my behalf", "Email, chat, posts and invites."],
+  ["spendMoney", "Spend money", "Payments and purchases."],
+  ["writeOutside", "Write to outside systems", "Create, change or delete records elsewhere."],
+];
+
+const GITHUB_TOGGLES = [
+  ["push", "Push branches"],
+  ["openPullRequests", "Open pull requests"],
+  ["merge", "Merge pull requests (only with green checks)"],
+];
+
+const REFUSAL_CATEGORIES = {
+  network: "Network",
+  "read-outside": "Reading outside systems",
+  "send-messages": "Sending messages",
+  "spend-money": "Spending money",
+  "write-outside": "Writing to outside systems",
+  github: "GitHub",
 };
 
-const EFFECT_LABELS = {
-  "message.send": "Sends a message",
-  "external.write": "Changes an outside system",
-  "payment.spend": "Spends money",
-  "mcp.write": "Writes through a connector",
-};
+const lines = (text) =>
+  text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 
-async function updateApprovalBadge() {
-  const badge = document.getElementById("approvals-badge");
-  if (!badge) {
-    return;
-  }
-  try {
-    const { approvals } = await api("/approvals?status=pending&limit=100");
-    badge.textContent = String(approvals.length);
-    badge.hidden = approvals.length === 0;
-  } catch {
-    badge.hidden = true;
-  }
-}
-
-function connectApprovalEvents() {
-  const source = new EventSource("/api/approvals/stream");
-  const refresh = () => {
-    updateApprovalBadge();
-    if (state.view === "approvals" && document.getElementById("drawer").hidden) {
-      render();
-    }
+async function renderPermissions(message) {
+  const [{ permissions, saved }, { refusals }] = await Promise.all([
+    api("/permissions"),
+    api("/refusals?limit=100"),
+  ]);
+  const checkbox = (checked, label, hint) => {
+    const input = h("input", { type: "checkbox", checked });
+    return {
+      input,
+      row: h(
+        "label",
+        { class: "permission-row" },
+        input,
+        h(
+          "span",
+          {},
+          h("strong", {}, label),
+          hint ? h("span", { class: "muted" }, ` ${hint}`) : null,
+        ),
+      ),
+    };
   };
-  for (const type of [
-    "approval.requested",
-    "approval.approved",
-    "approval.rejected",
-    "approval.denied",
-    "approval.expired",
-    "approval.cancelled",
-    "approval.executed",
-    "approval.execution.failed",
-  ]) {
-    source.addEventListener(type, refresh);
-  }
-  source.addEventListener("ready", () => updateApprovalBadge());
-}
-
-function approvalCard(approval, onDecided) {
-  const comment = h("input", {
-    type: "text",
-    placeholder: "Note for the agent (optional)",
-    "aria-label": "Note for the agent",
-    maxlength: "2000",
+  const toggles = PERMISSION_TOGGLES.map(([key, label, hint]) => ({
+    key,
+    ...checkbox(permissions[key], label, hint),
+  }));
+  const githubToggles = GITHUB_TOGGLES.map(([key, label]) => ({
+    key,
+    ...checkbox(permissions.github[key], label),
+  }));
+  const repos = h("textarea", {
+    rows: "3",
+    "aria-label": "GitHub repositories",
+    placeholder: "owner/name",
   });
-  const error = h("p", { class: "form-error", role: "alert", hidden: true });
-  const decide = (verdict) => async (event) => {
-    const buttons = event.target.parentElement.querySelectorAll("button");
-    for (const button of buttons) {
-      button.disabled = true;
+  repos.value = permissions.github.repos.join("\n");
+  const hosts = h("textarea", { rows: "6", "aria-label": "Hosts shell commands may reach" });
+  hosts.value = permissions.shellHosts.join("\n");
+  const rules = h("textarea", {
+    rows: "5",
+    "aria-label": "Standing rules",
+    placeholder: "One rule per line",
+  });
+  rules.value = permissions.standingRules.join("\n");
+  const formError = h("p", { class: "form-error", role: "alert", hidden: true });
+
+  const save = async (event) => {
+    event.preventDefault();
+    const body = {
+      github: { repos: lines(repos.value) },
+      shellHosts: lines(hosts.value),
+      standingRules: lines(rules.value),
+    };
+    for (const toggle of toggles) {
+      body[toggle.key] = toggle.input.checked;
+    }
+    for (const toggle of githubToggles) {
+      body.github[toggle.key] = toggle.input.checked;
     }
     try {
-      await api(`/approvals/${encodeURIComponent(approval.approvalId)}/${verdict}`, {
-        method: "POST",
-        body: JSON.stringify(comment.value.trim() ? { comment: comment.value.trim() } : {}),
-      });
-      await onDecided();
-    } catch (failure) {
-      error.textContent = failure.message;
-      error.hidden = false;
-      for (const button of buttons) {
-        button.disabled = false;
-      }
+      await api("/permissions", { method: "PUT", body: JSON.stringify(body) });
+      await renderPermissions("Saved. Agents work under these permissions from their next step.");
+    } catch (error) {
+      formError.textContent = error.message;
+      formError.hidden = false;
     }
   };
-  const effects = approval.action.effects.map((effect) => EFFECT_LABELS[effect]).filter(Boolean);
-  const pending = approval.status === "pending";
-  return h(
-    "article",
-    { class: "panel approval" },
-    h(
-      "header",
-      { class: "approval-head" },
-      h("h2", {}, approval.action.summary || approval.action.name),
-      h(
-        "span",
-        { class: `status status-${APPROVAL_STATUS[approval.status] ?? "queued"}` },
-        approval.status,
-      ),
-    ),
-    h(
-      "p",
-      { class: "muted" },
-      `${approval.requester.agentId} wants to run `,
-      h("code", {}, approval.action.name),
-      ` · ${formatTime(approval.createdAt)}`,
-      approval.expiresAt && pending ? ` · expires ${formatTime(approval.expiresAt)}` : "",
-    ),
-    effects.length > 0 ? h("p", { class: "effects" }, effects.join(" · ")) : null,
-    approval.action.inputOmitted
-      ? h("p", { class: "muted" }, "The input is too large to show here.")
-      : h("pre", { class: "approval-input" }, JSON.stringify(approval.action.input ?? {}, null, 2)),
-    approval.requester.taskId
-      ? h(
-          "p",
-          {},
-          h(
-            "button",
-            {
-              type: "button",
-              class: "ghost",
-              onClick: () => showTask(approval.requester.taskId),
-            },
-            "Open the task",
-          ),
-        )
-      : null,
-    approval.decision
-      ? h(
-          "p",
-          { class: "muted" },
-          `${approval.decision.decision === "approved" ? "Approved" : "Rejected"} by ${approval.decision.decidedBy.subjectId} · ${formatTime(approval.decision.decidedAt)}`,
-          approval.decision.comment ? ` · "${approval.decision.comment}"` : "",
-        )
-      : null,
-    pending
-      ? h(
-          "div",
-          { class: "approval-actions" },
-          comment,
-          h("button", { type: "button", onClick: decide("approve") }, "Approve"),
-          h("button", { type: "button", class: "ghost", onClick: decide("reject") }, "Reject"),
-        )
-      : null,
-    error,
-  );
-}
 
-async function renderApprovals() {
-  const [{ approvals: pending }, { approvals: recent }] = await Promise.all([
-    api("/approvals?status=pending&limit=100"),
-    api("/approvals?status=approved,rejected,denied,expired,cancelled&limit=20"),
-  ]);
-  const reload = async () => {
-    await renderApprovals();
-    await updateApprovalBadge();
-  };
   setView(
     h(
       "div",
       {},
-      h("h1", {}, "Approvals"),
+      h("h1", {}, "Permissions"),
       h(
         "p",
         { class: "subtitle" },
-        "Agents ask before they send messages, change outside systems or spend money. An approved action runs once, exactly as shown. Its task picks up where it left off.",
+        "What your agents may do outside the company. Anything else is refused on the spot and listed below; nobody waits for you.",
       ),
       h(
         "div",
         { style: "display: grid; gap: 16px" },
-        pending.length === 0
-          ? h("div", { class: "panel" }, h("p", { class: "muted" }, "Nothing is waiting for you."))
-          : pending.map((approval) => approvalCard(approval, reload)),
-        recent.length > 0 ? h("h2", { class: "section-title" }, "Recently decided") : null,
-        recent.map((approval) => approvalCard(approval, reload)),
+        message ? h("div", { class: "notice", role: "status" }, message) : null,
+        h(
+          "form",
+          { class: "panel permissions-form", onSubmit: save },
+          h("h2", {}, "Allowed"),
+          toggles.map((toggle) => toggle.row),
+          h("h2", {}, "GitHub"),
+          h("p", { class: "muted" }, "Repositories agents may write to, one owner/name per line."),
+          repos,
+          githubToggles.map((toggle) => toggle.row),
+          h("h2", {}, "Network for shell commands"),
+          h(
+            "p",
+            { class: "muted" },
+            "Hosts agents' shell commands may reach, one per line (*.example.com for subdomains). Web pages are read through the web tools instead.",
+          ),
+          hosts,
+          h("h2", {}, "Standing rules"),
+          h("p", { class: "muted" }, "Every agent gets these at the start of every turn."),
+          rules,
+          h(
+            "p",
+            {},
+            h("button", { type: "submit" }, "Save"),
+            saved ? null : h("span", { class: "muted" }, " Showing the company config's defaults."),
+          ),
+          formError,
+        ),
+        h(
+          "div",
+          { class: "panel" },
+          h("h2", {}, "Refused actions"),
+          refusals.length === 0
+            ? h("p", { class: "muted" }, "Nothing has been refused.")
+            : h(
+                "table",
+                { class: "refusals" },
+                h(
+                  "thead",
+                  {},
+                  h(
+                    "tr",
+                    {},
+                    h("th", {}, "When"),
+                    h("th", {}, "Agent"),
+                    h("th", {}, "What"),
+                    h("th", {}, "Why"),
+                  ),
+                ),
+                h(
+                  "tbody",
+                  {},
+                  refusals.map((refusal) =>
+                    h(
+                      "tr",
+                      {},
+                      h("td", { class: "muted" }, formatTime(refusal.at)),
+                      h("td", {}, refusal.agentId ?? "unknown"),
+                      h(
+                        "td",
+                        {},
+                        h("code", {}, refusal.action),
+                        h(
+                          "div",
+                          { class: "muted small" },
+                          REFUSAL_CATEGORIES[refusal.category] ?? refusal.category,
+                        ),
+                      ),
+                      h("td", {}, refusal.reason),
+                    ),
+                  ),
+                ),
+              ),
+        ),
       ),
     ),
   );
@@ -2288,7 +2300,6 @@ async function start() {
     }
   }
   connectLiveEvents();
-  connectApprovalEvents();
   route();
 }
 

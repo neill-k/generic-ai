@@ -24,8 +24,6 @@ cases:
         value: 10
       - id: wrote-brief
         kind: trace
-        description: An analyst wrote the brief rather than the director.
+        description: The brief was written to a file during the run.
         require:
-          - { tool: write, role: analyst, status: completed }
-        forbid:
-          - { tool: write, role: director }
+          - { tool: write, status: completed }

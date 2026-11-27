@@ -179,6 +179,11 @@ export interface CreateCompanyToolkitOptions {
   /** Runs agent shell commands as another OS user (see `resolveAgentIsolation`). */
   readonly runAs?: TerminalRunAsUser;
   /**
+   * Extra variables for one agent's shell commands: the egress proxy settings (see egress.ts),
+   * which point every command at the company's network allowlist.
+   */
+  readonly commandEnv?: (agentId: string) => Readonly<Record<string, string>>;
+  /**
    * Root and starting directory of a turn's file tools and shell. Defaults to the agent's home;
    * the app server passes the company root so every agent sees the shared drive (see drive.ts).
    */
@@ -275,11 +280,16 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
   const grants = new Map(options.company.agents.map((agent) => [agent.id, agent.secrets] as const));
   const skillDirs = options.skillDirs ?? [COMPANY_SKILLS_DIR];
 
-  const build = (root: string) => {
+  const build = (root: string, agentId?: string) => {
     const files = createWorkspaceFileTools({ root });
+    const commandEnv =
+      agentId === undefined || options.commandEnv === undefined
+        ? undefined
+        : options.commandEnv(agentId);
     const terminal = createTerminalToolPlugin({
       root,
       ...(options.runAs === undefined ? {} : { runAs: options.runAs }),
+      ...(commandEnv === undefined ? {} : { env: { ...commandEnv } }),
     });
     const web = createWebToolsPlugin({
       root,
@@ -296,6 +306,7 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
     capabilities(input) {
       const { files, terminal, web, documents } = build(
         options.toolRoot?.(input) ?? input.workspaceRoot,
+        input.agentId,
       );
       return {
         fileTools: { piTools: files.piTools },

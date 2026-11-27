@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
-import type { AgentTaskStatus } from "@generic-ai/plugin-delegation";
+import type { AgentTaskRecord, AgentTaskStatus, TaskGoalEdit } from "@generic-ai/plugin-delegation";
 import {
   AUTH_SCOPES,
   type AuthContext,
@@ -19,6 +19,8 @@ import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES }
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import type { MemoryBackgroundStore } from "./background.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
+import { type PermissionStore, PermissionsError } from "./permissions.js";
+import type { RefusalLog } from "./refusals.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
@@ -44,6 +46,8 @@ export interface CompanyApiOptions {
   readonly toolkit?: { describe(): CompanyToolkitDescription };
   /** The secrets vault, managed at `/api/secrets`. Values are never returned. */
   readonly secrets?: CompanySecretsAdmin;
+  /** Actions refused on the spot (network and permissions), listed at `/api/refusals`. */
+  readonly refusals?: RefusalLog;
   /** What powers the agents (Claude sign-in or API key), managed at `/api/model-auth`. */
   readonly modelAuth?: CompanyModelAuth;
   /** Background memory jobs: settings, pause, status, and running a scan now. */
@@ -51,6 +55,8 @@ export interface CompanyApiOptions {
     readonly store: MemoryBackgroundStore;
     scan(): Promise<unknown>;
   };
+  /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
+  readonly permissions?: PermissionStore;
 }
 
 /** What the secrets screen needs from the vault. */
@@ -496,6 +502,56 @@ export function createCompanyApi(
     return c.json({ deleted: true });
   });
 
+  // --- Permissions -----------------------------------------------------------
+  // Only the owner writes these. No agent tool reaches them, and nothing else in the app does.
+
+  const requirePermissions = (): PermissionStore => {
+    if (options.permissions === undefined) {
+      throw new ApiError(404, "Permissions are not available.");
+    }
+    return options.permissions;
+  };
+
+  const permissionsView = (store: PermissionStore) => ({
+    permissions: store.current(),
+    saved: store.saved(),
+  });
+
+  app.get("/permissions", (c) => c.json(permissionsView(requirePermissions())));
+
+  app.put("/permissions", async (c) => {
+    const store = requirePermissions();
+    requireManage(c);
+    try {
+      await store.update(await readJsonObject(c), c.get("auth").subject.subjectId);
+    } catch (error) {
+      if (error instanceof PermissionsError) {
+        throw new ApiError(400, error.message);
+      }
+      throw error;
+    }
+    return c.json(permissionsView(store));
+  });
+
+  app.delete("/permissions", async (c) => {
+    const store = requirePermissions();
+    requireManage(c);
+    await store.reset();
+    return c.json(permissionsView(store));
+  });
+
+  // --- Refused actions -----------------------------------------------------
+
+  app.get("/refusals", async (c) => {
+    const limit = Number(c.req.query("limit") ?? "100");
+    return c.json({
+      refusals:
+        options.refusals === undefined
+          ? []
+          : await options.refusals.list({ limit: Number.isFinite(limit) ? limit : 100 }),
+    });
+  });
+
   // --- What powers the agents: Claude sign-in or an API key ----------------
 
   const requireModelAuth = (): CompanyModelAuth => {
@@ -849,6 +905,66 @@ export function createCompanyApi(
     return c.json({ taskId: task.taskId, events: taskEvents, runs });
   });
 
+  // --- The goal of a request: the owner can change it at any time (decision 8) ------
+
+  app.get("/tasks/:taskId/goal", async (c) => {
+    const task = await runtime.cascade.get(c.req.param("taskId"));
+    if (task === undefined) {
+      throw new ApiError(404, "Task not found.");
+    }
+    return c.json(describeTaskGoal(task));
+  });
+
+  app.put("/tasks/:taskId/goal", async (c) => {
+    const body = await readJsonObject(c);
+    const taskId = c.req.param("taskId");
+    if ((await runtime.cascade.get(taskId)) === undefined) {
+      throw new ApiError(404, "Task not found.");
+    }
+    const edit = readGoalEdit(body);
+    const actor = toRunActor(c.get("auth"));
+    try {
+      const task = await runtime.cascade.updateGoal(taskId, edit, {
+        changedBy: actor.displayName ?? actor.subjectId,
+      });
+      return c.json(describeTaskGoal(task));
+    } catch (error) {
+      throw new ApiError(409, error instanceof Error ? error.message : String(error));
+    }
+  });
+
+  // --- Questions agents wrote down for the owner. They never block (decision 6). ----
+
+  app.get("/questions", async (c) => {
+    const open = c.req.query("all") !== "1" && c.req.query("all") !== "true";
+    const tasks = await runtime.listTasks({ limit: readLimit(c.req.query("limit"), 300, 2000) });
+    const questions = tasks.flatMap((task) =>
+      (task.ownerQuestions ?? [])
+        .filter((question) => !open || question.answer === undefined)
+        .map((question) => ({ ...question, taskId: task.taskId, rootTaskId: task.rootTaskId })),
+    );
+    questions.sort((left, right) => right.askedAt.localeCompare(left.askedAt));
+    return c.json({ questions });
+  });
+
+  app.post("/tasks/:taskId/questions/:questionId/answer", async (c) => {
+    const body = await readJsonObject(c);
+    const answer = body["answer"];
+    if (typeof answer !== "string" || answer.trim().length === 0) {
+      throw new ApiError(400, 'Send the answer as {"answer": "..."}.');
+    }
+    const taskId = c.req.param("taskId");
+    if ((await runtime.cascade.get(taskId)) === undefined) {
+      throw new ApiError(404, "Task not found.");
+    }
+    try {
+      const task = await runtime.cascade.answerQuestion(taskId, c.req.param("questionId"), answer);
+      return c.json({ questions: task.ownerQuestions ?? [] });
+    } catch (error) {
+      throw new ApiError(404, error instanceof Error ? error.message : String(error));
+    }
+  });
+
   app.post("/tasks/:taskId/cancel", async (c) => {
     const body = await readJsonObject(c);
     const reason = typeof body["reason"] === "string" ? body["reason"] : "Cancelled by the owner.";
@@ -926,4 +1042,66 @@ export function createCompanyApi(
   app.notFound((c) => errorResponse(c, 404, "Not found."));
 
   return app;
+}
+
+/** A request's goal as the owner sees it: what done means, how it is checked, and its history. */
+export function describeTaskGoal(task: AgentTaskRecord) {
+  const spec = task.goal?.spec;
+  return {
+    taskId: task.taskId,
+    status: task.status,
+    drafting: task.goalDraft === "pending",
+    ...(task.goalRevision === undefined ? {} : { revision: task.goalRevision }),
+    ...(spec === undefined
+      ? task.goal?.definitionOfDone === undefined
+        ? {}
+        : { definitionOfDone: task.goal.definitionOfDone.split("\n") }
+      : {
+          goalId: spec.id,
+          objective: spec.objective,
+          definitionOfDone: spec.definitionOfDone,
+          checks: spec.validators.map((validator) => ({
+            id: validator.id,
+            kind: validator.kind,
+            ...(validator.description === undefined ? {} : { description: validator.description }),
+            required: validator.required !== false,
+          })),
+        }),
+    history: task.goalHistory ?? [],
+    ...(task.lastGoalReport === undefined ? {} : { lastReport: task.lastGoalReport }),
+    ...(task.handIn === undefined ? {} : { handIn: task.handIn }),
+    ...(task.impossible === undefined ? {} : { impossible: task.impossible }),
+  };
+}
+
+/** Reads `{ definitionOfDone: string[] | string, objective?, title? }` for a goal edit. */
+function readGoalEdit(body: Record<string, unknown>): TaskGoalEdit {
+  const raw = body["definitionOfDone"];
+  const lines =
+    typeof raw === "string"
+      ? raw.split(/\r?\n/)
+      : Array.isArray(raw) && raw.every((line) => typeof line === "string")
+        ? (raw as string[])
+        : undefined;
+  const definitionOfDone = lines
+    ?.map((line) => line.replace(/^\s*[-*]\s+/, "").trim())
+    .filter((line) => line.length > 0);
+  const objective = body["objective"];
+  const title = body["title"];
+  if (definitionOfDone === undefined && typeof objective !== "string") {
+    throw new ApiError(
+      400,
+      'Send the new definition of done as {"definitionOfDone": ["...", "..."]}, and optionally "objective".',
+    );
+  }
+  if (definitionOfDone !== undefined && definitionOfDone.length === 0) {
+    throw new ApiError(400, "The definition of done needs at least one line.");
+  }
+  return {
+    ...(definitionOfDone === undefined ? {} : { definitionOfDone }),
+    ...(typeof objective === "string" && objective.trim().length > 0
+      ? { objective: objective.trim() }
+      : {}),
+    ...(typeof title === "string" && title.trim().length > 0 ? { title: title.trim() } : {}),
+  };
 }

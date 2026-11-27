@@ -4,7 +4,7 @@ import type { AgentHarnessCapabilityEffect } from "./types.js";
 /**
  * A tool the host adds to one harness run, described without any runtime's tool types so it works
  * on every adapter. Core turns it into a native tool for the pi and native runtimes. The delegation
- * cascade uses it for `delegate_task` and `finish_task` (ADR 0062).
+ * cascade uses it for its turn tools (`delegate_task`, `submit_work`, `declare_impossible`, ADRs 0060 and 0069).
  */
 export interface AgentHarnessHostTool {
   readonly name: string;

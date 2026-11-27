@@ -18,10 +18,8 @@ agents:
       You run Generic Corp for its owner. Turn each request from the owner into a clear goal
       with a definition of done, delegate the work to the VP who owns that area, review what
       comes back, and answer the owner plainly. Do small things yourself. When the answer is a
-      document, have it saved in this goal's deliverables folder on the drive and end your reply
-      with a fenced JSON block naming it, for example
-      {"deliverable": {"path": "drive/goals/<goal id>/deliverables/brief.md"}}, so the owner and
-      the goal checks can open it.
+      document, have it saved in this goal's deliverables folder on the drive and hand it in
+      with submit_work, naming the file, so the owner and the goal checks can open it.
 
   - id: vp-research
     role: vp-research
@@ -37,7 +35,7 @@ agents:
     reportsTo: ceo
     instructions: >-
       You own operations: plans, schedules, correspondence drafts, spreadsheets and reports.
-      Anything that leaves the company waits for the owner's approval.
+      Nothing leaves the company unless the owner's permissions allow it.
 
   - id: vp-engineering
     role: vp-engineering
@@ -73,36 +71,36 @@ goals:
     goal:
       objective: A launch plan the owner can run from without asking follow-up questions.
       definitionOfDone:
-        - The plan is a Markdown file with at least eight dated tasks, each with one owner.
+        - The plan is a Markdown file with a table of at least eight dated tasks, each with one owner.
         - Tasks are in date order and end on launch day.
         - It lists at least three risks, each with a fallback.
       maxAttempts: 3
       validators:
-        - id: plan-named
+        - id: handed-in
           kind: output_schema
-          description: The final reply names the plan and how many tasks and risks it has.
+          description: The plan was handed in as a Markdown file.
           schema:
             type: object
-            required: [deliverable, tasks, risks]
+            required: [summary, deliverables]
             properties:
-              deliverable:
-                type: object
-                required: [agent, path]
-                properties:
-                  agent: { type: string }
-                  path: { type: string, pattern: "\\.md$" }
-              tasks: { type: integer }
-              risks: { type: integer }
+              deliverables:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [path]
+                  properties:
+                    path: { type: string, pattern: "\\.md$" }
         - id: enough-tasks
           kind: numeric
-          description: At least eight tasks.
-          source: { outputPath: tasks }
+          description: At least eight tasks (rows in the plan's task table, counted by the host).
+          source: { metric: deliverableTableRows }
           operator: gte
           value: 8
         - id: enough-risks
           kind: numeric
-          description: At least three risks.
-          source: { outputPath: risks }
+          description: At least three risks (list items in the plan, counted by the host).
+          source: { metric: deliverableListItems }
           operator: gte
           value: 3
         - id: plan-length
@@ -126,12 +124,11 @@ goals:
               description: Each risk has a concrete fallback.
             - id: runnable
               description: Someone could run the launch from this plan alone.
-        - id: operations-did-it
+        - id: plan-written
           kind: trace
-          description: The CEO handed the plan to operations, and operations wrote it.
+          description: The plan was written to a file in the company's folders.
           require:
-            - { tool: delegate_task, role: ceo }
-            - { tool: write, role: operations-associate }
+            - { tool: write }
 
   - id: tool-comparison
     title: Tool comparison
@@ -142,26 +139,30 @@ goals:
     goal:
       objective: A sourced comparison that ends in one clear recommendation.
       definitionOfDone:
-        - A Markdown file compares exactly three tools on price, ease of use and offline use.
+        - A Markdown file compares exactly three tools in one table, a row per tool, on price, ease of use and offline use.
         - Each claim about a tool links to the page it came from.
         - It ends with one recommendation and the reason for it.
       maxAttempts: 3
       validators:
-        - id: comparison-named
+        - id: handed-in
           kind: output_schema
+          description: The comparison was handed in as a Markdown file.
           schema:
             type: object
-            required: [deliverable, recommendation, toolsCompared]
+            required: [summary, deliverables]
             properties:
-              deliverable:
-                type: object
-                required: [agent, path]
-              recommendation: { type: string, minLength: 1 }
-              toolsCompared: { type: integer }
+              deliverables:
+                type: array
+                minItems: 1
+                items:
+                  type: object
+                  required: [path]
+                  properties:
+                    path: { type: string, pattern: "\\.md$" }
         - id: three-tools
           kind: numeric
-          description: Exactly three tools are compared.
-          source: { outputPath: toolsCompared }
+          description: Exactly three tools are compared (rows in the comparison table, counted by the host).
+          source: { metric: deliverableTableRows }
           operator: eq
           value: 3
         - id: linked
@@ -186,7 +187,7 @@ goals:
               description: Ends with one recommendation and a reason tied to the owner's criteria.
         - id: researched
           kind: trace
-          description: The research team searched the web and opened the pages it cites.
+          description: The web was searched and the cited pages were opened.
           require:
-            - { tool: web_search, role: researcher }
-            - { tool: web_fetch, role: researcher, minCount: 3 }
+            - { tool: web_search }
+            - { tool: web_fetch, minCount: 3 }
