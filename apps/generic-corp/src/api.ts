@@ -11,6 +11,7 @@ import { bodyLimit } from "hono/body-limit";
 
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import type { CompanyEvent } from "./events.js";
+import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
@@ -35,6 +36,8 @@ export interface CompanyApiOptions {
   readonly toolkit?: { describe(): CompanyToolkitDescription };
   /** The secrets vault, managed at `/api/secrets`. Values are never returned. */
   readonly secrets?: CompanySecretsAdmin;
+  /** What powers the agents (Claude sign-in or API key), managed at `/api/model-auth`. */
+  readonly modelAuth?: CompanyModelAuth;
 }
 
 /** What the secrets screen needs from the vault. */
@@ -335,6 +338,61 @@ export function createCompanyApi(
       );
     }
     return c.json({ deleted: true });
+  });
+
+  // --- What powers the agents: Claude sign-in or an API key ----------------
+
+  const requireModelAuth = (): CompanyModelAuth => {
+    if (options.modelAuth === undefined) {
+      throw new ApiError(404, "Model sign-in is not available.");
+    }
+    return options.modelAuth;
+  };
+  const modelAuthCall = async <T>(call: () => Promise<T>): Promise<T> => {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof ModelAuthError) {
+        throw new ApiError(error.status === 502 ? 400 : error.status, error.message);
+      }
+      throw error;
+    }
+  };
+
+  app.get("/model-auth", async (c) => c.json(await requireModelAuth().status()));
+
+  app.post("/model-auth/claude/start", async (c) => {
+    const modelAuth = requireModelAuth();
+    requireManage(c);
+    return c.json(await modelAuthCall(() => modelAuth.startClaudeSignIn()));
+  });
+
+  app.post("/model-auth/claude/finish", async (c) => {
+    const modelAuth = requireModelAuth();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    const flowId = body["flowId"];
+    const code = body["code"];
+    if (typeof flowId !== "string" || typeof code !== "string") {
+      throw new ApiError(400, 'Send {"flowId": "...", "code": "..."}.');
+    }
+    return c.json(await modelAuthCall(() => modelAuth.finishClaudeSignIn(flowId, code)));
+  });
+
+  app.put("/model-auth/api-key", async (c) => {
+    const modelAuth = requireModelAuth();
+    requireManage(c);
+    const key = (await readJsonObject(c))["key"];
+    if (typeof key !== "string" || key.length > MAX_SECRET_CHARS) {
+      throw new ApiError(400, 'Send the key as {"key": "sk-ant-..."}.');
+    }
+    return c.json(await modelAuthCall(() => modelAuth.saveApiKey(key)));
+  });
+
+  app.delete("/model-auth", async (c) => {
+    const modelAuth = requireModelAuth();
+    requireManage(c);
+    return c.json(await modelAuthCall(() => modelAuth.signOut()));
   });
 
   // --- Agents and the org chart -------------------------------------------
