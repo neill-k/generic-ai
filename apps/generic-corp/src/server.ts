@@ -3,12 +3,6 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
-  approvalRequesterForTask,
-  createApprovalGate,
-  createApprovalRoutes,
-  createApprovalService,
-} from "@generic-ai/plugin-approvals";
-import {
   type AuthStore,
   authenticateOwnerRequest,
   createOwnerAuth,
@@ -17,6 +11,7 @@ import {
   type OwnerAuth,
   unauthorizedResponse,
 } from "@generic-ai/plugin-auth-identity";
+import type { ImpossibilityReviewer } from "@generic-ai/plugin-delegation";
 import {
   createSecretsFromEnvironment,
   SECRETS_KEY_ENV,
@@ -25,28 +20,44 @@ import {
 import {
   type AgentTaskExecutor,
   ALL_AUTH_SCOPES,
-  type ApprovalServiceContract,
   type AuthContext,
-  DEFAULT_APPROVAL_POLICY,
   type GoalCheck,
   type GoalJudge,
 } from "@generic-ai/sdk";
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
-import {
-  type CompanyConfig,
-  DEFAULT_COMPANY,
-  DEFAULT_TIER_MODELS,
-  parseCompanyYaml,
-} from "./company.js";
+import { type CompanyConfig, DEFAULT_COMPANY, parseCompanyYaml } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { companyLayout, createCompanyDrive } from "./drive.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
+import {
+  type AgentNetwork,
+  type AgentNetworkProbe,
+  createEgressProxy,
+  describeAgentNetwork,
+  type EgressProxy,
+  readAgentNetworkPolicy,
+  readEgressPort,
+  resolveAgentNetwork,
+} from "./egress.js";
+import {
+  COMPANY_GOAL_METRICS,
+  createCompanyGoalEvidence,
+  createCompanyHandInCheck,
+  createModelJudge,
+} from "./goals.js";
 import { createCompanyMemory } from "./memory.js";
 import { createMemoryTools } from "./memory-tools.js";
-import { createCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
+import {
+  DEFAULT_PERMISSIONS,
+  gateToolsWithPermissions,
+  openPermissionStore,
+  type PermissionStore,
+  permissionsBriefing,
+} from "./permissions.js";
+import { createRefusalLog, type RefusalLog } from "./refusals.js";
 import {
   type CompanyModelAuth,
   createCompanyModelAuth,
@@ -54,6 +65,11 @@ import {
   resolveProviderKeyFromEnv,
 } from "./model-auth.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
+import {
+  createModelImpossibilityReviewer,
+  secondOpinionModel,
+  workerModelOf,
+} from "./second-opinion.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
 import { DEFAULT_TEMPLATE, listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
 import { type CompanyToolkit, companySecretReferences, createCompanyToolkit } from "./toolkit.js";
@@ -117,6 +133,11 @@ export interface GenericCorpEnvironment {
   readonly turnLeaseMs?: number;
   /** Agent turns this process runs at the same time. Defaults to 4. */
   readonly workerConcurrency?: number;
+  /**
+   * Loopback port of the egress proxy agent commands go through (`GENERIC_CORP_EGRESS_PORT`,
+   * default 3128; the image's firewall rule names it). Left out, a free port is picked.
+   */
+  readonly egressPort?: number;
   /**
    * Minutes a turn may go without any tool activity before it is stopped and retried (the
    * no-progress check that replaced the turn time limit). Defaults to 15.
@@ -221,6 +242,7 @@ export function loadGenericCorpEnvironment(env: NodeJS.ProcessEnv): GenericCorpE
     workers: flag(env, ENV.workers, true),
     ...(turnLeaseMs === undefined ? {} : { turnLeaseMs }),
     ...(workerConcurrency === undefined ? {} : { workerConcurrency }),
+    egressPort: readEgressPort(env),
     ...(noProgressMinutes === undefined ? {} : { noProgressMinutes }),
   };
 }
@@ -262,8 +284,12 @@ export interface GenericCorpServer {
   readonly storage: CompanyStorage;
   readonly environment: GenericCorpEnvironment;
   readonly auth?: OwnerAuth;
-  /** Owner approvals for outward agent actions. */
-  readonly approvals: ApprovalServiceContract;
+  /** The owner's permissions, which every agent tool call is checked against. */
+  readonly permissions: PermissionStore;
+  /** Actions refused on the spot, for the owner to read. */
+  readonly refusals: RefusalLog;
+  /** How agent commands reach the network. */
+  readonly agentNetwork: AgentNetwork;
   stop(): Promise<void>;
 }
 
@@ -285,15 +311,19 @@ export interface CreateGenericCorpServerOptions {
   /** Replaces the generic-work toolkit, for tests. */
   readonly toolkit?: CompanyToolkit;
   /**
-   * Judges and checks for goals. Rubrics default to a model judge on the company's VP model;
-   * without a key for it, rubric checks report an error and the goal stays incomplete.
+   * Judges and checks for goals. Rubrics default to a model judge on a model other than the
+   * worker's (decision 12); without a key for it, rubric checks report an error and the goal
+   * stays incomplete. Impossibility claims default to a reviewer on such a model too.
    */
   readonly goals?: {
     readonly judges?: GoalJudge | Readonly<Record<string, GoalJudge>>;
+    readonly impossibility?: ImpossibilityReviewer;
     readonly checks?: Readonly<Record<string, GoalCheck>>;
   };
   /** How agent commands run. Defaults to `resolveAgentIsolation` over the environment. */
   readonly agentIsolation?: AgentIsolation;
+  /** Replaces the check that the agent user's firewall rule holds, for tests. */
+  readonly agentNetworkProbe?: AgentNetworkProbe;
   /**
    * What powers the agents: the owner's Claude sign-in or an API key. Defaults to a credential
    * file at `<dataDir>/model-auth.json`, falling back to the provider's key in the environment
@@ -315,6 +345,7 @@ export async function createGenericCorpServer(
   });
 
   let toolkit: CompanyToolkit | undefined;
+  let egress: EgressProxy | undefined;
   try {
     const secrets =
       options.secrets ??
@@ -339,6 +370,41 @@ export async function createGenericCorpServer(
     const agentIsolation =
       options.agentIsolation ?? resolveAgentIsolation(options.env ?? process.env);
     log(describeAgentIsolation(agentIsolation));
+    // The wall between the company and the outside world: agent shell commands reach the
+    // network only through the egress proxy and its allowlist (egress.ts).
+    const refusals = createRefusalLog(storage.kv);
+    // Permissions and standing rules live in host storage, which no agent tool can reach.
+    const permissions = await openPermissionStore(
+      storage.kv,
+      company.permissions ?? DEFAULT_PERMISSIONS,
+    );
+    const networkPolicy = readAgentNetworkPolicy(options.env ?? process.env);
+    const agentNetwork = await resolveAgentNetwork(
+      networkPolicy,
+      agentIsolation,
+      options.agentNetworkProbe,
+    );
+    log(describeAgentNetwork(agentNetwork));
+    if (networkPolicy !== "off") {
+      const proxy = createEgressProxy({
+        allow: () => permissions.current().shellHosts,
+        port: environment.egressPort ?? 0,
+        onRefused: (refusal) => {
+          void refusals
+            .record({
+              kind: "network",
+              ...(refusal.agentId === undefined ? {} : { agentId: refusal.agentId }),
+              category: "network",
+              action: `${refusal.method} ${refusal.host}:${refusal.port}`,
+              reason: refusal.reason,
+            })
+            .catch(() => undefined);
+        },
+      });
+      await proxy.start();
+      egress = proxy;
+    }
+    const egressProxy = egress;
     toolkit =
       options.toolkit ??
       createCompanyToolkit({
@@ -348,6 +414,9 @@ export async function createGenericCorpServer(
         // Every agent works from the company root: the shared drive and every agent's home.
         toolRoot: () => layout.root,
         ...(agentIsolation.runAs === undefined ? {} : { runAs: agentIsolation.runAs }),
+        ...(egressProxy === undefined
+          ? {}
+          : { commandEnv: (agentId: string) => egressProxy.envFor(agentId) }),
       });
     const companyToolkit = toolkit;
     // One memory system (decision 17): the company handbook and each agent's private memory, in
@@ -367,35 +436,39 @@ export async function createGenericCorpServer(
         ...createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId }),
       ],
     });
-    // Outward actions (messages, external writes, payments, writing MCP tools) wait for the
-    // owner. A gated call ends the agent's turn; the cascade parks the task as `waiting` and
-    // resumes it once every request is decided.
-    const approvals = createApprovalService({ runStore: storage.runStore });
-    const approvalPolicy = company.approvals ?? DEFAULT_APPROVAL_POLICY;
-    const executor =
+    // Every tool call is checked against the owner's permissions. An action outside them is
+    // refused on the spot and logged; nothing waits for the owner (design decision 37).
+    const defaultExecutor = createCompanyTaskExecutor({
+      capabilities: (input) =>
+        gateToolsWithPermissions(withMemoryTools(companyToolkit.capabilities(input), input), {
+          permissions: () => permissions.current(),
+          refusals,
+          agentId: input.agentId,
+          taskId: input.taskId,
+        }),
+      secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
+      ...(environment.noProgressMinutes === undefined
+        ? {}
+        : { noProgress: { idleMs: environment.noProgressMinutes * 60_000 } }),
+      ...options.executorOptions,
+      native: {
+        getAuth: (provider) => modelAuth.getAuth(provider),
+        ...options.executorOptions?.native,
+      },
+      runStore: storage.runStore,
+      artifactsRoot: path.join(environment.dataDir, "artifacts"),
+      sessionsRoot: path.join(environment.dataDir, "sessions"),
+    });
+    const executor: AgentTaskExecutor =
       options.executor ??
-      createCompanyTaskExecutor({
-        capabilities: (input) =>
-          createApprovalGate({
-            service: approvals,
-            requester: approvalRequesterForTask(input, input.actor),
-            policy: approvalPolicy,
-          }).wrapBindings(withMemoryTools(companyToolkit.capabilities(input), input)),
-        secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
-        ...(environment.noProgressMinutes === undefined
-          ? {}
-          : { noProgress: { idleMs: environment.noProgressMinutes * 60_000 } }),
-        ...options.executorOptions,
-        native: {
-          getAuth: (provider) => modelAuth.getAuth(provider),
-          ...options.executorOptions?.native,
-        },
-        runStore: storage.runStore,
-        artifactsRoot: path.join(environment.dataDir, "artifacts"),
-        sessionsRoot: path.join(environment.dataDir, "sessions"),
-      });
+      ((input) =>
+        defaultExecutor({
+          ...input,
+          prompt: `${permissionsBriefing(permissions.current())}\n${input.prompt}`,
+        }));
     // A goal on the CEO's task is the company's goal: it is checked against the whole team's
-    // work and the deliverable the CEO names (see goals.ts).
+    // work and the files handed in with submit_work (see goals.ts). Second opinions (the rubric
+    // judge, the impossibility reviewer) run on a model other than the worker's.
     let runtimeRef: CompanyRuntime | undefined;
     const started = () => {
       if (runtimeRef === undefined) {
@@ -403,6 +476,9 @@ export async function createGenericCorpServer(
       }
       return runtimeRef;
     };
+    // Deliverable paths are relative to the company root, as agents write them.
+    const companyRoot = layout.root;
+    const judgeByModel = new Map<string, GoalJudge>();
     const runtime = createCompanyRuntime({
       company,
       storage,
@@ -411,24 +487,43 @@ export async function createGenericCorpServer(
       memory,
       executor,
       cascade: {
-        approvals,
         worker: {
           concurrency: environment.workerConcurrency ?? DEFAULT_WORKER_CONCURRENCY,
           ...(environment.turnLeaseMs === undefined ? {} : { leaseMs: environment.turnLeaseMs }),
         },
+        checkHandIn: createCompanyHandInCheck({
+          companyRoot,
+        }),
+        impossibility:
+          options.goals?.impossibility ??
+          createModelImpossibilityReviewer({
+            modelFor: (agent) => secondOpinionModel(company, workerModelOf(company, agent)),
+            getAuth: (provider) => modelAuth.getAuth(provider),
+          }),
         goals: {
-          judges:
-            options.goals?.judges ??
-            createModelJudge({
-              model: company.models?.vp ?? DEFAULT_TIER_MODELS.vp,
-              getAuth: (provider) => modelAuth.getAuth(provider),
-            }),
+          ...(options.goals?.judges === undefined
+            ? {
+                judgesFor: ({ agent }) => {
+                  const model = secondOpinionModel(company, workerModelOf(company, agent));
+                  let judge = judgeByModel.get(model);
+                  if (judge === undefined) {
+                    judge = createModelJudge({
+                      model,
+                      getAuth: (provider) => modelAuth.getAuth(provider),
+                    });
+                    judgeByModel.set(model, judge);
+                  }
+                  return judge;
+                },
+              }
+            : { judges: options.goals.judges }),
+          metrics: COMPANY_GOAL_METRICS,
           ...(options.goals?.checks === undefined ? {} : { checks: options.goals.checks }),
           evidence: createCompanyGoalEvidence({
             runStore: storage.runStore,
             cascade: () => started().cascade,
             directory: () => started().directory,
-            drive,
+            companyRoot,
           }),
         },
       },
@@ -447,6 +542,7 @@ export async function createGenericCorpServer(
           ok: health.ok,
           storage: storage.driver,
           agentIsolation: agentIsolation.mode,
+          agentNetwork: agentNetwork.mode,
           ...(health.error ? { error: health.error } : {}),
         },
         health.ok ? 200 : 503,
@@ -490,24 +586,13 @@ export async function createGenericCorpServer(
     }
 
     const ownerAuth = auth;
-    // The approvals inbox comes before the company API, whose not-found handler covers /api.
-    app.route(
-      API_ROUTE_PREFIX,
-      createApprovalRoutes(approvals, {
-        authenticate: async (request) =>
-          ownerAuth === undefined
-            ? LOCAL_OWNER
-            : await authenticateOwnerRequest(ownerAuth, request),
-        onDecided: async (approval) => {
-          await runtime.cascade.approvalDecided(approval.approvalId);
-        },
-      }),
-    );
     app.route(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
         toolkit: companyToolkit,
+        refusals,
         modelAuth,
+        permissions,
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),
@@ -537,15 +622,19 @@ export async function createGenericCorpServer(
       storage,
       environment,
       ...(auth === undefined ? {} : { auth }),
-      approvals,
+      permissions,
+      refusals,
+      agentNetwork,
       async stop() {
         await runtime.stop();
         await companyToolkit.close();
+        await egressProxy?.stop();
         await storage.close();
       },
     };
   } catch (error) {
     await toolkit?.close();
+    await egress?.stop();
     await storage.close();
     throw error;
   }
