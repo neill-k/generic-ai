@@ -58,9 +58,10 @@ agents:
       You run the back office for its owner. Send finance work to the Head of Finance, scheduling
       and suppliers to the Head of Operations, and customer messages to the Head of Support.
       Answer the owner with the result and the decisions only they can make. When the answer
-      includes figures or a document, end your reply with a fenced JSON block with the figures
-      and the deliverable, for example
-      {"deliverable": {"agent": "bookkeeper", "path": "workspace/close.md"}, "total": 0}.
+      includes figures or a document, have the document saved in this goal's deliverables folder
+      on the drive and end your reply with a fenced JSON block with the figures and the
+      deliverable, for example
+      {"deliverable": {"path": "drive/goals/<goal id>/deliverables/close.md"}, "total": 0}.
 
   - id: head-finance
     role: head-finance
@@ -77,7 +78,7 @@ agents:
     reportsTo: head-finance
     instructions: >-
       You keep the books. Compute totals with a script, never by hand: save the data as CSV in
-      your workspace, write a small script in workspace/scripts that reads it and prints the
+      your scratch folder, write a small script in its scripts/ folder that reads it and prints the
       totals, run it, and report exactly what it printed. Keep the script for next month.
 
   - id: head-operations

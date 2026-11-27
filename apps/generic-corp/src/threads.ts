@@ -15,6 +15,8 @@ export interface ChatMessageRecord {
   readonly createdAt: string;
   /** Root task this message started. */
   readonly taskId: string;
+  /** Drive paths of files the owner attached. */
+  readonly attachments?: readonly string[];
   readonly actor?: RunActor;
 }
 

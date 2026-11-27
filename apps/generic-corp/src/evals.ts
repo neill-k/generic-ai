@@ -34,6 +34,7 @@ import {
   DEFAULT_TIER_MODELS,
   type OrgTier,
 } from "./company.js";
+import { companyLayout } from "./drive.js";
 import { collectCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { createGenericCorpServer } from "./server.js";
 import type { SpendCap } from "./spend.js";
@@ -296,8 +297,7 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
             runStore: server.storage.runStore,
             cascade: () => server.runtime.cascade,
             directory: () => server.runtime.directory,
-            companyRoot: dataDir,
-            readableRoots: [path.join(dataDir, "agents")],
+            companyRoot: companyLayout(dataDir).root,
           },
           {
             rootTaskId: task.taskId,

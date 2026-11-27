@@ -25,7 +25,8 @@ rerun, and the model does not have to work it out again.
 
 ## When you did the same thing twice
 
-1. Write it down as a script in `workspace/scripts/` (shell, Python or Node, whichever you used)
+1. Write it down as a script in the `scripts/` folder of your scratch folder
+   (`agents/<your id>/workspace/scripts/`; shell, Python or Node, whichever you used)
    that takes its inputs as arguments and prints its result. Run it once to prove it works.
 2. If the procedure needs judgment as well as steps, write a skill instead: create
    `.agents/skills/<short-name>/SKILL.md` in your home with a `name`, a one-line `description`

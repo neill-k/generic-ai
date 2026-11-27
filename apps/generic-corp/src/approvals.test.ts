@@ -83,7 +83,8 @@ describe("owner approvals in Generic Corp", () => {
     const gatedResults: string[] = [];
     provider.setResponses([
       // Turn 1: set the goal, then try to send; the gate holds the call.
-      () => fauxAssistantMessage([fauxToolCall("set_goal", TRIVIAL_GOAL)], { stopReason: "toolUse" }),
+      () =>
+        fauxAssistantMessage([fauxToolCall("set_goal", TRIVIAL_GOAL)], { stopReason: "toolUse" }),
       () => fauxAssistantMessage([fauxToolCall("send_email", email)], { stopReason: "toolUse" }),
       (context) => {
         const last = context.messages.at(-1);

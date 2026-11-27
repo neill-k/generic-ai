@@ -42,9 +42,9 @@ if (process.env.PROBE_EXPECT_ISOLATION === "user" && isolation.mode !== "user") 
 const dataDir = process.env.GENERIC_CORP_DATA_DIR ?? tmpdir();
 let root;
 if (isolation.mode === "user") {
-  // Like a real agent home: under the agents directory the entrypoint shares with `agent`.
-  await mkdir(path.join(dataDir, "agents"), { recursive: true });
-  root = await mkdtemp(path.join(dataDir, "agents", "probe-"));
+  // Like a real agent home: under the company folder the entrypoint shares with `agent`.
+  await mkdir(path.join(dataDir, "company", "agents"), { recursive: true });
+  root = await mkdtemp(path.join(dataDir, "company", "agents", "probe-"));
   await chmod(root, 0o2770); // mkdtemp makes it 0700; agent homes are group-shared.
 } else {
   root = await mkdtemp(path.join(tmpdir(), "agent-env-probe-"));

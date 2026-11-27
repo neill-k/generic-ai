@@ -17,6 +17,7 @@ import {
   type OwnerAuth,
   unauthorizedResponse,
 } from "@generic-ai/plugin-auth-identity";
+import type { ImpossibilityReviewer } from "@generic-ai/plugin-delegation";
 import {
   createSecretsFromEnvironment,
   SECRETS_KEY_ENV,
@@ -31,7 +32,6 @@ import {
   type GoalCheck,
   type GoalJudge,
 } from "@generic-ai/sdk";
-import type { ImpossibilityReviewer } from "@generic-ai/plugin-delegation";
 import { Hono } from "hono";
 
 import { API_ROUTE_PREFIX, createCompanyApi } from "./api.js";
@@ -42,6 +42,7 @@ import {
   parseCompanyYaml,
 } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
+import { companyLayout, createCompanyDrive } from "./drive.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
 import {
   COMPANY_GOAL_METRICS,
@@ -49,11 +50,6 @@ import {
   createCompanyHandInCheck,
   createModelJudge,
 } from "./goals.js";
-import {
-  createModelImpossibilityReviewer,
-  secondOpinionModel,
-  workerModelOf,
-} from "./second-opinion.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
 import {
   type CompanyModelAuth,
@@ -62,6 +58,11 @@ import {
   resolveProviderKeyFromEnv,
 } from "./model-auth.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
+import {
+  createModelImpossibilityReviewer,
+  secondOpinionModel,
+  workerModelOf,
+} from "./second-opinion.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
 import { DEFAULT_TEMPLATE, listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
 import { type CompanyToolkit, companySecretReferences, createCompanyToolkit } from "./toolkit.js";
@@ -317,6 +318,8 @@ export async function createGenericCorpServer(
     for (const name of secrets.weakNames()) {
       log(`Secret ${name} is too short to redact reliably. Use a longer value.`);
     }
+    const layout = companyLayout(environment.dataDir);
+    const drive = createCompanyDrive({ layout, kv: storage.kv });
     const processEnv = options.env ?? process.env;
     const modelAuth =
       options.modelAuth ??
@@ -335,6 +338,8 @@ export async function createGenericCorpServer(
         company,
         secrets,
         env: options.env ?? process.env,
+        // Every agent works from the company root: the shared drive and every agent's home.
+        toolRoot: () => layout.root,
         ...(agentIsolation.runAs === undefined ? {} : { runAs: agentIsolation.runAs }),
       });
     const companyToolkit = toolkit;
@@ -371,14 +376,14 @@ export async function createGenericCorpServer(
       }
       return runtimeRef;
     };
-    const agentsRoot = path.join(environment.dataDir, "agents");
-    // Deliverable paths are relative to the folder that holds the agents' homes.
-    const companyRoot = path.dirname(agentsRoot);
+    // Deliverable paths are relative to the company root, as agents write them.
+    const companyRoot = layout.root;
     const judgeByModel = new Map<string, GoalJudge>();
     const runtime = createCompanyRuntime({
       company,
       storage,
-      agentsRoot,
+      agentsRoot: layout.agentsRoot,
+      drive,
       executor,
       cascade: {
         approvals,
@@ -388,7 +393,6 @@ export async function createGenericCorpServer(
         },
         checkHandIn: createCompanyHandInCheck({
           companyRoot,
-          readableRoots: [agentsRoot],
         }),
         impossibility:
           options.goals?.impossibility ??
@@ -420,7 +424,6 @@ export async function createGenericCorpServer(
             cascade: () => started().cascade,
             directory: () => started().directory,
             companyRoot,
-            readableRoots: [agentsRoot],
           }),
         },
       },

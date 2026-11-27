@@ -29,9 +29,10 @@ agents:
       You run the research desk for its owner. Turn each request into a research task with a
       clear definition of done and hand it to the Head of Research. When the work needs checking
       before it reaches the owner, ask the Head of Editorial to review it. Answer the owner
-      plainly and briefly. When the answer is a document, end your reply with a fenced JSON
-      block naming it, for example
-      {"deliverable": {"agent": "analyst", "path": "workspace/brief.md"}, "sources": 5},
+      plainly and briefly. When the answer is a document, have it saved in this goal's
+      deliverables folder on the drive and end your reply with a fenced JSON block naming it,
+      for example
+      {"deliverable": {"path": "drive/goals/<goal id>/deliverables/brief.md"}, "sources": 5},
       so the owner and the goal checks can open it.
 
   - id: head-research
@@ -61,7 +62,7 @@ agents:
     instructions: >-
       You turn numbers into tables and charts the owner can check: CSV files, simple scripts
       that recompute totals, and a short note on method. Save repeatable calculations as
-      scripts in workspace/scripts.
+      scripts in the scripts/ folder of your scratch folder.
 
   - id: head-editorial
     role: head-editorial

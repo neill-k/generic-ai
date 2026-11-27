@@ -64,12 +64,6 @@ export interface CompanyGoalEvidenceOptions {
   readonly directory: () => Pick<AgentDirectory, "get">;
   /** The company root deliverable paths are relative to. Files outside it are never read. */
   readonly companyRoot: string;
-  /**
-   * Folders under the company root that deliverables may come from, when not all of it is the
-   * agents' (the data folder also holds the database and the owner's sign-in). Defaults to the
-   * whole company root.
-   */
-  readonly readableRoots?: readonly string[];
 }
 
 export interface CompanyGoalEvidence {
@@ -133,15 +127,10 @@ export async function resolveDeliverablePath(
   companyRoot: string,
   home: string | undefined,
   filePath: string,
-  readableRoots: readonly string[] = [companyRoot],
 ): Promise<string | undefined> {
   let root: string;
-  const readable: string[] = [];
   try {
     root = await realpath(companyRoot);
-    for (const folder of readableRoots) {
-      readable.push(await realpath(folder).catch(() => path.resolve(folder)));
-    }
   } catch {
     return undefined;
   }
@@ -156,11 +145,7 @@ export async function resolveDeliverablePath(
   for (const base of bases) {
     try {
       const real = await realpath(path.resolve(base, filePath));
-      if (
-        inside(root, real) &&
-        readable.some((folder) => inside(folder, real)) &&
-        (await stat(real)).isFile()
-      ) {
+      if (inside(root, real) && (await stat(real)).isFile()) {
         return real;
       }
     } catch {
@@ -201,12 +186,7 @@ async function readDeliverables(
     if (!TEXT_DELIVERABLE.test(deliverable.path)) {
       continue;
     }
-    const file = await resolveDeliverablePath(
-      options.companyRoot,
-      home,
-      deliverable.path,
-      options.readableRoots,
-    );
+    const file = await resolveDeliverablePath(options.companyRoot, home, deliverable.path);
     if (file === undefined) {
       continue;
     }
@@ -228,7 +208,7 @@ async function readDeliverables(
  * fixes the path in the same turn instead of failing the goal later.
  */
 export function createCompanyHandInCheck(
-  options: Pick<CompanyGoalEvidenceOptions, "companyRoot" | "readableRoots">,
+  options: Pick<CompanyGoalEvidenceOptions, "companyRoot">,
 ): (input: {
   readonly agent: { readonly homePath: string };
   readonly deliverables: readonly AgentTaskDeliverable[];
@@ -238,12 +218,7 @@ export function createCompanyHandInCheck(
     const missing: string[] = [];
     for (const deliverable of input.deliverables) {
       if (
-        (await resolveDeliverablePath(
-          options.companyRoot,
-          home,
-          deliverable.path,
-          options.readableRoots,
-        )) === undefined
+        (await resolveDeliverablePath(options.companyRoot, home, deliverable.path)) === undefined
       ) {
         missing.push(deliverable.path);
       }
