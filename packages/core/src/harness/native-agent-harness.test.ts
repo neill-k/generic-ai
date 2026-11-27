@@ -438,6 +438,52 @@ describe("native harness adapter", () => {
     ]);
   });
 
+  it("keeps a turn's session in the given file and resumes it after a restart", async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+    const file = join(workspaceRoot, "agents", "lead", "goal-1.jsonl");
+    const { provider, resolveModel } = fauxModels();
+    let restarted = false;
+    provider.setResponses([
+      fauxAssistantMessage("Thinking about it."),
+      // The process dies while the model answers the stop-tool loop's second turn.
+      () => {
+        restarted = true;
+        throw new Error("process restarted");
+      },
+    ]);
+    const harness = createAgentHarness(
+      { id: "native-resume", adapter: "native", model: "faux/root-model" },
+      { native: { resolveModel, retry: false } },
+    );
+    const first = await harness.run({
+      instruction: "Write the plan",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+      session: { file },
+    });
+    expect(restarted).toBe(true);
+    expect(first.status).not.toBe("succeeded");
+
+    let seenRoles: string[] = [];
+    provider.setResponses([
+      (context: Context) => {
+        seenRoles = context.messages.map((message) => message.role);
+        return stop("Plan written.");
+      },
+    ]);
+    const second = await harness.run({
+      instruction: "Write the plan",
+      workspaceRoot,
+      artifactDir: join(workspaceRoot, "artifacts"),
+      session: { file, resume: true },
+    });
+    expect(second.status).toBe("succeeded");
+    expect(second.outputText).toBe("Plan written.");
+    // The first prompt and answer came from the file; no second copy of the instruction was sent.
+    expect(seenRoles.filter((role) => role === "user")).toHaveLength(2);
+    expect(seenRoles.slice(0, 2)).toEqual(["user", "assistant"]);
+  });
+
   it("runs single-turn harnesses without the stop tool", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
     const { provider, resolveModel } = fauxModels();

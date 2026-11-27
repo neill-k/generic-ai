@@ -1,15 +1,15 @@
-import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
-import type { CanonicalEvent } from "../events/index.js";
-import type { RunEnvelope } from "../run-envelope/index.js";
-import type { ToolEffectJournal } from "./effect-journal.js";
-import type { AgentHarnessHostTool } from "./host-tools.js";
-import type { RunActor } from "../contracts/identity.js";
-import type { GoalSpec } from "../goals/types.js";
-import type { UsageSummary } from "../usage/types.js";
 import type {
   AgentLifecycleHookDecisionRecord,
   AgentLifecycleHooksConfig,
 } from "../contracts/agent-lifecycle.js";
+import type { RunActor } from "../contracts/identity.js";
+import type { Awaitable, JsonObject, JsonValue } from "../contracts/shared.js";
+import type { CanonicalEvent } from "../events/index.js";
+import type { GoalSpec } from "../goals/types.js";
+import type { RunEnvelope } from "../run-envelope/index.js";
+import type { UsageSummary } from "../usage/types.js";
+import type { ToolEffectJournal } from "./effect-journal.js";
+import type { AgentHarnessHostTool } from "./host-tools.js";
 
 export const HARNESS_SCHEMA_VERSION = "0.1" as const;
 
@@ -295,6 +295,18 @@ export interface AgentHarnessRunInput<TCapabilities = unknown> {
   readonly effectJournal?: ToolEffectJournal;
   /** Runtime-neutral tools the host adds to this run, such as the cascade's `delegate_task`. */
   readonly hostTools?: readonly AgentHarnessHostTool[];
+  /**
+   * The root agent's saved session for this turn (native backend). `file` is opened if it exists
+   * and created if not; each completed step is saved as it ends. With `resume`, the turn continues
+   * the session from its last completed step instead of sending the instruction, which is how a
+   * host re-runs a turn that a restart interrupted.
+   */
+  readonly session?: AgentHarnessRunSession;
+}
+
+export interface AgentHarnessRunSession {
+  readonly file: string;
+  readonly resume?: boolean;
 }
 
 export interface AgentHarnessToolDescriptor {
