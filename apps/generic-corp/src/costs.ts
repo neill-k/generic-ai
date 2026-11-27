@@ -25,6 +25,8 @@ export interface CompanyCosts {
 }
 
 export const HARNESS_RUN_KIND = "agent-harness-run";
+/** Agent turns, and model calls outside them (judges, reviewers, memory work; model-calls.ts). */
+const COUNTED_RUN_KINDS: ReadonlySet<string> = new Set([HARNESS_RUN_KIND, "model-call"]);
 
 export function emptyTotals(): UsageTotals {
   return {
@@ -97,7 +99,7 @@ export async function summarizeCompanyCosts(
 ): Promise<CompanyCosts> {
   const runs = (await runStore.listRuns({ limit: options.limit ?? 1000 })).filter(
     (record) =>
-      record.metadata?.["kind"] === HARNESS_RUN_KIND &&
+      COUNTED_RUN_KINDS.has(String(record.metadata?.["kind"])) &&
       (options.since === undefined || record.createdAt >= options.since),
   );
   let totals = emptyTotals();

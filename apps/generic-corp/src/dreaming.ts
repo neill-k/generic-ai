@@ -246,6 +246,8 @@ export function createDreaming(options: DreamingOptions): Dreaming {
     let reply: BackgroundReply;
     try {
       reply = await options.model({
+        purpose: "dreaming",
+        agentId,
         system: REFINEMENT_SYSTEM_PROMPT,
         prompt,
         maxTokens: MAX_OUTPUT_TOKENS,
