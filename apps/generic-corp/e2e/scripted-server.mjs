@@ -83,11 +83,14 @@ const answer = (text) => call("stop_and_respond", { response: text });
 
 /** Tools the agent already called in this turn (since the turn's prompt). */
 function calledThisTurn(context, name) {
-  return context.messages.some(
-    (message) =>
-      message.role === "assistant" &&
-      message.content.some((part) => part.type === "toolCall" && part.name === name),
-  );
+  const start = context.messages.findLastIndex((m) => m.role === "user" && AGENT.test(textOf(m)));
+  return context.messages
+    .slice(Math.max(start, 0))
+    .some(
+      (message) =>
+        message.role === "assistant" &&
+        message.content.some((part) => part.type === "toolCall" && part.name === name),
+    );
 }
 
 const GOAL = {
