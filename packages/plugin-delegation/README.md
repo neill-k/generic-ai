@@ -75,6 +75,12 @@ runtime):
   hand-offs. It checks the target, the org chart and the limits right away, so
   the agent can fix a bad hand-off in the same turn. It is only offered when the
   agent has someone to delegate to.
+- `ask_agent({ to, question })` asks any other active agent a question,
+  wherever it sits in the org chart. The question becomes a task for that agent
+  (marked `question: true`) whose hand-in is the answer, and the asker gets a
+  new turn with it. Work still follows the chart (`delegationScope`); only
+  questions cross it. An agent already waiting on this work cannot be asked,
+  since it could not answer until the asker finishes.
 - `declare_impossible({ reason })` claims the task is impossible in principle.
   The host's `impossibility` reviewer (ideally on another model) must agree;
   otherwise the agent gets the task back with the reviewer's reasoning.

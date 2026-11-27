@@ -326,7 +326,10 @@ The owner can change a goal at any time with `PUT /api/tasks/:id/goal`
 at its next step and the checks run against the new version. Agents never wait
 on the owner: `ask_owner` writes a question down with the assumption the agent
 is working on, listed at `GET /api/questions` and answered with
-`POST /api/tasks/:id/questions/:questionId/answer`.
+`POST /api/tasks/:id/questions/:questionId/answer`. Agents can also ask each
+other: `ask_agent` sends a question to any agent in the company, outside the
+asker's part of the org chart too, and the asker picks the answer up in its
+next turn. Handing off work with `delegate_task` still follows the chart.
 
 Evals. `npm run evals -w @generic-ai/app-generic-corp` replays every
 template's suite offline: a fresh company per attempt, the recorded turns on a

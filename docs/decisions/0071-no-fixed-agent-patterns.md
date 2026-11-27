@@ -31,6 +31,10 @@ delegation works and to provide them with a means of communicating with agents."
   cascade in `@generic-ai/plugin-delegation`): each hand-off is a task with its
   own goal and checks, and results come back up. Who an agent may hand work to
   follows the chart by default (`delegationScope`, default `direct-reports`).
+- **Any agent can ask any agent.** `ask_agent({ to, question })` sends a
+  question to any active agent, outside the chart too. It travels as a task
+  marked `question: true` whose hand-in is the answer, and the asker resumes
+  with it. Only work is bound to the chart.
 - **Removed:** the protocol reducers and `ProtocolPlugin` types (SDK), the
   topology runner, topology task executor, topology goal-eval executor,
   `runAgentHarnessTopology` and `runHarnessBenchmark` (core), the topology
