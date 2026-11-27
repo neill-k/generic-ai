@@ -247,6 +247,8 @@ export interface RunCapabilityNativeAgentSessionOptions {
    * after the current step instead of after the turn.
    */
   readonly steering?: () => Promise<readonly string[]> | readonly string[];
+  /** Checked as each step ends; when true the session stops there, before the next model call. */
+  readonly stopRequested?: () => Promise<boolean> | boolean;
   /**
    * Offload long tool results: a result longer than `maxChars` (default 16000 characters) is saved
    * to a file and the model gets a preview and the path (see `docs/offloading.md`). On by default;
@@ -1050,6 +1052,8 @@ export async function runCapabilityNativeAgentSession(
   });
   const unbindSteering =
     options.steering === undefined ? undefined : bindSteering(agent, options.steering);
+  const unbindStop =
+    options.stopRequested === undefined ? undefined : bindStopRequest(agent, options.stopRequested);
   const unbindSchedules = schedules?.bindAgent(agent, () => ({
     isCompacting: compacting,
     isBashRunning: runningCommands.size > 0,
@@ -1211,6 +1215,7 @@ export async function runCapabilityNativeAgentSession(
     }
     await unbindSchedules?.();
     unbindSteering?.();
+    unbindStop?.();
     unwatchCommands();
     releaseScheduledSession?.();
     if (scheduleSessionFile !== undefined && scheduleOptions?.service !== undefined) {
@@ -1500,4 +1505,24 @@ function bindSteering(
     clearInterval(timer);
     unsubscribe();
   };
+}
+
+/** Stops the agent at the end of a step once `stopRequested` says so. */
+function bindStopRequest(
+  agent: Agent,
+  stopRequested: () => Promise<boolean> | boolean,
+): () => void {
+  return agent.subscribe((event) => {
+    if (event.type !== "turn_end") {
+      return;
+    }
+    void Promise.resolve()
+      .then(stopRequested)
+      .then((stop) => {
+        if (stop && agent.state.isStreaming) {
+          agent.abort();
+        }
+      })
+      .catch(() => undefined);
+  });
 }

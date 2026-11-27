@@ -49,6 +49,19 @@ done, or when you cancel it.
 The **Board** and **Org chart** show who is working on what. **Costs** shows
 the tokens used.
 
+## Run the checkup (optional)
+
+The checkup measures what Generic Corp is worth: it runs one goal (closing a
+month of expenses) through a plain single agent and through the whole company,
+and shows tokens per finished goal for each. It runs on your plan, so it shows
+the expected usage first and only starts when you confirm:
+
+```bash
+docker compose -f apps/generic-corp/compose.yaml exec app node apps/generic-corp/dist/checkup-cli.js
+```
+
+The app's checkup button runs the same thing.
+
 ## Day to day
 
 | To | Run |

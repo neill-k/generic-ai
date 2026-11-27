@@ -87,6 +87,8 @@ export interface AgentTaskExecutionInput {
    * Pass it to the harness as `AgentHarnessRunInput.steering`.
    */
   readonly steering?: AgentHarnessSteering;
+  /** True once the turn should stop after its current step. Pass it as `AgentHarnessRunInput.stopRequested`. */
+  readonly stopRequested?: () => Promise<boolean> | boolean;
   readonly signal?: AbortSignal;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
 }

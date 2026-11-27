@@ -1258,6 +1258,8 @@ export interface HarnessSessionRunOptions {
   readonly sessionFile?: string;
   /** Native backend: messages for the agent while the turn runs (`AgentHarnessRunInput.steering`). */
   readonly steering?: AgentHarnessSteering;
+  /** Native backend: stop the turn after the current step (`AgentHarnessRunInput.stopRequested`). */
+  readonly stopRequested?: () => Promise<boolean> | boolean;
   /**
    * Native backend: continue `sessionFile` from its last completed step instead of sending
    * `prompt` (see `RunCapabilityNativeAgentSessionOptions.resume`). Use it to re-run a turn that a
@@ -2213,6 +2215,7 @@ function createSessionAgentHarnessAdapter(
                 ...(input.session.resume === true ? { resume: true } : {}),
               }),
           ...(input.steering === undefined ? {} : { steering: input.steering }),
+          ...(input.stopRequested === undefined ? {} : { stopRequested: input.stopRequested }),
           onSessionReady: async (context) => {
             rootRuntimeSessionId = context.sessionId;
             await observePermissionDecisions({

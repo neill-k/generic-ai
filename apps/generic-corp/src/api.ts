@@ -13,6 +13,8 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { MemoryBackgroundStore } from "./background.js";
 import type { CompanyBackups } from "./backups.js";
+import type { BaselineSet } from "./baseline.js";
+import { CheckupError, type CompanyCheckup } from "./checkup.js";
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
 import { DriveError, type DriveFile, deliverablesFolder } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
@@ -61,6 +63,8 @@ export interface CompanyApiOptions {
   };
   /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
   readonly permissions?: PermissionStore;
+  /** The live baseline comparison, at `/api/checkup`. Starting one is owner only. */
+  readonly checkup?: CompanyCheckup;
   /** Nightly backups, listed and started at `/api/backups`. */
   readonly backups?: CompanyBackups;
   /** The GitHub connector, at `/api/connectors/github`. Owner only. */
@@ -747,6 +751,86 @@ export function createCompanyApi(
     return c.json(await modelAuthCall(() => modelAuth.signOut()));
   });
 
+  // --- Checkup (the live baseline comparison) -----------------------------
+
+  const requireCheckup = (): CompanyCheckup => {
+    if (options.checkup === undefined) {
+      throw new ApiError(404, "The checkup is not available.");
+    }
+    return options.checkup;
+  };
+  const checkupCall = async <T>(call: () => Promise<T>): Promise<T> => {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof CheckupError) {
+        throw new ApiError(error.status, error.message);
+      }
+      throw error;
+    }
+  };
+  const readCheckupSet = (value: unknown): BaselineSet | undefined => {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (value !== "core" && value !== "ablation") {
+      throw new ApiError(400, 'The checkup set is "core" or "ablation".');
+    }
+    return value;
+  };
+
+  // What a checkup would run and use, and the latest checkup.
+  app.get("/checkup", async (c) => {
+    const checkup = requireCheckup();
+    const set = readCheckupSet(c.req.query("set"));
+    const [view, runs] = await Promise.all([
+      checkupCall(() => checkup.plan(set)),
+      checkup.list({ limit: 1 }),
+    ]);
+    return c.json({ ...view, ...(runs[0] === undefined ? {} : { latest: runs[0] }) });
+  });
+
+  app.get("/checkups", async (c) => {
+    const checkup = requireCheckup();
+    // The list leaves out the full reports; fetch one checkup for its report.
+    const runs = (await checkup.list()).map(
+      ({ report: _report, markdown: _markdown, ...run }) => run,
+    );
+    return c.json({ checkups: runs });
+  });
+
+  app.get("/checkups/:id", async (c) => {
+    const run = await requireCheckup().get(c.req.param("id"));
+    if (run === undefined) {
+      throw new ApiError(404, "No such checkup.");
+    }
+    return c.json(run);
+  });
+
+  // Starts a live checkup. It spends the owner's plan, so it needs an explicit confirmation of
+  // the plan and expected usage that GET /checkup shows.
+  app.post("/checkup", async (c) => {
+    const checkup = requireCheckup();
+    requireManage(c);
+    const body = await readJsonObject(c);
+    const set = readCheckupSet(body["set"]);
+    if (body["confirm"] !== true) {
+      const view = await checkupCall(() => checkup.plan(set));
+      return c.json(
+        {
+          error: 'A checkup runs live models on your plan. Send {"confirm": true} to start it.',
+          ...view,
+        },
+        400,
+      );
+    }
+    const startedBy = c.get("auth").subject.subjectId;
+    const run = await checkupCall(() =>
+      checkup.start({ ...(set === undefined ? {} : { set }), startedBy }),
+    );
+    return c.json(run, 202);
+  });
+
   // --- Backups ------------------------------------------------------------
 
   const requireBackups = (): CompanyBackups => {
@@ -822,6 +906,47 @@ export function createCompanyApi(
       managementChain: chain.map((manager) => manager.id),
       tasks: tasks.map(summarizeTask),
     });
+  });
+
+  // --- Pause: the whole company or one agent (decision 33) ------------
+  // Pausing lets each running turn finish its current step, then holds the work.
+
+  const pauseView = async () => {
+    const state = await runtime.holds.pauseState();
+    return {
+      company: state.company !== undefined,
+      ...(state.company === undefined ? {} : { since: state.company.since }),
+      agents: Object.keys(state.agents),
+    };
+  };
+  const readPaused = (body: Record<string, unknown>): boolean => {
+    const paused = body["paused"];
+    if (typeof paused !== "boolean") {
+      throw new ApiError(400, 'Send {"paused": true} or {"paused": false}.');
+    }
+    return paused;
+  };
+
+  app.get("/pause", async (c) => c.json(await pauseView()));
+
+  app.put("/pause", async (c) => {
+    const paused = readPaused(await readJsonObject(c));
+    await runtime.holds.pauseCompany(paused);
+    const view = await pauseView();
+    runtime.events.publish("company.paused", view);
+    return c.json(view);
+  });
+
+  app.put("/agents/:agentId/pause", async (c) => {
+    const agentId = c.req.param("agentId");
+    if ((await runtime.directory.get(agentId)) === undefined) {
+      throw new ApiError(404, `Agent ${agentId} was not found.`);
+    }
+    const paused = readPaused(await readJsonObject(c));
+    await runtime.holds.pauseAgent(agentId, paused);
+    const view = await pauseView();
+    runtime.events.publish("company.paused", view);
+    return c.json(view);
   });
 
   // --- Direct messages to any agent (decisions 4 and 5) -----------------

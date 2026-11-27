@@ -1,6 +1,7 @@
 import { useCallback, useState } from "preact/hooks";
 
 import { type AgentDetail, api, type CompanyInfo, type OrgNode } from "../api.js";
+import { AgentPauseButton, usePause } from "../components/pause.js";
 import { Avatar, ErrorNote, Loading, SidePanel } from "../components/ui.js";
 import { formatTime } from "../format.js";
 import { useResource } from "../live.js";
@@ -25,6 +26,10 @@ export function OrgView({
     isAgentEvent,
   );
   const close = useCallback(() => navigate("org"), []);
+  const pause = usePause();
+  const paused = new Set(
+    pause.data?.company === true ? allIds(chart.data) : (pause.data?.agents ?? []),
+  );
   return (
     <div class="page">
       <header class="page-header">
@@ -41,7 +46,7 @@ export function OrgView({
       ) : (
         <div class="org-scroll">
           <ul class="org-tree" aria-label="Org chart">
-            <OrgBranch node={chart.data} selected={agentId} />
+            <OrgBranch node={chart.data} selected={agentId} paused={paused} />
           </ul>
         </div>
       )}
@@ -52,7 +57,15 @@ export function OrgView({
   );
 }
 
-function OrgBranch({ node, selected }: { node: OrgNode; selected: string | undefined }) {
+function OrgBranch({
+  node,
+  selected,
+  paused,
+}: {
+  node: OrgNode;
+  selected: string | undefined;
+  paused: ReadonlySet<string>;
+}) {
   const retired = node.status === "retired";
   return (
     <li>
@@ -68,23 +81,29 @@ function OrgBranch({ node, selected }: { node: OrgNode; selected: string | undef
           <span class="small muted">
             {retired
               ? "Retired."
-              : node.activeTasks === 0
-                ? "Available."
-                : node.activeTasks === 1
-                  ? "On one task."
-                  : `On ${node.activeTasks} tasks.`}
+              : paused.has(node.id)
+                ? "Paused."
+                : node.activeTasks === 0
+                  ? "Available."
+                  : node.activeTasks === 1
+                    ? "On one task."
+                    : `On ${node.activeTasks} tasks.`}
           </span>
         </span>
       </a>
       {node.reports.length === 0 ? null : (
         <ul>
           {node.reports.map((report) => (
-            <OrgBranch key={report.id} node={report} selected={selected} />
+            <OrgBranch key={report.id} node={report} selected={selected} paused={paused} />
           ))}
         </ul>
       )}
     </li>
   );
+}
+
+function allIds(node: OrgNode | undefined): string[] {
+  return node === undefined ? [] : [node.id, ...node.reports.flatMap(allIds)];
 }
 
 const TASK_WORDS: Record<string, string> = {
@@ -143,6 +162,7 @@ function AgentPanel({
               </p>
             </div>
           </div>
+          <AgentPauseButton agentId={agentId} name={title} />
           <div class="tabs" role="tablist">
             {(
               [

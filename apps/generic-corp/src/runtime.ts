@@ -35,6 +35,7 @@ import { type CompanyCosts, summarizeCompanyCosts } from "./costs.js";
 import { type CompanyDrive, type DriveEntry, describeDriveForAgent } from "./drive.js";
 import { type CompanyEventHub, createCompanyEventHub } from "./events.js";
 import type { CompanyHarvest } from "./harvest.js";
+import { type CompanyHolds, createCompanyHolds } from "./holds.js";
 import { type CompanyMemory, createCompanyMemory } from "./memory.js";
 import { syncMemorySkills } from "./memory-skills.js";
 import type { CompanyStorage } from "./storage.js";
@@ -69,6 +70,12 @@ export interface CompanyRuntimeOptions {
    * kept in the company's storage. Every agent turn gets its handbook and memory section.
    */
   readonly memory?: CompanyMemory;
+  /**
+   * Whether agent turns get the memory section (handbook and private memory) and their saved
+   * procedures. Defaults to true; the baseline comparison turns it off to measure what memory is
+   * worth.
+   */
+  readonly memoryInPrompts?: boolean;
   /**
    * Script harvesting (decision 28). Scripts a task wrote are saved once the task is accepted and
    * dropped when it fails or is cancelled; dreaming turns good ones into saved procedures.
@@ -186,6 +193,8 @@ export interface CompanyRuntime {
   readonly cascade: DelegationCascade;
   readonly threads: ThreadStore;
   readonly agentChat: AgentChat;
+  /** Pauses and other holds on work (decisions 15 and 33). */
+  readonly holds: CompanyHolds;
   readonly events: CompanyEventHub;
   readonly drive?: CompanyDrive;
   readonly memory: CompanyMemory;
@@ -411,6 +420,12 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         describeDriveForAgent({ agentId: input.agentId, goalId: input.rootTaskId }),
       );
     }
+    if (input.agentId === ceoId && agentChat !== undefined) {
+      prompt = withCeoNotes(prompt, await agentChat.takeCeoNotes().catch(() => []));
+    }
+    if (options.memoryInPrompts === false) {
+      return options.executor({ ...input, prompt });
+    }
     await syncMemorySkills({
       memory,
       ...(options.harvest === undefined ? {} : { harvest: options.harvest }),
@@ -419,9 +434,6 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     }).catch((error: unknown) => {
       options.log?.(`Could not lay out ${input.agentId}'s saved procedures: ${String(error)}`);
     });
-    if (input.agentId === ceoId && agentChat !== undefined) {
-      prompt = withCeoNotes(prompt, await agentChat.takeCeoNotes().catch(() => []));
-    }
     const taskAt = input.prompt.search(/^## Task /m);
     const memorySection = await memory.promptSection(input.agentId, {
       query: taskAt === -1 ? input.prompt : input.prompt.slice(taskAt),
@@ -429,6 +441,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     return options.executor({ ...input, prompt: withDriveSection(prompt, memorySection) });
   };
 
+  const holds = createCompanyHolds({ kv: storage.kv, now });
   const cascade = createDelegationCascade({
     // Long results reach the manager as a drive file and an excerpt, not a clipped paste.
     ...(drive === undefined
@@ -442,6 +455,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
             ),
         }),
     ...options.cascade,
+    holdFor: (agentId) => holds.holdFor(agentId),
     runStore: storage.runStore,
     queue: storage.queue,
     directory,
@@ -453,6 +467,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     memoryFile: false,
   });
 
+  holds.attach(cascade);
   agentChat = createAgentChat({
     kv: storage.kv,
     cascade,
@@ -621,6 +636,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     cascade,
     threads,
     agentChat: chat,
+    holds,
     events,
     ...(drive === undefined ? {} : { drive }),
     memory,
@@ -632,6 +648,8 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         await directory.ensureWorkspace(agent.id);
       }
       const recovered = await cascade.recover();
+      // Work held when the server stopped resumes now if its hold has lifted meanwhile.
+      await cascade.resumeHeld();
       options.log?.(
         `Company "${company.name}": ${seeded.created.length} agents created, ${seeded.updated.length} updated, ` +
           `${seeded.retired.length} retired; ${recovered} interrupted tasks re-queued.`,
