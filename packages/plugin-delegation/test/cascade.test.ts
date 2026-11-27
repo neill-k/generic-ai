@@ -1243,6 +1243,30 @@ describe("delegate_task and finish_task tools", () => {
   });
 });
 
+describe("owner messages to a running turn (decision 5)", () => {
+  it("hands an owner note to the running turn once, then not again next round", async () => {
+    let harness: Harness | undefined;
+    const steered: string[][] = [];
+    const prompts: string[] = [];
+    const executor: AgentTaskExecutor = async (input) => {
+      prompts.push(input.prompt);
+      if (prompts.length === 1) {
+        await harness?.cascade.notify(input.taskId, "Use the Austin venue.");
+        steered.push([...((await input.steering?.()) ?? [])]);
+        steered.push([...((await input.steering?.()) ?? [])]);
+      }
+      return { status: "succeeded", outputText: "Done." };
+    };
+    harness = await openHarness(executor);
+    await harness.cascade.submit({ agentId: "ceo", instruction: "Book a venue", taskId: "venue" });
+    await harness.cascade.drain();
+
+    expect(steered[0]).toEqual(["Message from the owner while you work: Use the Austin venue."]);
+    expect(steered[1]).toEqual([]);
+    expect((await harness.cascade.get("venue"))?.status).toBe("succeeded");
+  });
+});
+
 describe("goals on every request (ADR 0069)", () => {
   type Use = (
     name: string,

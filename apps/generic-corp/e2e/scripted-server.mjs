@@ -241,6 +241,29 @@ const app = await createGenericCorpServer({
   company: E2E_COMPANY,
   toolkit,
   executorOptions: { native: { resolveModel: () => model } },
+  // Background memory work (preference scanner, dreaming) gets a scripted reply too: it files one
+  // preference when the owner mentions "metric", and dreams change nothing.
+  backgroundModel: async (request) => {
+    const message = /\[([^\]]+)\] to ceo, [^\n]*\n[^\n]*metric/i.exec(request.prompt);
+    return {
+      text: JSON.stringify({
+        preferences: message
+          ? [
+              {
+                scope: "company",
+                title: "Metric units",
+                content: "Use metric units.",
+                messageId: message[1],
+              },
+            ]
+          : [],
+        summary: "Nothing to change",
+        rationale: "",
+        expectedOutcome: "",
+        edits: [],
+      }),
+    };
+  },
   log: () => undefined,
 });
 const server = await startFetchServer(app.fetch, {

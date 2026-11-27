@@ -27,6 +27,7 @@ export type CompanyEventType =
   | "drive.updated"
   | "drive.goal.updated"
   | "backups.updated"
+  | "agent.message"
   | "runtime.error";
 
 export interface CompanyEvent {

@@ -1444,9 +1444,14 @@ const lines = (text) =>
     .filter((line) => line.length > 0);
 
 async function renderPermissions(message) {
-  const [{ permissions, saved }, { refusals }] = await Promise.all([
+  const [{ permissions, saved }, { refusals }, github] = await Promise.all([
     api("/permissions"),
     api("/refusals?limit=100"),
+    api("/connectors/github").catch((error) => ({
+      connected: false,
+      repos: [],
+      error: error.message,
+    })),
   ]);
   const checkbox = (checked, label, hint) => {
     const input = h("input", { type: "checkbox", checked });
@@ -1479,6 +1484,78 @@ async function renderPermissions(message) {
     placeholder: "owner/name",
   });
   repos.value = permissions.github.repos.join("\n");
+  // Ticking a repository adds it to the list above; Save stores it.
+  const repoPicker = github.repos.map((repo) => {
+    const box = checkbox(
+      lines(repos.value).includes(repo.fullName),
+      repo.fullName,
+      `${repo.private ? "private" : "public"}${repo.canPush ? "" : ", the token cannot push here"}`,
+    );
+    box.input.addEventListener("change", () => {
+      const current = lines(repos.value).filter((name) => name !== repo.fullName);
+      repos.value = (box.input.checked ? [...current, repo.fullName] : current).join("\n");
+    });
+    return box.row;
+  });
+  const tokenInput = h("input", {
+    type: "password",
+    autocomplete: "off",
+    "aria-label": "GitHub token",
+    placeholder: "github_pat_...",
+  });
+  const githubError = h("p", { class: "form-error", role: "alert", hidden: true });
+  const githubCall = async (path, options, done) => {
+    try {
+      await api(path, options);
+      await renderPermissions(done);
+    } catch (error) {
+      githubError.textContent = error.message;
+      githubError.hidden = false;
+    }
+  };
+  const githubPanel = h(
+    "div",
+    { class: "panel permissions-form" },
+    h("h2", {}, "GitHub connection"),
+    github.connected
+      ? h(
+          "p",
+          {},
+          `Connected${github.account ? ` as ${github.account}` : " with the server's token"}. Agents can read the repositories it can see. `,
+          github.source === "owner"
+            ? h(
+                "button",
+                {
+                  type: "button",
+                  onClick: () =>
+                    githubCall("/connectors/github", { method: "DELETE" }, "GitHub disconnected."),
+                },
+                "Disconnect",
+              )
+            : null,
+        )
+      : h(
+          "form",
+          {
+            onSubmit: (event) => {
+              event.preventDefault();
+              githubCall(
+                "/connectors/github",
+                { method: "POST", body: JSON.stringify({ token: tokenInput.value }) },
+                "GitHub connected. It is read-only until you tick repositories below and save.",
+              );
+            },
+          },
+          h(
+            "p",
+            { class: "muted" },
+            "Paste a fine-grained GitHub token. Give it Contents and Pull requests (read and write) and Checks and Commit statuses (read) on the repositories you want. It stays on this server and agents never see it.",
+          ),
+          tokenInput,
+          h("p", {}, h("button", { type: "submit" }, "Connect GitHub")),
+        ),
+    githubError,
+  );
   const hosts = h("textarea", { rows: "6", "aria-label": "Hosts shell commands may reach" });
   hosts.value = permissions.shellHosts.join("\n");
   const rules = h("textarea", {
@@ -1525,13 +1602,19 @@ async function renderPermissions(message) {
         "div",
         { style: "display: grid; gap: 16px" },
         message ? h("div", { class: "notice", role: "status" }, message) : null,
+        githubPanel,
         h(
           "form",
           { class: "panel permissions-form", onSubmit: save },
           h("h2", {}, "Allowed"),
           toggles.map((toggle) => toggle.row),
           h("h2", {}, "GitHub"),
-          h("p", { class: "muted" }, "Repositories agents may write to, one owner/name per line."),
+          h(
+            "p",
+            { class: "muted" },
+            "Repositories agents may write to (push branches, open pull requests, merge with green checks). None means read-only.",
+          ),
+          repoPicker,
           repos,
           githubToggles.map((toggle) => toggle.row),
           h("h2", {}, "Network for shell commands"),
@@ -2031,11 +2114,12 @@ function memoryForm(entry, onSave, onCancel) {
 
 async function renderMemory(message) {
   const scope = state.memoryScope ?? "company";
-  const [overview, listing, history, agents] = await Promise.all([
+  const [overview, listing, history, agents, background] = await Promise.all([
     api("/memory"),
     api(`/memory/${encodeURIComponent(scope)}`),
     api(`/memory/changes?scope=${encodeURIComponent(scope)}&limit=50`),
     api("/agents"),
+    api("/memory/background").catch(() => undefined),
   ]);
   const counts = new Map(overview.scopes.map((row) => [row.scope, row.entries]));
   const isHandbook = scope === "company";
@@ -2065,6 +2149,84 @@ async function renderMemory(message) {
       await renderMemory(error.message);
     }
   };
+
+  const setPaused = async (paused) => {
+    try {
+      await api("/memory/background", { method: "PUT", body: JSON.stringify({ paused }) });
+      await renderMemory(
+        paused ? "Background memory work is paused." : "Background memory work is back on.",
+      );
+    } catch (error) {
+      await renderMemory(error.message);
+    }
+  };
+  const scanNow = async () => {
+    try {
+      const { result } = await api("/memory/background/scan", { method: "POST" });
+      await renderMemory(
+        result.skipped
+          ? result.skipped
+          : `Read ${result.scanned} messages and filed ${result.filed} preferences.`,
+      );
+    } catch (error) {
+      await renderMemory(error.message);
+    }
+  };
+  const dreamNow = async () => {
+    try {
+      const { result } = await api(`/memory/background/dream/${encodeURIComponent(scope)}`, {
+        method: "POST",
+      });
+      await renderMemory(
+        result.skipped
+          ? result.skipped
+          : `Dreamed over ${result.sessions} sessions and ${result.scripts} scripts: ${result.applied} changes.`,
+      );
+    } catch (error) {
+      await renderMemory(error.message);
+    }
+  };
+  const jobLine = (label, job) =>
+    h(
+      "p",
+      { class: "small" },
+      h("strong", {}, `${label}: `),
+      job?.lastRunAt ? `last ran ${formatTime(job.lastRunAt)}` : "has not run yet",
+      job?.lastResult ? ` · ${job.lastResult}` : "",
+      job?.lastError ? ` · last problem: ${job.lastError}` : "",
+      job?.usage?.calls
+        ? ` · ${job.usage.calls} calls, ${formatTokens(job.usage.totalTokens)} tokens`
+        : "",
+    );
+  const backgroundPanel = background
+    ? h(
+        "div",
+        { class: "panel" },
+        h("h2", {}, "Background work"),
+        h(
+          "p",
+          { class: "muted small" },
+          "A small model reads your chats for lasting preferences, and idle agents dream: they reread their recent work and tidy their memory. Both use your Claude plan, sparingly.",
+        ),
+        jobLine("Preference scanner", background.jobs.scanner),
+        jobLine("Dreaming", background.jobs.dreaming),
+        h(
+          "div",
+          { class: "row-actions" },
+          background.settings.paused
+            ? h("button", { type: "button", onClick: () => setPaused(false) }, "Resume")
+            : h(
+                "button",
+                { type: "button", class: "ghost", onClick: () => setPaused(true) },
+                "Pause",
+              ),
+          h("button", { type: "button", class: "ghost", onClick: scanNow }, "Scan chats now"),
+          isHandbook
+            ? null
+            : h("button", { type: "button", class: "ghost", onClick: dreamNow }, "Dream now"),
+        ),
+      )
+    : null;
 
   const tabs = h(
     "div",
@@ -2202,6 +2364,7 @@ async function renderMemory(message) {
             ? h("p", { class: "muted" }, "No changes yet.")
             : h("ul", { class: "memory-changes" }, history.changes.map(changeRow)),
         ),
+        backgroundPanel,
       ),
     ),
   );

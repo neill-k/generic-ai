@@ -33,6 +33,7 @@ import {
   type AgentHarnessRunErrorCategory,
   type AgentHarnessRunInput,
   type AgentHarnessRunResult,
+  type AgentHarnessSteering,
   type AgentLifecycleHookContext,
   type AgentLifecycleHookDecisionRecord,
   type AgentLifecycleInProcessHookHandler,
@@ -1255,6 +1256,8 @@ export interface HarnessSessionRunOptions {
    * step. Takes precedence over the harness-wide `sessionDir`.
    */
   readonly sessionFile?: string;
+  /** Native backend: messages for the agent while the turn runs (`AgentHarnessRunInput.steering`). */
+  readonly steering?: AgentHarnessSteering;
   /**
    * Native backend: continue `sessionFile` from its last completed step instead of sending
    * `prompt` (see `RunCapabilityNativeAgentSessionOptions.resume`). Use it to re-run a turn that a
@@ -2209,6 +2212,7 @@ function createSessionAgentHarnessAdapter(
                 sessionFile: input.session.file,
                 ...(input.session.resume === true ? { resume: true } : {}),
               }),
+          ...(input.steering === undefined ? {} : { steering: input.steering }),
           onSessionReady: async (context) => {
             rootRuntimeSessionId = context.sessionId;
             await observePermissionDecisions({
