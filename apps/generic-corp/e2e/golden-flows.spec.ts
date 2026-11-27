@@ -38,7 +38,7 @@ function sentEmails(): unknown[] {
 }
 
 async function send(page: import("@playwright/test").Page, text: string) {
-  await page.goto(`${server.url}/#/chat`);
+  await page.goto(`${server.url}/classic/#/chat`);
   // A fresh load of #/chat opens a new conversation, so each flow reads only its own thread.
   await expect(page.locator("#company-name")).toHaveText("Scripted Corp");
   await page.getByLabel("Message to the CEO").fill(text);
