@@ -15,6 +15,10 @@ import { MEMORY_NAMESPACE } from "./memory.js";
 export const DEFAULT_BACKGROUND_MODEL = "anthropic/claude-haiku-5-5";
 
 export interface BackgroundRequest {
+  /** Which job is calling, so the call is counted under it. */
+  readonly purpose?: "preferences" | "dreaming";
+  /** The agent the work is for (dreaming); company-wide work leaves it out. */
+  readonly agentId?: string;
   readonly system: string;
   readonly prompt: string;
   readonly maxTokens: number;
@@ -38,6 +42,8 @@ export interface ModelBackgroundOptions {
     { readonly apiKey?: string; readonly headers?: Readonly<Record<string, string>> } | undefined
   >;
   readonly resolveModel?: (ref: string) => Model;
+  /** Every reply's usage, failed ones too, so each call is counted. */
+  readonly onUsage?: (usage: AssistantMessage["usage"], request: BackgroundRequest) => void;
 }
 
 export function textOfReply(message: AssistantMessage): string {
@@ -65,6 +71,7 @@ export function createModelBackground(options: ModelBackgroundOptions): Backgrou
         ...(auth?.headers === undefined ? {} : { headers: { ...auth.headers } }),
       },
     );
+    options.onUsage?.(reply.usage, request);
     if (reply.stopReason === "error" || reply.stopReason === "aborted") {
       throw new Error(reply.errorMessage ?? `The model call ${reply.stopReason}.`);
     }

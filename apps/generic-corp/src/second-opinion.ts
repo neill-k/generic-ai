@@ -46,7 +46,7 @@ export interface ModelImpossibilityReviewerOptions {
   /** The reviewer's model for a claim by this agent. */
   readonly modelFor: (agent: ImpossibilityReviewInput["agent"]) => string;
   readonly resolveModel?: (ref: string) => Model;
-  readonly onUsage?: (usage: AssistantMessage["usage"]) => void;
+  readonly onUsage?: (usage: AssistantMessage["usage"], input: ImpossibilityReviewInput) => void;
   /** Request auth per provider (the owner's Claude sign-in or a stored key). */
   readonly getAuth?: (
     provider: string,
@@ -113,7 +113,7 @@ export function createModelImpossibilityReviewer(
         ...(auth?.headers === undefined ? {} : { headers: { ...auth.headers } }),
       },
     );
-    options.onUsage?.(reply.usage);
+    options.onUsage?.(reply.usage, input);
     if (reply.stopReason === "error" || reply.stopReason === "aborted") {
       throw new Error(`The impossibility review failed: ${reply.errorMessage ?? reply.stopReason}`);
     }

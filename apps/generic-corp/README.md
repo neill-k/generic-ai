@@ -228,7 +228,13 @@ minutes, doubling up to 5 hours. The choice is on the Claude sign-in page
 
 Both are optional (decision 42): one limit for the whole company and one per
 agent, in dollars, tokens or both, over a day, week or month in server time
-(weeks start on Monday). Usage is counted as each turn records it. When a limit
+(weeks start on Monday). Usage is counted as each turn records it, and so are
+the model calls outside turns: the rubric judge and impossibility reviewer
+(credited to the agent whose work they check), dreaming (to the agent) and the
+preference scanner (to the company). Each is saved as a `model-call` run, so it
+shows on the usage page too, and its failures count toward the plan limit.
+Background memory work waits while the company limit or the plan limit is
+reached. When a limit
 is reached, the agents it covers are held: nothing new starts, and a running
 turn stops after its current step. Nothing is lost. The work shows as paused
 with the reason, and gets a fresh turn when the period ends or the owner

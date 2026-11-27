@@ -80,6 +80,7 @@ import {
   providerKeyName,
   resolveProviderKeyFromEnv,
 } from "./model-auth.js";
+import { createModelCallLog, withPlanObserver } from "./model-calls.js";
 import {
   DEFAULT_PERMISSIONS,
   gateToolsWithPermissions,
@@ -479,6 +480,28 @@ export async function createGenericCorpServer(
         (await secrets.get(providerKeyName(MODEL_AUTH_PROVIDER), "host")),
       onRelease: () => releaseHeld?.(),
     });
+    // Usage is counted toward spending limits as it is written (spend-limits.ts): agent turns
+    // and the model calls outside them (judges, reviewers, memory work) alike.
+    const meteredRunStore = limits.meter(storage.runStore);
+    const modelCalls = createModelCallLog({
+      runStore: meteredRunStore,
+      onError: (error) => log(`Could not record a model call's usage: ${String(error)}`),
+    });
+    /** Notes a side call's outcome for the plan limit, as agent turns do. */
+    const observePlan = async (model: string, error?: unknown) => {
+      await planLimit
+        .observe(
+          { model },
+          error === undefined
+            ? { status: "succeeded", outputText: "" }
+            : {
+                status: "failed",
+                outputText: "",
+                failureMessage: error instanceof Error ? error.message : String(error),
+              },
+        )
+        .catch(() => undefined);
+    };
     const agentIsolation =
       options.agentIsolation ?? resolveAgentIsolation(options.env ?? process.env);
     log(describeAgentIsolation(agentIsolation));
@@ -590,8 +613,7 @@ export async function createGenericCorpServer(
         ...(rlm.option === undefined ? {} : { rlm: rlm.option }),
         ...options.executorOptions?.native,
       },
-      // Usage is counted toward spending limits as each turn writes it (spend-limits.ts).
-      runStore: limits.meter(storage.runStore),
+      runStore: meteredRunStore,
       artifactsRoot: path.join(environment.dataDir, "artifacts"),
       sessionsRoot: path.join(environment.dataDir, "sessions"),
     });
@@ -633,7 +655,6 @@ export async function createGenericCorpServer(
     };
     // Deliverable paths are relative to the company root, as agents write them.
     const companyRoot = layout.root;
-    const judgeByModel = new Map<string, GoalJudge>();
     const runtime = createCompanyRuntime({
       company,
       storage,
@@ -657,25 +678,44 @@ export async function createGenericCorpServer(
         }),
         impossibility:
           options.goals?.impossibility ??
-          createModelImpossibilityReviewer({
-            modelFor: (agent) => secondOpinionModel(company, workerModel(agent)),
-            getAuth: (provider) => planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
-          }),
+          withPlanObserver(
+            createModelImpossibilityReviewer({
+              modelFor: (agent) => secondOpinionModel(company, workerModel(agent)),
+              getAuth: (provider) => planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
+              onUsage: (usage, input) =>
+                void modelCalls.record({
+                  agentId: input.agent.id,
+                  rootTaskId: input.task.rootTaskId,
+                  purpose: "impossibility-review",
+                  model: secondOpinionModel(company, workerModel(input.agent)),
+                  usage,
+                }),
+            }),
+            (input) => secondOpinionModel(company, workerModel(input.agent)),
+            observePlan,
+          ),
         goals: {
           ...(options.goals?.judges === undefined
             ? {
-                judgesFor: ({ agent }) => {
+                judgesFor: ({ task, agent }) => {
                   const model = secondOpinionModel(company, workerModel(agent));
-                  let judge = judgeByModel.get(model);
-                  if (judge === undefined) {
-                    judge = createModelJudge({
+                  return withPlanObserver(
+                    createModelJudge({
                       model,
                       getAuth: (provider) =>
                         planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
-                    });
-                    judgeByModel.set(model, judge);
-                  }
-                  return judge;
+                      onUsage: (usage) =>
+                        void modelCalls.record({
+                          agentId: agent.id,
+                          rootTaskId: task.rootTaskId,
+                          purpose: "rubric-judge",
+                          model,
+                          usage,
+                        }),
+                    }),
+                    () => model,
+                    observePlan,
+                  );
                 },
               }
             : { judges: options.goals.judges }),
@@ -705,16 +745,34 @@ export async function createGenericCorpServer(
     const background = createMemoryBackgroundStore({ kv: storage.kv });
     const backgroundGate = createBackgroundGate({
       store: background,
-      ...(options.canSpendInBackground === undefined
-        ? {}
-        : { canSpend: options.canSpendInBackground }),
+      // Memory work waits while the company's spending limit or the plan's limit is reached.
+      canSpend:
+        options.canSpendInBackground ??
+        (async () => {
+          if (limits.view().company?.reached === true) {
+            return "The company's spending limit is reached.";
+          }
+          return (await planLimit.holdFor(runtime.ceoId))?.reason;
+        }),
     });
-    const backgroundModel =
+    const backgroundModelName =
+      processEnv["GENERIC_CORP_MEMORY_MODEL"]?.trim() || DEFAULT_BACKGROUND_MODEL;
+    const backgroundModel: BackgroundModel = withPlanObserver(
       options.backgroundModel ??
-      createModelBackground({
-        model: processEnv["GENERIC_CORP_MEMORY_MODEL"]?.trim() || DEFAULT_BACKGROUND_MODEL,
-        getAuth: (provider) => planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
-      });
+        createModelBackground({
+          model: backgroundModelName,
+          getAuth: (provider) => planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
+          onUsage: (usage, request) =>
+            void modelCalls.record({
+              ...(request.agentId === undefined ? {} : { agentId: request.agentId }),
+              purpose: request.purpose ?? "preferences",
+              model: backgroundModelName,
+              usage,
+            }),
+        }),
+      () => backgroundModelName,
+      observePlan,
+    );
     const scanner = createPreferenceScanner({
       memory,
       store: background,

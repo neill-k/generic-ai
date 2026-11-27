@@ -174,6 +174,7 @@ export function createPreferenceScanner(options: PreferenceScannerOptions): Pref
       let reply: BackgroundReply;
       try {
         reply = await options.model({
+          purpose: "preferences",
           system: PREFERENCE_SCANNER_PROMPT,
           prompt,
           maxTokens: MAX_OUTPUT_TOKENS,

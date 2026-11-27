@@ -36,6 +36,7 @@ export * from "./dashboard.js";
 export * from "./drive.js";
 export * from "./events.js";
 export * from "./executor.js";
+export * from "./model-calls.js";
 export * from "./plan-limit.js";
 export * from "./quality.js";
 export * from "./runtime.js";
