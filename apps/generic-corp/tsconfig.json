@@ -58,6 +58,9 @@
       "path": "../../packages/resources"
     },
     {
+      "path": "../../packages/rlm"
+    },
+    {
       "path": "../../packages/sdk"
     }
   ]

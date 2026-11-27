@@ -212,6 +212,19 @@ describe("Generic Corp server", () => {
 
     const ready = await server.fetch(new Request("http://127.0.0.1/ready"));
     expect(ready.status).toBe(200);
+    // Tests run commands as the server's own user, so no firewall rule can single them out.
+    expect(((await ready.json()) as { agentNetwork: string }).agentNetwork).toBe("proxy-only");
+    await server.refusals.record({
+      kind: "network",
+      agentId: "researcher",
+      category: "network",
+      action: "CONNECT evil.example.com:443",
+      reason: "evil.example.com is not on the network allowlist",
+    });
+    const refusals = await api<{ refusals: { action: string }[] }>(server, "/api/refusals");
+    expect(refusals.body.refusals.map((entry) => entry.action)).toEqual([
+      "CONNECT evil.example.com:443",
+    ]);
 
     // Every agent gets the generic-work toolkit.
     const tools = await api<CompanyToolkitDescription>(server, "/api/tools");

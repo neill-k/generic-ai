@@ -5,7 +5,7 @@ import { expect, test } from "@playwright/test";
 
 import { type ScriptedServer, startScriptedServer, tempDataDir } from "./harness.js";
 
-// The golden flows through the real dashboard, server, cascade and approvals gate. Only the model
+// The golden flows through the real dashboard, server, cascade and permissions gate. Only the model
 // is scripted (see scripted-server.mjs).
 
 let server: ScriptedServer;
@@ -74,21 +74,22 @@ test("delegation: the CEO hands work to the VP and reports the result", async ({
   await expect(page.locator("#view")).toContainText("VP of Operations");
 });
 
-test("approval: an outward action waits for the owner, then runs exactly once", async ({
+test("permissions: an action outside them is refused and listed, and runs once allowed", async ({
   page,
 }) => {
-  const thread = await send(page, "Email the customer that the order shipped.");
-  await expect(page.locator("#messages")).toContainText(/waiting|approval/i);
+  await send(page, "Email the customer that the order shipped.");
+  await expect(page.locator("#messages")).toContainText("Sending is off, so I drafted the email");
   expect(sentEmails()).toEqual([]);
 
-  await page.getByRole("link", { name: /Approvals/ }).click();
-  await expect(page.locator("#approvals-badge")).toHaveText("1");
-  await expect(page.locator("#view")).toContainText("send_email");
-  await expect(page.locator("#view")).toContainText("customer@example.com");
-  await page.getByRole("button", { name: "Approve" }).click();
-  await expect(page.locator("#view")).toContainText(/Approved by/);
+  await page.getByRole("link", { name: "Permissions" }).click();
+  const refused = page.locator("table.refusals");
+  await expect(refused).toContainText("send_email");
+  await expect(refused).toContainText("the owner has not allowed sending messages");
+  await page.getByLabel(/Send messages on my behalf/).check();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.locator("#view")).toContainText("Saved.");
 
-  await page.goto(thread);
+  await send(page, "Email the customer that the order shipped, please.");
   await expect(page.locator("#messages")).toContainText("Email sent.", { timeout: 30_000 });
   expect(sentEmails()).toEqual([{ to: "customer@example.com", body: "Your order shipped today." }]);
 });

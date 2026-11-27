@@ -10,7 +10,7 @@ const CLASSIC: readonly { hash: string; title: string; text: string }[] = [
   { hash: "tools", title: "Tools", text: "What agents can use." },
   { hash: "secrets", title: "Secrets", text: "Keys agents may use without seeing them." },
   { hash: "power", title: "Claude sign-in", text: "What powers the agents." },
-  { hash: "approvals", title: "Approvals", text: "Actions waiting on you." },
+  { hash: "permissions", title: "Permissions", text: "What agents may do, and what was refused." },
 ];
 
 export function MoreView() {

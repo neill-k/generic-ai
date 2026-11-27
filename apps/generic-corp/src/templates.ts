@@ -18,7 +18,7 @@ import {
  * folder under `templates/` with
  *
  * - `company.yaml`: the org chart, roles, models per tier, tools and connectors, secret grants,
- *   approvals, and the goals the company knows how to pursue;
+ *   permissions, and the goals the company knows how to pursue;
  * - `evals.yaml`: its goal eval suite, whose cases name those goals by id;
  * - `replays/`: recorded agent turns that replay each case offline, so CI can run the suite
  *   without a model key.

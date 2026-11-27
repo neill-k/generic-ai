@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -437,6 +438,54 @@ describe("native harness adapter", () => {
       "toolResult",
     ]);
   });
+
+  it.skipIf(spawnSync("python3", ["--version"]).status !== 0)(
+    "gives each agent's Python workspace that agent's extra environment",
+    async () => {
+      const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));
+      const { provider, resolveModel } = fauxModels();
+      let printed = "";
+      provider.setResponses([
+        fauxAssistantMessage(
+          [
+            fauxToolCall("python", {
+              code: "import os\nprint(os.environ.get('AGENT_PROXY'), 'GENERIC_AI_SECRET_X' in os.environ)",
+            }),
+          ],
+          { stopReason: "toolUse" },
+        ),
+        (context: Context) => {
+          const result = context.messages.at(-1) as { content?: { text?: string }[] };
+          printed = result.content?.[0]?.text ?? "";
+          return stop("Checked.");
+        },
+      ]);
+      process.env["GENERIC_AI_SECRET_X"] = "never";
+      try {
+        const harness = createAgentHarness(
+          { id: "native-rlm-env", adapter: "native", model: "faux/root-model" },
+          {
+            native: {
+              resolveModel,
+              retry: false,
+              rlm: { agentEnv: (agentId) => ({ AGENT_PROXY: `proxy-for-${agentId}` }) },
+            },
+          },
+        );
+        const result = await harness.run({
+          instruction: "Check the environment",
+          workspaceRoot,
+          artifactDir: join(workspaceRoot, "artifacts"),
+          rootAgentId: "analyst",
+        });
+        expect(result.status).toBe("succeeded");
+        expect(printed.trim()).toBe("proxy-for-analyst False");
+      } finally {
+        delete process.env["GENERIC_AI_SECRET_X"];
+      }
+    },
+    30_000,
+  );
 
   it("keeps a turn's session in the given file and resumes it after a restart", async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "generic-ai-native-harness-"));

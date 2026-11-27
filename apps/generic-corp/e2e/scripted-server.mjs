@@ -1,9 +1,10 @@
 // A real Generic Corp server on a scripted model, for the end-to-end, crash and load tests
 // (roadmap R19). Everything is the production path (HTTP server, owner API, dashboard, SQLite
-// run store and durable queue, the delegation cascade, workers, approvals gate) except the model,
+// run store and durable queue, the delegation cascade, workers, permissions gate) except the model,
 // which follows a fixed policy keyed on the agent and the owner's words:
 //
-// - "email ..."    the CEO sends an email (a `message.send` action the owner must approve);
+// - "email ..."    the CEO sends an email (a `message.send` action, refused unless the owner's
+//                  permissions allow sending messages);
 // - "delegate ..." the CEO hands the work to the VP and reports the VP's answer;
 // - anything else  the CEO answers itself.
 //
@@ -170,9 +171,12 @@ async function decide(context) {
   }
   if (/\bemail\b/i.test(task)) {
     if (lastCall === "send_email") {
-      return prompt.includes("## The owner's decisions")
-        ? finish(context, "Email sent.")
-        : answer("Waiting for the owner to approve the email.");
+      return finish(
+        context,
+        textOf(last).includes("Refused")
+          ? "Sending is off, so I drafted the email instead."
+          : "Email sent.",
+      );
     }
     return call("send_email", EMAIL);
   }
@@ -231,6 +235,8 @@ const app = await createGenericCorpServer({
     GENERIC_CORP_DATA_DIR: dataDir,
     GENERIC_CORP_INSECURE_NO_AUTH: "true",
     GENERIC_CORP_HOST: "127.0.0.1",
+    // Several scripted servers run side by side; each picks a free port for its egress proxy.
+    GENERIC_CORP_EGRESS_PORT: "0",
   },
   company: E2E_COMPANY,
   toolkit,

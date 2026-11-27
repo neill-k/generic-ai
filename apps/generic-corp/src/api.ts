@@ -18,6 +18,8 @@ import type { CompanyEvent } from "./events.js";
 import { goalDetailView, listGoalViews } from "./goal-views.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
+import { type PermissionStore, PermissionsError } from "./permissions.js";
+import type { RefusalLog } from "./refusals.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
@@ -43,8 +45,12 @@ export interface CompanyApiOptions {
   readonly toolkit?: { describe(): CompanyToolkitDescription };
   /** The secrets vault, managed at `/api/secrets`. Values are never returned. */
   readonly secrets?: CompanySecretsAdmin;
+  /** Actions refused on the spot (network and permissions), listed at `/api/refusals`. */
+  readonly refusals?: RefusalLog;
   /** What powers the agents (Claude sign-in or API key), managed at `/api/model-auth`. */
   readonly modelAuth?: CompanyModelAuth;
+  /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
+  readonly permissions?: PermissionStore;
 }
 
 /** What the secrets screen needs from the vault. */
@@ -447,6 +453,56 @@ export function createCompanyApi(
       );
     }
     return c.json({ deleted: true });
+  });
+
+  // --- Permissions -----------------------------------------------------------
+  // Only the owner writes these. No agent tool reaches them, and nothing else in the app does.
+
+  const requirePermissions = (): PermissionStore => {
+    if (options.permissions === undefined) {
+      throw new ApiError(404, "Permissions are not available.");
+    }
+    return options.permissions;
+  };
+
+  const permissionsView = (store: PermissionStore) => ({
+    permissions: store.current(),
+    saved: store.saved(),
+  });
+
+  app.get("/permissions", (c) => c.json(permissionsView(requirePermissions())));
+
+  app.put("/permissions", async (c) => {
+    const store = requirePermissions();
+    requireManage(c);
+    try {
+      await store.update(await readJsonObject(c), c.get("auth").subject.subjectId);
+    } catch (error) {
+      if (error instanceof PermissionsError) {
+        throw new ApiError(400, error.message);
+      }
+      throw error;
+    }
+    return c.json(permissionsView(store));
+  });
+
+  app.delete("/permissions", async (c) => {
+    const store = requirePermissions();
+    requireManage(c);
+    await store.reset();
+    return c.json(permissionsView(store));
+  });
+
+  // --- Refused actions -----------------------------------------------------
+
+  app.get("/refusals", async (c) => {
+    const limit = Number(c.req.query("limit") ?? "100");
+    return c.json({
+      refusals:
+        options.refusals === undefined
+          ? []
+          : await options.refusals.list({ limit: Number.isFinite(limit) ? limit : 100 }),
+    });
   });
 
   // --- What powers the agents: Claude sign-in or an API key ----------------
