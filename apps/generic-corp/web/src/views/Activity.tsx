@@ -1,4 +1,5 @@
 import { api } from "../api.js";
+import { DailySummaryCard } from "../components/DailySummary.js";
 import { Avatar, Empty, ErrorNote, Loading } from "../components/ui.js";
 import { timeAgo } from "../format.js";
 import { isWorkEvent, useResource } from "../live.js";
@@ -44,6 +45,7 @@ export function ActivityView() {
         </div>
       </header>
 
+      <DailySummaryCard />
       <ErrorNote message={activity.error} />
       {activity.loading && activity.data === undefined ? <Loading /> : null}
 

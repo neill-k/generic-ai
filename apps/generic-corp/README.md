@@ -65,9 +65,8 @@ dashboard at `/` with a permissions page and the refused-actions list.
   what it used, and the owner edits what done means in a side panel. The org chart
   opens each agent's current work and memory. It refreshes from
   `/api/events?unnamed=1`, and a signed-out browser goes to `/auth/login`.
-  `public/` is the earlier no-build dashboard, served at `/classic/` until its
-  remaining screens (activity, drive, usage, permissions and refused actions,
-  tools, secrets, Claude sign-in) move.
+  Activity, drive, deliverables, usage, permissions and refused actions,
+  connections, Claude sign-in and the checkup live in the same app.
 - **Permissions.** `permissions.ts`: the owner sets broad categories once
   (read outside systems: on; send messages, spend money, write to outside
   systems: off; GitHub pushes, pull requests and green-check merges in the
@@ -109,6 +108,10 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/org-chart` | The org chart as a tree, with each agent's tier, model and active task count |
 | `GET /api/agents`, `GET /api/agents/:id` | Agents; one agent's record, memory file, reporting line and recent tasks |
 | `GET /api/agents/:id/costs` | One agent's usage and cost |
+| `GET /api/agents/:id/messages`, `POST /api/agents/:id/messages` | The owner's direct messages with one agent; send one with `{"text"}`. A busy agent reads it at its next step, an idle one gets a new request, and the CEO is told |
+| `GET /api/org/changes` | Hires, changes and retirements in the org chart, newest first, with who made them and why |
+| `POST /api/org/changes/:id/overrule` | Undo a change. The agent goes back as it was and the CEO leaves it alone from then on. Needs `tokens:manage` |
+| `GET /api/pause`, `PUT /api/pause`, `PUT /api/agents/:id/pause` | Pause or resume the company or one agent (`{"paused": true}`). A running turn finishes its current step first |
 | `GET /api/quality` | The quality dial: the model behind best, balanced and cheap, and each agent's step and current model |
 | `PUT /api/agents/:id/quality` | Set an agent's step (`{"level": "best"}`, `"balanced"`, `"cheap"`, or `"default"` for the company file's model). Applies from its next turn. Needs `tokens:manage` |
 | `GET /api/backups`, `POST /api/backups` | Backups and the next scheduled one; start one now |
@@ -121,6 +124,8 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/tasks?status=&agentId=&root=1&limit=` | Tasks, newest first |
 | `GET /api/tasks/:id`, `/tree`, `/events` | A task and its children, its whole cascade, its event log and harness run events |
 | `POST /api/tasks/:id/cancel` | Cancel a task and everything it delegated |
+| `GET /api/activity` | Work in motion and what just finished, each with who is on it and its status in plain words |
+| `GET /api/summary?hours=24` | The quiet daily summary: goals done and ended, goals set, work handed in, refused actions, org changes and spend in the window. Read from records already kept; no model call, nothing sent |
 | `GET /api/board` | Tasks in columns by status |
 | `GET /api/costs` | Tokens and dollars by agent, model and owner request, and cost per completed request |
 | `GET /api/permissions` | The permissions in force and whether the owner has saved them |
@@ -321,7 +326,10 @@ The owner can change a goal at any time with `PUT /api/tasks/:id/goal`
 at its next step and the checks run against the new version. Agents never wait
 on the owner: `ask_owner` writes a question down with the assumption the agent
 is working on, listed at `GET /api/questions` and answered with
-`POST /api/tasks/:id/questions/:questionId/answer`.
+`POST /api/tasks/:id/questions/:questionId/answer`. Agents can also ask each
+other: `ask_agent` sends a question to any agent in the company, outside the
+asker's part of the org chart too, and the asker picks the answer up in its
+next turn. Handing off work with `delegate_task` still follows the chart.
 
 Evals. `npm run evals -w @generic-ai/app-generic-corp` replays every
 template's suite offline: a fresh company per attempt, the recorded turns on a

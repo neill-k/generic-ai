@@ -59,7 +59,6 @@
   },
   "files": [
     "dist",
-    "public",
     "skills",
     "templates",
     "README.md"

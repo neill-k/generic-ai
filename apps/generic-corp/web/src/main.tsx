@@ -8,12 +8,16 @@ import "./styles.css";
 import { ActivityView } from "./views/Activity.js";
 import { CheckupView } from "./views/Checkup.js";
 import { ConnectionsView } from "./views/Connections.js";
+import { DeliverablesView } from "./views/Deliverables.js";
+import { DriveView } from "./views/Drive.js";
 import { GoalView } from "./views/Goal.js";
 import { GoalsView } from "./views/Goals.js";
 import { MemoryView } from "./views/Memory.js";
 import { MoreView } from "./views/More.js";
 import { OrgView } from "./views/Org.js";
 import { PermissionsView } from "./views/Permissions.js";
+import { SignInView } from "./views/SignIn.js";
+import { UsageView } from "./views/Usage.js";
 
 const NAV: readonly { view: string; label: string; icon: string }[] = [
   { view: "goals", label: "Goals", icon: "◎" },
@@ -25,7 +29,11 @@ const NAV: readonly { view: string; label: string; icon: string }[] = [
 
 /** Settings rooms live under More in the navigation. */
 const navView = (view: string) =>
-  ["connections", "permissions", "checkup"].includes(view) ? "more" : view;
+  ["connections", "permissions", "checkup", "drive", "deliverables", "usage", "sign-in"].includes(
+    view,
+  )
+    ? "more"
+    : view;
 
 function App() {
   const route = useRoute();
@@ -45,6 +53,14 @@ function App() {
     page = <ActivityView />;
   } else if (route.view === "connections") {
     page = <ConnectionsView />;
+  } else if (route.view === "drive") {
+    page = <DriveView path={route.id} />;
+  } else if (route.view === "deliverables") {
+    page = <DeliverablesView />;
+  } else if (route.view === "usage") {
+    page = <UsageView />;
+  } else if (route.view === "sign-in") {
+    page = <SignInView />;
   } else if (route.view === "checkup") {
     page = <CheckupView />;
   } else if (route.view === "permissions") {

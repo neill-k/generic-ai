@@ -91,10 +91,14 @@ export async function summarizeCompanyCosts(
     readonly completedRequestIds?: ReadonlySet<string>;
     /** Only count runs for this agent. */
     readonly agentId?: string;
+    /** Only count runs started at or after this time (ISO). */
+    readonly since?: string;
   } = {},
 ): Promise<CompanyCosts> {
   const runs = (await runStore.listRuns({ limit: options.limit ?? 1000 })).filter(
-    (record) => record.metadata?.["kind"] === HARNESS_RUN_KIND,
+    (record) =>
+      record.metadata?.["kind"] === HARNESS_RUN_KIND &&
+      (options.since === undefined || record.createdAt >= options.since),
   );
   let totals = emptyTotals();
   const byAgent = new Map<string, UsageTotals>();

@@ -1,6 +1,7 @@
 import { useCallback, useState } from "preact/hooks";
 
 import { type AgentDetail, api, type CompanyInfo, type OrgNode } from "../api.js";
+import { OrgChanges } from "../components/OrgChanges.js";
 import { AgentPauseButton, usePause } from "../components/pause.js";
 import { Avatar, ErrorNote, Loading, SidePanel } from "../components/ui.js";
 import { formatTime } from "../format.js";
@@ -51,6 +52,7 @@ export function OrgView({
           </ul>
         </div>
       )}
+      <OrgChanges />
       {agentId === undefined ? null : (
         <AgentPanel agentId={agentId} onClose={close} ceoId={company?.ceoId} />
       )}

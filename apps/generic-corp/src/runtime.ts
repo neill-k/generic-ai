@@ -24,13 +24,7 @@ import {
   createAgentChat,
   withCeoNotes,
 } from "./agent-chat.js";
-import {
-  type CompanyConfig,
-  ceoOf,
-  companyAgentSeeds,
-  type QualityLevel,
-  tierOf,
-} from "./company.js";
+import { type CompanyConfig, ceoOf, type QualityLevel, tierOf } from "./company.js";
 import { type CompanyCosts, summarizeCompanyCosts } from "./costs.js";
 import { type CompanyDrive, type DriveEntry, describeDriveForAgent } from "./drive.js";
 import { type CompanyEventHub, createCompanyEventHub } from "./events.js";
@@ -38,6 +32,7 @@ import type { CompanyHarvest } from "./harvest.js";
 import { type CompanyHolds, createCompanyHolds } from "./holds.js";
 import { type CompanyMemory, createCompanyMemory } from "./memory.js";
 import { syncMemorySkills } from "./memory-skills.js";
+import { type CompanyOrg, createCompanyOrg } from "./org.js";
 import type { CompanyStorage } from "./storage.js";
 import {
   type ChatMessageRecord,
@@ -195,6 +190,8 @@ export interface CompanyRuntime {
   readonly agentChat: AgentChat;
   /** Pauses and other holds on work (decisions 15 and 33). */
   readonly holds: CompanyHolds;
+  /** The org chart's changes: the CEO hires, changes and retires; the owner can overrule. */
+  readonly org: CompanyOrg;
   readonly events: CompanyEventHub;
   readonly drive?: CompanyDrive;
   readonly memory: CompanyMemory;
@@ -224,7 +221,12 @@ export interface CompanyRuntime {
 
   listTasks(options?: ListTasksOptions): Promise<readonly AgentTaskRecord[]>;
   board(options?: { readonly limit?: number }): Promise<readonly BoardColumn[]>;
-  costs(options?: { readonly agentId?: string; readonly limit?: number }): Promise<CompanyCosts>;
+  costs(options?: {
+    readonly agentId?: string;
+    readonly limit?: number;
+    /** Only count runs started at or after this time (ISO). */
+    readonly since?: string;
+  }): Promise<CompanyCosts>;
 }
 
 export const BOARD_COLUMNS: readonly AgentTaskStatus[] = [
@@ -343,6 +345,17 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
   const events = createCompanyEventHub({ now });
   const threads = createThreadStore(storage.kv, { now, createId });
   const directory = createAgentDirectory({ store: storage.agents, root: options.agentsRoot, now });
+  const org = createCompanyOrg({
+    kv: storage.kv,
+    company,
+    directory,
+    ceoId,
+    activeTaskCount: async (agentId) =>
+      (await listTasks({ agentId, status: [...ACTIVE_STATUSES], limit: 200 })).length,
+    onChange: (change) => events.publish("org.changed", { ...change }),
+    now,
+    createId,
+  });
 
   const onEvent = (event: DelegationCascadeEvent) => {
     if (event.type === "error") {
@@ -412,7 +425,12 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
       now,
       legacyNotes: (agentId) => directory.readMemory(agentId),
     });
-  const executor: AgentTaskExecutor = async (input) => {
+  const executor: AgentTaskExecutor = async (taskInput) => {
+    // The CEO designs the org chart as the work needs (decision 51).
+    const input =
+      taskInput.agentId === ceoId
+        ? { ...taskInput, tools: [...(taskInput.tools ?? []), ...org.tools()] }
+        : taskInput;
     let prompt = input.prompt;
     if (drive !== undefined) {
       prompt = withDriveSection(
@@ -637,13 +655,14 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     threads,
     agentChat: chat,
     holds,
+    org,
     events,
     ...(drive === undefined ? {} : { drive }),
     memory,
 
     async initialize() {
       await drive?.ensure();
-      const seeded = await directory.seed(companyAgentSeeds(company));
+      const seeded = await org.apply();
       for (const agent of await directory.list()) {
         await directory.ensureWorkspace(agent.id);
       }
@@ -786,6 +805,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         completedRequestIds: new Set(completed.map((task) => task.taskId)),
         ...(costOptions.agentId === undefined ? {} : { agentId: costOptions.agentId }),
         ...(costOptions.limit === undefined ? {} : { limit: costOptions.limit }),
+        ...(costOptions.since === undefined ? {} : { since: costOptions.since }),
       });
     },
   };
