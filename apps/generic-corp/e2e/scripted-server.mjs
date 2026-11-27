@@ -7,6 +7,9 @@
 // - "delegate ..." the CEO hands the work to the VP and reports the VP's answer;
 // - anything else  the CEO answers itself.
 //
+// Every request gets a goal (ADR 0069): the CEO first drafts a small one with `set_goal`, and
+// every agent finishes by handing in with `submit_work`.
+//
 // Run after `npm run build`. Configuration comes from the environment:
 //
 //   E2E_DATA_DIR       data directory (required)
@@ -69,6 +72,30 @@ const call = (name, args) =>
   fauxAssistantMessage([fauxToolCall(name, args)], { stopReason: "toolUse" });
 const answer = (text) => call("stop_and_respond", { response: text });
 
+/** Tools the agent already called in this turn (since the turn's prompt). */
+function calledThisTurn(context, name) {
+  return context.messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      message.content.some((part) => part.type === "toolCall" && part.name === name),
+  );
+}
+
+const GOAL = {
+  objective: "Do what the owner asked.",
+  definitionOfDone: ["The result is handed in with a summary."],
+  validators: [
+    { id: "handed-in", kind: "output_schema", schema: { type: "object", required: ["summary"] } },
+  ],
+};
+
+/** Hands the work in with `submit_work`, then ends the turn. */
+function finish(context, text) {
+  return calledThisTurn(context, "submit_work")
+    ? answer("Handed in.")
+    : call("submit_work", { summary: text, deliverables: [] });
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Model calls in flight, overall and per agent, with their peaks. Written to E2E_STATS_FILE after
@@ -113,22 +140,27 @@ async function decide(context) {
       writeFileSync(hangFile, String(process.pid));
       await new Promise(() => undefined);
     }
-    return answer("42 chairs counted.");
+    return finish(context, "42 chairs counted.");
   }
   if (agent !== "ceo") {
-    return answer(`Nothing scripted for ${agent ?? "an unknown agent"}.`);
+    return finish(context, `Nothing scripted for ${agent ?? "an unknown agent"}.`);
+  }
+  if (calledThisTurn(context, "submit_work")) {
+    return answer("Handed in.");
+  }
+  const goalPending = (context.tools ?? []).some((tool) => tool.name === "set_goal");
+  if (goalPending && !calledThisTurn(context, "set_goal")) {
+    return call("set_goal", GOAL);
   }
   if (prompt.includes("## Results from the work you delegated")) {
     const report = /### "vp-ops": succeeded[\s\S]*?\n\n([^\n]+)/.exec(prompt)?.[1] ?? "no answer";
-    return answer(`The VP reports: ${report}`);
+    return finish(context, `The VP reports: ${report}`);
   }
   if (/\bemail\b/i.test(task)) {
     if (lastCall === "send_email") {
-      return answer(
-        prompt.includes("## The owner's decisions")
-          ? "Email sent."
-          : "Waiting for the owner to approve the email.",
-      );
+      return prompt.includes("## The owner's decisions")
+        ? finish(context, "Email sent.")
+        : answer("Waiting for the owner to approve the email.");
     }
     return call("send_email", EMAIL);
   }
@@ -146,7 +178,7 @@ async function decide(context) {
       ],
     });
   }
-  return answer("Hello from the CEO.");
+  return finish(context, "Hello from the CEO.");
 }
 
 const provider = registerFauxProvider({ provider: "scripted", models: [{ id: "model" }] });
