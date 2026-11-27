@@ -83,6 +83,7 @@ export const ENV = Object.freeze({
   workers: "GENERIC_CORP_WORKERS",
   turnLeaseMs: "GENERIC_CORP_TURN_LEASE_MS",
   workerConcurrency: "GENERIC_CORP_WORKER_CONCURRENCY",
+  noProgressMinutes: "GENERIC_CORP_NO_PROGRESS_MINUTES",
 });
 
 /** Agent turns one process runs at the same time when nothing else is configured. */
@@ -120,6 +121,11 @@ export interface GenericCorpEnvironment {
   readonly turnLeaseMs?: number;
   /** Agent turns this process runs at the same time. Defaults to 4. */
   readonly workerConcurrency?: number;
+  /**
+   * Minutes a turn may go without any tool activity before it is stopped and retried (the
+   * no-progress check that replaced the turn time limit). Defaults to 15.
+   */
+  readonly noProgressMinutes?: number;
 }
 
 function read(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -196,6 +202,14 @@ export function loadGenericCorpEnvironment(env: NodeJS.ProcessEnv): GenericCorpE
       `${ENV.workerConcurrency} must be a whole number from 1 to 64.`,
     );
   }
+  const noProgressRaw = read(env, ENV.noProgressMinutes);
+  const noProgressMinutes = noProgressRaw === undefined ? undefined : Number(noProgressRaw);
+  if (
+    noProgressMinutes !== undefined &&
+    (!Number.isFinite(noProgressMinutes) || noProgressMinutes < 1 || noProgressMinutes > 1440)
+  ) {
+    throw new GenericCorpConfigError(`${ENV.noProgressMinutes} must be a number from 1 to 1440.`);
+  }
   return {
     host,
     port,
@@ -211,6 +225,7 @@ export function loadGenericCorpEnvironment(env: NodeJS.ProcessEnv): GenericCorpE
     workers: flag(env, ENV.workers, true),
     ...(turnLeaseMs === undefined ? {} : { turnLeaseMs }),
     ...(workerConcurrency === undefined ? {} : { workerConcurrency }),
+    ...(noProgressMinutes === undefined ? {} : { noProgressMinutes }),
   };
 }
 
@@ -353,6 +368,9 @@ export async function createGenericCorpServer(
             policy: approvalPolicy,
           }).wrapBindings(companyToolkit.capabilities(input)),
         secretGrants: (agentId) => companyToolkit.secretGrants(agentId),
+        ...(environment.noProgressMinutes === undefined
+          ? {}
+          : { noProgress: { idleMs: environment.noProgressMinutes * 60_000 } }),
         ...options.executorOptions,
         native: {
           getAuth: (provider) => modelAuth.getAuth(provider),

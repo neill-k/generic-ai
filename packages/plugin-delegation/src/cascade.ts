@@ -378,11 +378,18 @@ export interface CreateDelegationCascadeOptions {
   readonly delegationScope?: DelegationScope;
   /** Deepest delegation allowed (root task is depth 0). Defaults to 6. */
   readonly maxDepth?: number;
-  /** Most turns a single task may take. Defaults to 12. */
+  /**
+   * Most turns a single task may take before it fails. Unlimited by default: a task keeps going
+   * until it is done, declared impossible, cancelled, or stopped by a spending limit.
+   */
   readonly maxRounds?: number;
   /** Most children one delegation may create. Defaults to 8. */
   readonly maxChildrenPerDelegation?: number;
-  /** Failed validations before a task fails. Defaults to 3. */
+  /**
+   * Failed validations before a task fails. Unlimited by default: a result that does not pass
+   * goes back to the agent with the feedback, as often as it takes. A goal spec's `maxAttempts`
+   * is not a failure limit here; set this to bring one back.
+   */
   readonly maxValidationAttempts?: number;
   /** Queue attempts per turn before the task fails. Defaults to the queue's default. */
   readonly maxAttemptsPerTurn?: number;
@@ -493,9 +500,9 @@ class TaskSettledError extends Error {
 
 const DEFAULTS = {
   maxDepth: 6,
-  maxRounds: 12,
+  maxRounds: Number.POSITIVE_INFINITY,
   maxChildrenPerDelegation: 8,
-  maxValidationAttempts: 3,
+  maxValidationAttempts: Number.POSITIVE_INFINITY,
   memoryPromptChars: 8_000,
   childResultPromptChars: 8_000,
 };
@@ -1278,7 +1285,7 @@ export function createDelegationCascade(
       const latest = (await load(taskId)) as AgentTaskRecord;
       const failures = latest.validationFailures + 1;
       const feedback = verdict.feedback ?? "The result did not pass validation.";
-      const maxAttempts = latest.goal?.spec?.maxAttempts ?? limits.maxValidationAttempts;
+      const maxAttempts = limits.maxValidationAttempts;
       await logEvent(latest, "session.failed", {
         round,
         validation: "failed",

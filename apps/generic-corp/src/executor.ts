@@ -21,6 +21,12 @@ import {
 } from "@generic-ai/sdk";
 
 import { DEFAULT_TIER_MODELS } from "./company.js";
+import {
+  monitorCapabilities,
+  type NoProgressOptions,
+  runWithProgressCheck,
+  type TurnProgressMonitor,
+} from "./no-progress.js";
 
 export const GENERIC_CORP_HARNESS_ID = "generic-corp";
 
@@ -37,8 +43,13 @@ export interface CompanyExecutorOptions {
   readonly capabilities?: (input: AgentTaskExecutionInput) => PiCapabilityBindings;
   /** Policy evaluator for effects (approvals plug in here). */
   readonly policy?: (input: AgentTaskExecutionInput) => AgentHarnessPolicyEvaluator | undefined;
-  /** Per-turn deadline. Defaults to 20 minutes. */
+  /**
+   * Hard per-turn deadline. Off by default (decision 31): a turn runs as long as it keeps making
+   * progress, which `noProgress` checks.
+   */
   readonly turnTimeoutMs?: number;
+  /** The no-progress check that stops a stalled or looping turn; `false` turns it off. */
+  readonly noProgress?: NoProgressOptions | false;
   /** Harness config shared by every agent; each turn adds the agent's role and model. */
   readonly harness?: Partial<AgentHarnessConfig>;
   /** Secrets each agent may use as `{{secret:NAME}}`. */
@@ -82,12 +93,18 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
     }).adapter,
     options.runStore,
   );
-  const capabilities = options.capabilities ?? defaultAgentCapabilities;
-  const execute = createAdapterTaskExecutor<PiCapabilityBindings, unknown>({
+  const baseCapabilities = options.capabilities ?? defaultAgentCapabilities;
+  const monitors = new Map<string, TurnProgressMonitor>();
+  const capabilities = (input: AgentTaskExecutionInput): PiCapabilityBindings => {
+    const bindings = baseCapabilities(input);
+    const monitor = monitors.get(input.attemptRunId);
+    return monitor === undefined ? bindings : monitorCapabilities(bindings, monitor);
+  };
+  const runTurn = createAdapterTaskExecutor<PiCapabilityBindings, unknown>({
     adapter,
     harness,
     capabilities,
-    turnTimeoutMs: options.turnTimeoutMs ?? 20 * 60_000,
+    ...(options.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: options.turnTimeoutMs }),
     role: (input) => {
       const secrets = options.secretGrants?.(input.agentId);
       return secrets === undefined ? undefined : { secrets };
@@ -104,6 +121,19 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
       return budget === undefined ? context : { ...context, budget };
     },
   });
+  const noProgress = options.noProgress;
+  const execute: AgentTaskExecutor =
+    noProgress === false
+      ? runTurn
+      : (input) =>
+          runWithProgressCheck(input, noProgress ?? {}, async (monitored, monitor) => {
+            monitors.set(monitored.attemptRunId, monitor);
+            try {
+              return await runTurn(monitored);
+            } finally {
+              monitors.delete(monitored.attemptRunId);
+            }
+          });
   const onTurnUsage = options.onTurnUsage;
   if (onTurnUsage === undefined) {
     return execute;

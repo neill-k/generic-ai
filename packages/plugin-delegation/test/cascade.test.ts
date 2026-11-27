@@ -467,6 +467,26 @@ describe("delegation cascade (R9)", () => {
     expect(task?.failureMessage).toMatch(/failed validation 2 times/);
   });
 
+  it("keeps a task going past any fixed number of rounds until validation passes", async () => {
+    let turns = 0;
+    const { executor } = scriptedExecutor({
+      analyst: () => {
+        turns += 1;
+        return { status: "succeeded", outputText: turns >= 20 ? "COMPLETE" : "draft" };
+      },
+    });
+    const { cascade } = await openHarness(executor, {
+      validate: ({ outputText }) =>
+        outputText.includes("COMPLETE") ? { passed: true } : { passed: false, feedback: "not yet" },
+    });
+    await cascade.submit({ agentId: "analyst", instruction: "Write", taskId: "long" });
+    await cascade.drain();
+    const task = await cascade.get("long");
+    expect(task?.status).toBe("succeeded");
+    expect(turns).toBe(20);
+    expect(task?.round).toBeGreaterThan(12);
+  });
+
   it("retries a failed turn, then reports the failure to the parent", async () => {
     const { executor, calls } = scriptedExecutor({
       "vp-ops": (_input, turn) =>
