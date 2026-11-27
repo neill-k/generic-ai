@@ -6,6 +6,7 @@ import type {
   GoalJudge,
   GoalSpec,
   GoalValidationReport,
+  GoalValidatorResult,
   GoalValidatorSpec,
   JsonValue,
   RunStoreContract,
@@ -23,6 +24,7 @@ import {
 import type { PersistentAgentRecord } from "./agents.js";
 import type {
   AgentTaskGoal,
+  AgentTaskGoalCheck,
   AgentTaskGoalReport,
   AgentTaskHandIn,
   AgentTaskRecord,
@@ -163,6 +165,32 @@ export function summarizeGoalReport(report: GoalValidationReport): AgentTaskGoal
     errored: report.summary.errored,
     feedback: report.feedback,
     evaluatedAt: report.evaluatedAt,
+    checks: report.results.map(summarizeGoalCheck),
+  };
+}
+
+function summarizeGoalCheck(result: GoalValidatorResult): AgentTaskGoalCheck {
+  const criteria = result.details?.["criteria"];
+  const perCriterion = Array.isArray(criteria)
+    ? criteria.flatMap((entry) => {
+        if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+          return [];
+        }
+        const criterionId = entry["criterionId"];
+        const passed = entry["passed"];
+        const score = entry["score"];
+        return typeof criterionId === "string" && typeof passed === "boolean"
+          ? [{ criterionId, passed, ...(typeof score === "number" ? { score } : {}) }]
+          : [];
+      })
+    : [];
+  return {
+    validatorId: result.validatorId,
+    kind: result.kind,
+    required: result.required,
+    status: result.status,
+    message: result.message.length > 500 ? `${result.message.slice(0, 499)}…` : result.message,
+    ...(perCriterion.length === 0 ? {} : { criteria: perCriterion }),
   };
 }
 

@@ -8,19 +8,22 @@
   "scripts": {
     "check:node": "node ../../scripts/check-node-version.mjs",
     "prebuild": "node ../../scripts/check-node-version.mjs",
-    "build": "tsc -b",
-    "typecheck": "tsc -b --pretty",
+    "build": "tsc -b && npm run build:web",
+    "typecheck": "tsc -b --pretty && tsc -p web/tsconfig.json",
     "test": "vitest run --root ../.. --config vitest.config.ts apps/generic-corp/src",
     "e2e": "playwright test",
     "lint": "biome lint .",
     "prestart": "node ../../scripts/check-node-version.mjs",
     "start": "node dist/run.js",
     "evals": "node dist/evals-cli.js",
-    "reliability": "bash scripts/reliability.sh"
+    "reliability": "bash scripts/reliability.sh",
+    "build:web": "vite build --config web/vite.config.ts",
+    "dev:web": "vite --config web/vite.config.ts"
   },
   "dependencies": {
     "@generic-ai/ai": "0.0.0",
     "@generic-ai/auth": "0.0.0",
+    "@generic-ai/continual": "0.0.0",
     "@generic-ai/core": "0.0.0",
     "@generic-ai/plugin-agent-skills": "0.0.0",
     "@generic-ai/plugin-approvals": "0.0.0",
@@ -38,6 +41,7 @@
     "@generic-ai/resources": "0.0.0",
     "@generic-ai/rlm": "0.0.0",
     "@generic-ai/sdk": "0.0.0",
+    "@sinclair/typebox": "0.34.49",
     "hono": "^4.12.15",
     "yaml": "^2.8.3"
   },
@@ -48,7 +52,8 @@
   "private": true,
   "devDependencies": {
     "@playwright/test": "1.63.0",
-    "@sinclair/typebox": "0.34.49"
+    "preact": "^10.27.2",
+    "vite": "^8.4.0"
   },
   "files": [
     "dist",

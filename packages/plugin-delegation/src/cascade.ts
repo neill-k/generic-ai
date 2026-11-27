@@ -395,8 +395,20 @@ export interface CreateDelegationCascadeOptions {
   readonly maxAttemptsPerTurn?: number;
   /** Characters of the agent's memory file included in its prompt. Defaults to 8000. */
   readonly memoryPromptChars?: number;
+  /**
+   * Whether the prompt points the agent at its memory file (`context.md` in its home) and shows
+   * it. Default true. Apps with their own memory system turn it off and add their own section.
+   */
+  readonly memoryFile?: boolean;
   /** Characters of each child result included in the parent's prompt. Defaults to 8000. */
   readonly childResultPromptChars?: number;
+  /**
+   * Saves a finished child's whole result where the parent's tools can read it and returns the
+   * path to show the parent. When set, a result longer than `childResultPromptChars` reaches the
+   * parent as a short excerpt plus that path instead of being cut off, so long work moves
+   * between agents as files rather than through the model's context.
+   */
+  readonly saveChildResult?: (child: AgentTaskRecord) => Promise<string | undefined>;
   readonly jobName?: string;
   readonly worker?: Omit<
     QueueWorkerOptions<AgentTaskJobPayload, AgentTaskJobResult>,
@@ -497,6 +509,9 @@ class TaskSettledError extends Error {
     this.name = "TaskSettledError";
   }
 }
+
+/** Excerpt of a long child result shown beside the file that holds all of it. */
+const CHILD_RESULT_EXCERPT_CHARS = 2_000;
 
 const DEFAULTS = {
   maxDepth: 6,
@@ -1898,7 +1913,7 @@ export function createDelegationCascade(
     const [chain, reports, memory] = await Promise.all([
       directory.managementChain(agent.id),
       directory.directReports(agent.id),
-      directory.readMemory(agent.id),
+      options.memoryFile === false ? Promise.resolve("") : directory.readMemory(agent.id),
     ]);
     const delegatable =
       scope === "direct-reports"
@@ -1928,13 +1943,17 @@ export function createDelegationCascade(
       lines.push("You have nobody to delegate to; do the work yourself.");
     }
 
-    lines.push(
-      "",
-      "## Your memory",
-      `Your memory file is ${agent.memoryPath}. It persists across tasks; update it with decisions and lessons worth keeping.`,
-      `Your workspace is ${agent.workspacePath}.`,
-    );
-    const trimmedMemory = memory.trim();
+    if (options.memoryFile === false) {
+      lines.push("", `Your workspace is ${agent.workspacePath}.`);
+    } else {
+      lines.push(
+        "",
+        "## Your memory",
+        `Your memory file is ${agent.memoryPath}. It persists across tasks; update it with decisions and lessons worth keeping.`,
+        `Your workspace is ${agent.workspacePath}.`,
+      );
+    }
+    const trimmedMemory = options.memoryFile === false ? "" : memory.trim();
     if (trimmedMemory.length > 0) {
       lines.push("", "```markdown", clip(trimmedMemory, limits.memoryChars, true), "```");
     }
@@ -1976,7 +1995,7 @@ export function createDelegationCascade(
           `Task: ${clip(child.instruction, 500)}`,
         );
         if (child.outputText !== undefined && child.outputText.length > 0) {
-          lines.push("", clip(child.outputText, limits.childChars));
+          lines.push("", ...(await childResultLines(child, child.outputText)));
         }
         if (child.status !== "succeeded" && child.failureMessage !== undefined) {
           lines.push("", `Failure: ${child.failureMessage}`);
@@ -2061,6 +2080,21 @@ export function createDelegationCascade(
         "question and the assumption you will act on, then carry on. Never stop to wait for an answer.",
     );
     return lines.join("\n");
+  }
+
+  async function childResultLines(child: AgentTaskRecord, output: string): Promise<string[]> {
+    if (output.length <= limits.childChars || options.saveChildResult === undefined) {
+      return [clip(output, limits.childChars)];
+    }
+    const saved = await options.saveChildResult(child).catch(() => undefined);
+    if (saved === undefined) {
+      return [clip(output, limits.childChars)];
+    }
+    return [
+      clip(output, Math.min(limits.childChars, CHILD_RESULT_EXCERPT_CHARS)),
+      "",
+      `The whole result (${output.length} characters) is in ${saved}. Read it with your file tools when you need more than this excerpt.`,
+    ];
   }
 
   async function decidedApprovals(task: AgentTaskRecord): Promise<readonly ApprovalRequest[]> {

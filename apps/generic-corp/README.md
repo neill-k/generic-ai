@@ -39,7 +39,8 @@ dashboard at `/` with a permissions page and the refused-actions list.
   `agents/<id>/` is each agent's home with `workspace/` as its scratch folder.
   Paths are relative to the company root, so the same path means the same
   file to every agent, the goal checks and the owner. Agents are told to hand
-  work to each other as drive paths, not pasted text. The owner browses,
+  work to each other as drive paths, not pasted text. A long result is saved to
+  `drive/goals/<goalId>/handoffs/` and its manager gets an excerpt plus the path. The owner browses,
   uploads, previews and downloads drive files, drops files into a chat, and
   sees finished work on the deliverables shelf. Cancelling a goal keeps its
   folder, marked abandoned, with an `ABANDONED.md` note.
@@ -56,11 +57,17 @@ dashboard at `/` with a permissions page and the refused-actions list.
   is set. Search keys and MCP `${NAME}` placeholders resolve host-side, so
   agents never see them. An agent's `secrets:` list lets it use named secrets
   in its own tool calls as `{{secret:NAME}}`.
-- **Dashboard.** `public/` holds a no-build page (`dashboard.ts` serves it at
-  `/` with a strict CSP): chat with the CEO, the org chart with each agent's
-  memory and tasks, the board, costs, the agents' tools and connectors, and a
-  secrets screen that shows which secrets are missing and saves new ones. It
-  refreshes from `/api/events`, and a signed-out browser goes to `/auth/login`.
+- **The app.** `web/` is the owner's app: Preact, bundled by Vite into
+  `dist/web` (`npm run build` runs both `tsc` and `vite build`; `npm run dev:web`
+  serves it with hot reload against a server on port 8787). `dashboard.ts` serves
+  it at `/` with a strict CSP. Goals is the home screen: each goal shows its
+  definition of done as a live checklist, who is on it, what was delivered and
+  what it used, and the owner edits what done means in a side panel. The org chart
+  opens each agent's current work and memory. It refreshes from
+  `/api/events?unnamed=1`, and a signed-out browser goes to `/auth/login`.
+  `public/` is the earlier no-build dashboard, served at `/classic/` until its
+  remaining screens (activity, drive, usage, permissions and refused actions,
+  tools, secrets, Claude sign-in) move.
 - **Permissions.** `permissions.ts`: the owner sets broad categories once
   (read outside systems: on; send messages, spend money, write to outside
   systems: off; GitHub pushes, pull requests and green-check merges in the

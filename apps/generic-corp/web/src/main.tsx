@@ -1,0 +1,76 @@
+import { render } from "preact";
+
+import { api, type CompanyInfo } from "./api.js";
+import { useLiveStatus, useResource } from "./live.js";
+import { href, useRoute } from "./router.js";
+import "./styles.css";
+import { GoalView } from "./views/Goal.js";
+import { GoalsView } from "./views/Goals.js";
+import { MoreView } from "./views/More.js";
+import { OrgView } from "./views/Org.js";
+
+const NAV: readonly { view: string; label: string; icon: string }[] = [
+  { view: "goals", label: "Goals", icon: "◎" },
+  { view: "org", label: "Org chart", icon: "⌗" },
+  { view: "more", label: "More", icon: "≡" },
+];
+
+function App() {
+  const route = useRoute();
+  const live = useLiveStatus();
+  const company = useResource(() => api<CompanyInfo>("/company"), []);
+  const name = company.data?.name ?? "Generic Corp";
+
+  let page: preact.JSX.Element;
+  if (route.view === "goals" && route.id !== undefined) {
+    page = <GoalView goalId={route.id} />;
+  } else if (route.view === "org") {
+    page = <OrgView agentId={route.id} company={company.data} />;
+  } else if (route.view === "more") {
+    page = <MoreView />;
+  } else {
+    page = <GoalsView />;
+  }
+
+  return (
+    <div class="shell">
+      <aside class="sidebar">
+        <a class="brand" href={href("goals")}>
+          <span class="brand-mark" aria-hidden="true">
+            {name.slice(0, 1)}
+          </span>
+          <span>
+            <span class="brand-name">{name}</span>
+            <span class="brand-tagline">We care deeply about our employees.</span>
+          </span>
+        </a>
+        <nav aria-label="Main" class="nav">
+          {NAV.map((item) => (
+            <a
+              key={item.view}
+              href={href(item.view)}
+              class={route.view === item.view ? "active" : undefined}
+              aria-current={route.view === item.view ? "page" : undefined}
+            >
+              <span class="nav-icon" aria-hidden="true">
+                {item.icon}
+              </span>
+              {item.label}
+            </a>
+          ))}
+        </nav>
+        <div class="sidebar-foot">
+          <span class={`live${live ? " on" : ""}`}>{live ? "Live" : "Reconnecting…"}</span>
+        </div>
+      </aside>
+      <main class="main" id="main">
+        {page}
+      </main>
+    </div>
+  );
+}
+
+const root = document.getElementById("root");
+if (root !== null) {
+  render(<App />, root);
+}
