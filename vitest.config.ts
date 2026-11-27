@@ -11,6 +11,7 @@ const packageAliases = [
   "resources",
   "extensions",
   "subagents",
+  "rlm",
   "autonomy",
   "continual",
   "auth",

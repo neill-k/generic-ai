@@ -1,0 +1,55 @@
+{
+  "name": "@generic-ai/rlm",
+  "version": "0.0.0",
+  "description": "A persistent Python workspace tool for Generic AI agents, borrowed from Prime Agent's RLM: large inputs live in variables, code calls smaller models and the agent's other tools, and only what the code prints enters the conversation.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -b --noEmit --pretty false"
+  },
+  "files": [
+    "dist",
+    "python/kernel.py",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "dependencies": {
+    "@generic-ai/agent": "0.0.0",
+    "@generic-ai/ai": "0.0.0",
+    "@generic-ai/tools": "0.0.0",
+    "@sinclair/typebox": "0.34.49"
+  },
+  "license": "MIT",
+  "private": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/neill-k/generic-ai.git",
+    "directory": "packages/rlm"
+  },
+  "homepage": "https://github.com/neill-k/generic-ai/tree/main/packages/rlm#readme",
+  "bugs": {
+    "url": "https://github.com/neill-k/generic-ai/issues"
+  },
+  "keywords": [
+    "generic-ai",
+    "ai-agents",
+    "python",
+    "rlm"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
