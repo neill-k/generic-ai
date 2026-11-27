@@ -65,7 +65,7 @@ describe("deploy packaging", () => {
   });
 
   it("installs the binaries the agent tools shell out to", () => {
-    for (const pkg of ["bash", "git", "ripgrep", "fd-find", "tini"]) {
+    for (const pkg of ["bash", "git", "python3", "ripgrep", "fd-find", "tini"]) {
       expect(dockerfile).toMatch(new RegExp(`\\b${pkg}\\b`));
     }
   });

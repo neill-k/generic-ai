@@ -4,7 +4,7 @@
 name: Back Office
 mission: >-
   Keep the business running: books closed on time, calendars and suppliers handled, and every
-  customer answered. Nothing is sent, booked or paid without the owner's approval.
+  customer answered. Nothing is sent, booked or paid unless the owner's permissions allow it.
 
 models:
   ceo: anthropic/claude-opus-5-5
@@ -13,8 +13,8 @@ models:
 
 tools:
   # Connectors for mailbox, calendar and shared documents. Each is off until its secrets are on
-  # the secrets screen; set enabled to true once they are. The approvals gate holds every send,
-  # booking and external write for the owner.
+  # the secrets screen; set enabled to true once they are. Sending, booking and external writes
+  # stay off until the owner turns them on in Permissions.
   mcp:
     servers:
       - id: email
@@ -36,19 +36,16 @@ tools:
         headers: { Authorization: "Bearer ${DOCUMENTS_MCP_TOKEN}" }
         enabled: false
 
-# Payments are refused outright; sending, booking and writing to outside systems wait for the
-# owner.
-approvals:
-  rules:
-    - id: no-payments
-      decision: deny
-      effects: [payment.spend]
-      reason: The back office never moves money. Prepare the payment and ask the owner to make it.
-    - id: outward-actions
-      decision: require_approval
-      effects: [message.send, external.write, mcp.write]
-      reason: This reaches outside the company, so the owner signs off first.
-  defaultDecision: allow
+# Starting permissions. The back office reads mail, calendars and documents, and drafts replies,
+# bookings and payments for the owner; nothing is sent, booked or paid until the owner turns that
+# on in Permissions.
+permissions:
+  readOutside: true
+  sendMessages: false
+  spendMoney: false
+  writeOutside: false
+  standingRules:
+    - Never move money. Prepare the payment and leave it for the owner.
 
 agents:
   - id: manager
@@ -111,7 +108,7 @@ agents:
     secrets: ["HELPDESK_*"]
     instructions: >-
       You draft replies to customers in a warm, plain voice. Drafts go in your workspace for
-      review; sending waits for the owner's approval.
+      review; sending is refused unless the owner has turned it on.
 
 goals:
   - id: month-end-close
