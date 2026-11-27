@@ -5,14 +5,27 @@ import { href } from "../router.js";
 const ROOMS: readonly { view: string; title: string; text: string }[] = [
   { view: "deliverables", title: "Deliverables", text: "Everything handed in, by goal." },
   { view: "drive", title: "Drive", text: "The company's shared files. Upload and download." },
-  { view: "usage", title: "Usage", text: "Tokens and spend by agent and model." },
+  {
+    view: "usage",
+    title: "Usage and limits",
+    text: "Tokens and spend by agent and model, and optional spending limits.",
+  },
   {
     view: "connections",
     title: "Connections",
     text: "GitHub, tools and the keys agents use without seeing them.",
   },
   { view: "permissions", title: "Permissions", text: "What agents may do, and what was refused." },
-  { view: "sign-in", title: "Claude sign-in", text: "What powers the agents." },
+  {
+    view: "sign-in",
+    title: "Claude sign-in",
+    text: "What powers the agents, and what happens when your plan's limit is reached.",
+  },
+  {
+    view: "backups",
+    title: "Backups",
+    text: "Nightly copies of the company, and how to restore one.",
+  },
   {
     view: "checkup",
     title: "Checkup",

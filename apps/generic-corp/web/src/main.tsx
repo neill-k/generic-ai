@@ -17,6 +17,7 @@ import { MoreView } from "./views/More.js";
 import { OrgView } from "./views/Org.js";
 import { PermissionsView } from "./views/Permissions.js";
 import { SignInView } from "./views/SignIn.js";
+import { BackupsView } from "./views/settings/Backups.js";
 import { UsageView } from "./views/Usage.js";
 
 const NAV: readonly { view: string; label: string; icon: string }[] = [
@@ -29,9 +30,16 @@ const NAV: readonly { view: string; label: string; icon: string }[] = [
 
 /** Settings rooms live under More in the navigation. */
 const navView = (view: string) =>
-  ["connections", "permissions", "checkup", "drive", "deliverables", "usage", "sign-in"].includes(
-    view,
-  )
+  [
+    "connections",
+    "permissions",
+    "checkup",
+    "drive",
+    "deliverables",
+    "usage",
+    "sign-in",
+    "backups",
+  ].includes(view)
     ? "more"
     : view;
 
@@ -61,6 +69,8 @@ function App() {
     page = <UsageView />;
   } else if (route.view === "sign-in") {
     page = <SignInView />;
+  } else if (route.view === "backups") {
+    page = <BackupsView />;
   } else if (route.view === "checkup") {
     page = <CheckupView />;
   } else if (route.view === "permissions") {

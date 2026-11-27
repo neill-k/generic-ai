@@ -47,3 +47,25 @@ test("sets an agent's quality and spending limit from its card", async ({ page }
   await panel.getByRole("button", { name: "Remove limit" }).click();
   await expect(panel.getByText(/No limit\./)).toBeVisible();
 });
+
+test("sets the company limit and the plan-limit choice, and makes a backup", async ({ page }) => {
+  await page.goto(`${server.url}/#/more`);
+  await page.getByRole("link", { name: /Usage and limits/ }).click();
+  const company = page.getByRole("region", { name: "Company spending limit" });
+  await company.getByLabel("Period").selectOption("week");
+  await company.getByLabel("Tokens").fill("200000");
+  await company.getByRole("button", { name: "Set limit" }).click();
+  await expect(company.getByText("0 of 200.0k tokens this week.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Spending by agent" })).toBeVisible();
+
+  await page.goto(`${server.url}/#/sign-in`);
+  await page.getByRole("radio", { name: /Use an API key until then/ }).check();
+  await expect(page.getByText(/No Anthropic API key is set/)).toBeVisible();
+  const plan = await (await page.request.get(`${server.url}/api/settings/plan-limit`)).json();
+  expect(plan).toMatchObject({ behaviour: "api_key", limited: false });
+
+  await page.goto(`${server.url}/#/backups`);
+  await expect(page.getByRole("heading", { name: "Backups" })).toBeVisible();
+  await page.getByRole("button", { name: "Back up now" }).click();
+  await expect(page.locator(".backup-list li")).not.toHaveCount(0, { timeout: 20_000 });
+});

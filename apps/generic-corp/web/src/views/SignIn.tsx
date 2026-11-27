@@ -3,6 +3,7 @@ import { useState } from "preact/hooks";
 import { api } from "../api.js";
 import { ErrorNote, Loading } from "../components/ui.js";
 import { useResource } from "../live.js";
+import { PlanLimitSection } from "./settings/PlanLimitSection.js";
 
 interface ModelAuthStatus {
   source: "subscription" | "api_key" | "environment" | "none";
@@ -185,6 +186,7 @@ export function SignInView() {
           </form>
         </section>
         <ErrorNote message={error} />
+        <PlanLimitSection />
       </div>
     </div>
   );

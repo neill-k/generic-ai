@@ -2,6 +2,7 @@ import { api } from "../api.js";
 import { ErrorNote, Loading } from "../components/ui.js";
 import { formatTokens, formatUsd } from "../format.js";
 import { isWorkEvent, useResource } from "../live.js";
+import { LimitsSection } from "./settings/LimitsSection.js";
 
 interface UsageRow {
   key: string;
@@ -28,7 +29,7 @@ export function UsageView() {
     <div class="page">
       <header class="page-header">
         <div>
-          <h1>Usage</h1>
+          <h1>Usage and limits</h1>
           <p class="muted">
             List-price estimates from model usage. Failed and open work counts toward the cost per
             finished goal.
@@ -54,6 +55,7 @@ export function UsageView() {
             />
           </div>
           <div class="settings-stack">
+            <LimitsSection />
             <UsageTable title="By agent" rows={data.byAgent} />
             <UsageTable title="By model" rows={data.byModel} />
           </div>
