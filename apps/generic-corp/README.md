@@ -109,6 +109,10 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/org-chart` | The org chart as a tree, with each agent's tier, model and active task count |
 | `GET /api/agents`, `GET /api/agents/:id` | Agents; one agent's record, memory file, reporting line and recent tasks |
 | `GET /api/agents/:id/costs` | One agent's usage and cost |
+| `GET /api/agents/:id/messages`, `POST /api/agents/:id/messages` | The owner's direct messages with one agent; send one with `{"text"}`. A busy agent reads it at its next step, an idle one gets a new request, and the CEO is told |
+| `GET /api/org/changes` | Hires, changes and retirements in the org chart, newest first, with who made them and why |
+| `POST /api/org/changes/:id/overrule` | Undo a change. The agent goes back as it was and the CEO leaves it alone from then on. Needs `tokens:manage` |
+| `GET /api/pause`, `PUT /api/pause`, `PUT /api/agents/:id/pause` | Pause or resume the company or one agent (`{"paused": true}`). A running turn finishes its current step first |
 | `GET /api/quality` | The quality dial: the model behind best, balanced and cheap, and each agent's step and current model |
 | `PUT /api/agents/:id/quality` | Set an agent's step (`{"level": "best"}`, `"balanced"`, `"cheap"`, or `"default"` for the company file's model). Applies from its next turn. Needs `tokens:manage` |
 | `GET /api/backups`, `POST /api/backups` | Backups and the next scheduled one; start one now |
@@ -121,6 +125,7 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/tasks?status=&agentId=&root=1&limit=` | Tasks, newest first |
 | `GET /api/tasks/:id`, `/tree`, `/events` | A task and its children, its whole cascade, its event log and harness run events |
 | `POST /api/tasks/:id/cancel` | Cancel a task and everything it delegated |
+| `GET /api/activity` | Work in motion and what just finished, each with who is on it and its status in plain words |
 | `GET /api/board` | Tasks in columns by status |
 | `GET /api/costs` | Tokens and dollars by agent, model and owner request, and cost per completed request |
 | `GET /api/permissions` | The permissions in force and whether the owner has saved them |

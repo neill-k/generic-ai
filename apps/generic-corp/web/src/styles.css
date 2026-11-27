@@ -1361,3 +1361,12 @@ a.tab {
 .checkup-reason {
   margin-bottom: 1rem;
 }
+
+.org-changes {
+  margin-top: 1.25rem;
+}
+
+.org-changes .overruled > div:first-child {
+  text-decoration: line-through;
+  color: var(--muted);
+}
