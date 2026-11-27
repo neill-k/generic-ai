@@ -11,7 +11,8 @@ in progress, and what is blocked. It is built from evidence, not from memory.
 ## Steps
 
 1. Read your memory file (`context.md` in your home) and list the files you changed in
-   `workspace/` since the last standup recorded there.
+   your scratch folder (`agents/<your id>/workspace/`) and on the company drive since the last
+   standup recorded there.
 2. If people report to you, ask each of them for their own standup with `delegate_task`, with
    the definition of done "a standup in the format below". Wait for their results before you
    write yours. Do not ask the same person twice in one standup.
