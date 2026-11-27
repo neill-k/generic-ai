@@ -766,6 +766,36 @@ export function createCompanyApi(
     });
   });
 
+  // --- Direct messages to any agent (decisions 4 and 5) -----------------
+
+  app.get("/agents/:agentId/messages", async (c) => {
+    const agentId = c.req.param("agentId");
+    if ((await runtime.directory.get(agentId)) === undefined) {
+      throw new ApiError(404, `Agent ${agentId} was not found.`);
+    }
+    return c.json({ messages: await runtime.agentChatHistory(agentId) });
+  });
+
+  app.post("/agents/:agentId/messages", async (c) => {
+    const body = await readJsonObject(c);
+    const text = readMessageText(body, undefined);
+    const attachments = readAttachments(body);
+    try {
+      const message = await runtime.messageAgent({
+        agentId: c.req.param("agentId"),
+        text,
+        ...(attachments === undefined ? {} : { attachments }),
+        actor: toRunActor(c.get("auth")),
+      });
+      return c.json({ message }, 201);
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new ApiError(400, error.message);
+      }
+      throw error;
+    }
+  });
+
   app.get("/agents/:agentId/costs", async (c) =>
     c.json(await runtime.costs({ agentId: c.req.param("agentId") })),
   );

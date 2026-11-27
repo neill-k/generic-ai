@@ -17,6 +17,13 @@ import {
 } from "@generic-ai/plugin-delegation";
 import type { AgentTaskExecutor, RunActor } from "@generic-ai/sdk";
 
+import {
+  type AgentChat,
+  type AgentChatEntry,
+  type AgentChatMessage,
+  createAgentChat,
+  withCeoNotes,
+} from "./agent-chat.js";
 import { type CompanyConfig, ceoOf, companyAgentSeeds, tierOf } from "./company.js";
 import { type CompanyCosts, summarizeCompanyCosts } from "./costs.js";
 import { type CompanyDrive, type DriveEntry, describeDriveForAgent } from "./drive.js";
@@ -161,6 +168,7 @@ export interface CompanyRuntime {
   readonly directory: AgentDirectory;
   readonly cascade: DelegationCascade;
   readonly threads: ThreadStore;
+  readonly agentChat: AgentChat;
   readonly events: CompanyEventHub;
   readonly drive?: CompanyDrive;
   readonly memory: CompanyMemory;
@@ -171,6 +179,17 @@ export interface CompanyRuntime {
   stop(): Promise<void>;
 
   sendMessage(input: SendMessageInput): Promise<{ thread: ChatThreadView; task: AgentTaskRecord }>;
+  /**
+   * The owner messages any agent (decisions 4 and 5): a busy agent reads it at its next step, an
+   * idle one gets a new request; the CEO is told when it was someone on its team.
+   */
+  messageAgent(input: {
+    readonly agentId: string;
+    readonly text: string;
+    readonly attachments?: readonly string[];
+    readonly actor?: RunActor;
+  }): Promise<AgentChatMessage>;
+  agentChatHistory(agentId: string): Promise<readonly AgentChatEntry[]>;
   getThread(threadId: string): Promise<ChatThreadView | undefined>;
   listThreads(): Promise<readonly Omit<ChatThreadView, "exchanges">[]>;
 
@@ -346,6 +365,8 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
   };
 
   const drive = options.drive;
+  // Filled in once the cascade exists; the executor only runs after `start`.
+  let agentChat: AgentChat | undefined;
   const memory =
     options.memory ??
     createCompanyMemory({
@@ -360,6 +381,9 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
         prompt,
         describeDriveForAgent({ agentId: input.agentId, goalId: input.rootTaskId }),
       );
+    }
+    if (input.agentId === ceoId && agentChat !== undefined) {
+      prompt = withCeoNotes(prompt, await agentChat.takeCeoNotes().catch(() => []));
     }
     const taskAt = input.prompt.search(/^## Task /m);
     const memorySection = await memory.promptSection(input.agentId, {
@@ -391,6 +415,20 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     // Memory comes from the company memory (memory.ts), not the old notes file.
     memoryFile: false,
   });
+
+  agentChat = createAgentChat({
+    kv: storage.kv,
+    cascade,
+    ceoId,
+    activeTasksOf: (agentId) => listTasks({ agentId, status: [...ACTIVE_STATUSES], limit: 200 }),
+    nameOf: async (agentId) => {
+      const agent = await directory.get(agentId);
+      return agent?.title ?? agent?.role ?? agentId;
+    },
+    now,
+    createId,
+  });
+  const chat = agentChat;
 
   async function listTasks(listOptions: ListTasksOptions = {}): Promise<AgentTaskRecord[]> {
     const statuses =
@@ -542,6 +580,7 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
     directory,
     cascade,
     threads,
+    agentChat: chat,
     events,
     ...(drive === undefined ? {} : { drive }),
     memory,
@@ -611,6 +650,56 @@ export function createCompanyRuntime(options: CompanyRuntimeOptions): CompanyRun
       });
       return { thread: await viewThread(updated), task };
     },
+
+    async messageAgent(input) {
+      const agent = await directory.get(input.agentId);
+      if (agent === undefined || agent.status === "retired") {
+        throw new RangeError(`There is no agent "${input.agentId}" to message.`);
+      }
+      const attachments = await attachedFiles(input.attachments ?? []);
+      const text = input.text.trim();
+      const activeTasks = await listTasks({
+        agentId: input.agentId,
+        status: [...ACTIVE_STATUSES],
+        limit: 200,
+      });
+      const message = await chat.send({
+        agentId: input.agentId,
+        text,
+        attachments: attachments.map((file) => file.path),
+        ...(input.actor === undefined ? {} : { actor: input.actor }),
+        activeTasks,
+        startRequest: async () => {
+          const taskId = createId();
+          await drive?.openGoal({ goalId: taskId, title: threadTitleFrom(text) });
+          const lines = [`Message from the owner, sent to you directly:`, text];
+          if (attachments.length > 0) {
+            lines.push("", "The owner attached these files on the company drive:");
+            for (const file of attachments) {
+              lines.push(
+                `- ${file.path} (${describeSize(file.size ?? 0)}, ${file.mimeType ?? "file"})`,
+              );
+            }
+          }
+          return cascade.submit({
+            taskId,
+            agentId: input.agentId,
+            instruction: lines.join("\n"),
+            ...(input.actor === undefined ? {} : { actor: input.actor }),
+            draftGoal: true,
+            metadata: { source: "owner-direct", ownerText: text },
+          });
+        },
+      });
+      events.publish("agent.message", {
+        agentId: input.agentId,
+        messageId: message.messageId,
+        delivery: message.delivery,
+      });
+      return message;
+    },
+
+    agentChatHistory: (agentId) => chat.history(agentId),
 
     async getThread(threadId) {
       const thread = await threads.get(threadId);

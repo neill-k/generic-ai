@@ -35,9 +35,9 @@ describe("goal views", () => {
     expect(goalStateOf(task({ status: "running" }))).toBe("working");
     expect(goalStateOf(task({ status: "succeeded" }))).toBe("done");
     expect(goalStateOf(task({ status: "failed" }))).toBe("stopped");
-    expect(
-      goalStateOf(task({ status: "succeeded", impossible: { reason: "x" } as never })),
-    ).toBe("impossible");
+    expect(goalStateOf(task({ status: "succeeded", impossible: { reason: "x" } as never }))).toBe(
+      "impossible",
+    );
     expect(taskStatusText(task({ status: "waiting", pendingApprovalIds: ["a"] }))).toBe(
       "Waiting on a permission.",
     );
