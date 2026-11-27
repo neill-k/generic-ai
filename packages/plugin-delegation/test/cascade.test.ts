@@ -651,6 +651,7 @@ describe.skipIf(!postgresUrl)("delegation cascade on Postgres", () => {
         }),
         directory,
         executor,
+        handIn: "reply",
         worker: { pollIntervalMs: 10, leaseMs: 10_000 },
       });
       return { storage, cascade };
