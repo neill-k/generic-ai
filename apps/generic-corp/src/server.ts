@@ -271,7 +271,10 @@ export interface CreateGenericCorpServerOptions {
   readonly company?: CompanyConfig;
   /** Replaces the native-runtime executor, for tests and alternate runtimes. */
   readonly executor?: AgentTaskExecutor;
-  readonly executorOptions?: Omit<CompanyExecutorOptions, "runStore" | "artifactsRoot">;
+  readonly executorOptions?: Omit<
+    CompanyExecutorOptions,
+    "runStore" | "artifactsRoot" | "sessionsRoot"
+  >;
   readonly authStore?: AuthStore;
   /** The secrets vault. Defaults to environment, files and the encrypted store in storage. */
   readonly secrets?: SecretsBroker;
@@ -370,6 +373,7 @@ export async function createGenericCorpServer(
         },
         runStore: storage.runStore,
         artifactsRoot: path.join(environment.dataDir, "artifacts"),
+        sessionsRoot: path.join(environment.dataDir, "sessions"),
       });
     // A goal on the CEO's task is the company's goal: it is checked against the whole team's
     // work and the deliverable the CEO names (see goals.ts).
