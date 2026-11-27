@@ -296,6 +296,7 @@ export function createCompanyEvalExecutor(options: CompanyEvalExecutorOptions): 
             runStore: server.storage.runStore,
             cascade: () => server.runtime.cascade,
             directory: () => server.runtime.directory,
+            ...(server.runtime.drive === undefined ? {} : { drive: server.runtime.drive }),
           },
           { rootTaskId: task.taskId, outputText },
         );

@@ -26,8 +26,20 @@ dashboard at `/` with an approvals inbox.
   the CEO, and publishes live events. An owner message starts one root task for
   the CEO; the reply is that task's result once its goal checks pass.
 - **Executor.** `executor.ts` runs every agent turn on the native runtime with
-  the agent's own model and the toolkit below, rooted at the agent's home, and
-  persists each harness run so traces and costs are kept.
+  the agent's own model and the toolkit below, rooted at the company root (see
+  "Company drive"), and persists each harness run so traces and costs are kept.
+- **Company drive.** `drive.ts` keeps everything agents work on under
+  `<data dir>/company`: `drive/` is the shared drive every agent reads and
+  writes (`drive/inbox/` for what the owner hands in,
+  `drive/goals/<goalId>/` as each goal's working folder and
+  `drive/goals/<goalId>/deliverables/` for finished work), and
+  `agents/<id>/` is each agent's home with `workspace/` as its scratch folder.
+  Paths are relative to the company root, so the same path means the same
+  file to every agent, the goal checks and the owner. Agents are told to hand
+  work to each other as drive paths, not pasted text. The owner browses,
+  uploads, previews and downloads drive files, drops files into a chat, and
+  sees finished work on the deliverables shelf. Cancelling a goal keeps its
+  folder, marked abandoned, with an `ABANDONED.md` note.
 - **Toolkit.** `toolkit.ts` gives every agent tools for generic work (D6), not
   only code: files and a shell, `web_fetch` and `web_search`, `document_read`,
   `document_extract` and `document_write` (PDF, Word, Excel, CSV, HTML in;
@@ -75,7 +87,7 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/org-chart` | The org chart as a tree, with each agent's tier, model and active task count |
 | `GET /api/agents`, `GET /api/agents/:id` | Agents; one agent's record, memory file, reporting line and recent tasks |
 | `GET /api/agents/:id/costs` | One agent's usage and cost |
-| `GET /api/threads`, `POST /api/threads` | List chat threads; start one with `{"text": "..."}`, or `{"goalId": "..."}` to start from a company goal (the text defaults to the goal's request) |
+| `GET /api/threads`, `POST /api/threads` | List chat threads; start one with `{"text": "..."}`, or `{"goalId": "..."}` to start from a company goal (the text defaults to the goal's request). `"attachments": ["drive/inbox/..."]` hands the CEO drive files |
 | `GET /api/threads/:id`, `POST /api/threads/:id/messages` | A thread with each message and the CEO's reply; send another message |
 | `PATCH /api/threads/:id` | Rename a thread |
 | `GET /api/tasks?status=&agentId=&root=1&limit=` | Tasks, newest first |
@@ -89,8 +101,14 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/secrets` | Secret names the company uses or holds, where each is set, and who uses it. Never values |
 | `PUT /api/secrets/:name`, `DELETE /api/secrets/:name` | Save or remove a secret in the encrypted store (`{"value": "..."}`). Needs `tokens:manage` and `GENERIC_AI_SECRETS_KEY` |
 | `GET /api/goals` | The company's goals: request, definition of done and checks |
+| `GET /api/drive?path=drive/...` | A drive folder's files and folders |
+| `GET /api/drive/file?path=&download=1` | A drive file: shown in the browser for safe types (HTML and SVG as plain text), downloaded with `download=1` |
+| `PUT /api/drive/file?path=&overwrite=1` | Upload a file (the request body is the file). Refuses to replace one without `overwrite=1` |
+| `POST /api/drive/inbox?name=` | Upload into `drive/inbox/` under a free name, for files dropped into a chat |
+| `POST /api/drive/folder`, `DELETE /api/drive?path=` | Create a folder (`{"path": "drive/..."}`); delete a file or empty folder |
+| `GET /api/deliverables` | The deliverables shelf: every goal's folder, status (`active`, `done`, `failed`, `abandoned`) and finished files |
 | `GET /api/tools` | The agents' tools and skills, the web search backend and each MCP connector's state |
-| `GET /api/events` | Server-sent events: `task.*`, `thread.updated`, `runtime.error`. Supports `Last-Event-ID` |
+| `GET /api/events` | Server-sent events: `task.*`, `thread.updated`, `drive.updated`, `drive.goal.updated`, `runtime.error`. Supports `Last-Event-ID` |
 
 `GET /health` and `GET /ready` are public; `/ready` checks the database.
 `/auth/login` is the owner sign-in page.
@@ -110,7 +128,7 @@ more) and send it as a bearer token.
 | --- | --- | --- |
 | `PORT` | `3000` | Listen port |
 | `GENERIC_CORP_HOST` | `127.0.0.1` (`0.0.0.0` on Railway) | Listen address |
-| `GENERIC_CORP_DATA_DIR` | `~/.generic-corp` | SQLite database, agent homes, run artifacts |
+| `GENERIC_CORP_DATA_DIR` | `~/.generic-corp` | SQLite database, run artifacts, and `company/` (the drive and agent homes) |
 | `DATABASE_URL` | none | Use Postgres instead of SQLite |
 | `GENERIC_CORP_COMPANY_FILE` | none | YAML company file; wins over the template |
 | `GENERIC_CORP_TEMPLATE` | `generic-corp` | Company template: `generic-corp`, `research-desk` or `back-office` |
@@ -183,8 +201,9 @@ How goals are checked. A goal on the CEO's task is the company's goal, so
 `goals.ts` checks it against the whole team: the trace includes every run
 delegated under the CEO (each event tagged with the agent that ran it), and
 when the CEO's reply ends with a fenced JSON block naming a deliverable
-(`{"deliverable": {"agent": "analyst", "path": "workspace/brief.md"}}`), that
-file is read from the agent's home as the `deliverable` artifact, with
+(`{"deliverable": {"path": "drive/goals/<goalId>/deliverables/brief.md"}}`, a
+company-root path; the older `{"agent": "analyst", "path": "workspace/brief.md"}`
+form reads from that agent's home), that file is the `deliverable` artifact, with
 `deliverableWords`, `deliverableLines` and `deliverableLinks` metrics. Rubrics
 use a model judge on the company's VP model.
 

@@ -20,6 +20,8 @@ import {
   type RunStoreContract,
 } from "@generic-ai/sdk";
 
+import type { CompanyDrive } from "./drive.js";
+
 /**
  * How Generic Corp checks a goal. The CEO's goal is the company's goal, so it is judged on the
  * whole team's work, not only on the CEO's last turn:
@@ -47,6 +49,12 @@ export interface CompanyGoalEvidenceOptions {
   /** Looked up when evidence is collected, so it can be wired before the runtime exists. */
   readonly cascade: () => Pick<DelegationCascade, "tree">;
   readonly directory: () => Pick<AgentDirectory, "get">;
+  /**
+   * The company drive. With it, a deliverable named by path alone
+   * (`{"deliverable": {"path": "drive/goals/<goalId>/deliverables/brief.md"}}`) is read from the
+   * drive; paths are relative to the company root, as agents write them.
+   */
+  readonly drive?: Pick<CompanyDrive, "resolveAgentPath">;
 }
 
 export interface CompanyGoalEvidence {
@@ -65,33 +73,44 @@ function countWords(text: string): number {
   return words === null ? 0 : words.length;
 }
 
+async function resolveDeliverablePath(
+  options: CompanyGoalEvidenceOptions,
+  agentId: unknown,
+  filePath: string,
+): Promise<string | undefined> {
+  if (typeof agentId !== "string") {
+    // A drive path, relative to the company root.
+    return options.drive?.resolveAgentPath(filePath);
+  }
+  const agent = await options.directory().get(agentId);
+  if (agent === undefined) {
+    return undefined;
+  }
+  try {
+    const home = await realpath(agent.homePath);
+    const real = await realpath(path.resolve(home, filePath));
+    return real === home || real.startsWith(`${home}${path.sep}`) ? real : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function readDeliverable(
-  directory: Pick<AgentDirectory, "get">,
+  options: CompanyGoalEvidenceOptions,
   reference: unknown,
 ): Promise<{ text: string } | undefined> {
   if (!isRecord(reference)) {
     return undefined;
   }
-  const agentId = reference["agent"];
   const filePath = reference["path"];
-  if (
-    typeof agentId !== "string" ||
-    typeof filePath !== "string" ||
-    !TEXT_DELIVERABLE.test(filePath)
-  ) {
+  if (typeof filePath !== "string" || !TEXT_DELIVERABLE.test(filePath)) {
     return undefined;
   }
-  const agent = await directory.get(agentId);
-  if (agent === undefined) {
+  const real = await resolveDeliverablePath(options, reference["agent"], filePath);
+  if (real === undefined) {
     return undefined;
   }
-  const home = await realpath(agent.homePath);
-  const resolved = path.resolve(home, filePath);
   try {
-    const real = await realpath(resolved);
-    if (real !== home && !real.startsWith(`${home}${path.sep}`)) {
-      return undefined;
-    }
     const buffer = await readFile(real);
     const text = buffer.subarray(0, MAX_DELIVERABLE_BYTES).toString("utf8");
     return {
@@ -160,7 +179,7 @@ export async function collectCompanyGoalEvidence(
   });
   const output = parseActorDirectives(input.outputText).data;
   const deliverable = isRecord(output)
-    ? await readDeliverable(options.directory(), output["deliverable"])
+    ? await readDeliverable(options, output["deliverable"])
     : undefined;
   return {
     ...(output === undefined ? {} : { output: output as JsonValue }),
