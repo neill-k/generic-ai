@@ -12,6 +12,21 @@ export {
   stripFrontmatter,
 } from "./frontmatter.js";
 export {
+  type DefaultProjectTrust,
+  formatProjectTrustPrompt,
+  getProjectTrustOptions,
+  getProjectTrustParentPath,
+  hasTrustRequiringProjectResources,
+  type ProjectTrustDecision,
+  type ProjectTrustOption,
+  ProjectTrustStore,
+  type ProjectTrustStoreEntry,
+  type ProjectTrustUpdate,
+  type ResolveProjectTrustedOptions,
+  resolveProjectTrusted,
+  TRUST_REQUIRING_PROJECT_RESOURCES,
+} from "./project-trust.js";
+export {
   expandPromptTemplate,
   type LoadPromptTemplatesOptions,
   type LoadPromptTemplatesResult,

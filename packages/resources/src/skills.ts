@@ -420,6 +420,11 @@ export interface LoadSkillsOptions {
   skillPaths: string[];
   /** Include default skills directories. */
   includeDefaults: boolean;
+  /**
+   * Include `<cwd>/.generic-ai/skills` with the defaults. Defaults to true; pass the project's
+   * trust (`resolveProjectTrusted`) so an untrusted repository's skills stay out.
+   */
+  includeProjectResources?: boolean | undefined;
 }
 
 /**
@@ -470,9 +475,11 @@ export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult {
 
   if (includeDefaults) {
     addSkills(loadSkillsFromDirInternal(join(resolvedAgentDir, "skills"), "user", true));
-    addSkills(
-      loadSkillsFromDirInternal(resolve(resolvedCwd, CONFIG_DIR_NAME, "skills"), "project", true),
-    );
+    if (options.includeProjectResources !== false) {
+      addSkills(
+        loadSkillsFromDirInternal(resolve(resolvedCwd, CONFIG_DIR_NAME, "skills"), "project", true),
+      );
+    }
   }
 
   const userSkillsDir = join(resolvedAgentDir, "skills");
