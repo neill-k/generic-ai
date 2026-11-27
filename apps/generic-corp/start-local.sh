@@ -72,7 +72,7 @@ fi
 
 echo
 echo "Generic Corp is running at ${url}"
-token="$("${compose[@]}" logs --since "$since" app 2>/dev/null | grep -A1 "one-time setup token" | tail -n1 | tr -d '[:space:]' || true)"
+token="$("${compose[@]}" logs --no-log-prefix --since "$since" app 2>/dev/null | grep -A1 "one-time setup token" | tail -n1 | tr -d '[:space:]' || true)"
 if [[ -n "$token" ]]; then
   echo
   echo "1. Open ${url}/auth/login and create your passkey with this setup token:"
@@ -81,8 +81,8 @@ else
   echo
   echo "1. Open ${url}/auth/login and sign in with your passkey."
 fi
-echo "2. Open \"Claude sign-in\" in the menu and sign in with your Claude account."
-echo "3. Open \"Chat with the CEO\" and give the company a goal."
+echo "2. Open More, then Claude sign-in, and sign in with your Claude account."
+echo "3. On the Goals screen, type your first goal under \"Set a goal\" and press Set goal."
 echo
 echo "Follow the log with: $0 logs"
 echo "Stop with:           $0 stop   (your company's data is kept)"

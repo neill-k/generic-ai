@@ -25,29 +25,61 @@ ready, and prints what to do next, including a one-time setup token.
 
 Open <http://localhost:3000/auth/login>, paste the setup token, and create a
 passkey. That passkey is how you sign in from now on. The token is only
-needed once.
+needed once. Press **Continue** and the app opens on **Goals**.
 
 ## 3. Sign in with Claude
 
-In the menu, open **Claude sign-in** and press **Sign in with Claude**. A link
-appears. Open it, approve access with the Claude account whose plan should
-power the company, copy the code Claude shows at the end, paste it into the
-box, and press **Finish sign-in**. The page then says the company is powered
-by your Claude subscription. The sign-in renews itself.
+Open **More** (last item in the menu), then **Claude sign-in**, and press
+**Sign in with Claude**. A link appears. Open it, approve access with the
+Claude account whose plan should power the company, copy the code Claude
+shows at the end, paste it into the box, and press **Finish sign-in**. Under
+**Powered by** the page then shows your Claude subscription. The sign-in
+renews itself.
 
-If you would rather use an API key, paste an Anthropic key (`sk-ant-...`) in
-the same page instead.
+If you would rather use an API key, paste an Anthropic key (`sk-ant-...`)
+under **Or use an API key** on the same page.
+
+Further down the same page, **When your plan's usage limit is reached** picks
+what happens at the limit: **Wait for the plan to reset** (work pauses and
+picks up on its own) or **Use an API key until then**.
 
 ## 4. Give it a goal
 
-Open **Chat with the CEO** and describe what you want done, the way you would
-brief a person. You can also pick one of the ready-made goals on that page.
-The CEO plans the work, hands parts to the team, and keeps going until the
-goal's checks pass. There is no round or time limit: a goal ends when it is
-done, or when you cancel it.
+On **Goals**, type the outcome you want under **Set a goal**, the way you
+would brief a person, and press **Set goal**. You can also pick a standing
+goal from the list next to the button. The goal's page opens:
 
-The **Board** and **Org chart** show who is working on what. **Costs** shows
-the tokens used.
+- The CEO first writes down **What done means**, a short checklist. Press
+  **Edit** beside it to change it at any time. Agents are told when it
+  changes, and nobody stops to ask you.
+- The CEO hands parts of the work to the team and keeps going until the
+  checks pass. There is no round or time limit. A goal ends when it is done,
+  when an agent shows it is impossible, or when you press **Cancel this
+  goal**.
+- **Activity** shows what everyone is doing right now, and **Org chart** shows
+  the team. Click an agent to see its work, chat with it, read its memory, or
+  set its limits.
+
+## 5. Find the results
+
+Finished work lands in **More > Deliverables**, grouped by goal, newest
+first. Every file the agents made, deliverables included, is in **More >
+Drive**, where you can also upload files for them. (On disk the goal's folder
+is `drive/goals/<goal id>/deliverables/` in the company drive.)
+
+## Pause, limits and backups
+
+- **Pause:** **Pause the company** at the bottom of the menu (under **More**
+  on a phone) stops all work. Each agent finishes the step it is on, so
+  nothing is cut off mid-action. Press **Resume work** to carry on. To pause
+  one agent, open it on the **Org chart** and press **Pause <name>**.
+- **Limits:** spending limits are optional. Set one for the whole company in
+  **More > Usage and limits** (**Company spending limit**, then **Set
+  limit**), or for one agent there or on its card in the **Org chart**
+  (**Limits** tab). The same tab has the agent's quality dial.
+- **Backups:** **More > Backups** lists the nightly backups and has **Back up
+  now**. Restoring runs from the terminal (see [Backups](#backups) below):
+  `./apps/generic-corp/start-local.sh restore latest`.
 
 ## Run the checkup (optional)
 
@@ -60,7 +92,7 @@ the expected usage first and only starts when you confirm:
 docker compose -f apps/generic-corp/compose.yaml exec app node apps/generic-corp/dist/checkup-cli.js
 ```
 
-The app's checkup button runs the same thing.
+**More > Checkup** in the app runs the same thing.
 
 ## Day to day
 
@@ -78,11 +110,11 @@ To use another port, set `GENERIC_CORP_PORT=3100` before the start command.
 ## Backups
 
 Every night at 03:00 (UTC inside Docker) the app backs up the database and
-the company's files: the shared drive, every agent's home with its saved
+the company's files: the shared drive, every agent's home, the agents' saved
 sessions and memory, and run artifacts. The first backup is made a minute
 after the first start. The last 7 are kept, in `/data/backups` inside the
-data volume. You can also make one from the app, or with
-`curl -X POST localhost:3000/api/backups` and an owner token.
+data volume. You can also make one with **Back up now** on **More >
+Backups**.
 
 To put one back, run `./apps/generic-corp/start-local.sh restore <id>`. It
 stops the app, checks the backup, saves what is there now as one more backup
@@ -106,9 +138,9 @@ company folder) and `GENERIC_CORP_BACKUPS=off` to stop the nightly run.
 
 - Your plan's usage limit applies. When it is reached, work shows as
   "Paused until your Claude plan resets" and picks up on its own afterwards.
-  To keep going on an API key instead, set `ANTHROPIC_API_KEY` and choose
-  that in Settings (`PUT /api/settings/plan-limit` with
-  `{"behaviour": "api_key"}`).
+  To keep going on an API key instead, add a key on **More > Claude
+  sign-in** (or set `ANTHROPIC_API_KEY`) and choose **Use an API key until
+  then** on that page.
 - Running agents nonstop on a personal plan is your account's risk.
 - A turn that makes no progress for 15 minutes (no tool activity), or repeats
   the same tool call 8 times in a row, is stopped and retried. Change the
