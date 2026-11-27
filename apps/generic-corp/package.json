@@ -42,6 +42,7 @@
     "@generic-ai/resources": "0.0.0",
     "@generic-ai/rlm": "0.0.0",
     "@generic-ai/sdk": "0.0.0",
+    "@generic-ai/session": "0.0.0",
     "@sinclair/typebox": "0.34.49",
     "hono": "^4.12.15",
     "yaml": "^2.8.3"

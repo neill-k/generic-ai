@@ -137,6 +137,10 @@ timeout, then asks each file tool for paths outside the workspace.
   `npm publish`) to any account whose credentials a command has, so a
   prompt-injected agent handed an outsider's token could push company files
   to that account; closing that needs a proxy that reads TLS traffic.
+- GitHub: connect it in the app (Permissions page), or set
+  `GENERIC_CORP_GITHUB_TOKEN` to a fine-grained token with Contents and Pull
+  requests (read and write) and Checks and Commit statuses (read). The app's
+  token is stored in `<dataDir>/connectors/github.json` on the volume.
 - **Resource limits are per process, not per agent.** Each agent command gets
   `ulimit` limits (4 GiB of memory and an hour of CPU per process, 4 GiB
   files, 4096 open files, 1024 processes for the `agent` user) and runs at
@@ -188,7 +192,13 @@ Useful variations:
   (faster, smaller). On Apple silicon and other arm64 machines Chrome is
   skipped anyway, because Google does not publish it for Linux arm64.
 - `GENERIC_CORP_PORT=3100` serves on another host port.
-- `docker compose ... down -v` deletes the database and agent data.
+- `docker compose ... down -v` deletes the database and agent data, backups
+  included (they live in the data volume under `/data/backups`).
+- Backups run nightly; restore one with
+  `apps/generic-corp/start-local.sh restore <id>`. See "Backups and restore"
+  in the README. On Railway, backups land on the app's volume next to the data
+  until off-site copies exist, so treat them as protection against mistakes,
+  not against losing the volume.
 
 To check an image the way CI does:
 

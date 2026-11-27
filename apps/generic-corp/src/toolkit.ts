@@ -24,6 +24,7 @@ import { loadSkillsFromDir } from "@generic-ai/resources";
 import type { AgentTaskExecutionInput } from "@generic-ai/sdk";
 
 import type { CompanyConfig } from "./company.js";
+import type { GithubConnector } from "./github.js";
 import { COMPANY_SKILLS_DIR } from "./templates.js";
 
 /**
@@ -64,7 +65,7 @@ export interface CompanySkillDescription {
 
 export interface CompanyToolDescription {
   readonly name: string;
-  readonly group: "files" | "terminal" | "web" | "documents";
+  readonly group: "files" | "terminal" | "web" | "documents" | "github";
   readonly description: string;
 }
 
@@ -188,6 +189,8 @@ export interface CreateCompanyToolkitOptions {
    * the app server passes the company root so every agent sees the shared drive (see drive.ts).
    */
   readonly toolRoot?: (input: AgentTaskExecutionInput) => string;
+  /** The GitHub connector. Its tools are added to every turn while it is connected. */
+  readonly github?: GithubConnector;
 }
 
 const PLACEHOLDER = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -304,14 +307,13 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
 
   return {
     capabilities(input) {
-      const { files, terminal, web, documents } = build(
-        options.toolRoot?.(input) ?? input.workspaceRoot,
-        input.agentId,
-      );
+      const root = options.toolRoot?.(input) ?? input.workspaceRoot;
+      const { files, terminal, web, documents } = build(root, input.agentId);
+      const github = options.github?.isConnected() === true ? options.github.tools(root) : [];
       return {
         fileTools: { piTools: files.piTools },
         terminalTools: { tool: terminal.tool },
-        customTools: [...web.piTools, ...documents.piTools],
+        customTools: [...web.piTools, ...documents.piTools, ...github],
         // Company skills first, then the agent's own (`.agents/skills/` in its home). On a name
         // clash the company's version wins, so an agent cannot rewrite a shared procedure.
         skills: createAgentSkillsPlugin({
@@ -319,6 +321,8 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
           skillDirs: [
             mirrorCompanySkills(skillDirs, input.workspaceRoot),
             path.join(input.workspaceRoot, ".agents", "skills"),
+            // Procedures saved in the agent's memory (dreaming), rebuilt before each turn.
+            path.join(input.workspaceRoot, ".agents", "memory-skills"),
           ],
           includeProject: false,
           includeUser: false,
@@ -349,6 +353,15 @@ export function createCompanyToolkit(options: CreateCompanyToolkitOptions): Comp
           ...describeTools("terminal", [terminalTool]),
           ...describeTools("web", sample.web.piTools),
           ...describeTools("documents", sample.documents.piTools),
+          ...(options.github?.isConnected() === true
+            ? describeTools(
+                "github",
+                options.github.tools(process.cwd()) as {
+                  readonly name: string;
+                  readonly description?: string;
+                }[],
+              )
+            : []),
         ],
         webSearch: {
           provider: options.company.tools?.webSearch?.provider ?? searchProvider.name,

@@ -302,7 +302,16 @@ export interface AgentHarnessRunInput<TCapabilities = unknown> {
    * host re-runs a turn that a restart interrupted.
    */
   readonly session?: AgentHarnessRunSession;
+  /**
+   * Messages for the agent while its turn runs (native backend). The harness polls it during the
+   * turn and hands each message to the agent after its current step, so the agent reads it at its
+   * next step instead of after the turn. The host is responsible for not returning a message twice.
+   */
+  readonly steering?: AgentHarnessSteering;
 }
+
+/** Returns messages that arrived for a running turn since the last call. */
+export type AgentHarnessSteering = () => Promise<readonly string[]> | readonly string[];
 
 export interface AgentHarnessRunSession {
   readonly file: string;

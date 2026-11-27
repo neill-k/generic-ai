@@ -1,5 +1,6 @@
 import type { ToolEffectJournal } from "../harness/effect-journal.js";
 import type { AgentHarnessHostTool } from "../harness/host-tools.js";
+import type { AgentHarnessSteering } from "../harness/types.js";
 import type { RunActor } from "./identity.js";
 import type { Awaitable, JsonValue } from "./shared.js";
 
@@ -81,6 +82,11 @@ export interface AgentTaskExecutionInput {
    * the prompt also describes the fenced-JSON fallback.
    */
   readonly tools?: readonly AgentHarnessHostTool[];
+  /**
+   * Messages for this turn that arrive while it runs, such as an owner message to a busy agent.
+   * Pass it to the harness as `AgentHarnessRunInput.steering`.
+   */
+  readonly steering?: AgentHarnessSteering;
   readonly signal?: AbortSignal;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
 }

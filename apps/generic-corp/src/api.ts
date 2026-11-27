@@ -11,19 +11,16 @@ import {
 
 import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
-
+import type { MemoryBackgroundStore } from "./background.js";
+import type { CompanyBackups } from "./backups.js";
 import type { BaselineSet } from "./baseline.js";
 import { CheckupError, type CompanyCheckup } from "./checkup.js";
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
-import { DriveError, type DriveFile } from "./drive.js";
+import { DriveError, type DriveFile, deliverablesFolder } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
+import { type GithubConnector, GithubError } from "./github.js";
 import { goalDetailView, listGoalViews } from "./goal-views.js";
-import {
-  type MemoryEdit,
-  MemoryError,
-  parseMemoryScope,
-  REFINEMENT_KIND_NAMES,
-} from "./memory.js";
+import { type MemoryEdit, MemoryError, parseMemoryScope, REFINEMENT_KIND_NAMES } from "./memory.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
 import type { RefusalLog } from "./refusals.js";
@@ -57,10 +54,22 @@ export interface CompanyApiOptions {
   readonly refusals?: RefusalLog;
   /** What powers the agents (Claude sign-in or API key), managed at `/api/model-auth`. */
   readonly modelAuth?: CompanyModelAuth;
+  /** Background memory jobs: settings, pause, status, and running a scan now. */
+  readonly memoryBackground?: {
+    readonly store: MemoryBackgroundStore;
+    scan(): Promise<unknown>;
+    dream(agentId: string): Promise<unknown>;
+  };
   /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
   readonly permissions?: PermissionStore;
   /** The live baseline comparison, at `/api/checkup`. Starting one is owner only. */
   readonly checkup?: CompanyCheckup;
+  /** Nightly backups, listed and started at `/api/backups`. */
+  readonly backups?: CompanyBackups;
+  /** The GitHub connector, at `/api/connectors/github`. Owner only. */
+  readonly github?: GithubConnector;
+  /** The company root, which pushes to GitHub read deliverables from. */
+  readonly companyRoot?: string;
 }
 
 /** What the secrets screen needs from the vault. */
@@ -568,6 +577,110 @@ export function createCompanyApi(
     return c.json(permissionsView(store));
   });
 
+  // --- Connectors: GitHub ---------------------------------------------------
+  // The token never leaves the host. Which repos agents may write to is part of the permissions.
+
+  const requireGithub = (): GithubConnector => {
+    if (options.github === undefined) {
+      throw new ApiError(404, "The GitHub connector is not available.");
+    }
+    return options.github;
+  };
+  const githubCall = async <T>(call: () => Promise<T>): Promise<T> => {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof GithubError) {
+        const status =
+          error.status === 403 || error.status === 404 || error.status === 409 ? error.status : 400;
+        throw new ApiError(status, error.message);
+      }
+      throw error;
+    }
+  };
+  const githubView = async (github: GithubConnector) => {
+    const connection = await github.status();
+    const writable = new Set(options.permissions?.current().github.repos ?? []);
+    if (!connection.connected) {
+      return { ...connection, repos: [] };
+    }
+    const repos = await githubCall(() => github.repos());
+    return {
+      ...connection,
+      repos: repos.map((repo) => ({ ...repo, writable: writable.has(repo.fullName) })),
+    };
+  };
+
+  app.get("/connectors/github", async (c) => {
+    requireManage(c);
+    return c.json(await githubView(requireGithub()));
+  });
+
+  app.post("/connectors/github", async (c) => {
+    const github = requireGithub();
+    requireManage(c);
+    const token = (await readJsonObject(c))["token"];
+    if (typeof token !== "string") {
+      throw new ApiError(400, 'Send the GitHub token as {"token": "github_pat_..."}.');
+    }
+    await githubCall(() => github.connect(token));
+    return c.json(await githubView(github));
+  });
+
+  app.delete("/connectors/github", async (c) => {
+    const github = requireGithub();
+    requireManage(c);
+    return c.json({ ...(await github.disconnect()), repos: [] });
+  });
+
+  app.post("/connectors/github/push", async (c) => {
+    const github = requireGithub();
+    requireManage(c);
+    if (options.companyRoot === undefined) {
+      throw new ApiError(404, "This company has no drive.");
+    }
+    const body = await readJsonObject(c);
+    const goalId = body["goalId"];
+    if (typeof goalId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(goalId)) {
+      throw new ApiError(400, "goalId must be the id of a goal with deliverables.");
+    }
+    const repo = body["repo"];
+    const branch = body["branch"];
+    if (typeof repo !== "string" || typeof branch !== "string") {
+      throw new ApiError(400, 'Send {"goalId", "repo": "owner/name", "branch": "..."}.');
+    }
+    const message =
+      typeof body["message"] === "string" ? body["message"] : `Deliverables for ${goalId}`;
+    const to = typeof body["path"] === "string" ? body["path"] : undefined;
+    const companyRoot = options.companyRoot;
+    const pushed = await githubCall(() =>
+      github.pushFolder({
+        root: companyRoot,
+        from: deliverablesFolder(goalId),
+        repo,
+        branch,
+        message,
+        ...(to === undefined ? {} : { to }),
+      }),
+    );
+    const pull = body["openPullRequest"];
+    if (typeof pull === "object" && pull !== null) {
+      const request = pull as Record<string, unknown>;
+      const title = typeof request["title"] === "string" ? request["title"] : message;
+      const description = typeof request["body"] === "string" ? request["body"] : undefined;
+      const opened = await githubCall(() =>
+        github.openPullRequest({
+          repo,
+          head: pushed.branch,
+          title,
+          ...(description === undefined ? {} : { body: description }),
+        }),
+      );
+      return c.json({ pushed, pullRequest: opened });
+    }
+    return c.json({ pushed });
+  });
+
   // --- Refused actions -----------------------------------------------------
 
   app.get("/refusals", async (c) => {
@@ -715,6 +828,25 @@ export function createCompanyApi(
     return c.json(run, 202);
   });
 
+  // --- Backups ------------------------------------------------------------
+
+  const requireBackups = (): CompanyBackups => {
+    if (options.backups === undefined) {
+      throw new ApiError(404, "Backups are not available.");
+    }
+    return options.backups;
+  };
+
+  app.get("/backups", async (c) => c.json(await requireBackups().status()));
+
+  // Starts a backup and answers at once; `backups.updated` events follow its progress.
+  app.post("/backups", async (c) => {
+    const backups = requireBackups();
+    requireManage(c);
+    void backups.run("manual").catch(() => undefined);
+    return c.json(await backups.status(), 202);
+  });
+
   // --- Agents and the org chart -------------------------------------------
 
   app.get("/agents", async (c) => c.json({ agents: await runtime.listAgents() }));
@@ -746,6 +878,36 @@ export function createCompanyApi(
     });
   });
 
+  // --- Direct messages to any agent (decisions 4 and 5) -----------------
+
+  app.get("/agents/:agentId/messages", async (c) => {
+    const agentId = c.req.param("agentId");
+    if ((await runtime.directory.get(agentId)) === undefined) {
+      throw new ApiError(404, `Agent ${agentId} was not found.`);
+    }
+    return c.json({ messages: await runtime.agentChatHistory(agentId) });
+  });
+
+  app.post("/agents/:agentId/messages", async (c) => {
+    const body = await readJsonObject(c);
+    const text = readMessageText(body, undefined);
+    const attachments = readAttachments(body);
+    try {
+      const message = await runtime.messageAgent({
+        agentId: c.req.param("agentId"),
+        text,
+        ...(attachments === undefined ? {} : { attachments }),
+        actor: toRunActor(c.get("auth")),
+      });
+      return c.json({ message }, 201);
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new ApiError(400, error.message);
+      }
+      throw error;
+    }
+  });
+
   app.get("/agents/:agentId/costs", async (c) =>
     c.json(await runtime.costs({ agentId: c.req.param("agentId") })),
   );
@@ -758,6 +920,43 @@ export function createCompanyApi(
       runtime.memory.scopes(),
     ]);
     return c.json({ handbook, scopes });
+  });
+
+  const requireBackground = () => {
+    if (options.memoryBackground === undefined) {
+      throw new ApiError(404, "Background memory work is not available.");
+    }
+    return options.memoryBackground;
+  };
+
+  app.get("/memory/background", async (c) => {
+    const { store } = requireBackground();
+    const [settings, scanner, dreaming] = await Promise.all([
+      store.settings(),
+      store.job("scanner"),
+      store.job("dreaming"),
+    ]);
+    return c.json({ settings, jobs: { scanner, dreaming } });
+  });
+
+  app.put("/memory/background", async (c) => {
+    requireManage(c);
+    const { store } = requireBackground();
+    return c.json({ settings: await store.updateSettings(await readJsonObject(c)) });
+  });
+
+  app.post("/memory/background/scan", async (c) => {
+    requireManage(c);
+    return c.json({ result: await requireBackground().scan() });
+  });
+
+  app.post("/memory/background/dream/:agentId", async (c) => {
+    requireManage(c);
+    const agentId = c.req.param("agentId");
+    if ((await runtime.directory.get(agentId)) === undefined) {
+      throw new ApiError(404, `Agent ${agentId} was not found.`);
+    }
+    return c.json({ result: await requireBackground().dream(agentId) });
   });
 
   app.get("/memory/changes", async (c) => {

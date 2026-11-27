@@ -78,6 +78,10 @@ dashboard at `/` with a permissions page and the refused-actions list.
   storage that no agent tool reaches; `permissions:` in the company file sets
   the starting values, and the owner's saved ones replace them. Every agent
   turn starts with the standing rules and what is off.
+- **GitHub.** Connect GitHub on the Permissions page with a fine-grained token
+  (or `GENERIC_CORP_GITHUB_TOKEN`). Agents can then read the repositories it can
+  see, and push branches, open pull requests and merge only in the repositories
+  you tick, merges only with all checks green (`src/github.ts`, ADR 0070).
 - **Network wall.** Agent shell commands reach the network only through an
   allowlisting egress proxy, enforced by a firewall rule in the image (see
   `egress.ts`, DEPLOY.md and ADR 0070). Refusals land on the same list.
@@ -115,6 +119,9 @@ All routes are under `/api` and need an owner credential: reads need
 | `GET /api/costs` | Tokens and dollars by agent, model and owner request, and cost per completed request |
 | `GET /api/permissions` | The permissions in force and whether the owner has saved them |
 | `PUT /api/permissions`, `DELETE /api/permissions` | Change any of them (fields left out keep their value), or go back to the company file's. Needs `tokens:manage` |
+| `GET /api/connectors/github` | GitHub connection (account, no token) and the repositories it can see, each marked `writable` when the owner opened it to agents. Needs `tokens:manage` |
+| `POST /api/connectors/github`, `DELETE /api/connectors/github` | Connect with `{"token"}` (checked against GitHub, kept on the server) or disconnect. Which repos agents may write to is `github.repos` in `PUT /api/permissions`. Needs `tokens:manage` |
+| `POST /api/connectors/github/push` | Push a goal's deliverables to a branch: `{"goalId", "repo", "branch", "message"?, "path"?, "openPullRequest"?: {"title", "body"?}}`. Never the default branch. Needs `tokens:manage` |
 | `GET /api/refusals?limit=` | Actions refused on the spot (permissions and network), newest first |
 | `GET /api/secrets` | Secret names the company uses or holds, where each is set, and who uses it. Never values |
 | `PUT /api/secrets/:name`, `DELETE /api/secrets/:name` | Save or remove a secret in the encrypted store (`{"value": "..."}`). Needs `tokens:manage` and `GENERIC_AI_SECRETS_KEY` |
@@ -160,6 +167,37 @@ more) and send it as a bearer token.
 | `GENERIC_AI_AUTH_TOKEN` | none | Break-glass static owner token |
 | `GENERIC_AI_SECRET_<NAME>` | none | A secret named `<NAME>`, for example `GENERIC_AI_SECRET_BRAVE_API_KEY` |
 | `GENERIC_AI_SECRETS_KEY` | none | Master key (`openssl rand -hex 32`) for secrets stored in the database |
+| `GENERIC_CORP_BACKUPS` | `on` | Nightly backups of the database and the `company`, `sessions` and `artifacts` folders. `off` stops the nightly run; `POST /api/backups` still works |
+| `GENERIC_CORP_BACKUP_DIR` | `<dataDir>/backups` | Where backups go. Must be outside `company/`, which agents can write to |
+| `GENERIC_CORP_BACKUP_HOUR` | `3` | Hour (server time, 0 to 23) of the nightly backup. A missed one runs at the next check after start |
+| `GENERIC_CORP_BACKUP_KEEP` | `7` | Backups kept; older ones are deleted after each new one |
+
+### Backups and restore
+
+A backup is a folder named by its time, holding the database (`database.jsonl.gz`,
+every row of every table, for Postgres; `database.sqlite.gz`, a `VACUUM INTO`
+copy, for SQLite), `files.tar.gz` and a `manifest.json` with a SHA-256 for each
+file. The Postgres export does not depend on the server version, so a backup
+taken on Postgres 17 restores into 16. The Claude sign-in (`model-auth.json`)
+is left out on purpose.
+
+`GET /api/backups` lists them with the next scheduled time; `POST /api/backups`
+starts one, and `backups.updated` events follow it.
+
+To restore, stop the server, then:
+
+```bash
+node apps/generic-corp/dist/restore.js              # list backups
+node apps/generic-corp/dist/restore.js latest       # check one and say what would change
+node apps/generic-corp/dist/restore.js <id> --yes   # restore it
+```
+
+It uses the same `GENERIC_CORP_DATA_DIR`, `DATABASE_URL` and `GENERIC_CORP_BACKUP_DIR`
+as the server. Before replacing anything it saves the current state as a
+`before-restore` backup, so a restore can be undone the same way
+(`--no-safety-backup` skips that). The Postgres restore runs in one
+transaction: if it fails, the database is left as it was. With Docker, use
+`./apps/generic-corp/start-local.sh restore <id>` (RUN-LOCALLY.md).
 
 ### Tools in the company file
 
