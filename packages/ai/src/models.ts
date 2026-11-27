@@ -16,6 +16,27 @@ interface ProviderDefaults {
   readonly baseUrl: string;
 }
 
+/**
+ * The supported providers: Anthropic (API keys and Claude subscription sign-in) and OpenAI (API
+ * keys and ChatGPT sign-in through the Codex backend). Every other provider runs through the same
+ * code but is untested: it may work, and nobody has checked.
+ */
+export const SUPPORTED_PROVIDERS: readonly string[] = Object.freeze([
+  "anthropic",
+  "openai",
+  "openai-codex",
+]);
+
+export type ProviderSupport = "supported" | "untested";
+
+/** Whether a provider (or the provider of a `provider/model` reference) is supported or untested. */
+export function providerSupport(providerOrRef: string): ProviderSupport {
+  const provider = providerOrRef.includes("/")
+    ? providerOrRef.slice(0, providerOrRef.indexOf("/"))
+    : providerOrRef;
+  return SUPPORTED_PROVIDERS.includes(provider) ? "supported" : "untested";
+}
+
 export const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   anthropic: { api: "anthropic-messages", baseUrl: "https://api.anthropic.com" },
   openai: { api: "openai-responses", baseUrl: "https://api.openai.com/v1" },

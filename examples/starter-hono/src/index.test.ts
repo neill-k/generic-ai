@@ -99,7 +99,7 @@ describe("@generic-ai/example-starter-hono", () => {
         expect(options.apiKey).toBe("test-key");
         expect(options.model).toBe("gpt-5.5");
         expect(options.cwd).toContain(path.join("examples", "starter-hono"));
-        expect(options.instructions).toContain("Break the user request into specialist work");
+        expect(options.instructions).toContain("You are the Generic AI starter example agent.");
         return createFakeRuntime("runtime result");
       },
     );
@@ -154,7 +154,7 @@ describe("@generic-ai/example-starter-hono", () => {
         plugin: "@generic-ai/plugin-web-ui",
         config: {
           ok: true,
-          primaryAgent: "hierarchical-planner",
+          primaryAgent: "starter",
         },
       });
     } finally {
@@ -224,7 +224,7 @@ describe("@generic-ai/example-starter-hono", () => {
             harnessId: config.id,
             adapter: "native",
             status: "succeeded",
-            outputText: "harness actually ran through pipeline",
+            outputText: "harness actually ran through the team",
             envelope: {} as never,
             events: [],
             projections: [],
@@ -247,7 +247,7 @@ describe("@generic-ai/example-starter-hono", () => {
     try {
       const token = starter.webUi.sessionToken;
       const apply = await starter.app.request(
-        localAppRequest("/console/api/templates/pipeline/apply", {
+        localAppRequest("/console/api/templates/team/apply", {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -255,7 +255,7 @@ describe("@generic-ai/example-starter-hono", () => {
           },
           body: JSON.stringify({
             dryRun: false,
-            idempotencyKey: "pipeline-console-chat-test",
+            idempotencyKey: "team-console-chat-test",
           }),
         }),
       );
@@ -282,7 +282,7 @@ describe("@generic-ai/example-starter-hono", () => {
           expect.objectContaining({ role: "user", content: "Do actual work" }),
           expect.objectContaining({
             role: "assistant",
-            content: "harness actually ran through pipeline",
+            content: "harness actually ran through the team",
           }),
         ]),
       );
@@ -292,8 +292,8 @@ describe("@generic-ai/example-starter-hono", () => {
       expect(createHarness).toHaveBeenCalledOnce();
       expect(harnessWorkspaceRoots[0]).toBe(startDir);
       expect(harnessToolNames[0]).toEqual(["find", "grep", "ls", "read"]);
-      expect(harnessInstructions[0]).toContain("Selected harness id: pipeline");
-      expect(harnessInstructions[0]).toContain("Selected agent id: pipeline-intake");
+      expect(harnessInstructions[0]).toContain("Selected harness id: team");
+      expect(harnessInstructions[0]).toContain("Selected agent id: team-lead");
       expect(harnessInstructions[0]).toContain("User task:\nDo actual work");
     } finally {
       await starter.stop();
@@ -661,7 +661,7 @@ describe("@generic-ai/example-starter-hono", () => {
         "x-generic-ai-web-ui-token": starter.webUi.sessionToken,
       };
       const apply = await starter.app.request(
-        localAppRequest("/console/api/templates/pipeline/apply", {
+        localAppRequest("/console/api/templates/team/apply", {
           method: "POST",
           headers,
           body: JSON.stringify({ dryRun: false, idempotencyKey: "console-actor-test" }),

@@ -42,23 +42,10 @@ npm test -- packages/core/src/harness/agent-harness.test.ts packages/sdk/test/ha
 When changing BenchmarkSpec, report rendering, or benchmark fixtures, run targeted benchmark checks during development:
 
 ```bash
-npm test -- packages/core/test/harness/benchmark-runner.test.ts packages/sdk/src/harness/compiler.test.ts scripts/harness-shootout-fixtures.test.ts examples/bench-tool-calling/src/adapter.test.ts examples/bench-policy-tools/src/adapter.test.ts examples/terminal-bench/src/benchmark-profile.test.ts examples/terminal-bench/src/import-harbor-results.test.ts examples/terminal-bench/src/run-terminal-bench.test.ts
-```
-
-When changing evidence-only harness report profiles such as tool-use discipline (`BenchmarkSpec.toolUse`, `ToolUseObservation`, report `toolUse` summaries, or `examples/harness-shootout/tool-overuse/`), contextual-integrity privacy (`BenchmarkSpec.contextualIntegrity`, `ContextualIntegrityObservation`, contextual-integrity report summaries, or `examples/harness-shootout/contextual-integrity/`), or web research (`BenchmarkSpec.webResearch`, `WebResearchObservation`, web-research report summaries, or `examples/harness-shootout/chinese-web-research/`), use the focused report/fixture check first:
-
-```bash
-npm test -- packages/sdk/src/harness/compiler.test.ts scripts/harness-shootout-fixtures.test.ts
+npm test -- packages/sdk/src/harness/compiler.test.ts examples/terminal-bench/src/benchmark-profile.test.ts examples/terminal-bench/src/import-harbor-results.test.ts examples/terminal-bench/src/run-terminal-bench.test.ts
 ```
 
 Keep these surfaces evidence-only: tool-use reports required, optional, and wasteful tool affordances separately from the primary success metric, model routing, and prompt caching; contextual integrity reports privacy utility, leakage, required disclosure misses, and prohibited disclosure violations without claiming runtime DLP or policy enforcement; web research reports answer correctness, citation coverage, cross-source reconciliation, stale-source use, Chinese text preservation, and provider-gated live-search expectations without claiming external benchmark score movement unless same-profile before/after evidence exists.
-
-For deterministic micro/meso benchmark examples, use the package smoke commands after tests when you need the rendered bounded report:
-
-```bash
-npm run -w @generic-ai/example-bench-tool-calling smoke
-npm run -w @generic-ai/example-bench-policy-tools smoke
-```
 
 Terminal-Bench/Harbor runs are heavier and live-environment dependent. Build first, climb `smoke` -> `quick` -> `calibration` -> `full`, and import completed job directories:
 

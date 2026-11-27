@@ -317,8 +317,8 @@ export const createCanonicalConfigSchemas = (z: ZodNamespaceLike): CanonicalConf
             kind: z
               .string()
               .regex(
-                /^(root|planner|explorer|builder|verifier|custom)$/,
-                "role.kind must be root/planner/explorer/builder/verifier/custom",
+                /^(root|builder|custom)$/,
+                "role.kind must be root/builder/custom",
               ),
             description: z.string().min(1, "role.description cannot be empty").optional(),
             instructions: z.string().min(1, "role.instructions cannot be empty").optional(),

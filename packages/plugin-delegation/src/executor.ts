@@ -75,7 +75,6 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
     const role: AgentHarnessRole = {
       description: `Persistent agent ${input.agentId} (${input.role}).`,
       ...(input.instructions === undefined ? {} : { instructions: input.instructions }),
-      readOnly: kind !== "builder" && kind !== "custom",
       ...options.role?.(input),
       id: input.agentId,
       kind,
@@ -144,8 +143,8 @@ export function createAdapterTaskExecutor<TCapabilities = unknown, TOutput = unk
 }
 
 /**
- * Picks an executor per turn, for example a protocol topology for one agent
- * and a single harness run for everyone else.
+ * Picks an executor per turn, for example a different harness for one agent
+ * and the default harness run for everyone else.
  */
 export function routeTaskExecutor(
   select: (input: AgentTaskExecutionInput) => AgentTaskExecutor | undefined,

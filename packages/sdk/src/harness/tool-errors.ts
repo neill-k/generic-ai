@@ -222,9 +222,7 @@ function classifyToolError(error: unknown): ToolErrorKind {
   return "unknown";
 }
 
-export function createToolErrorEnvelope(
-  input: CreateToolErrorEnvelopeInput,
-): ToolErrorEnvelope {
+export function createToolErrorEnvelope(input: CreateToolErrorEnvelopeInput): ToolErrorEnvelope {
   const rawCause = rawCauseFor(input.rawCause);
 
   return Object.freeze({
@@ -251,12 +249,8 @@ export function normalizeToolError(input: NormalizeToolErrorInput): ToolErrorEnv
     return Object.freeze({
       kind,
       safeMessage: input.safeMessage ?? input.error.envelope.safeMessage,
-      retryable: preserveClassification
-        ? input.error.envelope.retryable
-        : defaultRetryable(kind),
-      transient: preserveClassification
-        ? input.error.envelope.transient
-        : defaultTransient(kind),
+      retryable: preserveClassification ? input.error.envelope.retryable : defaultRetryable(kind),
+      transient: preserveClassification ? input.error.envelope.transient : defaultTransient(kind),
       userActionable: preserveClassification
         ? input.error.envelope.userActionable
         : defaultUserActionable(kind),

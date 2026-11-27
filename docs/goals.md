@@ -178,21 +178,12 @@ task completion:
   `lastGoalReport`.
 - A goal whose stored spec no longer matches its fingerprint never validates.
 
-## Topologies
-
-`runHarnessTopology()` and `runAgentHarnessTopology()` take `goal` and
-`goalValidators`. The verifier loop validates each candidate against the goal
-before (or instead of) its critic, and every protocol only succeeds when the
-goal is `COMPLETE` on the final output. See "Goals decide when a topology is
-done" in [harness-dsl.md](harness-dsl.md).
-
-
 ## Long-running native sessions
 
 A native session can pursue a goal across many turns (`goal` on
 `runCapabilityNativeAgentSession`, from `@generic-ai/autonomy`; ADR 0063). It
-uses the same goal spec and the same runner as tasks and topologies, so one
-goal behaves the same whichever of the three pursues it:
+uses the same goal spec and the same runner as cascade tasks, so one goal
+behaves the same whichever pursues it:
 
 - `goal: { spec, validation }` takes a sealed goal and the judges and checks
   for its validators. The goal's id, objective, definition of done and checks
@@ -208,10 +199,6 @@ goal behaves the same whichever of the three pursues it:
   the clean agent-command environment.
 - Each validation emits a `native.goal_validation` event with the report's
   status and summary.
-
-A topology run does not hand its goal to every actor as a thread goal: the
-goal belongs to the team, and the topology runner checks it once per attempt
-with the same runner.
 
 A session can also schedule its own future work, such as a heartbeat that
 checks on a long-running goal every few minutes, and a stored session resumes

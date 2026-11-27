@@ -2,7 +2,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { renderBenchmarkReportMarkdown, type BenchmarkReport } from "@generic-ai/sdk";
+import { type BenchmarkReport, renderBenchmarkReportMarkdown } from "@generic-ai/sdk";
 
 export interface RenderBenchmarkReportOptions {
   readonly inputPath: string;
@@ -33,9 +33,7 @@ function parseArgs(argv: readonly string[]): RenderBenchmarkReportOptions {
     switch (arg) {
       case "--help":
       case "-h":
-        console.log(
-          "Usage: generic-ai-render-benchmark-report --input <path> [--output <path>]",
-        );
+        console.log("Usage: generic-ai-render-benchmark-report --input <path> [--output <path>]");
         process.exit(0);
         break;
       case "--input":

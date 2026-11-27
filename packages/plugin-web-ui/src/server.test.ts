@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { createHonoWebUiTransport, createWebUiPlugin } from "./server.js";
+import { builtInWebUiTemplates, createBuiltInTemplateRegistry } from "./templates.js";
 
 const TRUSTED_PEER_ADDRESS_SYMBOL = Symbol.for("@generic-ai/http.peerAddress");
 
@@ -56,9 +57,9 @@ describe("@generic-ai/plugin-web-ui server", () => {
         primaryAgent: "starter",
       },
       templates: {
-        total: 10,
-        runnable: 4,
-        preview: 6,
+        total: 1,
+        runnable: 1,
+        preview: 0,
       },
       security: {
         requiresSessionTokenForRead: true,
@@ -79,12 +80,7 @@ describe("@generic-ai/plugin-web-ui server", () => {
     ).json()) as {
       templates: Array<{ id: string; status: string }>;
     };
-    expect(templates.templates.find((template) => template.id === "hierarchical")?.status).toBe(
-      "runnable",
-    );
-    expect(templates.templates.find((template) => template.id === "blackboard")?.status).toBe(
-      "preview",
-    );
+    expect(templates.templates.find((template) => template.id === "team")?.status).toBe("runnable");
 
     const missingReadToken = await transport.app.request(localRequest("/console/api/config"));
     expect(missingReadToken.status).toBe(403);
@@ -96,7 +92,7 @@ describe("@generic-ai/plugin-web-ui server", () => {
     const transport = createHonoWebUiTransport(plugin);
 
     const missingToken = await transport.app.request(
-      localRequest("/console/api/templates/hierarchical/apply", {
+      localRequest("/console/api/templates/team/apply", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ dryRun: true }),
@@ -105,7 +101,7 @@ describe("@generic-ai/plugin-web-ui server", () => {
     expect(missingToken.status).toBe(403);
 
     const badOrigin = await transport.app.request(
-      localRequest("/console/api/templates/hierarchical/apply", {
+      localRequest("/console/api/templates/team/apply", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -118,7 +114,7 @@ describe("@generic-ai/plugin-web-ui server", () => {
     expect(badOrigin.status).toBe(403);
 
     const ok = await transport.app.request(
-      localRequest("/console/api/templates/hierarchical/apply", {
+      localRequest("/console/api/templates/team/apply", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -146,26 +142,42 @@ describe("@generic-ai/plugin-web-ui server", () => {
 
   it("applies runnable templates only with an idempotency key", async () => {
     const root = await seedWorkspace();
-    const plugin = createWebUiPlugin({ workspaceRoot: root, sessionToken: "test-token" });
+    const plugin = createWebUiPlugin({
+      workspaceRoot: root,
+      sessionToken: "test-token",
+      templates: createBuiltInTemplateRegistry([
+        ...builtInWebUiTemplates,
+        {
+          id: "sketch",
+          label: "Sketch",
+          summary: "Not runnable yet.",
+          status: "preview",
+          previewReason: "a sketch",
+          topology: { nodes: [], edges: [] },
+          effects: [],
+          edits: [],
+        },
+      ]),
+    });
 
-    const previewOnly = await plugin.applyTemplate("blackboard", { dryRun: true });
+    const previewOnly = await plugin.applyTemplate("sketch", { dryRun: true });
     expect(previewOnly.ok).toBe(false);
 
-    const missingKey = await plugin.applyTemplate("hierarchical", { dryRun: false });
+    const missingKey = await plugin.applyTemplate("team", { dryRun: false });
     expect(missingKey.ok).toBe(false);
 
-    const applied = await plugin.applyTemplate("hierarchical", {
+    const applied = await plugin.applyTemplate("team", {
       dryRun: false,
-      idempotencyKey: "apply-hierarchical",
+      idempotencyKey: "apply-team",
     });
     expect(applied.ok).toBe(true);
-    expect(
-      await readFile(join(root, ".generic-ai", "harnesses", "hierarchical.yaml"), "utf8"),
-    ).toContain("protocol: hierarchy");
+    expect(await readFile(join(root, ".generic-ai", "harnesses", "team.yaml"), "utf8")).toContain(
+      "teammate-a",
+    );
 
-    const replayed = await plugin.applyTemplate("hierarchical", {
+    const replayed = await plugin.applyTemplate("team", {
       dryRun: false,
-      idempotencyKey: "apply-hierarchical",
+      idempotencyKey: "apply-team",
     });
     expect(replayed).toEqual(applied);
   });

@@ -50,7 +50,9 @@ export function createObservabilityLiveEventBus(
   let nextSubscriberId = 1;
   let closed = false;
 
-  function snapshot(input: { readonly fromSequence?: number } = {}): readonly ObservabilityLiveEvent[] {
+  function snapshot(
+    input: { readonly fromSequence?: number } = {},
+  ): readonly ObservabilityLiveEvent[] {
     return Object.freeze(
       history.filter((event) =>
         input.fromSequence === undefined ? true : event.sequence >= input.fromSequence,

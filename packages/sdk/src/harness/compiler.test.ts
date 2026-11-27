@@ -1,30 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
+  type BenchmarkSpec,
+  type BenchmarkTrialResult,
   compileHarnessDsl,
-  createPipelineProtocol,
-  createSquadProtocol,
   createBenchmarkReport,
   createToolErrorEnvelope,
   GenericAIToolError,
   getAgentHarnessToolReversibility,
   HARNESS_SCHEMA_VERSION,
+  type HarnessDsl,
+  type MissionSpec,
   normalizeToolError,
   renderBenchmarkReportMarkdown,
   withAgentHarnessToolEffects,
-  type BenchmarkSpec,
-  type BenchmarkTrialResult,
-  type HarnessDsl,
-  type MissionSpec,
 } from "./index.js";
 
 const harness: HarnessDsl = {
   kind: "generic-ai.harness",
   schemaVersion: HARNESS_SCHEMA_VERSION,
-  id: "harness.verifier-loop",
+  id: "harness.team",
   packages: [
     {
-      id: "protocol.verifier-loop",
-      package: "@generic-ai/protocol-verifier-loop",
+      id: "pkg.team",
+      package: "@generic-ai/team-package",
       version: "0.1.0",
     },
   ],
@@ -32,12 +30,12 @@ const harness: HarnessDsl = {
     {
       id: "solver",
       role: "solver",
-      packageRefs: ["protocol.verifier-loop"],
+      packageRefs: ["pkg.team"],
     },
     {
       id: "critic",
       role: "critic",
-      packageRefs: ["protocol.verifier-loop"],
+      packageRefs: ["pkg.team"],
     },
   ],
   spaces: [
@@ -45,14 +43,6 @@ const harness: HarnessDsl = {
       id: "shared-workspace",
       kind: "workspace",
       visibility: "shared",
-    },
-  ],
-  protocols: [
-    {
-      id: "verifier-loop",
-      protocol: "verifier-loop",
-      packageRef: "protocol.verifier-loop",
-      actorRefs: ["solver", "critic"],
     },
   ],
 };
@@ -82,34 +72,6 @@ const benchmark: BenchmarkSpec = {
     count: 1,
     pairing: "paired",
   },
-};
-
-const pipelineHarness: HarnessDsl = {
-  kind: "generic-ai.harness",
-  schemaVersion: HARNESS_SCHEMA_VERSION,
-  id: "harness.pipeline",
-  packages: [
-    {
-      id: "protocol.pipeline",
-      package: "@generic-ai/protocol-pipeline",
-      version: "0.1.0",
-    },
-  ],
-  agents: [
-    {
-      id: "implementer",
-      role: "implementer",
-      packageRefs: ["protocol.pipeline"],
-    },
-  ],
-  protocols: [
-    {
-      id: "pipeline",
-      protocol: "pipeline",
-      packageRef: "protocol.pipeline",
-      actorRefs: ["implementer"],
-    },
-  ],
 };
 
 const capabilityBomHarness: HarnessDsl = {
@@ -201,13 +163,17 @@ describe("Harness DSL compiler", () => {
   it("reports missing references before runtime execution", () => {
     const result = compileHarnessDsl({
       ...harness,
-      protocols: [
+      relationships: [
         {
           id: "broken",
-          protocol: "pipeline",
-          packageRef: "missing-package",
-          actorRefs: ["ghost"],
+          kind: "delegates_to",
+          fromAgentRef: "solver",
+          toAgentRef: "ghost",
         },
+      ],
+      agents: [
+        ...harness.agents,
+        { id: "orphan", role: "orphan", packageRefs: ["missing-package"] },
       ],
     });
 
@@ -225,13 +191,13 @@ describe("Harness DSL compiler", () => {
         {
           id: "solver",
           role: "solver",
-          packageRefs: ["protocol.verifier-loop"],
+          packageRefs: ["pkg.team"],
           capabilityRefs: ["missing-capability"],
         },
         {
           id: "critic",
           role: "critic",
-          packageRefs: ["protocol.verifier-loop"],
+          packageRefs: ["pkg.team"],
         },
       ],
     });
@@ -254,13 +220,13 @@ describe("Harness DSL compiler", () => {
         {
           id: "solver",
           role: "solver",
-          packageRefs: ["protocol.verifier-loop"],
+          packageRefs: ["pkg.team"],
           artifactRefs: ["missing-artifact"],
         },
         {
           id: "critic",
           role: "critic",
-          packageRefs: ["protocol.verifier-loop"],
+          packageRefs: ["pkg.team"],
         },
       ],
     });
@@ -401,47 +367,6 @@ describe("Harness DSL compiler", () => {
   });
 });
 
-describe("standard protocol planners", () => {
-  it("plans deterministic protocol actions without side effects", async () => {
-    const compiled = compileHarnessDsl(harness).compiled;
-    expect(compiled).toBeDefined();
-
-    const pipeline = createPipelineProtocol();
-    const squad = createSquadProtocol();
-    const noSharedSpaceCompiled = compileHarnessDsl({
-      ...harness,
-      id: "harness.no-shared-space",
-      spaces: [],
-    }).compiled;
-    const pipelineCompiled = compileHarnessDsl(pipelineHarness).compiled;
-    if (compiled === undefined) {
-      throw new Error("Expected the squad harness fixture to compile.");
-    }
-    if (pipelineCompiled === undefined) {
-      throw new Error("Expected the pipeline harness fixture to compile.");
-    }
-    if (noSharedSpaceCompiled === undefined) {
-      throw new Error("Expected the no-shared-space harness fixture to compile.");
-    }
-
-    const missingImplementerDiagnostics = await pipeline.validate?.(compiled);
-    const pipelineResult = await pipeline.reduce({
-      compiled: pipelineCompiled,
-      state: { status: "ready" },
-      events: [],
-    });
-    const squadDiagnostics = await squad.validate?.(compiled);
-    const noSharedSpaceDiagnostics = await squad.validate?.(noSharedSpaceCompiled);
-
-    expect(pipelineResult.actions[0]?.kind).toBe("invoke_actor");
-    expect(pipelineResult.actions[0]?.actorRef).toBe("implementer");
-    expect(pipelineResult.summary.status).toBe("ready");
-    expect(missingImplementerDiagnostics?.[0]?.code).toBe("missing_protocol_actor");
-    expect(squadDiagnostics).toEqual([]);
-    expect(noSharedSpaceDiagnostics?.[0]?.code).toBe("missing_shared_space");
-  });
-});
-
 describe("tool effect descriptors", () => {
   it("keeps reversibility metadata next to declared authority effects", () => {
     const tool = withAgentHarnessToolEffects(
@@ -563,7 +488,7 @@ describe("structured tool errors", () => {
       generatedAt: "2026-05-03T00:00:00.000Z",
       results: [
         {
-          ...trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1),
+          ...trialResult("verifier-loop", "harness.team:compiled", "task_success", 1),
           toolRecovery: [
             {
               caseRef: "terminal-timeout",
@@ -629,7 +554,7 @@ describe("structured tool errors", () => {
 
 describe("Benchmark usage reports", () => {
   it("leads with tokens per completed goal and charges failed trials", () => {
-    const base = trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1);
+    const base = trialResult("verifier-loop", "harness.team:compiled", "task_success", 1);
     const report = createBenchmarkReport({
       benchmark: { ...benchmark, trials: { count: 3, pairing: "paired" } },
       mission,
@@ -681,7 +606,7 @@ describe("Benchmark usage reports", () => {
       benchmark,
       mission,
       generatedAt: "2026-11-26T00:00:00.000Z",
-      results: [trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1)],
+      results: [trialResult("verifier-loop", "harness.team:compiled", "task_success", 1)],
     });
     expect(report.usage).toBeUndefined();
     expect(report.candidates[0]?.usage).toBeUndefined();
@@ -698,7 +623,7 @@ describe("Benchmark reports", () => {
       results: [
         {
           candidateId: "verifier-loop",
-          harnessId: "harness.verifier-loop:compiled",
+          harnessId: "harness.team:compiled",
           trialId: "trial-1",
           metrics: [
             {
@@ -787,7 +712,7 @@ describe("Benchmark reports", () => {
       mission,
       generatedAt: "2026-04-25T00:00:00.000Z",
       results: [1, 0, 1, 0, 0].map((value, index) => ({
-        ...trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", value),
+        ...trialResult("verifier-loop", "harness.team:compiled", "task_success", value),
         trialId: `verifier-loop:trial-${index + 1}`,
       })),
     });
@@ -810,7 +735,7 @@ describe("Benchmark reports", () => {
       },
       mission,
       generatedAt: "2026-04-25T00:00:00.000Z",
-      results: [trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1)],
+      results: [trialResult("verifier-loop", "harness.team:compiled", "task_success", 1)],
     });
 
     expect(report.candidates[0]?.recommendation).toBe("recommended");
@@ -830,7 +755,7 @@ describe("Benchmark reports", () => {
       },
       mission,
       generatedAt: "2026-04-25T00:00:00.000Z",
-      results: [trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1)],
+      results: [trialResult("verifier-loop", "harness.team:compiled", "task_success", 1)],
     });
 
     expect(report.candidates[0]?.recommendation).toBe("insufficient_evidence");
@@ -897,7 +822,7 @@ describe("Benchmark reports", () => {
       generatedAt: "2026-04-25T00:00:00.000Z",
       results: [
         {
-          ...trialResult("verifier-loop", "harness.verifier-loop:compiled", "other_metric", 1),
+          ...trialResult("verifier-loop", "harness.team:compiled", "other_metric", 1),
           metrics: [],
         },
       ],
@@ -971,9 +896,9 @@ describe("Benchmark reports", () => {
       mission,
       generatedAt: "2026-04-25T00:00:00.000Z",
       results: [
-        trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1),
+        trialResult("verifier-loop", "harness.team:compiled", "task_success", 1),
         {
-          ...trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1),
+          ...trialResult("verifier-loop", "harness.team:compiled", "task_success", 1),
           trialId: "trial-2",
         },
       ],
@@ -1377,7 +1302,7 @@ describe("Benchmark reports", () => {
       generatedAt: "2026-04-25T00:00:00.000Z",
       results: [
         {
-          ...trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1),
+          ...trialResult("verifier-loop", "harness.team:compiled", "task_success", 1),
           faultInjections: [
             {
               specRef: "memory-stale-context",
@@ -1422,7 +1347,7 @@ describe("Benchmark reports", () => {
       },
       mission,
       generatedAt: "2026-04-25T00:00:00.000Z",
-      results: [trialResult("verifier-loop", "harness.verifier-loop:compiled", "task_success", 1)],
+      results: [trialResult("verifier-loop", "harness.team:compiled", "task_success", 1)],
     });
 
     expect(report.faultInjection?.plannedCaseCount).toBe(1);
