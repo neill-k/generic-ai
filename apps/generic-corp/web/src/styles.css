@@ -1149,3 +1149,53 @@ a.tab {
     border-left: none;
   }
 }
+
+/* ---------------------------------------------------------------- pause */
+
+.pause-button {
+  width: 100%;
+  margin-bottom: 0.75rem;
+}
+
+.pause-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 2rem;
+  background: var(--warn-soft);
+  color: var(--text);
+  border-bottom: 1px solid var(--line);
+}
+
+.pause-banner .pause-button {
+  width: auto;
+  margin: 0 0 0 auto;
+}
+
+.agent-pause {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .pause-banner {
+    padding: 0.75rem 1rem;
+  }
+}
+
+.phone-only {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .phone-only {
+    display: flex;
+  }
+
+  .company-pause {
+    margin-bottom: 1rem;
+  }
+}

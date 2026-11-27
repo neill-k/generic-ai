@@ -1,6 +1,7 @@
 import { render } from "preact";
 
 import { api, type CompanyInfo } from "./api.js";
+import { CompanyPauseButton, PauseBanner, usePause } from "./components/pause.js";
 import { useLiveStatus, useResource } from "./live.js";
 import { href, useRoute } from "./router.js";
 import "./styles.css";
@@ -22,6 +23,7 @@ function App() {
   const live = useLiveStatus();
   const company = useResource(() => api<CompanyInfo>("/company"), []);
   const name = company.data?.name ?? "Generic Corp";
+  const pause = usePause();
 
   let page: preact.JSX.Element;
   if (route.view === "goals" && route.id !== undefined) {
@@ -64,10 +66,12 @@ function App() {
           ))}
         </nav>
         <div class="sidebar-foot">
+          <CompanyPauseButton pause={pause} />
           <span class={`live${live ? " on" : ""}`}>{live ? "Live" : "Reconnecting…"}</span>
         </div>
       </aside>
       <main class="main" id="main">
+        <PauseBanner pause={pause} />
         {page}
       </main>
     </div>

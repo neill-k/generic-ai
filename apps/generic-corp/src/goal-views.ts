@@ -17,6 +17,7 @@ export type GoalState =
   | "queued"
   | "working"
   | "waiting"
+  | "paused"
   | "done"
   | "impossible"
   | "stopped"
@@ -99,6 +100,12 @@ export interface GoalDetailView extends GoalView {
 }
 
 const ACTIVE = new Set(["queued", "running", "waiting"]);
+const FINISHED_STATES: ReadonlySet<GoalState> = new Set([
+  "done",
+  "impossible",
+  "stopped",
+  "cancelled",
+]);
 
 export function goalStateOf(root: AgentTaskRecord): GoalState {
   if (root.impossible !== undefined) {
@@ -125,6 +132,7 @@ const GOAL_STATUS_TEXT: Readonly<Record<GoalState, string>> = {
   queued: "In the queue. It will be picked up shortly.",
   working: "Working on it.",
   waiting: "Waiting on the team.",
+  paused: "Paused. Work resumes when the hold lifts.",
   done: "Done.",
   impossible: "Declared impossible. A second reviewer agreed.",
   stopped: "Stopped before it was done.",
@@ -139,6 +147,9 @@ export function goalStatusText(state: GoalState): string {
 export function taskStatusText(task: AgentTaskRecord): string {
   if (task.impossible !== undefined) {
     return "Found it impossible.";
+  }
+  if (task.hold !== undefined && ACTIVE.has(task.status)) {
+    return task.hold.reason;
   }
   switch (task.status) {
     case "queued":
@@ -279,7 +290,16 @@ function viewOf(
   agents: ReadonlyMap<string, PersistentAgentRecord>,
   usage: { readonly tokens: number; readonly costUsd: number } | undefined,
 ): GoalView {
-  const state = goalStateOf(root);
+  let state = goalStateOf(root);
+  // A goal is paused when its work is held and nobody on it is still finishing a step.
+  const held = tree.find((task) => task.hold !== undefined && ACTIVE.has(task.status));
+  if (
+    held !== undefined &&
+    !FINISHED_STATES.has(state) &&
+    !tree.some((task) => task.status === "running" && task.hold === undefined)
+  ) {
+    state = "paused";
+  }
   const threadId = root.metadata?.["threadId"];
   const openQuestions = tree.reduce(
     (count, task) =>
@@ -292,7 +312,8 @@ function viewOf(
     title: titleOf(root),
     ...(root.goal?.spec?.objective === undefined ? {} : { objective: root.goal.spec.objective }),
     state,
-    statusText: goalStatusText(state),
+    statusText:
+      state === "paused" && held?.hold !== undefined ? held.hold.reason : goalStatusText(state),
     ...(root.goalRevision === undefined ? {} : { revision: root.goalRevision }),
     checklist: checklistOf(root),
     checkedCurrentVersion: isCurrent(root),
