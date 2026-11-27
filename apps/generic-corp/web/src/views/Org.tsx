@@ -6,6 +6,7 @@ import { Avatar, ErrorNote, Loading, SidePanel } from "../components/ui.js";
 import { formatTime } from "../format.js";
 import { useResource } from "../live.js";
 import { href, navigate } from "../router.js";
+import { AgentLimits } from "./settings/AgentLimits.js";
 
 const isAgentEvent = (event: { type: string }) =>
   event.type.startsWith("task.") ||
@@ -132,7 +133,7 @@ function AgentPanel({
       return task?.agentId === agentId;
     },
   );
-  const [tab, setTab] = useState<"now" | "chat" | "memory">("chat");
+  const [tab, setTab] = useState<"now" | "chat" | "memory" | "limits">("chat");
   const data = detail.data;
   const title = data?.agent.title ?? data?.agent.role ?? agentId;
   const active =
@@ -169,6 +170,7 @@ function AgentPanel({
                 ["chat", "Message"],
                 ["now", "Now"],
                 ["memory", "Memory"],
+                ["limits", "Limits"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -233,6 +235,7 @@ function AgentPanel({
               entry came from, or undo a change.
             </p>
           ) : null}
+          {tab === "limits" ? <AgentLimits agentId={agentId} name={title} /> : null}
         </div>
       )}
     </SidePanel>
