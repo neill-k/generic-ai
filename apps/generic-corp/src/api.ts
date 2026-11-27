@@ -13,12 +13,13 @@ import { type Context, Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 
 import { type CompanyGoalTemplate, companyGoal } from "./company.js";
-import { DriveError, type DriveFile } from "./drive.js";
+import { DriveError, type DriveFile, deliverablesFolder } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
+import { type GithubConnector, GithubError } from "./github.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
-import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import { type PermissionStore, PermissionsError } from "./permissions.js";
 import type { RefusalLog } from "./refusals.js";
+import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
@@ -50,6 +51,10 @@ export interface CompanyApiOptions {
   readonly modelAuth?: CompanyModelAuth;
   /** The owner's permissions and standing rules, at `/api/permissions`. Owner only. */
   readonly permissions?: PermissionStore;
+  /** The GitHub connector, at `/api/connectors/github`. Owner only. */
+  readonly github?: GithubConnector;
+  /** The company root, which pushes to GitHub read deliverables from. */
+  readonly companyRoot?: string;
 }
 
 /** What the secrets screen needs from the vault. */
@@ -466,6 +471,110 @@ export function createCompanyApi(
     requireManage(c);
     await store.reset();
     return c.json(permissionsView(store));
+  });
+
+  // --- Connectors: GitHub ---------------------------------------------------
+  // The token never leaves the host. Which repos agents may write to is part of the permissions.
+
+  const requireGithub = (): GithubConnector => {
+    if (options.github === undefined) {
+      throw new ApiError(404, "The GitHub connector is not available.");
+    }
+    return options.github;
+  };
+  const githubCall = async <T>(call: () => Promise<T>): Promise<T> => {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof GithubError) {
+        const status =
+          error.status === 403 || error.status === 404 || error.status === 409 ? error.status : 400;
+        throw new ApiError(status, error.message);
+      }
+      throw error;
+    }
+  };
+  const githubView = async (github: GithubConnector) => {
+    const connection = await github.status();
+    const writable = new Set(options.permissions?.current().github.repos ?? []);
+    if (!connection.connected) {
+      return { ...connection, repos: [] };
+    }
+    const repos = await githubCall(() => github.repos());
+    return {
+      ...connection,
+      repos: repos.map((repo) => ({ ...repo, writable: writable.has(repo.fullName) })),
+    };
+  };
+
+  app.get("/connectors/github", async (c) => {
+    requireManage(c);
+    return c.json(await githubView(requireGithub()));
+  });
+
+  app.post("/connectors/github", async (c) => {
+    const github = requireGithub();
+    requireManage(c);
+    const token = (await readJsonObject(c))["token"];
+    if (typeof token !== "string") {
+      throw new ApiError(400, 'Send the GitHub token as {"token": "github_pat_..."}.');
+    }
+    await githubCall(() => github.connect(token));
+    return c.json(await githubView(github));
+  });
+
+  app.delete("/connectors/github", async (c) => {
+    const github = requireGithub();
+    requireManage(c);
+    return c.json({ ...(await github.disconnect()), repos: [] });
+  });
+
+  app.post("/connectors/github/push", async (c) => {
+    const github = requireGithub();
+    requireManage(c);
+    if (options.companyRoot === undefined) {
+      throw new ApiError(404, "This company has no drive.");
+    }
+    const body = await readJsonObject(c);
+    const goalId = body["goalId"];
+    if (typeof goalId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(goalId)) {
+      throw new ApiError(400, "goalId must be the id of a goal with deliverables.");
+    }
+    const repo = body["repo"];
+    const branch = body["branch"];
+    if (typeof repo !== "string" || typeof branch !== "string") {
+      throw new ApiError(400, 'Send {"goalId", "repo": "owner/name", "branch": "..."}.');
+    }
+    const message =
+      typeof body["message"] === "string" ? body["message"] : `Deliverables for ${goalId}`;
+    const to = typeof body["path"] === "string" ? body["path"] : undefined;
+    const companyRoot = options.companyRoot;
+    const pushed = await githubCall(() =>
+      github.pushFolder({
+        root: companyRoot,
+        from: deliverablesFolder(goalId),
+        repo,
+        branch,
+        message,
+        ...(to === undefined ? {} : { to }),
+      }),
+    );
+    const pull = body["openPullRequest"];
+    if (typeof pull === "object" && pull !== null) {
+      const request = pull as Record<string, unknown>;
+      const title = typeof request["title"] === "string" ? request["title"] : message;
+      const description = typeof request["body"] === "string" ? request["body"] : undefined;
+      const opened = await githubCall(() =>
+        github.openPullRequest({
+          repo,
+          head: pushed.branch,
+          title,
+          ...(description === undefined ? {} : { body: description }),
+        }),
+      );
+      return c.json({ pushed, pullRequest: opened });
+    }
+    return c.json({ pushed });
   });
 
   // --- Refused actions -----------------------------------------------------
