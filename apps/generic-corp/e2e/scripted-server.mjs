@@ -187,6 +187,8 @@ const app = await createGenericCorpServer({
     GENERIC_CORP_DATA_DIR: dataDir,
     GENERIC_CORP_INSECURE_NO_AUTH: "true",
     GENERIC_CORP_HOST: "127.0.0.1",
+    // Several scripted servers run side by side; each picks a free port for its egress proxy.
+    GENERIC_CORP_EGRESS_PORT: "0",
   },
   company: E2E_COMPANY,
   toolkit,

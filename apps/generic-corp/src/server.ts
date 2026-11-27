@@ -42,8 +42,20 @@ import {
 } from "./company.js";
 import { createDashboardRoutes } from "./dashboard.js";
 import { type CompanyExecutorOptions, createCompanyTaskExecutor } from "./executor.js";
+import {
+  type AgentNetwork,
+  type AgentNetworkProbe,
+  createEgressProxy,
+  DEFAULT_SHELL_HOSTS,
+  describeAgentNetwork,
+  type EgressProxy,
+  readAgentNetworkPolicy,
+  readEgressPort,
+  resolveAgentNetwork,
+} from "./egress.js";
 import { createCompanyGoalEvidence, createModelJudge } from "./goals.js";
 import { type AgentIsolation, describeAgentIsolation, resolveAgentIsolation } from "./isolation.js";
+import { createRefusalLog, type RefusalLog } from "./refusals.js";
 import { type CompanyRuntime, createCompanyRuntime } from "./runtime.js";
 import { type CompanyStorage, openCompanyStorage } from "./storage.js";
 import { DEFAULT_TEMPLATE, listCompanyTemplates, loadCompanyTemplate } from "./templates.js";
@@ -107,6 +119,11 @@ export interface GenericCorpEnvironment {
   readonly turnLeaseMs?: number;
   /** Agent turns this process runs at the same time. Defaults to 4. */
   readonly workerConcurrency?: number;
+  /**
+   * Loopback port of the egress proxy agent commands go through (`GENERIC_CORP_EGRESS_PORT`,
+   * default 3128; the image's firewall rule names it). Left out, a free port is picked.
+   */
+  readonly egressPort?: number;
 }
 
 function read(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -198,6 +215,7 @@ export function loadGenericCorpEnvironment(env: NodeJS.ProcessEnv): GenericCorpE
     workers: flag(env, ENV.workers, true),
     ...(turnLeaseMs === undefined ? {} : { turnLeaseMs }),
     ...(workerConcurrency === undefined ? {} : { workerConcurrency }),
+    egressPort: readEgressPort(env),
   };
 }
 
@@ -240,6 +258,10 @@ export interface GenericCorpServer {
   readonly auth?: OwnerAuth;
   /** Owner approvals for outward agent actions. */
   readonly approvals: ApprovalServiceContract;
+  /** Actions refused on the spot, for the owner to read. */
+  readonly refusals: RefusalLog;
+  /** How agent commands reach the network. */
+  readonly agentNetwork: AgentNetwork;
   stop(): Promise<void>;
 }
 
@@ -267,6 +289,8 @@ export interface CreateGenericCorpServerOptions {
   };
   /** How agent commands run. Defaults to `resolveAgentIsolation` over the environment. */
   readonly agentIsolation?: AgentIsolation;
+  /** Replaces the check that the agent user's firewall rule holds, for tests. */
+  readonly agentNetworkProbe?: AgentNetworkProbe;
   readonly log?: (message: string) => void;
 }
 
@@ -282,6 +306,7 @@ export async function createGenericCorpServer(
   });
 
   let toolkit: CompanyToolkit | undefined;
+  let egress: EgressProxy | undefined;
   try {
     const secrets =
       options.secrets ??
@@ -295,6 +320,36 @@ export async function createGenericCorpServer(
     const agentIsolation =
       options.agentIsolation ?? resolveAgentIsolation(options.env ?? process.env);
     log(describeAgentIsolation(agentIsolation));
+    // The wall between the company and the outside world: agent shell commands reach the
+    // network only through the egress proxy and its allowlist (egress.ts).
+    const refusals = createRefusalLog(storage.kv);
+    const networkPolicy = readAgentNetworkPolicy(options.env ?? process.env);
+    const agentNetwork = await resolveAgentNetwork(
+      networkPolicy,
+      agentIsolation,
+      options.agentNetworkProbe,
+    );
+    log(describeAgentNetwork(agentNetwork));
+    if (networkPolicy !== "off") {
+      const proxy = createEgressProxy({
+        allow: () => DEFAULT_SHELL_HOSTS,
+        port: environment.egressPort ?? 0,
+        onRefused: (refusal) => {
+          void refusals
+            .record({
+              kind: "network",
+              ...(refusal.agentId === undefined ? {} : { agentId: refusal.agentId }),
+              category: "network",
+              action: `${refusal.method} ${refusal.host}:${refusal.port}`,
+              reason: refusal.reason,
+            })
+            .catch(() => undefined);
+        },
+      });
+      await proxy.start();
+      egress = proxy;
+    }
+    const egressProxy = egress;
     toolkit =
       options.toolkit ??
       createCompanyToolkit({
@@ -302,6 +357,9 @@ export async function createGenericCorpServer(
         secrets,
         env: options.env ?? process.env,
         ...(agentIsolation.runAs === undefined ? {} : { runAs: agentIsolation.runAs }),
+        ...(egressProxy === undefined
+          ? {}
+          : { commandEnv: (agentId: string) => egressProxy.envFor(agentId) }),
       });
     const companyToolkit = toolkit;
     // Outward actions (messages, external writes, payments, writing MCP tools) wait for the
@@ -370,6 +428,7 @@ export async function createGenericCorpServer(
           ok: health.ok,
           storage: storage.driver,
           agentIsolation: agentIsolation.mode,
+          agentNetwork: agentNetwork.mode,
           ...(health.error ? { error: health.error } : {}),
         },
         health.ok ? 200 : 503,
@@ -430,6 +489,7 @@ export async function createGenericCorpServer(
       API_ROUTE_PREFIX,
       createCompanyApi(runtime, {
         toolkit: companyToolkit,
+        refusals,
         secrets: {
           writable: secretsWritable,
           references: companySecretReferences(company),
@@ -460,14 +520,18 @@ export async function createGenericCorpServer(
       environment,
       ...(auth === undefined ? {} : { auth }),
       approvals,
+      refusals,
+      agentNetwork,
       async stop() {
         await runtime.stop();
         await companyToolkit.close();
+        await egressProxy?.stop();
         await storage.close();
       },
     };
   } catch (error) {
     await toolkit?.close();
+    await egress?.stop();
     await storage.close();
     throw error;
   }

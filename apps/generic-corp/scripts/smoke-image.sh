@@ -63,7 +63,9 @@ api_key="sk-ant-smoke-$$-provider-key"
 secrets_key="smoke-$$-secrets-master-key-0123456789"
 
 step "Server, configured like Railway"
-docker run -d --name "$app" --network "$net" \
+# NET_ADMIN lets the entrypoint wall the agent user off from the network, as
+# compose.yaml does for local runs.
+docker run -d --name "$app" --network "$net" --cap-add NET_ADMIN \
   -e DATABASE_URL="$url" \
   -e ANTHROPIC_API_KEY="$api_key" \
   -e GENERIC_AI_SECRETS_KEY="$secrets_key" \
@@ -108,6 +110,31 @@ fi
 if docker exec -u agent "$app" sudo -n -u node true 2>/dev/null; then
   fail "the agent user can run commands as node"
 fi
+
+step "Agent commands reach the network only through the egress allowlist"
+curl -s "http://127.0.0.1:$port/ready" | grep -c '"agentNetwork":"walled"' >/dev/null \
+  || fail "/ready does not report agentNetwork walled"
+if docker exec -u agent "$app" bash -c 'exec 3<>/dev/tcp/1.1.1.1/443' 2>/dev/null; then
+  fail "the agent user can open a direct connection"
+fi
+if docker exec -u agent "$app" bash -c "exec 3<>/dev/tcp/$pg/5432" 2>/dev/null; then
+  fail "the agent user can reach Postgres"
+fi
+if docker exec -u agent "$app" bash -c "exec 3<>/dev/tcp/127.0.0.1/8080" 2>/dev/null; then
+  fail "the agent user can reach the server's own port"
+fi
+docker exec -u agent "$app" bash -c \
+  'printf "CONNECT evil.example.com:443 HTTP/1.1\r\n\r\n" > /dev/tcp/127.0.0.1/3128' \
+  || fail "the agent user cannot reach the egress proxy"
+# The server dropped NET_ADMIN (bit 12) for good, so nothing it starts can
+# undo the rule.
+docker exec "$app" sh -c '
+  for p in /proc/[0-9]*; do
+    if tr "\0" " " < "$p/cmdline" 2>/dev/null | grep -q "^node apps/generic-corp/dist/run.js"; then
+      bnd="$(awk "/^CapBnd:/ { print \$2 }" "$p/status")"
+      [ $(( 0x$bnd & 0x1000 )) -eq 0 ] && echo dropped
+    fi
+  done' | grep -cx dropped >/dev/null || fail "the server process kept NET_ADMIN"
 
 step "Agent commands cannot see the server's secrets or files (environment, /proc, /data)"
 # The probe holds the same secret variables as the server and is started the

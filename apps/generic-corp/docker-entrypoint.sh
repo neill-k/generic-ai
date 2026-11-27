@@ -15,6 +15,27 @@ data_dir="${GENERIC_CORP_DATA_DIR:-/data}"
 # can both work in them.
 umask 0007
 
+# Adds the agent user's firewall rules in their own chains, replacing any from
+# an earlier start. Fails when iptables is missing or not permitted.
+wall_agent_network() {
+  port="$1"
+  command -v iptables >/dev/null 2>&1 || return 1
+  iptables -w -N GENERIC_CORP_AGENT 2>/dev/null || iptables -w -F GENERIC_CORP_AGENT || return 1
+  iptables -w -A GENERIC_CORP_AGENT -o lo -d 127.0.0.1 -p tcp --dport "$port" -j ACCEPT || return 1
+  iptables -w -A GENERIC_CORP_AGENT -p tcp -j REJECT --reject-with tcp-reset || return 1
+  iptables -w -A GENERIC_CORP_AGENT -j REJECT || return 1
+  iptables -w -C OUTPUT -m owner --uid-owner agent -j GENERIC_CORP_AGENT 2>/dev/null \
+    || iptables -w -I OUTPUT 1 -m owner --uid-owner agent -j GENERIC_CORP_AGENT || return 1
+  # IPv6: nothing at all. Where the kernel has no IPv6 there is nothing to block.
+  if command -v ip6tables >/dev/null 2>&1 && ip6tables -w -L OUTPUT >/dev/null 2>&1; then
+    ip6tables -w -N GENERIC_CORP_AGENT 2>/dev/null || ip6tables -w -F GENERIC_CORP_AGENT || return 1
+    ip6tables -w -A GENERIC_CORP_AGENT -j REJECT || return 1
+    ip6tables -w -C OUTPUT -m owner --uid-owner agent -j GENERIC_CORP_AGENT 2>/dev/null \
+      || ip6tables -w -I OUTPUT 1 -m owner --uid-owner agent -j GENERIC_CORP_AGENT || return 1
+  fi
+  return 0
+}
+
 if [ "$(id -u)" = "0" ]; then
   agents_dir="$data_dir/agents"
   mkdir -p "$agents_dir"
@@ -34,7 +55,26 @@ if [ "$(id -u)" = "0" ]; then
   find "$agents_dir" -type d ! -perm -2770 -exec chmod g+rwxs {} +
   find "$agents_dir" ! -type d ! -type l ! -perm -0060 -exec chmod g+rw {} +
   find "$agents_dir" ! -type l -perm /o=rwx -exec chmod o-rwx {} +
-  exec setpriv --reuid=node --regid=node --init-groups env HOME=/home/node USER=node "$@"
+
+  # The network wall (design decision 36). Packets from the `agent` user may go
+  # to the egress proxy on loopback and nowhere else: no other host, no DNS, no
+  # other local service (the app's own port, Postgres). The proxy, run by the
+  # server, lets through only the hosts on the owner's allowlist. This needs the
+  # NET_ADMIN capability (compose.yaml adds it); without it, agent commands are
+  # only pointed at the proxy and /ready reports agentNetwork "proxy-only".
+  if [ "${GENERIC_CORP_AGENT_NETWORK:-auto}" != "off" ] && id agent >/dev/null 2>&1; then
+    egress_port="${GENERIC_CORP_EGRESS_PORT:-3128}"
+    if wall_agent_network "$egress_port"; then
+      echo "Agent network: commands from user agent can reach only the egress proxy on port $egress_port."
+    else
+      echo "WARNING: could not add the agent firewall rule (the container needs NET_ADMIN). Agent commands are pointed at the egress proxy but can connect directly." >&2
+    fi
+  fi
+
+  # The server never needs to change the firewall, so drop those capabilities
+  # for good before handing over to node.
+  exec setpriv --reuid=node --regid=node --init-groups --bounding-set -net_admin,-net_raw \
+    env HOME=/home/node USER=node "$@"
 fi
 
 exec "$@"
