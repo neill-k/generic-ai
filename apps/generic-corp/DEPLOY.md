@@ -39,10 +39,11 @@ unprivileged user, `agent`. The server
 runs as `node`. Threat model and decision record:
 [`docs/decisions/0064-agent-isolation-on-railway.md`](../../docs/decisions/0064-agent-isolation-on-railway.md).
 
-- **Works:** shell commands, git, file tools, grep and find, outbound network
-  access (web search, APIs, MCP servers, the browser connector), and
-  installing tools into the agent's home with user-level installs (`HOME` is
-  the agent's home).
+- **Works:** shell commands, git, file tools, grep and find, package installs
+  from the network allowlist (npm, PyPI, crates, Go modules, RubyGems,
+  GitHub), the web tools and MCP connectors (which run in the server, not the
+  shell), and installing tools into the agent's home with user-level installs
+  (`HOME` is the agent's home).
 - **Does not work:** anything that needs Docker (building or running
   containers), root (`apt-get install`), or a GUI.
 
@@ -102,13 +103,23 @@ timeout, then asks each file tool for paths outside the workspace.
   agent could tamper with a colleague's memory. Closing it needs one OS user
   per agent, created when the agent is, which needs root or a privileged
   helper at runtime.
-- **The network is shared.** Agent commands can reach anything the server
-  can: the internet and, on Railway, the Postgres host on the private
-  network (not its password). Railway has no per-process egress policy and
-  the container cannot change its own firewall. A stronger setup runs agent
-  commands in a separate service or VM with its own egress rules (an
-  allowlisting proxy, or a provider's sandbox such as Firecracker/gVisor
-  microVMs) and talks to it over an authenticated API.
+- **The network wall needs NET_ADMIN.** Agent commands reach the network
+  only through the server's egress proxy on `127.0.0.1:3128`
+  (`GENERIC_CORP_EGRESS_PORT`), which allows the hosts on the allowlist and
+  logs every refusal to the owner's refused-actions list (`/api/refusals`).
+  The entrypoint adds a firewall rule so the `agent` user's packets can go
+  to that port and nowhere else (no other host, no DNS, not Postgres, not
+  the app's own port), then drops `NET_ADMIN` before starting the server.
+  That needs the capability when the container starts: `compose.yaml` adds
+  it. Railway does not document a way to add capabilities, so expect
+  `/ready` to show `"agentNetwork":"proxy-only"` there: commands are pointed
+  at the proxy, and npm, pip, git, curl and Node all use it, but a command
+  that deliberately ignores the proxy variables can still connect directly.
+  `GENERIC_CORP_AGENT_NETWORK=required` refuses to start without the wall;
+  `off` removes it. Allowlisted hosts accept uploads too (`git push`,
+  `npm publish`) to any account whose credentials a command has, so a
+  prompt-injected agent handed an outsider's token could push company files
+  to that account; closing that needs a proxy that reads TLS traffic.
 - **Resource limits are per process, not per agent.** Each agent command gets
   `ulimit` limits (4 GiB of memory and an hour of CPU per process, 4 GiB
   files, 4096 open files, 1024 processes for the `agent` user) and runs at

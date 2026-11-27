@@ -17,6 +17,7 @@ import { DriveError, type DriveFile } from "./drive.js";
 import type { CompanyEvent } from "./events.js";
 import { type CompanyModelAuth, ModelAuthError } from "./model-auth.js";
 import { BOARD_COLUMNS, type CompanyRuntime, summarizeTask } from "./runtime.js";
+import type { RefusalLog } from "./refusals.js";
 import type { CompanySecretReference, CompanyToolkitDescription } from "./toolkit.js";
 
 /**
@@ -42,6 +43,8 @@ export interface CompanyApiOptions {
   readonly toolkit?: { describe(): CompanyToolkitDescription };
   /** The secrets vault, managed at `/api/secrets`. Values are never returned. */
   readonly secrets?: CompanySecretsAdmin;
+  /** Actions refused on the spot (network and permissions), listed at `/api/refusals`. */
+  readonly refusals?: RefusalLog;
   /** What powers the agents (Claude sign-in or API key), managed at `/api/model-auth`. */
   readonly modelAuth?: CompanyModelAuth;
 }
@@ -422,6 +425,18 @@ export function createCompanyApi(
       );
     }
     return c.json({ deleted: true });
+  });
+
+  // --- Refused actions -----------------------------------------------------
+
+  app.get("/refusals", async (c) => {
+    const limit = Number(c.req.query("limit") ?? "100");
+    return c.json({
+      refusals:
+        options.refusals === undefined
+          ? []
+          : await options.refusals.list({ limit: Number.isFinite(limit) ? limit : 100 }),
+    });
   });
 
   // --- What powers the agents: Claude sign-in or an API key ----------------
