@@ -9,9 +9,9 @@ import {
 import type { UsageTotals } from "@generic-ai/sdk";
 import { createUsageMeter } from "../usage/meter.js";
 import {
+  runStopToolLoop,
   STOP_AND_RESPOND_TOOL_NAME,
   type StopAndRespondState,
-  runStopToolLoop,
 } from "./stop-tool-loop.js";
 import type {
   CreateGenericAILlmRuntimeOptions,

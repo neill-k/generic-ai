@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RegistryError, createRegistry } from "./index.js";
+import { createRegistry, RegistryError } from "./index.js";
 
 describe("createRegistry", () => {
   it("keeps insertion order and rejects duplicates", () => {

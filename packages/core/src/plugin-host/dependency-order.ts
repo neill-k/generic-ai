@@ -1,10 +1,10 @@
-import type { PluginDefinition, PluginManifest } from "./types.js";
 import {
-  PluginHostError,
   type CyclicPluginDependencyIssue,
   type MissingPluginDependencyIssue,
+  PluginHostError,
   type PluginHostIssue,
 } from "./errors.js";
+import type { PluginDefinition, PluginManifest } from "./types.js";
 
 interface ResolvedPlugin {
   readonly plugin: PluginDefinition;

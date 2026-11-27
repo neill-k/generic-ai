@@ -1,7 +1,13 @@
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
+import {
+  type Context,
+  fauxAssistantMessage,
+  fauxToolCall,
+  type Model,
+  registerFauxProvider,
+} from "@generic-ai/ai";
 import {
   type AgentHarnessRunInput,
   type CompiledHarness,
@@ -14,13 +20,6 @@ import {
   sealGoal,
   withAgentHarnessToolEffects,
 } from "@generic-ai/sdk";
-import {
-  type Context,
-  fauxAssistantMessage,
-  fauxToolCall,
-  type Model,
-  registerFauxProvider,
-} from "@generic-ai/ai";
 import { describe, expect, it } from "vitest";
 
 import { STOP_AND_RESPOND_TOOL_NAME } from "../runtime/index.js";

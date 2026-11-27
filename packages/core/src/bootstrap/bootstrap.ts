@@ -48,11 +48,11 @@ import type {
   GenericAIResolvedConfig,
   GenericAIRunContext,
   GenericAIRunOptions,
+  GenericAIRunTask,
   GenericAIRuntimePlan,
   GenericAIRuntimeSettingsPlan,
   GenericAIRuntimeStarterInput,
   GenericAIRuntimeStartResult,
-  GenericAIRunTask,
   GenericAIStreamChunk,
 } from "./types.js";
 
@@ -489,7 +489,9 @@ function deepFreezeFramework(
       ? undefined
       : Object.freeze({
           ...runtime,
-          ...(runtime.storage === undefined ? {} : { storage: Object.freeze({ ...runtime.storage }) }),
+          ...(runtime.storage === undefined
+            ? {}
+            : { storage: Object.freeze({ ...runtime.storage }) }),
           ...(runtime.queue === undefined ? {} : { queue: Object.freeze({ ...runtime.queue }) }),
           ...(runtime.logging === undefined
             ? {}
@@ -502,9 +504,7 @@ function deepFreezeFramework(
     ...(framework.metadata === undefined
       ? {}
       : { metadata: Object.freeze({ ...framework.metadata }) }),
-    ...(framework.plugins === undefined
-      ? {}
-      : { plugins: [...framework.plugins] }),
+    ...(framework.plugins === undefined ? {} : { plugins: [...framework.plugins] }),
   });
 }
 

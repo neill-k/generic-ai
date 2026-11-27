@@ -1,8 +1,8 @@
 import {
   type AgentTaskExecutionInput,
+  type CompiledHarness,
   compileHarnessDsl,
   HARNESS_SCHEMA_VERSION,
-  type CompiledHarness,
   type SaveSessionInput,
   type SessionRecord,
 } from "@generic-ai/sdk";

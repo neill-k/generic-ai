@@ -149,7 +149,9 @@ export function createDelegationCoordinator(
       requests: readonly DelegationRequest<TTask>[],
       executor: DelegationExecutor<TTask, TResult>,
     ): Promise<readonly DelegationResult<TResult>[]> {
-      return Promise.all(requests.map((request) => coordinator.delegate(parentSessionId, request, executor)));
+      return Promise.all(
+        requests.map((request) => coordinator.delegate(parentSessionId, request, executor)),
+      );
     },
     list(rootSessionId?: string): readonly DelegationResult[] {
       return [...records.values()].filter((record) =>
