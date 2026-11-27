@@ -121,7 +121,8 @@ Status: ✓ done in this slice · ◐ partial · ○ planned. "Tests" names the 
 | --- | --- | --- |
 | Tools: read, write, edit (diff), bash, grep, find, ls, file-mutation queue, output truncation | ✓ | ported `tools`, `edit-tool-legacy-input`, `edit-diff-window`, `grep-operations`, `find-abort-before-spawn`, `file-mutation-queue`, `path-utils`, `truncate-surrogates` in `packages/tools/test` (renderer and bash-executor cases dropped; BMP case adapted) |
 | `find` without fd: built-in search with fd's glob rules (no `.gitignore`) | ✓ | `find-fallback.test.ts` |
-| Image resize and conversion in `read`, tool binary downloads | ○ | pi `read-*`, `tools-manager` (Generic AI attaches PNG/JPEG/GIF/WebP as-is and uses `rg`/`fd` from `PATH`) |
+| Image resize, EXIF orientation and conversion in `read` | ✓ | ported `image-process`, `image-processing` (worker-thread cases dropped: resizing runs in process) and the BMP `tools` case in `packages/tools/test`; uses Photon (WASM) like pi |
+| Tool binary downloads | ○ | pi `tools-manager` (Generic AI uses `rg`/`fd` from `PATH`) |
 | `plugin-tools-files` and `plugin-tools-terminal` on `@generic-ai/tools` (no pi tools left in either plugin) | ✓ | existing plugin tests |
 | Sessions on disk: JSONL tree, branching, labels, resume, tree navigation, migration | ✓ | ported `session-manager/*` (8 suites) in `packages/session/test` |
 | Compaction and branch summaries | ✓ | ported `compaction`, `branch-summarization` (system-message case dropped) |
@@ -183,7 +184,7 @@ pi (`badlogic/pi-mono`):
 | RPC and print modes (a JSONL protocol to drive an agent from another process) | `rpc*`, `print-mode` | Generic AI's surfaces are the Hono transport and the web UI |
 | Durable harness: every turn and tool call committed before it is shown, resumed after a crash mid-turn; remote execution environments over SSH | `durable` (107 test files), `env` | Generic AI has a durable run store, queue and effect journal, but not pi's turn-level commit-and-resume |
 | Standalone MCP client with OAuth refresh and the MCP conformance suite | `mcp`, `mcp-conformance`, `mcp-oauth-*` | `plugin-mcp` uses the official SDK; OAuth for remote servers is not covered |
-| Image resize and conversion in `read`, tool binary downloads | `image-*`, `tools-manager` | |
+| Tool binary downloads (`rg`, `fd` fetched on first use) | `tools-manager` | Deploy images install them; a local user needs them on `PATH` |
 | Telemetry contracts (spans, metrics, propagation) | `telemetry` | Generic AI has `@generic-ai/observability` with its own shape |
 | Chord (reloadable multi-process object runtime) and the evals harness | `chord`, `evals` | Application framework and pi's own evals, not harness features |
 
