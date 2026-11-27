@@ -58,6 +58,7 @@ import {
   type CompactionSettings,
   SessionManager as NativeSessionManager,
 } from "@generic-ai/session";
+import { getAgentCommandEnv } from "@generic-ai/tools";
 import { Type } from "@sinclair/typebox";
 
 import { type CanonicalEventStream, createCanonicalEventStream } from "../events/index.js";
@@ -157,7 +158,15 @@ export interface NativeAgentHarnessOptions {
    * the harness can resolve. Needs Python 3 on the host.
    */
   readonly rlm?:
-    | (Omit<NativeSessionRlm, "model" | "resolveModel" | "getApiKey"> & { readonly model?: string })
+    | (Omit<NativeSessionRlm, "model" | "resolveModel" | "getApiKey"> & {
+        readonly model?: string;
+        /**
+         * Extra environment for the kernel of the agent a run is for (its root agent id), added
+         * to `env` or, without it, to the agent-command allowlist. For example per-agent proxy
+         * settings.
+         */
+        readonly agentEnv?: (agentId: string) => Readonly<Record<string, string>>;
+      })
     | boolean;
   /**
    * Give every native session the thread-goal tools (see `@generic-ai/autonomy`). A session keeps
@@ -1328,12 +1337,17 @@ function createNativeSessionBackend(
       return undefined;
     }
   };
-  const rlmFor = (): NativeSessionRlm | undefined => {
+  const rlmFor = (agentId: string | undefined): NativeSessionRlm | undefined => {
     if (rlmOption === undefined) return undefined;
-    const { model: subModelRef, ...rest } = rlmOption;
+    const { model: subModelRef, agentEnv, ...rest } = rlmOption;
     const subModel = subModelRef === undefined ? undefined : resolveRef(subModelRef);
+    const extraEnv =
+      agentEnv === undefined || agentId === undefined ? undefined : agentEnv(agentId);
     return {
       ...rest,
+      ...(extraEnv === undefined
+        ? {}
+        : { env: { ...(rest.env ?? getAgentCommandEnv()), ...extraEnv } }),
       ...(subModel === undefined ? {} : { model: subModel }),
       resolveModel: resolveRef,
       getApiKey: apiKeyForProvider,
@@ -1374,7 +1388,7 @@ function createNativeSessionBackend(
           : { usageMeter, usageAttribution: { roleId: role?.id ?? rest.rootAgentId } }),
         ...(options.extensions === undefined ? {} : { extensions: options.extensions }),
         ...(subagents === undefined ? {} : { subagents }),
-        ...(rlmOption === undefined ? {} : { rlm: rlmFor() ?? true }),
+        ...(rlmOption === undefined ? {} : { rlm: rlmFor(rest.rootAgentId) ?? true }),
         ...(options.goal === undefined ? {} : { goal: options.goal }),
         ...(options.autonomous === undefined ? {} : { autonomous: options.autonomous }),
         ...(options.schedules === undefined ? {} : { schedules: options.schedules }),
