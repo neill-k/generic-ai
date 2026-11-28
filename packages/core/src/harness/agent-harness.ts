@@ -201,6 +201,13 @@ export interface CreateAgentHarnessOptions<
   readonly hookHandlers?: readonly AgentLifecycleInProcessHookHandler[];
   readonly policy?: AgentHarnessPolicyEvaluator;
   readonly adapters?: AgentHarnessAdapterRegistry<TCapabilities, TOutput>;
+  /**
+   * More session backends, registered under their `kind`. Each gets the same plumbing as the
+   * native backend (role and profile policy, secrets, host tools, lifecycle hooks, usage meter,
+   * artifacts), so a backend only has to run one capability-bound session. Used for runtimes that
+   * live outside core, such as the Claude Agent SDK backend.
+   */
+  readonly backends?: readonly HarnessSessionBackend[];
 }
 
 export interface RunAgentHarnessOptions extends AgentHarnessRunInput<PiCapabilityBindings> {}
@@ -1815,6 +1822,16 @@ export function createAgentHarness<TCapabilities = PiCapabilityBindings, TOutput
       sessionAdapterOptions,
       createNativeSessionBackend(config, options.native ?? {}),
     ) as unknown as AgentHarnessAdapter<TCapabilities, TOutput>,
+    ...Object.fromEntries(
+      (options.backends ?? []).map((backend) => [
+        backend.kind,
+        createSessionAgentHarnessAdapter(
+          config,
+          sessionAdapterOptions,
+          backend,
+        ) as unknown as AgentHarnessAdapter<TCapabilities, TOutput>,
+      ]),
+    ),
     ...options.adapters,
   } as const;
   const adapterKind = config.adapter ?? DEFAULT_AGENT_HARNESS_ADAPTER;

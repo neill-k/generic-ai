@@ -18,8 +18,8 @@ const ROOMS: readonly { view: string; title: string; text: string }[] = [
   { view: "permissions", title: "Permissions", text: "What agents may do, and what was refused." },
   {
     view: "sign-in",
-    title: "Claude API key",
-    text: "The Anthropic API key that powers the agents.",
+    title: "Claude access",
+    text: "Your Claude plan or the API key that powers the agents.",
   },
   {
     view: "backups",

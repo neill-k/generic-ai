@@ -469,13 +469,13 @@ function isProviderError(message: string): boolean {
 export function explainModelError(message: string): string {
   const text = message.toLowerCase();
   if (text.includes("extra usage")) {
-    return "Claude refused every model call: it billed them as extra usage, and your account has no extra usage left. Anthropic's terms don't allow apps outside Claude Code to use a Claude plan. Add an Anthropic API key under More > Claude API key.";
+    return "Claude refused every model call: it billed them as extra usage, and your account has no extra usage left. To run on your plan, set a claude setup-token token as CLAUDE_CODE_OAUTH_TOKEN on the server, or add an Anthropic API key (see More > Claude access).";
   }
   if (/rate.?limit|usage limit|429|overloaded/.test(text)) {
     return `Claude refused model calls because a usage or rate limit was hit, so no goal could finish. Try again after the limit resets. Claude said: ${message}`;
   }
   if (/401|403|authentication|invalid x-api-key|oauth|unauthorized|permission/.test(text)) {
-    return `Claude rejected the API key, so no model call went through. Check it under More > Claude API key. Claude said: ${message}`;
+    return `Claude rejected the API key, so no model call went through. Check it under More > Claude access. Claude said: ${message}`;
   }
   return `Model calls failed, so no goal could finish. The error was: ${message}`;
 }

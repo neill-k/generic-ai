@@ -35,6 +35,11 @@ export interface BackgroundReply {
 export type BackgroundModel = (request: BackgroundRequest) => Promise<BackgroundReply>;
 
 export interface ModelBackgroundOptions {
+  /**
+   * The model call. Defaults to `complete` from `@generic-ai/ai`; the server passes one that runs
+   * Claude calls on the owner's plan through the Claude Agent SDK when that is on.
+   */
+  readonly complete?: typeof complete;
   readonly model: string;
   readonly getAuth?: (
     provider: string,
@@ -58,7 +63,7 @@ export function createModelBackground(options: ModelBackgroundOptions): Backgrou
   return async (request) => {
     const model = resolve(options.model);
     const auth = await options.getAuth?.(model.provider);
-    const reply = await complete(
+    const reply = await (options.complete ?? complete)(
       model,
       {
         systemPrompt: request.system,

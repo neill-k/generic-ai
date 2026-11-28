@@ -5,18 +5,21 @@ import { ErrorNote, Loading } from "../components/ui.js";
 import { useResource } from "../live.js";
 
 interface ModelAuthStatus {
-  source: "api_key" | "environment" | "none";
+  source: "claude_plan" | "api_key" | "environment" | "none";
+  apiKey?: boolean;
 }
 
 const SOURCE: Readonly<Record<string, string>> = {
+  claude_plan:
+    "Your Claude plan, through the Claude Agent SDK (CLAUDE_CODE_OAUTH_TOKEN on the server). Agent turns count toward your plan's usage limits.",
   api_key: "An Anthropic API key saved here.",
   environment: "ANTHROPIC_API_KEY on the server.",
   none: "Nothing yet.",
 };
 
 /**
- * What powers the agents: an Anthropic API key. There is no Claude plan sign-in, because
- * Anthropic's terms don't allow third-party apps to use a Claude plan.
+ * What powers the agents: the owner's Claude plan (a `claude setup-token` token set on the server,
+ * used by the Claude Agent SDK) or an Anthropic API key. The app never takes a plan token itself.
  */
 export function SignInView() {
   const status = useResource(() => api<ModelAuthStatus>("/model-auth"), []);
@@ -49,9 +52,10 @@ export function SignInView() {
     <div class="page">
       <header class="page-header">
         <div>
-          <h1>Claude API key</h1>
+          <h1>Claude access</h1>
           <p class="muted">
-            What powers your agents: an Anthropic API key. Agents use it without ever seeing it.
+            What powers your agents: your Claude plan or an Anthropic API key. Agents never see
+            either.
           </p>
         </div>
       </header>
@@ -65,7 +69,8 @@ export function SignInView() {
         )}
         {source === "none" ? (
           <p class="error" role="alert">
-            Nothing powers the company yet. Agents cannot work until you add a key.
+            Nothing powers the company yet. Agents cannot work until you set up your Claude plan or
+            add a key.
           </p>
         ) : null}
         {source === undefined ? null : (
@@ -91,6 +96,21 @@ export function SignInView() {
             ) : null}
           </section>
         )}
+        <section class="card settings-card stack" aria-label="Claude plan">
+          <h2>Claude plan</h2>
+          {source === "claude_plan" ? (
+            <p class="small">On. Claude turns run on your plan.</p>
+          ) : (
+            <p class="small muted">Off.</p>
+          )}
+          <p class="small muted">
+            To run agents on your Claude Pro or Max plan, run <code>claude setup-token</code> on
+            your own computer with Claude Code installed. It opens Anthropic's sign-in and prints a
+            token that lasts a year. Set it as the <code>CLAUDE_CODE_OAUTH_TOKEN</code> variable on
+            the server (on Railway: the app service's Variables) and redeploy. Don't paste it here:
+            the app never stores plan tokens.
+          </p>
+        </section>
         <section class="card settings-card stack" aria-label="API key">
           <h2>API key</h2>
           <p class="small muted">
@@ -102,8 +122,8 @@ export function SignInView() {
             >
               console.anthropic.com
             </a>
-            . Claude Pro and Max plans can't power the company: Anthropic's terms don't allow
-            third-party apps to use them.
+            . With your plan on, a key is used for other model calls and, if you choose, after the
+            plan's limit is reached.
           </p>
           <form
             class="secret-form"

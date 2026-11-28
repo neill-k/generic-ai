@@ -47,7 +47,7 @@ describe("plan limit", () => {
     const releases: number[] = [];
     const plan = await createPlanLimit({
       kv: kv(),
-      source: async () => "subscription",
+      source: async () => "claude_plan",
       apiKey: async () => undefined,
       now: () => new Date(clock),
       onRelease: () => releases.push(clock),
@@ -87,7 +87,7 @@ describe("plan limit", () => {
     let releases = 0;
     const plan = await createPlanLimit({
       kv: kv(),
-      source: async () => "subscription",
+      source: async () => "claude_plan",
       apiKey: async () => key,
       onRelease: () => {
         releases += 1;
@@ -143,7 +143,7 @@ describe("plan limit in the server", () => {
     const status = async () => ({
       provider: "anthropic" as const,
       // The plan sign-in is removed; this simulates the dormant plan-limit path.
-      source: "subscription" as string as ModelAuthSource,
+      source: "claude_plan" as string as ModelAuthSource,
     });
     return {
       getAuth: async () => ({ apiKey: "oauth-token" }),

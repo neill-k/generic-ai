@@ -33,7 +33,7 @@ async function setup() {
   cleanups.push(() => limits.stop());
   const plan = await createPlanLimit({
     kv,
-    source: async () => "subscription",
+    source: async () => "claude_plan",
     apiKey: async () => undefined,
   });
   const provider = registerFauxProvider({ provider: "anthropic", models: [{ id: "scripted" }] });

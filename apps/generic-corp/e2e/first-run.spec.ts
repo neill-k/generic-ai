@@ -6,7 +6,7 @@ import { expect, test } from "@playwright/test";
 import { startScriptedServer, tempDataDir } from "./harness.js";
 
 // The owner's first run, as RUN-LOCALLY.md describes it, on the scripted model (never a live one):
-// the Claude API key screen is reachable, a goal set from the home screen gets a drafted
+// the Claude access screen is reachable, a goal set from the home screen gets a drafted
 // definition of done, the CEO delegates, the VP writes a deliverable to the drive, the server is
 // killed mid-turn and restarted, the turn resumes, the checks pass, the goal is done, and the
 // deliverable is on the shelf.
@@ -20,13 +20,14 @@ test("first run: sign-in screen, then a goal through delegation, a restart and t
   try {
     const first = await startScriptedServer({ dataDir: data.dir, env });
 
-    // Where the owner adds the API key that powers agents: More, then Claude API key.
+    // Where the owner adds the API key that powers agents: More, then Claude access.
     await page.goto(`${first.url}/`);
     await expect(page.getByRole("heading", { name: "Goals" })).toBeVisible();
     await page.getByRole("link", { name: "More" }).first().click();
-    await page.getByRole("link", { name: /Claude API key/ }).click();
-    await expect(page.getByRole("heading", { name: "Claude API key" })).toBeVisible();
+    await page.getByRole("link", { name: /Claude access/ }).click();
+    await expect(page.getByRole("heading", { name: "Claude access" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "API key", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Claude plan", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Sign in with Claude" })).toHaveCount(0);
 
     // The first goal, typed on the Goals screen.
