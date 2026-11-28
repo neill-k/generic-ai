@@ -56,7 +56,7 @@
   "license": "MIT",
   "private": true,
   "devDependencies": {
-    "@playwright/test": "1.63.0",
+    "@playwright/test": "1.65.1",
     "preact": "^10.27.2",
     "vite": "^8.4.0"
   },
