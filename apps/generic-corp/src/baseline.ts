@@ -437,7 +437,55 @@ function percent(fraction: number): string {
   return `${Math.round(fraction * 1000) / 10}%`;
 }
 
+/**
+ * A model error that stopped attempts before they could do any work (an exhausted plan, a bad
+ * sign-in), in plain words. The checkup leads with it, because every number below it is then
+ * meaningless.
+ */
+export function baselineModelProblem(configs: readonly BaselineConfigResult[]): string | undefined {
+  const messages = configs.flatMap((result) =>
+    result.report.findings
+      .filter((finding) => finding.validatorId === "run.failed")
+      .map((finding) => finding.message)
+      .filter(isProviderError),
+  );
+  const message = messages[0];
+  if (message === undefined) {
+    return undefined;
+  }
+  return explainModelError(message);
+}
+
+/** A failure the model provider returned, as opposed to our own stop (the token cap, a timeout). */
+function isProviderError(message: string): boolean {
+  return (
+    /^\s*\d{3}\b/.test(message) ||
+    /"type"\s*:\s*"error"/.test(message) ||
+    /extra usage|rate.?limit|overloaded|authentication_error|invalid x-api-key/i.test(message)
+  );
+}
+
+/** Turns a provider error message into a sentence the owner can act on. */
+export function explainModelError(message: string): string {
+  const text = message.toLowerCase();
+  if (text.includes("extra usage")) {
+    return "Claude refused every model call: it billed them as extra usage, and your account has no extra usage left. Anthropic counts apps outside Claude Code that sign in with a Claude plan as extra usage, not plan usage. To fix it, either add extra usage at claude.ai/settings/usage, or sign in with an API key under More > Claude sign-in.";
+  }
+  if (/rate.?limit|usage limit|429|overloaded/.test(text)) {
+    return `Claude refused model calls because a usage or rate limit was hit, so no goal could finish. Try again after the limit resets. Claude said: ${message}`;
+  }
+  if (/401|403|authentication|invalid x-api-key|oauth|unauthorized|permission/.test(text)) {
+    return `Claude rejected the sign-in, so no model call went through. Sign in again under More > Claude sign-in. Claude said: ${message}`;
+  }
+  return `Model calls failed, so no goal could finish. The error was: ${message}`;
+}
+
 function headline(configs: readonly BaselineConfigResult[]): string {
+  // When nothing finished because model calls failed, that failure is the headline.
+  const problem = baselineModelProblem(configs);
+  if (problem !== undefined && configs.every((result) => result.passed === 0)) {
+    return problem;
+  }
   const single = configs.find((result) => result.id === SINGLE_AGENT_CONFIG.id);
   const company = configs.find((result) => result.id === COMPANY_CONFIG.id);
   if (single === undefined || company === undefined) {
@@ -489,11 +537,15 @@ export function renderBaselineMarkdown(report: BaselineReport): string {
         : percent(result.reductionVsSingleAgent);
     return `| ${result.label} | ${result.passed}/${result.attempts} | ${tokens(result.totalTokens)} | ${tokens(result.tokensPerFinishedGoal)} | ${cut} |`;
   });
+  const problem = baselineModelProblem(report.configs);
   return [
     "# Baseline comparison",
     "",
     report.headline,
     "",
+    ...(problem === undefined || problem === report.headline
+      ? []
+      : [`**Model errors:** ${problem}`, ""]),
     `Goals: ${report.caseIds.join(", ")} (${report.templateId}), ${report.trials} attempt(s) per configuration. Generated ${report.generatedAt}.`,
     "",
     "| Configuration | Finished | Tokens | Tokens per finished goal | Cut vs single agent |",
