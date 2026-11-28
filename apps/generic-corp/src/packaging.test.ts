@@ -61,7 +61,9 @@ describe("deploy packaging", () => {
   it("listens on all interfaces and keeps agent data on the volume", () => {
     expect(dockerfile).toMatch(/GENERIC_CORP_HOST=0\.0\.0\.0/);
     expect(dockerfile).toMatch(/GENERIC_CORP_DATA_DIR=\/data/);
-    expect(dockerfile).toContain('VOLUME ["/data"]');
+    // Railway rejects a Dockerfile VOLUME; Compose and Railway mount /data themselves.
+    expect(dockerfile).not.toMatch(/^VOLUME/m);
+    expect(compose).toContain("generic-corp-data:/data");
   });
 
   it("installs the binaries the agent tools shell out to", () => {

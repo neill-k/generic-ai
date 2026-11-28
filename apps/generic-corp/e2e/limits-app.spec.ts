@@ -65,7 +65,7 @@ test("sets the company limit and the plan-limit choice, and makes a backup", asy
   expect(plan).toMatchObject({ behaviour: "api_key", limited: false });
 
   await page.goto(`${server.url}/#/backups`);
-  await expect(page.getByRole("heading", { name: "Backups" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Backups", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Back up now" }).click();
   await expect(page.locator(".backup-list li")).not.toHaveCount(0, { timeout: 20_000 });
 });

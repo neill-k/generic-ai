@@ -106,9 +106,10 @@ WORKDIR /app
 COPY --from=build /app /app
 COPY --chmod=0755 apps/generic-corp/docker-entrypoint.sh /usr/local/bin/generic-corp-entrypoint
 
-# Agent homes, memory files, workspaces and run artifacts. Mount a volume here.
+# Agent homes, memory files, workspaces and run artifacts. Mount a volume here
+# (Compose and Railway both do). No VOLUME instruction: Railway rejects
+# Dockerfiles that declare one and wants its own volumes instead.
 RUN mkdir -p /data && chown node:node /data
-VOLUME ["/data"]
 
 EXPOSE 3000
 

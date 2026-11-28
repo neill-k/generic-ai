@@ -1,4 +1,12 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -47,6 +55,10 @@ function writeSession(file: string, ask: string, answer: string) {
     stopReason: "stop",
     timestamp,
   } as never);
+  // Dreaming compares file times with the test's fake clock, so pin the file to a time before
+  // it rather than the real now (which passed the fake clock's date on 2026-11-28).
+  const written = new Date("2026-11-27T09:00:00Z");
+  utimesSync(file, written, written);
 }
 
 function setup(replies: string[], clock = { now: new Date("2026-11-27T12:00:00Z") }) {
