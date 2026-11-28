@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { InMemoryCredentialStore, type OAuthProvider } from "@generic-ai/auth";
+import { InMemoryCredentialStore } from "@generic-ai/auth";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -19,83 +19,28 @@ afterEach(() => {
   }
 });
 
-/** A Claude sign-in that behaves like Anthropic's copy-code flow, without the network. */
-function fakeClaude(expectedCode = "code-123#state"): OAuthProvider & { methods: string[] } {
-  const methods: string[] = [];
-  return {
-    name: "Fake Claude",
-    isSubscription: true,
-    methods,
-    async login(interaction) {
-      const method = await interaction.prompt({
-        type: "select",
-        message: "method",
-        options: [
-          { id: "browser", label: "Browser" },
-          { id: "copy_code", label: "Copy code" },
-        ],
-      });
-      methods.push(method);
-      interaction.notify({ type: "auth_url", url: "https://claude.ai/oauth/authorize?fake=1" });
-      const code = await interaction.prompt({ type: "manual_code", message: "code" });
-      if (code !== expectedCode) {
-        throw new Error("invalid_grant");
-      }
-      return {
-        type: "oauth",
-        access: "sk-ant-oat-access",
-        refresh: "r",
-        expires: Date.now() + 3_600_000,
-      };
-    },
-    async refresh(credential) {
-      return { ...credential, access: "sk-ant-oat-refreshed", expires: Date.now() + 3_600_000 };
-    },
-    async toAuth(credential) {
-      return { apiKey: credential.access };
-    },
-  };
-}
-
 describe("company model auth", () => {
-  it("signs in with Claude through the copy-code flow and powers requests with it", async () => {
-    const claude = fakeClaude();
-    const auth = createCompanyModelAuth({
-      store: new InMemoryCredentialStore(),
-      claude,
-      fallback: () => "sk-ant-api-env",
-    });
-    expect((await auth.status()).source).toBe("environment");
+  it("drops a Claude plan sign-in left by an earlier version and never uses it", async () => {
+    const store = new InMemoryCredentialStore();
+    await store.modify("anthropic", async () => ({
+      type: "oauth",
+      access: "sk-ant-oat-access",
+      refresh: "r",
+      expires: Date.now() + 3_600_000,
+    }));
+    const auth = createCompanyModelAuth({ store, fallback: () => "sk-ant-api-env" });
     expect(await auth.getAuth("anthropic")).toEqual({ apiKey: "sk-ant-api-env" });
-
-    const flow = await auth.startClaudeSignIn();
-    expect(flow.url).toContain("claude.ai/oauth/authorize");
-    expect(claude.methods).toEqual(["copy_code"]);
-    expect((await auth.status()).pendingSignIn).toBe(true);
-
-    const status = await auth.finishClaudeSignIn(flow.flowId, "  code-123#state \n");
-    expect(status.source).toBe("subscription");
-    expect(status.pendingSignIn).toBeUndefined();
-    expect(await auth.getAuth("anthropic")).toEqual({ apiKey: "sk-ant-oat-access" });
-
-    const out = await auth.signOut();
-    expect(out.source).toBe("environment");
+    expect(await store.read("anthropic")).toBeUndefined();
+    expect((await auth.status()).source).toBe("environment");
   });
 
-  it("reports a rejected code and a stale flow plainly", async () => {
+  it("refuses a Claude plan token pasted as a key", async () => {
     const auth = createCompanyModelAuth({
       store: new InMemoryCredentialStore(),
-      claude: fakeClaude(),
       fallback: () => undefined,
     });
-    expect((await auth.status()).source).toBe("none");
-    const flow = await auth.startClaudeSignIn();
-    await expect(auth.finishClaudeSignIn(flow.flowId, "wrong")).rejects.toThrow(
-      /did not accept that code/,
-    );
-    await expect(auth.finishClaudeSignIn(flow.flowId, "code-123#state")).rejects.toBeInstanceOf(
-      ModelAuthError,
-    );
+    await expect(auth.saveApiKey("sk-ant-oat01-abc")).rejects.toBeInstanceOf(ModelAuthError);
+    await expect(auth.saveApiKey("sk-ant-oat01-abc")).rejects.toThrow(/Claude plan/);
     expect((await auth.status()).source).toBe("none");
   });
 

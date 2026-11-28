@@ -30,7 +30,7 @@ import {
  * - `manifest.json`: what is in it, with a SHA-256 for every file. Written last, so a folder
  *   without one is not a backup.
  *
- * The Claude sign-in (`model-auth.json`) is left out on purpose: it is a live credential, and
+ * The saved model key (`model-auth.json`) is left out on purpose: it is a live credential, and
  * signing in again after a restore takes a minute. Restoring is `node dist/restore.js` (see
  * restore.ts and RUN-LOCALLY.md).
  */

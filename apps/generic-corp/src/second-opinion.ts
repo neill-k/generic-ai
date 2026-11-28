@@ -47,7 +47,7 @@ export interface ModelImpossibilityReviewerOptions {
   readonly modelFor: (agent: ImpossibilityReviewInput["agent"]) => string;
   readonly resolveModel?: (ref: string) => Model;
   readonly onUsage?: (usage: AssistantMessage["usage"], input: ImpossibilityReviewInput) => void;
-  /** Request auth per provider (the owner's Claude sign-in or a stored key). */
+  /** Request auth per provider (the owner's saved API key or the environment). */
   readonly getAuth?: (
     provider: string,
   ) => Promise<

@@ -49,57 +49,11 @@ const DEFAULT_BUDGETS: Record<ThinkingLevel, number> = {
 const ERROR_IMAGE_PLACEHOLDER = "(image omitted from error result)";
 
 /**
- * Claude subscription (Pro/Max) sign-in tokens are only accepted for requests shaped like Claude
- * Code's: its beta flags and client headers, its identity as the first system block, and its tool
- * names. Adapted from pi (https://github.com/badlogic/pi-mono), packages/ai/src/api/anthropic-messages.ts.
- * MIT License.
+ * Claude plan (Pro/Max) sign-in tokens. Anthropic's terms don't allow third-party apps to use them,
+ * so requests carrying one are refused here instead of being sent.
  */
-export const CLAUDE_CODE_VERSION = "2.1.322";
-export const CLAUDE_CODE_IDENTITY = "You are Claude Code, Anthropic's official CLI for Claude.";
-const CLAUDE_CODE_BETAS = "claude-code-20250219,oauth-2025-04-20";
-const CLAUDE_CODE_TOOLS = [
-  "Read",
-  "Write",
-  "Edit",
-  "Bash",
-  "Grep",
-  "Glob",
-  "AskUserQuestion",
-  "EnterPlanMode",
-  "ExitPlanMode",
-  "KillShell",
-  "NotebookEdit",
-  "Skill",
-  "Task",
-  "TaskOutput",
-  "TodoWrite",
-  "WebFetch",
-  "WebSearch",
-];
-const CLAUDE_CODE_TOOL_LOOKUP = new Map(
-  CLAUDE_CODE_TOOLS.map((name) => [name.toLowerCase(), name]),
-);
-
-/** Whether a key is a Claude subscription sign-in token rather than an API key. */
 export function isClaudeSubscriptionToken(apiKey: string): boolean {
   return apiKey.includes("sk-ant-oat");
-}
-
-/** A tool name in Claude Code's casing when it is one of Claude Code's tools. */
-export function toClaudeCodeToolName(name: string): string {
-  return CLAUDE_CODE_TOOL_LOOKUP.get(name.toLowerCase()) ?? name;
-}
-
-/** Maps a tool name the model sent back to the name of the tool offered, ignoring case. */
-export function fromClaudeCodeToolName(name: string, toolNames: readonly string[]): string {
-  const lower = name.toLowerCase();
-  return toolNames.find((candidate) => candidate.toLowerCase() === lower) ?? name;
-}
-
-/** How the request authenticates, which changes its shape (see `isClaudeSubscriptionToken`). */
-export interface AnthropicPayloadAuth {
-  /** The request carries a Claude subscription token. */
-  readonly claudeSubscription?: boolean;
 }
 
 export function streamAnthropic(
@@ -114,10 +68,14 @@ export function streamAnthropic(
         `No API key for provider "${model.provider}". Set ANTHROPIC_API_KEY or pass apiKey.`,
       );
     }
+    if (isClaudeSubscriptionToken(apiKey)) {
+      throw new Error(
+        "Claude plan sign-in tokens can't be used here: Anthropic's terms don't allow third-party apps to use a Claude plan. Use an Anthropic API key.",
+      );
+    }
     const client = createClient(model, apiKey, options);
-    const claudeSubscription = isClaudeSubscriptionToken(apiKey);
     const payload = await applyPayloadHook(
-      buildAnthropicPayload(model, context, options, { claudeSubscription }),
+      buildAnthropicPayload(model, context, options),
       model,
       options,
     );
@@ -127,13 +85,7 @@ export function streamAnthropic(
       })
       .withResponse();
     await options?.onResponse?.({ status: response.status, headers: response.headers }, model);
-    await consumeAnthropicEvents(
-      data,
-      model,
-      output,
-      stream,
-      claudeSubscription ? (context.tools ?? []).map((tool) => tool.name) : undefined,
-    );
+    await consumeAnthropicEvents(data, model, output, stream);
   });
 }
 
@@ -149,23 +101,9 @@ function createClient(model: Model, apiKey: string, options: StreamOptions | und
       ...(options?.fetch ? { fetch: options.fetch } : {}),
     });
   }
-  // Claude subscription tokens authenticate with a bearer header and Claude Code's client headers.
-  const oauth = isClaudeSubscriptionToken(apiKey);
-  const headers = mergeHeaders(
-    oauth
-      ? {
-          accept: "application/json",
-          "anthropic-beta": CLAUDE_CODE_BETAS,
-          "anthropic-dangerous-direct-browser-access": "true",
-          "user-agent": `claude-cli/${CLAUDE_CODE_VERSION}`,
-          "x-app": "cli",
-        }
-      : {},
-    model,
-    options,
-  );
+  const headers = mergeHeaders({}, model, options);
   return new Anthropic({
-    ...(oauth ? { apiKey: null, authToken: apiKey } : { apiKey }),
+    apiKey,
     baseURL: model.baseUrl,
     defaultHeaders: headers,
     maxRetries: options?.maxRetries ?? 2,
@@ -178,10 +116,8 @@ export function buildAnthropicPayload(
   model: Model,
   context: Context,
   options?: StreamOptions,
-  auth: AnthropicPayloadAuth = {},
 ): Record<string, unknown> {
-  const claudeCode = auth.claudeSubscription === true;
-  const toolName = claudeCode ? toClaudeCodeToolName : (name: string) => name;
+  const toolName = (name: string) => name;
   const messages = convertMessages(context.messages, model, toolName);
   const cacheControl = anthropicCacheControl(options?.cacheRetention);
   if (cacheControl) {
@@ -193,18 +129,7 @@ export function buildAnthropicPayload(
     messages,
     stream: true,
   };
-  if (claudeCode) {
-    // Claude Code's identity must open the system prompt; the cache breakpoint goes on the last block.
-    const system: AnthropicContentBlock[] = [{ type: "text", text: CLAUDE_CODE_IDENTITY }];
-    if (context.systemPrompt) {
-      system.push({ type: "text", text: context.systemPrompt });
-    }
-    const last = system.at(-1);
-    if (cacheControl && last) {
-      last["cache_control"] = cacheControl;
-    }
-    payload["system"] = system;
-  } else if (context.systemPrompt) {
+  if (context.systemPrompt) {
     payload["system"] = [
       {
         type: "text",
@@ -460,8 +385,6 @@ export async function consumeAnthropicEvents(
   model: Model,
   output: AssistantMessage,
   stream: AssistantMessageEventStream,
-  /** Names of the tools offered, to map Claude Code tool names back on a subscription request. */
-  toolNames?: readonly string[],
 ): Promise<void> {
   const blocks = new Map<number, BlockState>();
   let started = false;
@@ -511,8 +434,7 @@ export async function consumeAnthropicEvents(
           output.content.push({
             type: "toolCall",
             id: block.id,
-            name:
-              toolNames === undefined ? block.name : fromClaudeCodeToolName(block.name, toolNames),
+            name: block.name,
             arguments: {},
           });
           blocks.set(event.index, { kind: "toolCall", index, json: "" });

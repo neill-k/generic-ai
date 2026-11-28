@@ -6,7 +6,7 @@ transport and retries:
 
 | API | Providers | Status |
 | --- | --- | --- |
-| `anthropic-messages` | Anthropic (API keys and Claude subscription OAuth tokens), and the Anthropic-compatible MiniMax (`minimax`, `minimax-cn`) and Vercel AI Gateway (`vercel-ai-gateway`, `AI_GATEWAY_API_KEY`) | Anthropic: supported. MiniMax, Vercel AI Gateway: untested |
+| `anthropic-messages` | Anthropic (API keys; Claude plan sign-in tokens are refused, since Anthropic's terms don't allow third-party apps to use them), and the Anthropic-compatible MiniMax (`minimax`, `minimax-cn`) and Vercel AI Gateway (`vercel-ai-gateway`, `AI_GATEWAY_API_KEY`) | Anthropic: supported. MiniMax, Vercel AI Gateway: untested |
 | `openai-responses` | OpenAI, Meta (`meta`, `META_API_KEY`) | OpenAI: supported. Meta: untested |
 | `openai-codex-responses` | ChatGPT Plus/Pro through the Codex backend (`openai-codex/<model>`; sign in with `openaiCodexOAuth` from `@generic-ai/auth`; server-sent events, stateless with encrypted reasoning, system prompt as a developer item) | Supported |
 | `openai-completions` | OpenRouter, Groq, xAI, DeepSeek, Ollama, Cerebras, Fireworks, Together, Hugging Face (`HF_TOKEN`), NVIDIA, Baseten, Moonshot (`moonshotai`, `moonshotai-cn`), Kimi Coding, Z.ai, Xiaomi, and any OpenAI-compatible server | Untested |

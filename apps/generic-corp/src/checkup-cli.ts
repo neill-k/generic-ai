@@ -29,8 +29,7 @@ first and starts only once you confirm.
                      the Python workspace, memory, delegation). About three times the usage.
   --trials <n>       Attempts per configuration. Default: 1.
   --max-tokens <n>   Stop once the run has used this many tokens. Default: the estimate's high end.
-  --data-dir <dir>   The Generic Corp data folder whose model sign-in to use (your Claude sign-in
-                     or saved API key). Default: GENERIC_CORP_DATA_DIR, else ~/.generic-corp.
+  --data-dir <dir>   The Generic Corp data folder whose saved API key to use. Default: GENERIC_CORP_DATA_DIR, else ~/.generic-corp.
                      ANTHROPIC_API_KEY in the environment is used when nothing is saved there.
   --out <dir>        Also write the report as baseline.md and baseline.json in this folder.
   --plan             Show the plan and the expected usage, then exit without running.
@@ -105,7 +104,7 @@ export async function main(
   const auth = await modelAuth.status();
   if (auth.source === "none") {
     console.error(
-      `No model sign-in in ${dataDir} and no ANTHROPIC_API_KEY. Sign in with Claude in the app, or pass --data-dir. Nothing was run.`,
+      `No saved API key in ${dataDir} and no ANTHROPIC_API_KEY. Add a key in the app, or pass --data-dir. Nothing was run.`,
     );
     return EXIT_MISSING_KEY;
   }
@@ -142,8 +141,6 @@ export async function main(
 
 function describeSource(source: string): string {
   switch (source) {
-    case "subscription":
-      return "your Claude sign-in";
     case "api_key":
       return "the saved Anthropic API key";
     default:

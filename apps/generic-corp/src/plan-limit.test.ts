@@ -8,7 +8,7 @@ import type { AgentTaskExecutionResult, AgentTaskExecutor } from "@generic-ai/sd
 import { afterEach, describe, expect, it } from "vitest";
 
 import { type CompanyConfig, createGenericCorpServer } from "./index.js";
-import type { CompanyModelAuth } from "./model-auth.js";
+import type { CompanyModelAuth, ModelAuthSource } from "./model-auth.js";
 import { createPlanLimit, PLAN_RESET_REASON, readPlanLimitError } from "./plan-limit.js";
 import { createSqliteStorageContract } from "./storage.js";
 
@@ -142,13 +142,12 @@ describe("plan limit in the server", () => {
   function fakeModelAuth(): CompanyModelAuth {
     const status = async () => ({
       provider: "anthropic" as const,
-      source: "subscription" as const,
+      // The plan sign-in is removed; this simulates the dormant plan-limit path.
+      source: "subscription" as string as ModelAuthSource,
     });
     return {
       getAuth: async () => ({ apiKey: "oauth-token" }),
       status,
-      startClaudeSignIn: async () => ({ flowId: "f", url: "https://example.invalid" }),
-      finishClaudeSignIn: status,
       saveApiKey: status,
       signOut: status,
     };
