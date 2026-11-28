@@ -174,7 +174,8 @@ Checked against pi-mono at `e73029b` (2026-11-26) and Prime Agent `main`. Everyt
 here, and not marked ✓ above, is either out of scope (terminal UI and its themes, keybindings,
 clipboard and HTML export; Windows PowerShell configuration; pi's package manager and self-update)
 or covered by Generic AI's own packages. The borrowed subscription sign-ins were ported after Neill
-chose to follow pi; tool search and the hosted provider defaults were closed after this audit.
+chose to follow pi (the Claude Pro/Max one was removed on 2026-11-28: Anthropic's terms don't
+allow third-party apps to use a Claude plan); tool search and the hosted provider defaults were closed after this audit.
 
 The design review with Neill on 2026-11-27 set what stays open: Prime's RLM as a tool every agent
 has (decision 20, now ✓ above) and durable turn-level resume from the last completed step

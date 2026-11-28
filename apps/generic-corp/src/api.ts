@@ -56,7 +56,7 @@ export interface CompanyApiOptions {
   readonly secrets?: CompanySecretsAdmin;
   /** Actions refused on the spot (network and permissions), listed at `/api/refusals`. */
   readonly refusals?: RefusalLog;
-  /** What powers the agents (Claude sign-in or API key), managed at `/api/model-auth`. */
+  /** What powers the agents (an Anthropic API key), managed at `/api/model-auth`. */
   readonly modelAuth?: CompanyModelAuth;
   /** Background memory jobs: settings, pause, status, and running a scan now. */
   readonly memoryBackground?: {
@@ -703,7 +703,7 @@ export function createCompanyApi(
     });
   });
 
-  // --- What powers the agents: Claude sign-in or an API key ----------------
+  // --- What powers the agents: an Anthropic API key ------------------------
 
   const requireModelAuth = (): CompanyModelAuth => {
     if (options.modelAuth === undefined) {
@@ -723,24 +723,6 @@ export function createCompanyApi(
   };
 
   app.get("/model-auth", async (c) => c.json(await requireModelAuth().status()));
-
-  app.post("/model-auth/claude/start", async (c) => {
-    const modelAuth = requireModelAuth();
-    requireManage(c);
-    return c.json(await modelAuthCall(() => modelAuth.startClaudeSignIn()));
-  });
-
-  app.post("/model-auth/claude/finish", async (c) => {
-    const modelAuth = requireModelAuth();
-    requireManage(c);
-    const body = await readJsonObject(c);
-    const flowId = body["flowId"];
-    const code = body["code"];
-    if (typeof flowId !== "string" || typeof code !== "string") {
-      throw new ApiError(400, 'Send {"flowId": "...", "code": "..."}.');
-    }
-    return c.json(await modelAuthCall(() => modelAuth.finishClaudeSignIn(flowId, code)));
-  });
 
   app.put("/model-auth/api-key", async (c) => {
     const modelAuth = requireModelAuth();

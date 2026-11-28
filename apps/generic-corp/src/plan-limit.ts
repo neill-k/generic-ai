@@ -1,7 +1,7 @@
 import type { AgentHold } from "@generic-ai/plugin-delegation";
 import type { AgentTaskExecutionResult, StorageContract } from "@generic-ai/sdk";
 
-import { MODEL_AUTH_PROVIDER, type ModelAuthSource } from "./model-auth.js";
+import { MODEL_AUTH_PROVIDER } from "./model-auth.js";
 
 /**
  * The Claude plan's usage limit (design decision 15). When agents run on the owner's Claude
@@ -114,7 +114,7 @@ export interface PlanLimit {
 export interface CreatePlanLimitOptions {
   readonly kv: StorageContract;
   /** Where agents' model access comes from right now. */
-  readonly source: () => Promise<ModelAuthSource>;
+  readonly source: () => Promise<string>;
   /** An Anthropic API key to fall back to, when there is one (environment or secrets vault). */
   readonly apiKey: () => Promise<string | undefined>;
   /** Called when the plan may have reset, so held work gets a fresh turn. */
@@ -193,6 +193,7 @@ export async function createPlanLimit(options: CreatePlanLimitOptions): Promise<
         return false;
       }
       // Only the plan has a plan limit; a key's rate limit is the provider's ordinary retry case.
+      // The Claude plan sign-in is removed (Anthropic's terms), so this is dormant for now.
       if ((await options.source()) !== "subscription" || (await fallbackKey()) !== undefined) {
         return false;
       }

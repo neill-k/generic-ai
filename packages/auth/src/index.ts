@@ -1,7 +1,6 @@
 export { AuthError, type AuthErrorCode } from "./errors.js";
 export { FileCredentialStore, type FileCredentialStoreOptions } from "./file-store.js";
 export { InMemoryCredentialStore } from "./memory-store.js";
-export { anthropicOAuth } from "./oauth/anthropic.js";
 export {
   type OAuthCallbackServer,
   type OAuthCallbackServerOptions,

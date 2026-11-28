@@ -230,6 +230,10 @@ pieces live in the Railway account and are set once:
    | `GENERIC_CORP_COMPANY_FILE` | Path to a company YAML | Optional |
    | `GENERIC_AI_AUTH_TOKEN` | 16+ characters | Optional break-glass bearer token for scripts |
 
+   Instead of `ANTHROPIC_API_KEY` you can save a key in the app under **More >
+   Claude API key**. There is no Claude Pro/Max plan sign-in: Anthropic's terms
+   don't allow third-party apps to use a Claude plan.
+
    Railway sets `PORT` and, once a domain exists, `RAILWAY_PUBLIC_DOMAIN`.
    The app uses the domain as its passkey origin and trusts Railway's proxy
    headers for sign-in rate limiting. Do not set `GENERIC_CORP_HOST`; the

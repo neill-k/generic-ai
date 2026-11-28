@@ -269,73 +269,16 @@ describe("anthropic messages provider", () => {
     expect(recorded[0]?.body["metadata"]).toEqual({ user_id: "u1" });
   });
 
-  it("authenticates subscription OAuth tokens with a bearer header", async () => {
+  it("refuses Claude plan sign-in tokens without sending a request", async () => {
     const recorded: Recorded[] = [];
-    await complete(model, context, {
+    const message = await complete(model, context, {
       ...base,
       apiKey: "sk-ant-oat-123",
       fetch: replay(toolStream, 200, recorded),
     });
-    expect(recorded[0]?.headers.get("authorization")).toBe("Bearer sk-ant-oat-123");
-    expect(recorded[0]?.headers.get("anthropic-beta")).toContain("oauth-2025-04-20");
-    expect(recorded[0]?.headers.get("x-api-key")).toBeNull();
-  });
-
-  it("shapes subscription requests like Claude Code's and maps its tool names back", async () => {
-    const recorded: Recorded[] = [];
-    const bashTool = { ...tool, name: "bash" };
-    const subscriptionContext: Context = {
-      ...context,
-      tools: [tool, bashTool],
-      messages: [
-        ...context.messages,
-        {
-          role: "assistant",
-          content: [{ type: "toolCall", id: "toolu_0", name: "bash", arguments: { query: "ls" } }],
-          api: "anthropic-messages",
-          provider: "anthropic",
-          model: model.id,
-          usage: {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            totalTokens: 0,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-          },
-          stopReason: "toolUse",
-          timestamp: 0,
-        },
-        {
-          role: "toolResult",
-          toolCallId: "toolu_0",
-          toolName: "bash",
-          content: [{ type: "text", text: "a.txt" }],
-          isError: false,
-          timestamp: 0,
-        },
-      ],
-    };
-    const bashStream = toolStream.replace('"name":"lookup"', '"name":"Bash"');
-    const message = await complete(model, subscriptionContext, {
-      ...base,
-      apiKey: "sk-ant-oat-123",
-      fetch: replay(bashStream, 200, recorded),
-    });
-    const request = recorded[0];
-    expect(request?.headers.get("anthropic-beta")).toContain("claude-code-20250219");
-    expect(request?.headers.get("anthropic-beta")).toContain("oauth-2025-04-20");
-    expect(request?.headers.get("x-app")).toBe("cli");
-    expect(request?.headers.get("user-agent")).toMatch(/^claude-cli\//);
-    const system = request?.body["system"] as { text: string }[];
-    expect(system[0]?.text).toBe("You are Claude Code, Anthropic's official CLI for Claude.");
-    expect(system[1]?.text).toBe("Be brief.");
-    const tools = request?.body["tools"] as { name: string }[];
-    expect(tools.map((entry) => entry.name)).toEqual(["lookup", "Bash"]);
-    expect(JSON.stringify(request?.body["messages"])).toContain('"name":"Bash"');
-    expect(message.content.find((block) => block.type === "toolCall")).toMatchObject({
-      name: "bash",
-    });
+    expect(recorded).toHaveLength(0);
+    expect(message.stopReason).toBe("error");
+    expect(message.errorMessage).toMatch(/Use an Anthropic API key/);
   });
 
   it("keeps API key requests free of Claude Code's shape", async () => {

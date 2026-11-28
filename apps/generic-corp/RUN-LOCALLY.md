@@ -1,13 +1,15 @@
 # Run Generic Corp on your machine
 
 This is the first real run: Generic Corp in Docker on your own computer,
-powered by your Claude subscription. It takes about ten minutes, most of it
+powered by an Anthropic API key. It takes about ten minutes, most of it
 the first build.
 
 ## What you need
 
 - Docker Desktop (or Docker Engine with Compose v2), running.
-- A Claude Pro or Max account.
+- An Anthropic API key (`sk-ant-...`) from <https://console.anthropic.com/settings/keys>.
+  A Claude Pro or Max plan can't power it: Anthropic's terms don't allow
+  third-party apps to use a Claude plan.
 - This repository, cloned.
 
 ## 1. Start it
@@ -27,21 +29,12 @@ Open <http://localhost:3000/auth/login>, paste the setup token, and create a
 passkey. That passkey is how you sign in from now on. The token is only
 needed once. Press **Continue** and the app opens on **Goals**.
 
-## 3. Sign in with Claude
+## 3. Add your API key
 
-Open **More** (last item in the menu), then **Claude sign-in**, and press
-**Sign in with Claude**. A link appears. Open it, approve access with the
-Claude account whose plan should power the company, copy the code Claude
-shows at the end, paste it into the box, and press **Finish sign-in**. Under
-**Powered by** the page then shows your Claude subscription. The sign-in
-renews itself.
-
-If you would rather use an API key, paste an Anthropic key (`sk-ant-...`)
-under **Or use an API key** on the same page.
-
-Further down the same page, **When your plan's usage limit is reached** picks
-what happens at the limit: **Wait for the plan to reset** (work pauses and
-picks up on its own) or **Use an API key until then**.
+Open **More** (last item in the menu), then **Claude API key**, paste your
+Anthropic key (`sk-ant-...`) and press **Save key**. Under **Powered by** the
+page then shows the saved key. Setting `ANTHROPIC_API_KEY` before starting
+works too.
 
 ## 4. Give it a goal
 
@@ -85,7 +78,7 @@ is `drive/goals/<goal id>/deliverables/` in the company drive.)
 
 The checkup measures what Generic Corp is worth: it runs one goal (closing a
 month of expenses) through a plain single agent and through the whole company,
-and shows tokens per finished goal for each. It runs on your plan, so it shows
+and shows tokens per finished goal for each. It runs on your API key, so it shows
 the expected usage first and only starts when you confirm:
 
 ```bash
@@ -119,7 +112,7 @@ Backups**.
 To put one back, run `./apps/generic-corp/start-local.sh restore <id>`. It
 stops the app, checks the backup, saves what is there now as one more backup
 (so a restore can be undone the same way), replaces the database and files,
-and starts the app again. Your Claude sign-in is not in backups, so sign in
+and starts the app again. Your saved API key is not in backups, so add it
 again afterwards. Secrets stored in the app stay readable only with the same
 `GENERIC_AI_SECRETS_KEY`, so keep that key somewhere safe too.
 
@@ -136,18 +129,14 @@ company folder) and `GENERIC_CORP_BACKUPS=off` to stop the nightly run.
 
 ## Good to know
 
-- Your plan's usage limit applies. When it is reached, work shows as
-  "Paused until your Claude plan resets" and picks up on its own afterwards.
-  To keep going on an API key instead, add a key on **More > Claude
-  sign-in** (or set `ANTHROPIC_API_KEY`) and choose **Use an API key until
-  then** on that page.
-- Running agents nonstop on a personal plan is your account's risk.
+- API usage is billed per token. Set spending limits on **More > Usage and
+  limits**.
 - A turn that makes no progress for 15 minutes (no tool activity), or repeats
   the same tool call 8 times in a row, is stopped and retried. Change the
   minutes with `GENERIC_CORP_NO_PROGRESS_MINUTES`.
 - Everything stays on your machine: the database and the agents' files live
   in two Docker volumes, `generic-corp_postgres-data` and
-  `generic-corp_generic-corp-data`. Your Claude sign-in is stored in the
+  `generic-corp_generic-corp-data`. Your saved API key is stored in the
   second one.
 - If something goes wrong, `./apps/generic-corp/start-local.sh logs` shows
   what the app is doing.

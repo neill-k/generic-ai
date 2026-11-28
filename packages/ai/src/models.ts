@@ -17,7 +17,7 @@ interface ProviderDefaults {
 }
 
 /**
- * The supported providers: Anthropic (API keys and Claude subscription sign-in) and OpenAI (API
+ * The supported providers: Anthropic (API keys) and OpenAI (API
  * keys and ChatGPT sign-in through the Codex backend). Every other provider runs through the same
  * code but is untested: it may work, and nobody has checked.
  */

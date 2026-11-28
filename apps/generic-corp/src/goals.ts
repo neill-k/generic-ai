@@ -319,7 +319,7 @@ export interface ModelJudgeOptions {
   /** Called with each grading call's usage, so an eval can count the judge against its cap. */
   readonly onUsage?: (usage: AssistantMessage["usage"]) => void;
   /**
-   * Request auth per provider (the owner's Claude sign-in or a stored key). Without it the
+   * Request auth per provider (the owner's saved API key or the environment). Without it the
    * provider's environment variable is used.
    */
   readonly getAuth?: (

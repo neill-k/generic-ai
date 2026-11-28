@@ -3,25 +3,23 @@ import { useState } from "preact/hooks";
 import { api } from "../api.js";
 import { ErrorNote, Loading } from "../components/ui.js";
 import { useResource } from "../live.js";
-import { PlanLimitSection } from "./settings/PlanLimitSection.js";
 
 interface ModelAuthStatus {
-  source: "subscription" | "api_key" | "environment" | "none";
+  source: "api_key" | "environment" | "none";
 }
 
 const SOURCE: Readonly<Record<string, string>> = {
-  subscription: "Your Claude subscription.",
   api_key: "An Anthropic API key saved here.",
   environment: "ANTHROPIC_API_KEY on the server.",
   none: "Nothing yet.",
 };
 
-/** What powers the agents: the owner's Claude subscription or an API key. */
+/**
+ * What powers the agents: an Anthropic API key. There is no Claude plan sign-in, because
+ * Anthropic's terms don't allow third-party apps to use a Claude plan.
+ */
 export function SignInView() {
   const status = useResource(() => api<ModelAuthStatus>("/model-auth"), []);
-  const [flowId, setFlowId] = useState<string | undefined>(undefined);
-  const [link, setLink] = useState<string | undefined>(undefined);
-  const [code, setCode] = useState("");
   const [key, setKey] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -45,16 +43,15 @@ export function SignInView() {
   };
 
   const source = status.data?.source;
-  const stored = source === "subscription" || source === "api_key";
+  const stored = source === "api_key";
 
   return (
     <div class="page">
       <header class="page-header">
         <div>
-          <h1>Claude sign-in</h1>
+          <h1>Claude API key</h1>
           <p class="muted">
-            What powers your agents. Sign in with your Claude plan, or use an Anthropic API key.
-            Agents use it without ever seeing it.
+            What powers your agents: an Anthropic API key. Agents use it without ever seeing it.
           </p>
         </div>
       </header>
@@ -68,7 +65,7 @@ export function SignInView() {
         )}
         {source === "none" ? (
           <p class="error" role="alert">
-            Nothing powers the company yet. Agents cannot work until you sign in or add a key.
+            Nothing powers the company yet. Agents cannot work until you add a key.
           </p>
         ) : null}
         {source === undefined ? null : (
@@ -84,84 +81,30 @@ export function SignInView() {
                   onClick={() =>
                     void run(
                       () => api("/model-auth", { method: "DELETE" }),
-                      "Signed out. The stored sign-in or key was removed.",
+                      "Removed. The saved key is gone.",
                     )
                   }
                 >
-                  Sign out
+                  Remove key
                 </button>
               </div>
             ) : null}
           </section>
         )}
-        <section class="card settings-card stack" aria-label="Sign in with Claude">
-          <h2>Sign in with Claude</h2>
-          <p class="small muted">
-            Uses your Claude Pro or Max plan. When the plan's usage limit is reached, work pauses
-            until it resets.
-          </p>
-          {flowId === undefined ? (
-            <div class="row-end">
-              <button
-                type="button"
-                class="primary"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    const flow = await api<{ flowId: string; url: string }>(
-                      "/model-auth/claude/start",
-                      { method: "POST" },
-                    );
-                    setFlowId(flow.flowId);
-                    setLink(flow.url);
-                  })
-                }
-              >
-                Sign in with Claude
-              </button>
-            </div>
-          ) : (
-            <form
-              class="stack"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void run(async () => {
-                  await api("/model-auth/claude/finish", {
-                    method: "POST",
-                    json: { flowId, code: code.trim() },
-                  });
-                  setFlowId(undefined);
-                  setCode("");
-                }, "Signed in. Agents now run on your Claude subscription.");
-              }}
-            >
-              <ol class="small">
-                <li>
-                  <a href={link} target="_blank" rel="noopener noreferrer">
-                    Open Claude
-                  </a>{" "}
-                  and approve access with the account whose plan should power the company.
-                </li>
-                <li>Copy the code Claude shows at the end and paste it here.</li>
-              </ol>
-              <input
-                aria-label="Code from Claude"
-                autocomplete="off"
-                spellcheck={false}
-                placeholder="Paste the code here"
-                value={code}
-                onInput={(event) => setCode((event.target as HTMLInputElement).value)}
-              />
-              <div class="row-end">
-                <button type="submit" class="primary" disabled={busy || code.trim() === ""}>
-                  Finish sign-in
-                </button>
-              </div>
-            </form>
-          )}
-        </section>
         <section class="card settings-card stack" aria-label="API key">
-          <h2>Or use an API key</h2>
+          <h2>API key</h2>
+          <p class="small muted">
+            Create one at{" "}
+            <a
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              console.anthropic.com
+            </a>
+            . Claude Pro and Max plans can't power the company: Anthropic's terms don't allow
+            third-party apps to use them.
+          </p>
           <form
             class="secret-form"
             onSubmit={(event) => {
@@ -186,7 +129,6 @@ export function SignInView() {
           </form>
         </section>
         <ErrorNote message={error} />
-        <PlanLimitSection />
       </div>
     </div>
   );

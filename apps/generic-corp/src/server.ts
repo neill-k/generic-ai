@@ -366,7 +366,7 @@ export interface CreateGenericCorpServerOptions {
   /** Replaces the check that the agent user's firewall rule holds, for tests. */
   readonly agentNetworkProbe?: AgentNetworkProbe;
   /**
-   * What powers the agents: the owner's Claude sign-in or an API key. Defaults to a credential
+   * What powers the agents: the owner's Anthropic API key. Defaults to a credential
    * file at `<dataDir>/model-auth.json`, falling back to the provider's key in the environment
    * or the secrets vault.
    */

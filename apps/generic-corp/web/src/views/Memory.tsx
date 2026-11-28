@@ -252,7 +252,7 @@ export function MemoryView({ scopeId }: { scopeId: string | undefined }) {
                 <h2>Background work</h2>
                 <p class="small muted">
                   A small model reads your chats for lasting preferences, and idle agents dream:
-                  they reread their recent work and tidy their memory. Both use your Claude plan,
+                  they reread their recent work and tidy their memory. Both use your API key,
                   sparingly.
                 </p>
                 <JobLine label="Preference scanner" job={background.jobs.scanner} />

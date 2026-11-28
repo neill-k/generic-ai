@@ -700,7 +700,7 @@ describe("dashboard", () => {
   });
 });
 
-describe("Claude sign-in and API key", () => {
+describe("Claude API key", () => {
   it("reports what powers the agents and stores an API key in the data directory", async () => {
     const server = await createGenericCorpServer({
       environment: environment(),
@@ -727,12 +727,9 @@ describe("Claude sign-in and API key", () => {
       body: JSON.stringify({ key: "sk-ant-api-test" }),
     });
     expect(await saved.json()).toMatchObject({ source: "api_key" });
-    const finish = await call("/api/model-auth/claude/finish", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ flowId: "missing", code: "x" }),
-    });
-    expect(finish.status).toBe(404);
+    // There is no Claude plan sign-in (Anthropic's terms don't allow it for third-party apps).
+    const start = await call("/api/model-auth/claude/start", { method: "POST" });
+    expect(start.status).toBe(404);
     expect(await (await call("/api/model-auth", { method: "DELETE" })).json()).toMatchObject({
       source: "none",
     });
