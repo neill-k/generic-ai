@@ -22,6 +22,11 @@ import {
 } from "@generic-ai/sdk";
 
 import { type AgentSessionFiles, createAgentSessionFiles } from "./agent-sessions.js";
+import {
+  CLAUDE_AGENT_SDK_ADAPTER,
+  type ClaudeAgentSdkBackendOptions,
+  createClaudeAgentSdkBackend,
+} from "./claude-agent-sdk.js";
 import { DEFAULT_TIER_MODELS } from "./company.js";
 import {
   monitorCapabilities,
@@ -69,6 +74,24 @@ export interface CompanyExecutorOptions {
   readonly budget?: (input: AgentTaskExecutionInput) => AgentHarnessBudget | undefined;
   /** Called with what a turn spent once it ends, read from the run store. */
   readonly onTurnUsage?: (input: AgentTaskExecutionInput, totals: UsageTotals) => void;
+  /**
+   * Run Claude turns in the Claude Agent SDK on the owner's Claude plan (see claude-agent-sdk.ts).
+   * When `active()` is true, every turn on an Anthropic model goes through the SDK; other models,
+   * and every turn while it is false, use the native runtime with an API key.
+   */
+  readonly claudePlan?: ClaudeAgentSdkBackendOptions & { readonly active: () => boolean };
+}
+
+/** Whether a turn runs in the Claude Agent SDK: the plan is active and the model is Claude. */
+export function runsOnClaudePlan(
+  claudePlan: { readonly active: () => boolean } | undefined,
+  model: string | undefined,
+): boolean {
+  return (
+    claudePlan !== undefined &&
+    claudePlan.active() &&
+    (model === undefined || model.startsWith("anthropic/"))
+  );
 }
 
 /** Default tools for an agent turn: its home directory's files and a shell there. */
@@ -95,12 +118,17 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
     policyProfile: "local-dev-full",
     ...options.harness,
   };
-  const adapter = withRunPersistence(
-    createAgentHarness(harness, {
-      ...(options.native === undefined ? {} : { native: options.native }),
-    }).adapter,
-    options.runStore,
-  );
+  const sdkHarness: AgentHarnessConfig = { ...harness, adapter: CLAUDE_AGENT_SDK_ADAPTER };
+  const backends =
+    options.claudePlan === undefined ? [] : [createClaudeAgentSdkBackend(options.claudePlan)];
+  const adapterFor = (config: AgentHarnessConfig) =>
+    withRunPersistence(
+      createAgentHarness(config, {
+        ...(options.native === undefined ? {} : { native: options.native }),
+        backends,
+      }).adapter,
+      options.runStore,
+    );
   const baseCapabilities = options.capabilities ?? defaultAgentCapabilities;
   const monitors = new Map<string, TurnProgressMonitor>();
   const capabilities = (input: AgentTaskExecutionInput): PiCapabilityBindings => {
@@ -110,28 +138,35 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
   };
   const sessions: AgentSessionFiles | undefined =
     options.sessionsRoot === undefined ? undefined : createAgentSessionFiles(options.sessionsRoot);
-  const runTurn = createAdapterTaskExecutor<PiCapabilityBindings, unknown>({
-    adapter,
-    harness,
-    capabilities,
-    ...(sessions === undefined ? {} : { session: (input) => sessions.begin(input) }),
-    ...(options.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: options.turnTimeoutMs }),
-    role: (input) => {
-      const secrets = options.secretGrants?.(input.agentId);
-      return secrets === undefined ? undefined : { secrets };
-    },
-    context: (input) => {
-      const policy = options.policy?.(input);
-      const budget = options.budget?.(input);
-      const context = createAgentHarnessRunContext({
-        runId: input.attemptRunId,
-        artifactDir: path.join(options.artifactsRoot, input.attemptRunId),
-        actorId: input.agentId,
-        ...(policy === undefined ? {} : { policy }),
-      });
-      return budget === undefined ? context : { ...context, budget };
-    },
-  });
+  const turnRunner = (config: AgentHarnessConfig) =>
+    createAdapterTaskExecutor<PiCapabilityBindings, unknown>({
+      adapter: adapterFor(config),
+      harness: config,
+      capabilities,
+      ...(sessions === undefined ? {} : { session: (input) => sessions.begin(input) }),
+      ...(options.turnTimeoutMs === undefined ? {} : { turnTimeoutMs: options.turnTimeoutMs }),
+      role: (input) => {
+        const secrets = options.secretGrants?.(input.agentId);
+        return secrets === undefined ? undefined : { secrets };
+      },
+      context: (input) => {
+        const policy = options.policy?.(input);
+        const budget = options.budget?.(input);
+        const context = createAgentHarnessRunContext({
+          runId: input.attemptRunId,
+          artifactDir: path.join(options.artifactsRoot, input.attemptRunId),
+          actorId: input.agentId,
+          ...(policy === undefined ? {} : { policy }),
+        });
+        return budget === undefined ? context : { ...context, budget };
+      },
+    });
+  const nativeTurn = turnRunner(harness);
+  const sdkTurn = options.claudePlan === undefined ? undefined : turnRunner(sdkHarness);
+  const runTurn = async (input: AgentTaskExecutionInput): Promise<AgentTaskExecutionResult> =>
+    sdkTurn !== undefined && runsOnClaudePlan(options.claudePlan, input.model ?? harness.model)
+      ? sdkTurn(input)
+      : nativeTurn(input);
   // A turn that throws (or a process that stops) leaves its session marked, so the next attempt
   // resumes; one that ends, fails for good, or stalled starts the next turn from a fresh prompt.
   const runAndSettle = async (

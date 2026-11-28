@@ -14,7 +14,12 @@ import type { AgentHarnessHostTool } from "./host-tools.js";
 export const HARNESS_SCHEMA_VERSION = "0.1" as const;
 
 export type HarnessSchemaVersion = typeof HARNESS_SCHEMA_VERSION;
-export const AGENT_HARNESS_ADAPTER_KINDS = ["native", "external"] as const;
+/**
+ * Session backends: `native` is generic-ai's own agent loop; `claude-agent-sdk` runs each turn in
+ * the Claude Agent SDK (Claude Code's loop), with the run's tools handed to it; `external` is a
+ * host-supplied adapter.
+ */
+export const AGENT_HARNESS_ADAPTER_KINDS = ["native", "claude-agent-sdk", "external"] as const;
 /** The session backend a harness uses when its config names none. */
 export const DEFAULT_AGENT_HARNESS_ADAPTER = "native" as const;
 /**

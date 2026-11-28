@@ -22,6 +22,7 @@
     "dev:web": "vite --config web/vite.config.ts"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.332",
     "@generic-ai/ai": "0.0.0",
     "@generic-ai/auth": "0.0.0",
     "@generic-ai/continual": "0.0.0",
@@ -43,9 +44,11 @@
     "@generic-ai/rlm": "0.0.0",
     "@generic-ai/sdk": "0.0.0",
     "@generic-ai/session": "0.0.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@sinclair/typebox": "0.34.49",
     "hono": "^4.12.15",
-    "yaml": "^2.8.3"
+    "yaml": "^2.8.3",
+    "zod": "^4.3.6"
   },
   "engines": {
     "node": ">=24.0.0"
