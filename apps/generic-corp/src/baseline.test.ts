@@ -339,7 +339,7 @@ describe("baseline comparison", () => {
     expect(explainModelError(extra)).toMatch(
       /^Claude refused every model call: it billed them as extra usage/,
     );
-    expect(explainModelError(extra)).toContain("More > Claude API key");
+    expect(explainModelError(extra)).toContain("More > Claude access");
     expect(explainModelError("429 rate_limit_error")).toMatch(/usage or rate limit/);
     expect(explainModelError("401 authentication_error")).toMatch(/rejected the API key/);
     expect(explainModelError("socket hang up")).toBe(

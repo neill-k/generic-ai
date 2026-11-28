@@ -79,18 +79,20 @@ export interface CompanyExecutorOptions {
    * When `active()` is true, every turn on an Anthropic model goes through the SDK; other models,
    * and every turn while it is false, use the native runtime with an API key.
    */
-  readonly claudePlan?: ClaudeAgentSdkBackendOptions & { readonly active: () => boolean };
+  readonly claudePlan?: ClaudeAgentSdkBackendOptions & {
+    readonly active: () => boolean | Promise<boolean>;
+  };
 }
 
 /** Whether a turn runs in the Claude Agent SDK: the plan is active and the model is Claude. */
-export function runsOnClaudePlan(
-  claudePlan: { readonly active: () => boolean } | undefined,
+export async function runsOnClaudePlan(
+  claudePlan: { readonly active: () => boolean | Promise<boolean> } | undefined,
   model: string | undefined,
-): boolean {
+): Promise<boolean> {
   return (
     claudePlan !== undefined &&
-    claudePlan.active() &&
-    (model === undefined || model.startsWith("anthropic/"))
+    (model === undefined || model.startsWith("anthropic/")) &&
+    (await claudePlan.active())
   );
 }
 
@@ -164,7 +166,8 @@ export function createCompanyTaskExecutor(options: CompanyExecutorOptions): Agen
   const nativeTurn = turnRunner(harness);
   const sdkTurn = options.claudePlan === undefined ? undefined : turnRunner(sdkHarness);
   const runTurn = async (input: AgentTaskExecutionInput): Promise<AgentTaskExecutionResult> =>
-    sdkTurn !== undefined && runsOnClaudePlan(options.claudePlan, input.model ?? harness.model)
+    sdkTurn !== undefined &&
+    (await runsOnClaudePlan(options.claudePlan, input.model ?? harness.model))
       ? sdkTurn(input)
       : nativeTurn(input);
   // A turn that throws (or a process that stops) leaves its session marked, so the next attempt

@@ -3,7 +3,17 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import type { AgentTool } from "@generic-ai/agent";
-import { calculateCost, getModel, parseModelRef, type Usage } from "@generic-ai/ai";
+import {
+  type AssistantMessage,
+  type Context,
+  calculateCost,
+  complete,
+  getModel,
+  type Model,
+  parseModelRef,
+  type StreamOptions,
+  type Usage,
+} from "@generic-ai/ai";
 import {
   buildNativeSystemPrompt,
   type CanonicalEventContext,
@@ -223,7 +233,7 @@ function defaultQuery(): Promise<ClaudeAgentQuery> {
 
 /** The SDK process's environment: only what it needs, never the server's own secrets. */
 function sdkEnvironment(
-  options: ClaudeAgentSdkBackendOptions,
+  options: Pick<ClaudeAgentSdkBackendOptions, "configDir" | "env">,
   token: string,
 ): Record<string, string> {
   const pass = ["PATH", "HOME", "LANG", "TZ", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"];
@@ -360,7 +370,11 @@ async function runSdkSession(
     }
     const toolCallId = randomUUID();
     const args = request.params.arguments ?? {};
-    await emit("tool_execution_start", { type: "tool_execution_start", toolCallId, toolName: name });
+    await emit("tool_execution_start", {
+      type: "tool_execution_start",
+      toolCallId,
+      toolName: name,
+    });
     try {
       const prepared = tool.prepareArguments === undefined ? args : tool.prepareArguments(args);
       const result = await tool.execute(toolCallId, prepared, extra.signal);
@@ -401,7 +415,9 @@ async function runSdkSession(
     ...(options.systemPrompt === undefined ? {} : { base: options.systemPrompt }),
     cwd: run.cwd,
     tools: tools as never,
-    ...(registry.skillSnapshot === undefined ? {} : { skillsPrompt: registry.skillSnapshot.prompt }),
+    ...(registry.skillSnapshot === undefined
+      ? {}
+      : { skillsPrompt: registry.skillSnapshot.prompt }),
   });
   const stream = query({
     prompt: inbox.messages(),
@@ -459,7 +475,11 @@ async function runSdkSession(
       if (message.type === "assistant" && message.message?.usage !== undefined) {
         const id = message.message.id ?? randomUUID();
         if (open !== undefined && open.id !== id) await flushUsage();
-        open = { id, model: message.message.model ?? sdkModelId(modelRef), usage: message.message.usage };
+        open = {
+          id,
+          model: message.message.model ?? sdkModelId(modelRef),
+          usage: message.message.usage,
+        };
         if (message.error === "rate_limit" && planLimit === undefined) {
           planLimit = planLimitFailure(undefined, undefined);
         }
@@ -514,4 +534,140 @@ async function runSdkSession(
     await run.lifecycleHooks?.onStop?.(context);
   }
   return finish(outputText, failure);
+}
+
+/** `complete` from `@generic-ai/ai`, or a stand-in with the same shape. */
+export type CompleteFn = (
+  model: Model,
+  context: Context,
+  options?: StreamOptions,
+) => Promise<AssistantMessage>;
+
+export interface ClaudePlanCompletionOptions {
+  readonly token: () => string | undefined;
+  readonly configDir: string;
+  /** Whether one-shot calls on Claude models go to the plan right now. */
+  readonly active: () => boolean | Promise<boolean>;
+  readonly query?: ClaudeAgentQuery;
+  readonly env?: Readonly<Record<string, string>>;
+  /** Used for other models and while the plan is off. Defaults to `complete`. */
+  readonly fallback?: CompleteFn;
+}
+
+function contextAsPrompt(context: Context): string {
+  return context.messages
+    .map((message) => {
+      const content = (message as { content?: unknown }).content;
+      if (typeof content === "string") return content;
+      if (!Array.isArray(content)) return "";
+      return content
+        .map((part) =>
+          (part as { type?: string }).type === "text" ? (part as { text: string }).text : "",
+        )
+        .join("\n");
+    })
+    .filter((text) => text.length > 0)
+    .join("\n\n");
+}
+
+/**
+ * One-shot model calls (the rubric judge, second opinions, dreaming) on the owner's Claude plan:
+ * the call runs as a single tool-less SDK turn and comes back shaped like `complete`'s reply, so
+ * callers don't change. Other models, and every call while the plan is off, use `fallback`.
+ */
+export function createClaudePlanCompletion(options: ClaudePlanCompletionOptions): CompleteFn {
+  const fallback = options.fallback ?? complete;
+  return async (model, context, streamOptions) => {
+    const token = options.token()?.trim();
+    if (model.provider !== "anthropic" || token === undefined || !(await options.active())) {
+      return fallback(model, context, streamOptions);
+    }
+    const started = Date.now();
+    const sessionId = randomUUID();
+    const inbox = createInbox(sessionId);
+    inbox.push(contextAsPrompt(context));
+    inbox.close();
+    const abort = new AbortController();
+    const signal = streamOptions?.signal;
+    const onAbort = () => abort.abort(signal?.reason);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    const query = options.query ?? (await defaultQuery());
+    const usage: Usage = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    };
+    const responses = new Map<string, ClaudeApiUsage>();
+    let text = "";
+    let errorMessage: string | undefined;
+    let planLimit: string | undefined;
+    try {
+      const stream = query({
+        prompt: inbox.messages(),
+        options: {
+          model: model.id,
+          ...(context.systemPrompt === undefined ? {} : { systemPrompt: context.systemPrompt }),
+          tools: [],
+          settingSources: [],
+          maxTurns: 1,
+          persistSession: false,
+          sessionId,
+          abortController: abort,
+          env: sdkEnvironment(options, token),
+        },
+      });
+      for await (const message of stream) {
+        if (message.type === "assistant" && message.message?.usage !== undefined) {
+          responses.set(message.message.id ?? randomUUID(), message.message.usage);
+          if (message.error === "rate_limit") planLimit ??= planLimitFailure(undefined, undefined);
+        } else if (message.type === "rate_limit_event") {
+          const info = message.rate_limit_info;
+          if (info?.status === "rejected") {
+            planLimit = planLimitFailure(info.resetsAt, info.rateLimitType);
+          }
+        } else if (message.type === "result") {
+          if (message.subtype === "success" && message.is_error !== true) {
+            text = message.result ?? "";
+          } else {
+            errorMessage =
+              planLimit ??
+              (message.errors?.join("; ") || message.result || `Call ended: ${message.subtype}.`);
+          }
+        }
+      }
+    } catch (error) {
+      errorMessage = planLimit ?? (error instanceof Error ? error.message : String(error));
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
+    }
+    for (const response of responses.values()) {
+      const one = usageFrom(`anthropic/${model.id}`, response);
+      usage.input += one.input;
+      usage.output += one.output;
+      usage.cacheRead += one.cacheRead;
+      usage.cacheWrite += one.cacheWrite;
+      usage.totalTokens += one.totalTokens;
+      usage.cost.input += one.cost.input;
+      usage.cost.output += one.cost.output;
+      usage.cost.cacheRead += one.cost.cacheRead;
+      usage.cost.cacheWrite += one.cost.cacheWrite;
+      usage.cost.total += one.cost.total;
+    }
+    const aborted = signal?.aborted === true;
+    return {
+      role: "assistant",
+      content: text.length === 0 ? [] : [{ type: "text", text }],
+      api: model.api,
+      provider: model.provider,
+      model: model.id,
+      usage,
+      stopReason: aborted ? "aborted" : errorMessage === undefined ? "stop" : "error",
+      ...(errorMessage === undefined ? {} : { errorMessage }),
+      timestamp: started,
+      durationMs: Date.now() - started,
+    };
+  };
 }

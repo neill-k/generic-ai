@@ -4,10 +4,10 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-
+import { resolveModel } from "@generic-ai/ai";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { planLimitFailure, sdkModelId } from "./claude-agent-sdk.js";
+import { createClaudePlanCompletion, planLimitFailure, sdkModelId } from "./claude-agent-sdk.js";
 import { createCompanyTaskExecutor, runsOnClaudePlan } from "./executor.js";
 import { readPlanLimitError } from "./plan-limit.js";
 import { createCompanyRuntime } from "./runtime.js";
@@ -37,7 +37,7 @@ interface FakeRequest {
 }
 
 /** A Messages API stand-in. Each agent request (one that offers company tools) takes the next reply. */
-async function fakeAnthropic(replies: Array<(request: FakeRequest) => Block[]>) {
+async function fakeAnthropic(replies: Array<(request: FakeRequest) => Block[]>, sideText = "ok") {
   const seen: FakeRequest[] = [];
   let toolUseCounter = 0;
   const server: Server = createServer((req, res) => {
@@ -64,7 +64,7 @@ async function fakeAnthropic(replies: Array<(request: FakeRequest) => Block[]>) 
       const toolNames = (parsed.tools ?? []).map((tool) => tool.name);
       const isAgentCall =
         parsed.stream === true && toolNames.some((name) => name.startsWith("mcp__company__"));
-      let blocks: Block[] = [{ type: "text", text: "ok" }];
+      let blocks: Block[] = [{ type: "text", text: sideText }];
       if (isAgentCall) {
         const request: FakeRequest = {
           model: parsed.model ?? "",
@@ -76,7 +76,8 @@ async function fakeAnthropic(replies: Array<(request: FakeRequest) => Block[]>) 
         };
         seen.push(request);
         const reply = replies.shift();
-        blocks = reply === undefined ? [{ type: "text", text: "Nothing left to say." }] : reply(request);
+        blocks =
+          reply === undefined ? [{ type: "text", text: "Nothing left to say." }] : reply(request);
       }
       const hasToolUse = blocks.some((block) => block.type === "tool_use");
       if (parsed.stream !== true) {
@@ -193,7 +194,9 @@ describe("turns on the Claude plan through the Agent SDK", () => {
       ],
       () => [text("Handed in.")],
       // CEO turn 2: hand in to the owner.
-      () => [tool("submit_work", { summary: "Done: the engineer wrote hello.txt.", deliverables: [] })],
+      () => [
+        tool("submit_work", { summary: "Done: the engineer wrote hello.txt.", deliverables: [] }),
+      ],
       () => [text("Handed in.")],
     ]);
 
@@ -267,14 +270,66 @@ describe("turns on the Claude plan through the Agent SDK", () => {
   }, 120_000);
 });
 
+describe("one-shot calls on the Claude plan", () => {
+  it("answers a judge's call through the SDK, shaped like complete()", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "generic-corp-sdk-once-"));
+    cleanups.push(() => rmSync(dataDir, { recursive: true, force: true }));
+    const fake = await fakeAnthropic([], '{"verdict": "pass"}');
+    let fellBack = 0;
+    const completeOnPlan = createClaudePlanCompletion({
+      active: () => true,
+      token: () => "sk-ant-oat01-test-token-not-real",
+      configDir: path.join(dataDir, "claude"),
+      env: { ANTHROPIC_BASE_URL: fake.baseUrl, ANTHROPIC_API_KEY: "test-key-not-real" },
+      fallback: async () => {
+        fellBack += 1;
+        throw new Error("should not fall back");
+      },
+    });
+    const reply = await completeOnPlan(resolveModel("anthropic/claude-sonnet-4-6"), {
+      systemPrompt: "You are a strict, fair grader. Reply with JSON only.",
+      messages: [{ role: "user", content: "Grade this.", timestamp: Date.now() }],
+    });
+    expect(reply.errorMessage).toBeUndefined();
+    expect(reply.stopReason).toBe("stop");
+    expect(reply.content).toEqual([{ type: "text", text: '{"verdict": "pass"}' }]);
+    expect(reply.usage.totalTokens).toBeGreaterThan(0);
+    expect(fellBack).toBe(0);
+  }, 60_000);
+
+  it("leaves other models, and calls while the plan is off, to the fallback", async () => {
+    const calls: string[] = [];
+    const fallback = async (model: { id: string }) => {
+      calls.push(model.id);
+      return { stopReason: "stop" } as never;
+    };
+    const on = createClaudePlanCompletion({
+      active: () => true,
+      token: () => "t",
+      configDir: "/nonexistent",
+      fallback,
+    });
+    const off = createClaudePlanCompletion({
+      active: () => false,
+      token: () => "t",
+      configDir: "/nonexistent",
+      fallback,
+    });
+    const context = { messages: [] };
+    await on(resolveModel("openai/gpt-5.5"), context);
+    await off(resolveModel("anthropic/claude-sonnet-4-6"), context);
+    expect(calls).toEqual(["gpt-5.5", "claude-sonnet-4-6"]);
+  });
+});
+
 describe("Claude plan helpers", () => {
-  it("routes only Claude models to the SDK, and only while the plan is active", () => {
+  it("routes only Claude models to the SDK, and only while the plan is active", async () => {
     const on = { active: () => true };
-    const off = { active: () => false };
-    expect(runsOnClaudePlan(on, "anthropic/claude-sonnet-4-6")).toBe(true);
-    expect(runsOnClaudePlan(on, "openai/gpt-5.5")).toBe(false);
-    expect(runsOnClaudePlan(off, "anthropic/claude-sonnet-4-6")).toBe(false);
-    expect(runsOnClaudePlan(undefined, "anthropic/claude-sonnet-4-6")).toBe(false);
+    const off = { active: async () => false };
+    expect(await runsOnClaudePlan(on, "anthropic/claude-sonnet-4-6")).toBe(true);
+    expect(await runsOnClaudePlan(on, "openai/gpt-5.5")).toBe(false);
+    expect(await runsOnClaudePlan(off, "anthropic/claude-sonnet-4-6")).toBe(false);
+    expect(await runsOnClaudePlan(undefined, "anthropic/claude-sonnet-4-6")).toBe(false);
   });
 
   it("names models the way the SDK expects", () => {

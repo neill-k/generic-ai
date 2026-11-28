@@ -86,6 +86,7 @@ ADRs must be written when:
 - [`0069-goals-on-every-request.md`](0069-goals-on-every-request.md) - agents draft a locked goal for every request with `set_goal`, hand in work with `submit_work`, declare impossibility only with a second reviewer's agreement, write owner questions down without blocking, and the owner can edit the definition of done at any time.
 - [`0070-company-wall.md`](0070-company-wall.md) - the company is one trust zone; agent shell commands reach the network only through an allowlisting egress proxy made unavoidable by a firewall rule for the agent user, owner-set permission categories in place of approval cards, refusals logged for the owner, and per-command resource limits.
 - [`0071-no-fixed-agent-patterns.md`](0071-no-fixed-agent-patterns.md) - no fixed coordination patterns or restricted role kinds: agents delegate down the org chart, every role is a full agent, and the protocol reducers, topology runner, benchmark runner and shootout examples are removed.
+- [`0072-claude-agent-sdk-backend.md`](0072-claude-agent-sdk-backend.md) - Claude turns on the owner's plan run in the Claude Agent SDK: the SDK owns the single-agent loop, our tools reach it through an in-process MCP server, and the owner sets a `claude setup-token` token on the server.
 
 ## Planning Baseline
 

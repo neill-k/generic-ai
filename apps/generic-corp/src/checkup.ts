@@ -137,8 +137,10 @@ export function createCompanyCheckup(options: CreateCompanyCheckupOptions): Comp
       current !== undefined || starting
         ? "A checkup is already running."
         : auth.source === "none"
-          ? "Agents have no API key yet. Add one under More > Claude API key first."
-          : undefined;
+          ? "Agents have no API key yet. Add one under More > Claude access first."
+          : auth.source === "claude_plan" && auth.apiKey !== true
+            ? "The checkup doesn't run on the Claude plan yet; it needs an API key for now. Agents themselves run on your plan."
+            : undefined;
     return {
       plan: planned,
       estimate,

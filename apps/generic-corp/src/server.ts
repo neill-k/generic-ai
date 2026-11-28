@@ -42,6 +42,7 @@ import {
   readBackupSettings,
 } from "./backups.js";
 import { type CompanyCheckup, createCompanyCheckup } from "./checkup.js";
+import { createClaudePlanCompletion } from "./claude-agent-sdk.js";
 import {
   type CompanyConfig,
   DEFAULT_COMPANY,
@@ -126,6 +127,8 @@ export const ENV = Object.freeze({
   turnLeaseMs: "GENERIC_CORP_TURN_LEASE_MS",
   workerConcurrency: "GENERIC_CORP_WORKER_CONCURRENCY",
   noProgressMinutes: "GENERIC_CORP_NO_PROGRESS_MINUTES",
+  /** The owner's Claude plan token from `claude setup-token`; Claude turns then use the plan. */
+  claudePlanToken: "CLAUDE_CODE_OAUTH_TOKEN",
 });
 
 /** Agent turns one process runs at the same time when nothing else is configured. */
@@ -457,6 +460,9 @@ export async function createGenericCorpServer(
         log,
         onChange: (status) => publishBackupStatus?.({ ...status }),
       });
+    // Read at each turn, so setting or changing the variable takes effect on the next redeploy
+    // without anything else to do.
+    const claudePlanToken = () => read(processEnv, ENV.claudePlanToken);
     const modelAuth =
       options.modelAuth ??
       createCompanyModelAuth({
@@ -464,6 +470,7 @@ export async function createGenericCorpServer(
         fallback: async (provider) =>
           resolveProviderKeyFromEnv(provider, processEnv) ??
           (await secrets.get(providerKeyName(provider), "host")),
+        claudePlanToken,
       });
     const github =
       options.github ??
@@ -592,6 +599,24 @@ export async function createGenericCorpServer(
           : createMemoryTools({ memory, agentId: input.agentId, taskId: input.taskId })),
       ],
     });
+    // Claude turns on the owner's plan run in the Claude Agent SDK, unless the plan's limit is
+    // reached and the owner chose to carry on with an API key meanwhile. One-shot calls (judges,
+    // second opinions, memory work) go the same way.
+    const claudePlan = {
+      active: async () =>
+        claudePlanToken() !== undefined && !(await planLimit.status()).usingApiKey,
+      token: claudePlanToken,
+      configDir: path.join(environment.dataDir, "claude-agent-sdk"),
+    };
+    const planComplete = createClaudePlanCompletion({
+      ...claudePlan,
+      ...(options.executorOptions?.claudePlan?.env === undefined
+        ? {}
+        : { env: options.executorOptions.claudePlan.env }),
+      ...(options.executorOptions?.claudePlan?.query === undefined
+        ? {}
+        : { query: options.executorOptions.claudePlan.query }),
+    });
     // Every tool call is checked against the owner's permissions. An action outside them is
     // refused on the spot and logged; nothing waits for the owner (design decision 37).
     const defaultExecutor = createCompanyTaskExecutor({
@@ -616,6 +641,7 @@ export async function createGenericCorpServer(
       runStore: meteredRunStore,
       artifactsRoot: path.join(environment.dataDir, "artifacts"),
       sessionsRoot: path.join(environment.dataDir, "sessions"),
+      claudePlan: { ...claudePlan, ...options.executorOptions?.claudePlan },
     });
     const baseExecutor: AgentTaskExecutor =
       options.executor ??
@@ -682,6 +708,7 @@ export async function createGenericCorpServer(
             createModelImpossibilityReviewer({
               modelFor: (agent) => secondOpinionModel(company, workerModel(agent)),
               getAuth: (provider) => planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
+              complete: planComplete,
               onUsage: (usage, input) =>
                 void modelCalls.record({
                   agentId: input.agent.id,
@@ -704,6 +731,7 @@ export async function createGenericCorpServer(
                       model,
                       getAuth: (provider) =>
                         planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
+                      complete: planComplete,
                       onUsage: (usage) =>
                         void modelCalls.record({
                           agentId: agent.id,
@@ -762,6 +790,7 @@ export async function createGenericCorpServer(
         createModelBackground({
           model: backgroundModelName,
           getAuth: (provider) => planLimit.getAuth(provider, (name) => modelAuth.getAuth(name)),
+          complete: planComplete,
           onUsage: (usage, request) =>
             void modelCalls.record({
               ...(request.agentId === undefined ? {} : { agentId: request.agentId }),

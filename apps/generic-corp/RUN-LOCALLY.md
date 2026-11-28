@@ -1,15 +1,15 @@
 # Run Generic Corp on your machine
 
 This is the first real run: Generic Corp in Docker on your own computer,
-powered by an Anthropic API key. It takes about ten minutes, most of it
+powered by your Claude plan or an Anthropic API key. It takes about ten minutes, most of it
 the first build.
 
 ## What you need
 
 - Docker Desktop (or Docker Engine with Compose v2), running.
-- An Anthropic API key (`sk-ant-...`) from <https://console.anthropic.com/settings/keys>.
-  A Claude Pro or Max plan can't power it: Anthropic's terms don't allow
-  third-party apps to use a Claude plan.
+- Either your Claude Pro or Max plan, with Claude Code installed (for
+  `claude setup-token`), or an Anthropic API key (`sk-ant-...`) from
+  <https://console.anthropic.com/settings/keys>.
 - This repository, cloned.
 
 ## 1. Start it
@@ -29,10 +29,15 @@ Open <http://localhost:3000/auth/login>, paste the setup token, and create a
 passkey. That passkey is how you sign in from now on. The token is only
 needed once. Press **Continue** and the app opens on **Goals**.
 
-## 3. Add your API key
+## 3. Power it
 
-Open **More** (last item in the menu), then **Claude API key**, paste your
-Anthropic key (`sk-ant-...`) and press **Save key**. Under **Powered by** the
+**On your Claude plan:** run `claude setup-token`, copy the token it prints,
+and start the app with it set: `CLAUDE_CODE_OAUTH_TOKEN=<token>
+./apps/generic-corp/start-local.sh`. Claude turns then run in the Claude Agent
+SDK on your plan. **More > Claude access** shows "Your Claude plan".
+
+**With an API key:** open **More** (last item in the menu), then **Claude
+access**, paste your Anthropic key (`sk-ant-...`) and press **Save key**. Under **Powered by** the
 page then shows the saved key. Setting `ANTHROPIC_API_KEY` before starting
 works too.
 

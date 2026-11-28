@@ -313,6 +313,11 @@ export function createCompanyGoalEvidence(
 }
 
 export interface ModelJudgeOptions {
+  /**
+   * The model call. Defaults to `complete` from `@generic-ai/ai`; the server passes one that runs
+   * Claude calls on the owner's plan through the Claude Agent SDK when that is on.
+   */
+  readonly complete?: typeof complete;
   /** Model reference for grading, `provider/model-id`. */
   readonly model: string;
   readonly resolveModel?: (ref: string) => Model;
@@ -352,7 +357,7 @@ export function createModelJudge(options: ModelJudgeOptions): GoalJudge {
   return async (request): Promise<GoalJudgment> => {
     const model = resolve(options.model);
     const auth = await options.getAuth?.(model.provider);
-    const reply = await complete(
+    const reply = await (options.complete ?? complete)(
       model,
       {
         systemPrompt: "You are a strict, fair grader. Reply with JSON only.",

@@ -43,6 +43,11 @@ export function workerModelOf(
 }
 
 export interface ModelImpossibilityReviewerOptions {
+  /**
+   * The model call. Defaults to `complete` from `@generic-ai/ai`; the server passes one that runs
+   * Claude calls on the owner's plan through the Claude Agent SDK when that is on.
+   */
+  readonly complete?: typeof complete;
   /** The reviewer's model for a claim by this agent. */
   readonly modelFor: (agent: ImpossibilityReviewInput["agent"]) => string;
   readonly resolveModel?: (ref: string) => Model;
@@ -101,7 +106,7 @@ export function createModelImpossibilityReviewer(
     ].join("\n");
     const model = resolve(modelRef);
     const auth = await options.getAuth?.(model.provider);
-    const reply = await complete(
+    const reply = await (options.complete ?? complete)(
       model,
       {
         systemPrompt: REVIEW_SYSTEM_PROMPT,

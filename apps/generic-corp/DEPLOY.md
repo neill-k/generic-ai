@@ -224,15 +224,25 @@ pieces live in the Railway account and are set once:
    | Variable | Value | Needed |
    | --- | --- | --- |
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (a reference to the database service) | Yes |
-   | `ANTHROPIC_API_KEY` | Anthropic API key | Yes, for the default models |
+   | `CLAUDE_CODE_OAUTH_TOKEN` | Token from `claude setup-token` | Either this or `ANTHROPIC_API_KEY`: runs Claude turns on your Claude plan |
+   | `ANTHROPIC_API_KEY` | Anthropic API key | Either this or the plan token, for the default models |
    | `GENERIC_AI_OWNER_SETUP_TOKEN` | A random string of 16+ characters | Recommended: pins the first-login token across restarts |
    | `OPENAI_API_KEY` and other provider keys | As needed | Only for roles configured to use them |
    | `GENERIC_CORP_COMPANY_FILE` | Path to a company YAML | Optional |
    | `GENERIC_AI_AUTH_TOKEN` | 16+ characters | Optional break-glass bearer token for scripts |
 
+   **To run on your Claude Pro or Max plan**, install Claude Code on your own
+   computer and run `claude setup-token`. It opens Anthropic's sign-in in your
+   browser and prints a token that lasts a year. Paste it as
+   `CLAUDE_CODE_OAUTH_TOKEN` and redeploy. Claude turns then run in the Claude
+   Agent SDK (the Claude Code binary that ships with it), which draws on your
+   plan's usage limits; **More > Claude access** shows "Your Claude plan". The
+   app never runs a plan sign-in or stores the token. When the plan's limit is
+   reached, work pauses until it resets, or uses an API key if one is set and you
+   chose that. Renew the token before it expires in a year.
+
    Instead of `ANTHROPIC_API_KEY` you can save a key in the app under **More >
-   Claude API key**. There is no Claude Pro/Max plan sign-in: Anthropic's terms
-   don't allow third-party apps to use a Claude plan.
+   Claude access**.
 
    Railway sets `PORT` and, once a domain exists, `RAILWAY_PUBLIC_DOMAIN`.
    The app uses the domain as its passkey origin and trusts Railway's proxy

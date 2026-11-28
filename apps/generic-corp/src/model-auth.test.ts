@@ -34,6 +34,24 @@ describe("company model auth", () => {
     expect((await auth.status()).source).toBe("environment");
   });
 
+  it("reports the Claude plan when its token is set on the server, ahead of a key", async () => {
+    let token: string | undefined = "sk-ant-oat01-plan";
+    const auth = createCompanyModelAuth({
+      store: new InMemoryCredentialStore(),
+      fallback: () => "sk-ant-api-env",
+      claudePlanToken: () => token,
+    });
+    expect(await auth.status()).toEqual({
+      provider: "anthropic",
+      source: "claude_plan",
+      apiKey: true,
+    });
+    // The plan token is never handed to the native runtime as request auth.
+    expect(await auth.getAuth("anthropic")).toEqual({ apiKey: "sk-ant-api-env" });
+    token = undefined;
+    expect((await auth.status()).source).toBe("environment");
+  });
+
   it("refuses a Claude plan token pasted as a key", async () => {
     const auth = createCompanyModelAuth({
       store: new InMemoryCredentialStore(),

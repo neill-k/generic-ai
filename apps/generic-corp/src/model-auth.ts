@@ -9,21 +9,28 @@ import {
 } from "@generic-ai/auth";
 
 /**
- * What powers the company's agents (decision 14): an Anthropic API key, saved from the app or set
- * as `ANTHROPIC_API_KEY`. A saved key wins over the environment, which stays as the last fallback
- * so existing setups keep working.
+ * What powers the company's agents (decision 14).
  *
- * There is no Claude plan sign-in: Anthropic's terms don't allow third-party apps to use a Claude
- * Pro/Max plan. A plan sign-in saved by an earlier version is deleted the first time it is seen.
+ * - The owner's Claude plan (`claude_plan`): the owner runs `claude setup-token` on their own
+ *   computer (Anthropic's sign-in) and sets the token as `CLAUDE_CODE_OAUTH_TOKEN` on the server.
+ *   Claude turns then run in the Claude Agent SDK, which draws on the plan's limits. The app never
+ *   runs a sign-in or stores the token; it only reads the variable. See claude-agent-sdk.ts.
+ * - An Anthropic API key, saved from the app or set as `ANTHROPIC_API_KEY`, for the native
+ *   runtime. A saved key wins over the environment.
+ *
+ * The plan token wins for Claude turns when both are set. The app itself never calls the API with
+ * a plan token: a plan sign-in saved by an earlier version is deleted the first time it is seen.
  */
 export const MODEL_AUTH_PROVIDER = "anthropic" as const;
 
-export type ModelAuthSource = "api_key" | "environment" | "none";
+export type ModelAuthSource = "claude_plan" | "api_key" | "environment" | "none";
 
 export interface ModelAuthStatus {
   readonly provider: typeof MODEL_AUTH_PROVIDER;
-  /** Where agent requests get their credential from right now. */
+  /** Where Claude turns get their credential from right now. */
   readonly source: ModelAuthSource;
+  /** Whether an API key is also available (for other model calls, or after the plan's limit). */
+  readonly apiKey?: boolean;
 }
 
 export interface CompanyModelAuth {
@@ -51,6 +58,8 @@ export interface CreateCompanyModelAuthOptions {
   readonly path?: string;
   /** API key lookup when nothing is stored. Defaults to the provider's environment variables. */
   readonly fallback?: (provider: string) => string | undefined | Promise<string | undefined>;
+  /** The owner's Claude plan token (`CLAUDE_CODE_OAUTH_TOKEN`), when set on the server. */
+  readonly claudePlanToken?: () => string | undefined;
 }
 
 /** The usual environment variable or secret name for a provider's API key, like ANTHROPIC_API_KEY. */
@@ -89,7 +98,7 @@ export function createCompanyModelAuth(options: CreateCompanyModelAuthOptions): 
     }
   }
 
-  async function status(): Promise<ModelAuthStatus> {
+  async function keyStatus(): Promise<ModelAuthStatus> {
     await dropPlanSignIn(MODEL_AUTH_PROVIDER);
     const stored = await store?.read(MODEL_AUTH_PROVIDER);
     if (stored?.type === "api_key") {
@@ -97,6 +106,18 @@ export function createCompanyModelAuth(options: CreateCompanyModelAuthOptions): 
     }
     const environmentKey = await fallback(MODEL_AUTH_PROVIDER);
     return { provider: MODEL_AUTH_PROVIDER, source: environmentKey ? "environment" : "none" };
+  }
+
+  async function status(): Promise<ModelAuthStatus> {
+    const key = await keyStatus();
+    if (options.claudePlanToken?.() !== undefined) {
+      return {
+        provider: MODEL_AUTH_PROVIDER,
+        source: "claude_plan",
+        apiKey: key.source !== "none",
+      };
+    }
+    return key;
   }
 
   return {
@@ -113,7 +134,7 @@ export function createCompanyModelAuth(options: CreateCompanyModelAuthOptions): 
       if (trimmed.startsWith("sk-ant-oat")) {
         throw new ModelAuthError(
           400,
-          "That is a Claude plan sign-in token, not an API key. Anthropic's terms don't allow third-party apps to use a Claude plan. Create an API key at console.anthropic.com.",
+          "That is a Claude plan token, not an API key. To run agents on your Claude plan, set it as the CLAUDE_CODE_OAUTH_TOKEN variable on the server instead (the app doesn't store plan tokens). For an API key, create one at console.anthropic.com.",
         );
       }
       if (!trimmed.startsWith("sk-ant-")) {

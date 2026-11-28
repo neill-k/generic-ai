@@ -5,7 +5,7 @@ import { MODEL_AUTH_PROVIDER } from "./model-auth.js";
 
 /**
  * The Claude plan's usage limit (design decision 15). When agents run on the owner's Claude
- * sign-in and the plan's limit is reached, the owner chooses what happens (Neill: "Configurable
+ * plan (through the Claude Agent SDK) and the plan's limit is reached, the owner chooses what happens (Neill: "Configurable
  * option"):
  *
  * - `wait` (the default): work is held, shown as "Paused until your Claude plan resets", and
@@ -193,8 +193,8 @@ export async function createPlanLimit(options: CreatePlanLimitOptions): Promise<
         return false;
       }
       // Only the plan has a plan limit; a key's rate limit is the provider's ordinary retry case.
-      // The Claude plan sign-in is removed (Anthropic's terms), so this is dormant for now.
-      if ((await options.source()) !== "subscription" || (await fallbackKey()) !== undefined) {
+      // Plan turns run in the Claude Agent SDK (claude-agent-sdk.ts), which reports the limit.
+      if ((await options.source()) !== "claude_plan" || (await fallbackKey()) !== undefined) {
         return false;
       }
       const reset = readPlanLimitError(result.failureMessage ?? result.outputText);
