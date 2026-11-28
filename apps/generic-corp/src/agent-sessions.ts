@@ -30,6 +30,14 @@ export interface AgentSessionFiles {
   settle(input: AgentTaskExecutionInput, resumable: boolean): Promise<void>;
 }
 
+/**
+ * Where a turn on the Claude plan keeps its Claude Agent SDK session id, next to the session file.
+ * The SDK keeps the conversation itself, so on that path this file stands for the session.
+ */
+export function sdkSessionSidecar(sessionFile: string): string {
+  return `${sessionFile}.claude-agent-sdk.json`;
+}
+
 interface TurnMarker {
   readonly taskId: string;
   readonly attemptRunId: string;
@@ -75,7 +83,9 @@ export function createAgentSessionFiles(
       const marker = markerFile(input);
       await mkdir(path.dirname(file), { recursive: true });
       const previous = await readMarker(marker);
-      const resume = previous?.taskId === input.taskId && (await exists(file));
+      const resume =
+        previous?.taskId === input.taskId &&
+        ((await exists(file)) || (await exists(sdkSessionSidecar(file))));
       const next: TurnMarker = {
         taskId: input.taskId,
         attemptRunId: input.attemptRunId,
