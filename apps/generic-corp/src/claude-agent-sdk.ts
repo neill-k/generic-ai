@@ -26,6 +26,7 @@ import {
 } from "@generic-ai/core";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { sdkSessionSidecar } from "./agent-sessions.js";
 
 /**
  * Runs agent turns in the Claude Agent SDK (Claude Code's agent loop), so a company powered by the
@@ -205,15 +206,12 @@ interface StoredSdkSession {
   readonly sdkSessionId: string;
 }
 
-/** Where the SDK session id for a turn's session file is kept, next to that file. */
-function sidecarFor(sessionFile: string): string {
-  return `${sessionFile}.claude-agent-sdk.json`;
-}
-
 function readSidecar(sessionFile: string | undefined): StoredSdkSession | undefined {
   if (sessionFile === undefined) return undefined;
   try {
-    const parsed = JSON.parse(readFileSync(sidecarFor(sessionFile), "utf8")) as StoredSdkSession;
+    const parsed = JSON.parse(
+      readFileSync(sdkSessionSidecar(sessionFile), "utf8"),
+    ) as StoredSdkSession;
     return typeof parsed.sdkSessionId === "string" ? parsed : undefined;
   } catch {
     return undefined;
@@ -223,7 +221,7 @@ function readSidecar(sessionFile: string | undefined): StoredSdkSession | undefi
 function writeSidecar(sessionFile: string | undefined, sdkSessionId: string): void {
   if (sessionFile === undefined) return;
   mkdirSync(path.dirname(sessionFile), { recursive: true });
-  writeFileSync(sidecarFor(sessionFile), `${JSON.stringify({ sdkSessionId })}\n`);
+  writeFileSync(sdkSessionSidecar(sessionFile), `${JSON.stringify({ sdkSessionId })}\n`);
 }
 
 let loadedQuery: Promise<ClaudeAgentQuery> | undefined;
@@ -473,6 +471,7 @@ async function runSdkSession(
   let outputText = "";
   let failure: string | undefined;
   let planLimit: string | undefined;
+  let stopped = false;
   try {
     for await (const message of stream) {
       if (message.type === "assistant" && message.message?.usage !== undefined) {
@@ -506,11 +505,15 @@ async function runSdkSession(
         } else {
           failure =
             planLimit ??
+            (stopped ? "Stopped: the agent was held mid-turn." : undefined) ??
             (message.errors?.join("; ") || message.result || `Turn ended: ${message.subtype}.`);
         }
         inbox.close();
       }
-      if (run.stopRequested !== undefined && (await run.stopRequested())) {
+      if (!stopped && run.stopRequested !== undefined && (await run.stopRequested())) {
+        // Held (paused, a plan limit, a spend limit): stop now. The SDK session keeps what the
+        // turn did, and the next attempt resumes it.
+        stopped = true;
         await stream.interrupt();
         inbox.close();
       }
@@ -520,6 +523,7 @@ async function runSdkSession(
     await flushUsage();
     failure =
       planLimit ??
+      (stopped ? "Stopped: the agent was held mid-turn." : undefined) ??
       (run.signal?.aborted === true && run.signal.reason instanceof Error
         ? run.signal.reason.message
         : error instanceof Error

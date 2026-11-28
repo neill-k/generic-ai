@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -34,10 +34,16 @@ interface FakeRequest {
   readonly system: string;
   readonly toolNames: readonly string[];
   readonly lastUser: string;
+  /** How many messages the request carried: more than one means the conversation continued. */
+  readonly messageCount: number;
+  readonly conversation: string;
 }
 
 /** A Messages API stand-in. Each agent request (one that offers company tools) takes the next reply. */
-async function fakeAnthropic(replies: Array<(request: FakeRequest) => Block[]>, sideText = "ok") {
+async function fakeAnthropic(
+  replies: Array<(request: FakeRequest) => Block[] | "fail" | Promise<Block[] | "fail">>,
+  sideText = "ok",
+) {
   const seen: FakeRequest[] = [];
   let toolUseCounter = 0;
   const server: Server = createServer((req, res) => {
@@ -45,7 +51,7 @@ async function fakeAnthropic(replies: Array<(request: FakeRequest) => Block[]>, 
     req.on("data", (chunk) => {
       body += chunk;
     });
-    req.on("end", () => {
+    req.on("end", async () => {
       const json = (status: number, value: unknown) => {
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(value));
@@ -64,7 +70,7 @@ async function fakeAnthropic(replies: Array<(request: FakeRequest) => Block[]>, 
       const toolNames = (parsed.tools ?? []).map((tool) => tool.name);
       const isAgentCall =
         parsed.stream === true && toolNames.some((name) => name.startsWith("mcp__company__"));
-      let blocks: Block[] = [{ type: "text", text: sideText }];
+      let blocks: Block[] | "fail" = [{ type: "text", text: sideText }];
       if (isAgentCall) {
         const request: FakeRequest = {
           model: parsed.model ?? "",
@@ -73,11 +79,23 @@ async function fakeAnthropic(replies: Array<(request: FakeRequest) => Block[]>, 
             : (parsed.system ?? ""),
           toolNames,
           lastUser: JSON.stringify(parsed.messages?.at(-1)?.content ?? ""),
+          messageCount: parsed.messages?.length ?? 0,
+          conversation: JSON.stringify(parsed.messages ?? []),
         };
         seen.push(request);
         const reply = replies.shift();
         blocks =
-          reply === undefined ? [{ type: "text", text: "Nothing left to say." }] : reply(request);
+          reply === undefined
+            ? [{ type: "text", text: "Nothing left to say." }]
+            : await reply(request);
+      }
+      if (blocks === "fail") {
+        // A request Anthropic refuses outright: the turn fails without the client retrying.
+        json(401, {
+          type: "error",
+          error: { type: "authentication_error", message: "Fake failure for the test." },
+        });
+        return;
       }
       const hasToolUse = blocks.some((block) => block.type === "tool_use");
       if (parsed.stream !== true) {
@@ -149,7 +167,13 @@ async function fakeAnthropic(replies: Array<(request: FakeRequest) => Block[]>, 
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  cleanups.push(() => new Promise((resolve) => server.close(resolve)));
+  cleanups.push(
+    () =>
+      new Promise((resolve) => {
+        server.closeAllConnections();
+        server.close(resolve);
+      }),
+  );
   const { port } = server.address() as AddressInfo;
   return { baseUrl: `http://127.0.0.1:${port}`, seen };
 }
@@ -250,6 +274,10 @@ describe("turns on the Claude plan through the Agent SDK", () => {
       "claude-opus-4-6",
       "claude-opus-4-6",
     ]);
+    // The CEO's second turn on the goal resumed its SDK session: the request carries turn one.
+    expect(fake.seen[0]?.messageCount).toBe(1);
+    expect(fake.seen[5]?.messageCount).toBeGreaterThan(3);
+    expect(fake.seen[5]?.lastUser).toContain("engineer");
     const offered = fake.seen[0]?.toolNames ?? [];
     expect(offered).toContain("mcp__company__set_goal");
     expect(offered).toContain("mcp__company__write");
@@ -267,6 +295,134 @@ describe("turns on the Claude plan through the Agent SDK", () => {
     expect(names).toContain("run.completed");
     expect(names).toContain("plugin.claude-agent-sdk.tool_execution_start");
     expect(names).toContain("usage.recorded");
+  }, 120_000);
+  it("resumes a turn a restart cut off, in the same SDK session", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "generic-corp-sdk-resume-"));
+    cleanups.push(() => rmSync(dataDir, { recursive: true, force: true }));
+    const storage = await openCompanyStorage({ sqlitePath: path.join(dataDir, "company.sqlite") });
+    cleanups.push(() => storage.close());
+    let reachedCrash: () => void = () => {};
+    const crashed = new Promise<void>((resolve) => {
+      reachedCrash = resolve;
+    });
+    let releaseCrash: () => void = () => {};
+    const released = new Promise<void>((resolve) => {
+      releaseCrash = resolve;
+    });
+    const fake = await fakeAnthropic([
+      // The turn writes a file, then the process stops while the next model call is in flight.
+      () => [tool("write", { path: "b.txt", content: "b" })],
+      async () => {
+        reachedCrash();
+        await released;
+        return "fail" as const;
+      },
+      // The restarted server resumes the saved SDK session instead of starting over.
+      () => [text("Task B done.")],
+    ]);
+    const executorOptions = {
+      runStore: storage.runStore,
+      artifactsRoot: path.join(dataDir, "artifacts"),
+      sessionsRoot: path.join(dataDir, "sessions"),
+      noProgress: false,
+      claudePlan: {
+        active: () => true,
+        token: () => "sk-ant-oat01-test-token-not-real",
+        configDir: path.join(dataDir, "claude"),
+        env: {
+          ANTHROPIC_BASE_URL: fake.baseUrl,
+          ANTHROPIC_API_KEY: "test-key-not-real",
+          // So the abandoned turn ends as soon as its model call is refused.
+          CLAUDE_CODE_MAX_RETRIES: "0",
+        },
+      },
+    } as const;
+    const input = (attempt: number) => ({
+      taskId: "task-b",
+      attemptRunId: `task-b-attempt-${attempt}`,
+      rootTaskId: "goal-1",
+      agentId: "engineer",
+      role: "engineer",
+      model: "anthropic/claude-sonnet-4-6",
+      prompt: "Do task B.",
+      workspaceRoot: path.join(dataDir, "home"),
+    });
+
+    // An agent's home always exists; the SDK can't start in a folder that doesn't.
+    mkdirSync(path.join(dataDir, "home"), { recursive: true });
+    const abandoned = Promise.resolve(createCompanyTaskExecutor(executorOptions)(input(1))).catch(
+      () => undefined,
+    );
+    await crashed;
+
+    const restarted = createCompanyTaskExecutor(executorOptions);
+    const retry = await restarted(input(2));
+    releaseCrash();
+    await abandoned;
+
+    expect(retry.failureMessage).toBeUndefined();
+    expect(retry.status).toBe("succeeded");
+    expect(retry.outputText).toBe("Task B done.");
+    // The retry carried the first attempt's step and asked to continue, without resending the task.
+    const resumed = fake.seen[2];
+    expect(resumed?.conversation).toContain("toolu_1");
+    expect(resumed?.lastUser).toContain("previous turn was interrupted");
+    expect(resumed?.conversation.split("Do task B.").length).toBe(2);
+    expect(await readFile(path.join(dataDir, "home", "b.txt"), "utf8")).toBe("b");
+  }, 120_000);
+
+  it("stops a turn when the agent is held, and picks it up again afterwards", async () => {
+    const dataDir = mkdtempSync(path.join(tmpdir(), "generic-corp-sdk-hold-"));
+    cleanups.push(() => rmSync(dataDir, { recursive: true, force: true }));
+    const storage = await openCompanyStorage({ sqlitePath: path.join(dataDir, "company.sqlite") });
+    cleanups.push(() => storage.close());
+    let held = false;
+    const fake = await fakeAnthropic([
+      () => {
+        // The owner pauses the agent while its first step is in flight.
+        held = true;
+        return [tool("write", { path: "c.txt", content: "c" })];
+      },
+      () => [text("Task C done.")],
+    ]);
+    const executor = createCompanyTaskExecutor({
+      runStore: storage.runStore,
+      artifactsRoot: path.join(dataDir, "artifacts"),
+      sessionsRoot: path.join(dataDir, "sessions"),
+      noProgress: false,
+      claudePlan: {
+        active: () => true,
+        token: () => "sk-ant-oat01-test-token-not-real",
+        configDir: path.join(dataDir, "claude"),
+        env: { ANTHROPIC_BASE_URL: fake.baseUrl, ANTHROPIC_API_KEY: "test-key-not-real" },
+      },
+    });
+    mkdirSync(path.join(dataDir, "home"), { recursive: true });
+    const input = (attempt: number) => ({
+      taskId: "task-c",
+      attemptRunId: `task-c-attempt-${attempt}`,
+      rootTaskId: "goal-1",
+      agentId: "engineer",
+      role: "engineer",
+      model: "anthropic/claude-sonnet-4-6",
+      prompt: "Do task C.",
+      workspaceRoot: path.join(dataDir, "home"),
+      stopRequested: () => held,
+    });
+
+    const stopped = await executor(input(1));
+    expect(stopped.status).toBe("failed");
+    expect(stopped.failureMessage).toBe("Stopped: the agent was held mid-turn.");
+    expect(fake.seen).toHaveLength(1);
+
+    held = false;
+    const after = await executor(input(2));
+    expect(after.status).toBe("succeeded");
+    expect(after.outputText).toBe("Task C done.");
+    // The retry continued the stopped turn's SDK session rather than starting over.
+    expect(fake.seen[1]?.messageCount).toBeGreaterThan(1);
+    expect(fake.seen[1]?.lastUser).toContain("previous turn was interrupted");
+    expect(fake.seen[1]?.conversation.split("Do task C.").length).toBe(2);
   }, 120_000);
 });
 
