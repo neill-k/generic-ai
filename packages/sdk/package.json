@@ -33,7 +33,7 @@
     "provenance": true
   },
   "dependencies": {
-    "@sinclair/typebox": "0.34.49",
+    "@sinclair/typebox": "0.34.52",
     "zod": "^4.3.6"
   },
   "repository": {

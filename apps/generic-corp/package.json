@@ -45,7 +45,7 @@
     "@generic-ai/sdk": "0.0.0",
     "@generic-ai/session": "0.0.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
-    "@sinclair/typebox": "0.34.49",
+    "@sinclair/typebox": "0.34.52",
     "hono": "^4.12.15",
     "yaml": "^2.8.3",
     "zod": "^4.3.6"

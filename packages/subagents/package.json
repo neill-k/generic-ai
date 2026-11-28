@@ -24,7 +24,7 @@
   "dependencies": {
     "@generic-ai/agent": "0.0.0",
     "@generic-ai/ai": "0.0.0",
-    "@sinclair/typebox": "0.34.49"
+    "@sinclair/typebox": "0.34.52"
   },
   "license": "MIT",
   "private": false,

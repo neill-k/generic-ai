@@ -25,7 +25,7 @@
     "@generic-ai/agent": "0.0.0",
     "@generic-ai/ai": "0.0.0",
     "@silvia-odwyer/photon-node": "^0.3.4",
-    "@sinclair/typebox": "0.34.49",
+    "@sinclair/typebox": "0.34.52",
     "cross-spawn": "7.0.6",
     "diff": "8.0.4",
     "minimatch": "11.0.9"

@@ -58,7 +58,7 @@
     "@generic-ai/plugin-config-yaml": "0.0.0",
     "@generic-ai/plugin-hono": "0.0.0",
     "@generic-ai/sdk": "0.0.0",
-    "@sinclair/typebox": "0.34.49",
+    "@sinclair/typebox": "0.34.52",
     "@streamdown/cjk": "^1.0.3",
     "@streamdown/code": "^1.1.1",
     "@streamdown/math": "^1.0.2",

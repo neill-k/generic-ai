@@ -27,7 +27,7 @@
     "@generic-ai/rlm": "0.0.0",
     "@generic-ai/session": "0.0.0",
     "@generic-ai/tools": "0.0.0",
-    "@sinclair/typebox": "0.34.49"
+    "@sinclair/typebox": "0.34.52"
   },
   "repository": {
     "type": "git",
