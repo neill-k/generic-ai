@@ -89,7 +89,7 @@ import {
   type PermissionStore,
   permissionsBriefing,
 } from "./permissions.js";
-import { createPlanLimit } from "./plan-limit.js";
+import { createPlanLimit, type PlanRateLimitInfo } from "./plan-limit.js";
 import { createPreferenceScanner, type OwnerMessage } from "./preferences.js";
 import { openQualityStore } from "./quality.js";
 import { createRefusalLog, type RefusalLog } from "./refusals.js";
@@ -607,6 +607,8 @@ export async function createGenericCorpServer(
         claudePlanToken() !== undefined && !(await planLimit.status()).usingApiKey,
       token: claudePlanToken,
       configDir: path.join(environment.dataDir, "claude-agent-sdk"),
+      onRateLimit: (info: PlanRateLimitInfo) =>
+        void planLimit.recordUsage(info).catch(() => undefined),
     };
     const planComplete = createClaudePlanCompletion({
       ...claudePlan,
@@ -926,6 +928,7 @@ export async function createGenericCorpServer(
           createCompanyCheckup({
             kv: storage.kv,
             modelAuth,
+            complete: planComplete,
             env: options.env ?? process.env,
             ...(egressProxy === undefined ? {} : { egressProxy }),
             log,

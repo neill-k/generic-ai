@@ -9,7 +9,7 @@ import {
 import { type CompanyConfig, ceoOf, modelFor } from "./company.js";
 import type { EgressProxy } from "./egress.js";
 import { cappedJudge, createCompanyEvalExecutor } from "./evals.js";
-import { createModelJudge } from "./goals.js";
+import { createModelJudge, type ModelJudgeOptions } from "./goals.js";
 import type { CompanyModelAuth } from "./model-auth.js";
 import { secondOpinionModel } from "./second-opinion.js";
 import { createSpendCap, type SpendCap } from "./spend.js";
@@ -292,6 +292,11 @@ export interface RunBaselineOptions {
   readonly egressProxy?: Pick<EgressProxy, "envFor">;
   /** Replaces the model judge, for tests. */
   readonly judge?: GoalJudge;
+  /**
+   * The judge's model call. Agents' turns follow the server environment (the Claude plan when its
+   * token is set); this lets the judge follow it too.
+   */
+  readonly complete?: ModelJudgeOptions["complete"];
   /** Defaults to a token cap at the estimate's high end. */
   readonly spendCap?: SpendCap;
   readonly onConfigStart?: (config: BaselineConfig) => void;
@@ -335,6 +340,7 @@ export async function runBaseline(options: RunBaselineOptions = {}): Promise<Bas
         ...(options.modelAuth === undefined
           ? {}
           : { getAuth: options.modelAuth.getAuth.bind(options.modelAuth) }),
+        ...(options.complete === undefined ? {} : { complete: options.complete }),
         onUsage: (usage) => spendCap.recordModelUsage(usage),
       }),
     spendCap,

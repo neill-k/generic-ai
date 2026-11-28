@@ -89,6 +89,8 @@ export interface CreateCompanyCheckupOptions {
   readonly env?: NodeJS.ProcessEnv;
   /** The server's egress proxy, so the checkup's agents get the same walled network. */
   readonly egressProxy?: Pick<EgressProxy, "envFor">;
+  /** The judge's model call; the server's runs Claude calls on the owner's plan when it is on. */
+  readonly complete?: RunBaselineOptions["complete"];
   /** Replaces the baseline runner, for tests. */
   readonly run?: (options: RunBaselineOptions) => Promise<BaselineReport>;
   readonly now?: () => Date;
@@ -137,10 +139,8 @@ export function createCompanyCheckup(options: CreateCompanyCheckupOptions): Comp
       current !== undefined || starting
         ? "A checkup is already running."
         : auth.source === "none"
-          ? "Agents have no API key yet. Add one under More > Claude access first."
-          : auth.source === "claude_plan" && auth.apiKey !== true
-            ? "The checkup doesn't run on the Claude plan yet; it needs an API key for now. Agents themselves run on your plan."
-            : undefined;
+          ? "Nothing powers the agents yet. Set up your Claude plan or add an API key under More > Claude access first."
+          : undefined;
     return {
       plan: planned,
       estimate,
@@ -186,6 +186,7 @@ export function createCompanyCheckup(options: CreateCompanyCheckupOptions): Comp
         const report = await runner({
           plan: view.plan,
           modelAuth: options.modelAuth,
+          ...(options.complete === undefined ? {} : { complete: options.complete }),
           spendCap: createSpendCap({ maxTokens: view.estimate.maxTokens }),
           ...(options.env === undefined ? {} : { env: options.env }),
           ...(options.egressProxy === undefined ? {} : { egressProxy: options.egressProxy }),

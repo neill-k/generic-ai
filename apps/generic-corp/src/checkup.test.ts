@@ -154,8 +154,27 @@ describe("checkup service", () => {
       modelAuth: modelAuth("none"),
       run: fakeRunner().run,
     });
-    expect((await checkup.plan()).reason).toMatch(/no API key/);
+    expect((await checkup.plan()).reason).toMatch(/Nothing powers the agents/);
     await expect(checkup.start()).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("runs on the Claude plan alone, with the judge's calls on the plan too", async () => {
+    const calls: RunBaselineOptions[] = [];
+    const runner = fakeRunner(calls);
+    const complete = async () => {
+      throw new Error("not called by the fake runner");
+    };
+    const checkup = createCompanyCheckup({
+      kv: memoryKv(),
+      modelAuth: modelAuth("claude_plan"),
+      complete,
+      run: runner.run,
+    });
+    expect((await checkup.plan()).ready).toBe(true);
+    await checkup.start();
+    runner.release();
+    await checkup.idle();
+    expect(calls[0]?.complete).toBe(complete);
   });
 
   it("records a failed checkup, and one cut off by a restart", async () => {
