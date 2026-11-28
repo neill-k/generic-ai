@@ -23,7 +23,7 @@
   ],
   "dependencies": {
     "@generic-ai/tools": "0.0.0",
-    "ignore": "^5.3.2",
+    "ignore": "^7.0.16",
     "yaml": "^2.8.3"
   },
   "license": "MIT",
