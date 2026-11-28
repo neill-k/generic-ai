@@ -81,7 +81,7 @@ else
   echo
   echo "1. Open ${url}/auth/login and sign in with your passkey."
 fi
-echo "2. Open More, then Claude sign-in, and sign in with your Claude account."
+echo "2. Open More, then Claude API key, and save your Anthropic API key."
 echo "3. On the Goals screen, type your first goal under \"Set a goal\" and press Set goal."
 echo
 echo "Follow the log with: $0 logs"

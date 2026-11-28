@@ -339,9 +339,9 @@ describe("baseline comparison", () => {
     expect(explainModelError(extra)).toMatch(
       /^Claude refused every model call: it billed them as extra usage/,
     );
-    expect(explainModelError(extra)).toContain("More > Claude sign-in");
+    expect(explainModelError(extra)).toContain("More > Claude API key");
     expect(explainModelError("429 rate_limit_error")).toMatch(/usage or rate limit/);
-    expect(explainModelError("401 authentication_error")).toMatch(/rejected the sign-in/);
+    expect(explainModelError("401 authentication_error")).toMatch(/rejected the API key/);
     expect(explainModelError("socket hang up")).toBe(
       "Model calls failed, so no goal could finish. The error was: socket hang up",
     );

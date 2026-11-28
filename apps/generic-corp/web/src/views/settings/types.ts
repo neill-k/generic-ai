@@ -44,18 +44,6 @@ export interface QualityView {
   agents: AgentQuality[];
 }
 
-export type PlanLimitBehaviour = "wait" | "api_key";
-
-export interface PlanLimitStatus {
-  behaviour: PlanLimitBehaviour;
-  limited: boolean;
-  limitedUntil?: string;
-  resetKnown?: boolean;
-  detectedAt?: string;
-  apiKeyAvailable: boolean;
-  usingApiKey: boolean;
-}
-
 export type BackupReason = "nightly" | "first" | "manual" | "before-restore";
 
 export interface BackupSummary {

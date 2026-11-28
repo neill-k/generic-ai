@@ -10,7 +10,7 @@ The decision to build it here, and the product decisions behind it, are in
 [`docs/decisions/0046-generic-corp-app-on-generic-ai.md`](../../docs/decisions/0046-generic-corp-app-on-generic-ai.md).
 
 **Run it on your machine:** [`RUN-LOCALLY.md`](RUN-LOCALLY.md) (one command,
-then sign in with Claude).
+then add your Anthropic API key).
 
 ## Status
 
@@ -66,7 +66,7 @@ dashboard at `/` with a permissions page and the refused-actions list.
   opens each agent's current work and memory. It refreshes from
   `/api/events?unnamed=1`, and a signed-out browser goes to `/auth/login`.
   Activity, drive, deliverables, usage, permissions and refused actions,
-  connections, Claude sign-in and the checkup live in the same app.
+  connections, the Claude API key and the checkup live in the same app.
 - **Permissions.** `permissions.ts`: the owner sets broad categories once
   (read outside systems: on; send messages, spend money, write to outside
   systems: off; GitHub pushes, pull requests and green-check merges in the
@@ -189,7 +189,7 @@ A backup is a folder named by its time, holding the database (`database.jsonl.gz
 every row of every table, for Postgres; `database.sqlite.gz`, a `VACUUM INTO`
 copy, for SQLite), `files.tar.gz` and a `manifest.json` with a SHA-256 for each
 file. The Postgres export does not depend on the server version, so a backup
-taken on Postgres 17 restores into 16. The Claude sign-in (`model-auth.json`)
+taken on Postgres 17 restores into 16. The saved API key (`model-auth.json`)
 is left out on purpose.
 
 `GET /api/backups` lists them with the next scheduled time; `POST /api/backups`
@@ -214,15 +214,17 @@ transaction: if it fails, the database is left as it was. With Docker, use
 
 ### The Claude plan's usage limit
 
-When agents run on the owner's Claude sign-in and the plan's usage limit is
-reached (decision 15), the setting decides what happens. With `wait`, the
+Dormant: this applied when agents ran on the owner's Claude plan sign-in,
+which is removed because Anthropic's terms don't allow third-party apps to use
+a Claude plan. Agents now run on an Anthropic API key, so the setting has no
+effect and its screen is gone; the API stays for now. As it was: when the plan's
+usage limit was reached (decision 15), the setting decided what happens. With `wait`, the
 default, work shows as "Paused until your Claude plan resets" and picks up on
 its own after the reset. With `api_key`, turns use an Anthropic API key from
 `ANTHROPIC_API_KEY` or the secrets vault (`ANTHROPIC_API_KEY` secret) until
 the plan resets; without one it waits. The reset time comes from the
 provider's error when it gives one; otherwise the plan is tried again after 15
-minutes, doubling up to 5 hours. The choice is on the Claude sign-in page
-(`#/sign-in`).
+minutes, doubling up to 5 hours.
 
 ### Spending limits
 
@@ -404,7 +406,7 @@ The plain single agent is the CEO alone, on the CEO's model, told to do every
 part of the work itself and given every role's instructions, so only the
 structure differs. Each attempt starts a fresh company, so memory starts empty.
 
-The live set is small because it runs on the owner's Claude plan: the back
+The live set is small because it runs on the owner's API key: the back
 office's month-end close (exact answers, no web search), one attempt per
 configuration. Before it starts, the checkup shows the plan and its expected
 tokens (a guess until the first checkup has run, then the last checkup's real
@@ -420,7 +422,7 @@ runs when the owner starts it:
 - From a terminal: `npm run checkup -w @generic-ai/app-generic-corp` shows the
   plan and asks before starting (`--yes` skips the question, `--plan` only shows
   it, `--set ablation` adds the four ablations, `--out <dir>` writes
-  `baseline.md` and `baseline.json`). It uses the Claude sign-in saved in the
+  `baseline.md` and `baseline.json`). It uses the API key saved in the
   data folder (`--data-dir`, default `GENERIC_CORP_DATA_DIR` or
   `~/.generic-corp`), else `ANTHROPIC_API_KEY`. With the local Docker setup, run
   `docker compose -f apps/generic-corp/compose.yaml exec app node apps/generic-corp/dist/checkup-cli.js`

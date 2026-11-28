@@ -43,13 +43,11 @@ function memoryKv(): StorageContract {
   };
 }
 
-function modelAuth(source: ModelAuthSource = "subscription"): CompanyModelAuth {
+function modelAuth(source: ModelAuthSource = "api_key"): CompanyModelAuth {
   const status = async () => ({ provider: "anthropic" as const, source });
   return {
     getAuth: async () => undefined,
     status,
-    startClaudeSignIn: async () => ({ flowId: "f", url: "https://example.test" }),
-    finishClaudeSignIn: status,
     saveApiKey: status,
     signOut: status,
   };
@@ -150,13 +148,13 @@ describe("checkup service", () => {
     expect(next.estimate.highTokens).toBe(180_000);
   });
 
-  it("will not start without a model sign-in", async () => {
+  it("will not start without an API key", async () => {
     const checkup = createCompanyCheckup({
       kv: memoryKv(),
       modelAuth: modelAuth("none"),
       run: fakeRunner().run,
     });
-    expect((await checkup.plan()).reason).toMatch(/no model sign-in/);
+    expect((await checkup.plan()).reason).toMatch(/no API key/);
     await expect(checkup.start()).rejects.toMatchObject({ status: 409 });
   });
 

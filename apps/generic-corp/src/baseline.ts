@@ -284,7 +284,7 @@ export interface RunBaselineOptions {
   /** Replaces the loaded template, for tests. */
   readonly template?: TemplateEvalSuite;
   readonly env?: NodeJS.ProcessEnv;
-  /** Where agents and the judge get their model credential, for example the owner's Claude sign-in. */
+  /** Where agents and the judge get their model credential, for example the owner's saved API key. */
   readonly modelAuth?: CompanyModelAuth;
   /** Replaces the model resolver, for tests. */
   readonly resolveModel?: (ref: string) => Model;
@@ -469,13 +469,13 @@ function isProviderError(message: string): boolean {
 export function explainModelError(message: string): string {
   const text = message.toLowerCase();
   if (text.includes("extra usage")) {
-    return "Claude refused every model call: it billed them as extra usage, and your account has no extra usage left. Anthropic counts apps outside Claude Code that sign in with a Claude plan as extra usage, not plan usage. To fix it, either add extra usage at claude.ai/settings/usage, or sign in with an API key under More > Claude sign-in.";
+    return "Claude refused every model call: it billed them as extra usage, and your account has no extra usage left. Anthropic's terms don't allow apps outside Claude Code to use a Claude plan. Add an Anthropic API key under More > Claude API key.";
   }
   if (/rate.?limit|usage limit|429|overloaded/.test(text)) {
     return `Claude refused model calls because a usage or rate limit was hit, so no goal could finish. Try again after the limit resets. Claude said: ${message}`;
   }
   if (/401|403|authentication|invalid x-api-key|oauth|unauthorized|permission/.test(text)) {
-    return `Claude rejected the sign-in, so no model call went through. Sign in again under More > Claude sign-in. Claude said: ${message}`;
+    return `Claude rejected the API key, so no model call went through. Check it under More > Claude API key. Claude said: ${message}`;
   }
   return `Model calls failed, so no goal could finish. The error was: ${message}`;
 }

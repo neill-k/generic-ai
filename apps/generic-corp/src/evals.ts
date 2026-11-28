@@ -196,7 +196,7 @@ export interface CompanyEvalExecutorOptions {
    * firewall only allows that server's proxy port.
    */
   readonly egressProxy?: Pick<EgressProxy, "envFor">;
-  /** Live mode: where agents get their model credential, for example the owner's Claude sign-in. */
+  /** Live mode: where agents get their model credential, for example the owner's saved API key. */
   readonly modelAuth?: CompanyModelAuth;
   /**
    * Feature switches for the baseline comparison: `offload: false` keeps large tool results in
