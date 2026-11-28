@@ -23,13 +23,13 @@
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "0.91.1",
-    "@aws-sdk/client-bedrock-runtime": "3.1167.0",
-    "@aws-sdk/credential-provider-node": "3.972.97",
-    "@google/genai": "3.2.0",
+    "@aws-sdk/client-bedrock-runtime": "3.1177.0",
+    "@aws-sdk/credential-provider-node": "3.972.99",
+    "@google/genai": "3.6.1",
     "openai": "6.26.0"
   },
   "devDependencies": {
-    "@sinclair/typebox": "0.34.49"
+    "@sinclair/typebox": "0.34.52"
   },
   "license": "MIT",
   "private": false,
