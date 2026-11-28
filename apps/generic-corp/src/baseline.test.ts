@@ -16,6 +16,7 @@ import {
   COMPANY_CONFIG,
   describeBaselineEstimate,
   estimateBaseline,
+  explainModelError,
   GUESSED_TOKENS_PER_ATTEMPT,
   renderBaselineMarkdown,
   runBaseline,
@@ -330,5 +331,19 @@ describe("baseline comparison", () => {
     expect(measured.basis).toBe("measured");
     expect(measured.lowTokens).toBe(70_000);
     expect(measured.highTokens).toBe(210_000);
+  });
+
+  it("explains a model error in plain words", () => {
+    const extra =
+      '400 {"type":"error","error":{"type":"invalid_request_error","message":"You\'re out of extra usage. Add more at claude.ai/settings/usage and keep going."}}';
+    expect(explainModelError(extra)).toMatch(
+      /^Claude refused every model call: it billed them as extra usage/,
+    );
+    expect(explainModelError(extra)).toContain("More > Claude sign-in");
+    expect(explainModelError("429 rate_limit_error")).toMatch(/usage or rate limit/);
+    expect(explainModelError("401 authentication_error")).toMatch(/rejected the sign-in/);
+    expect(explainModelError("socket hang up")).toBe(
+      "Model calls failed, so no goal could finish. The error was: socket hang up",
+    );
   });
 });
