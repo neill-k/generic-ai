@@ -42,6 +42,27 @@ interface StoredPlanLimit {
   readonly strikes?: number;
   /** Whether `limitedUntil` came from the provider rather than a guess. */
   readonly resetKnown?: boolean;
+  /** What the Claude Agent SDK last reported about each of the plan's usage windows. */
+  readonly usage?: Readonly<Record<string, PlanWindowUsage>>;
+}
+
+/** The plan's use of one usage window, as the Claude Agent SDK reports it. */
+export interface PlanWindowUsage {
+  /** `five_hour`, `seven_day`, ... */
+  readonly window: string;
+  readonly status: string;
+  /** Share of the window used, 0 to 1, when reported. */
+  readonly utilization?: number;
+  readonly resetsAt?: string;
+  readonly seenAt: string;
+}
+
+/** A rate-limit report from the Claude Agent SDK (`rate_limit_event.rate_limit_info`). */
+export interface PlanRateLimitInfo {
+  readonly status?: string;
+  readonly resetsAt?: number;
+  readonly rateLimitType?: string;
+  readonly utilization?: number;
 }
 
 export interface PlanLimitStatus {
@@ -56,6 +77,8 @@ export interface PlanLimitStatus {
   readonly apiKeyAvailable: boolean;
   /** True while turns run on the API key instead of the plan. */
   readonly usingApiKey: boolean;
+  /** The plan's usage windows as last reported, soonest reset first. */
+  readonly usage?: readonly PlanWindowUsage[];
 }
 
 const KEY = { namespace: "generic-corp-owner", collection: "settings", id: "plan-limit" };
@@ -90,6 +113,8 @@ export function parsePlanLimitBehaviour(value: unknown): PlanLimitBehaviour {
 
 export interface PlanLimit {
   status(): Promise<PlanLimitStatus>;
+  /** Keeps what the Claude Agent SDK reported about the plan's usage, for the usage screens. */
+  recordUsage(info: PlanRateLimitInfo): Promise<void>;
   setBehaviour(behaviour: PlanLimitBehaviour): Promise<PlanLimitStatus>;
   /**
    * Request auth for a turn: the plan's sign-in, or the API key while the plan is limited and
@@ -155,6 +180,16 @@ export async function createPlanLimit(options: CreatePlanLimitOptions): Promise<
         : {}),
       apiKeyAvailable: apiKey !== undefined,
       usingApiKey: isLimited && state.behaviour === "api_key" && apiKey !== undefined,
+      ...(state.usage === undefined
+        ? {}
+        : {
+            usage: Object.values(state.usage)
+              .filter(
+                (entry) =>
+                  entry.resetsAt === undefined || Date.parse(entry.resetsAt) > now().getTime(),
+              )
+              .sort((a, b) => (a.resetsAt ?? "").localeCompare(b.resetsAt ?? "")),
+          }),
     };
   };
 
@@ -162,6 +197,20 @@ export async function createPlanLimit(options: CreatePlanLimitOptions): Promise<
 
   return {
     status,
+
+    async recordUsage(info) {
+      const window = info.rateLimitType ?? "plan";
+      const entry: PlanWindowUsage = {
+        window,
+        status: info.status ?? "allowed",
+        ...(info.utilization === undefined ? {} : { utilization: info.utilization }),
+        ...(info.resetsAt === undefined
+          ? {}
+          : { resetsAt: new Date(info.resetsAt * 1000).toISOString() }),
+        seenAt: now().toISOString(),
+      };
+      await save({ ...state, usage: { ...state.usage, [window]: entry } });
+    },
 
     async setBehaviour(behaviour) {
       await save({ ...state, behaviour });

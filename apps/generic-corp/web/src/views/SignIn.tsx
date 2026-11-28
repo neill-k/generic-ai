@@ -3,6 +3,7 @@ import { useState } from "preact/hooks";
 import { api } from "../api.js";
 import { ErrorNote, Loading } from "../components/ui.js";
 import { useResource } from "../live.js";
+import { PlanLimitSection } from "./settings/PlanLimitSection.js";
 
 interface ModelAuthStatus {
   source: "claude_plan" | "api_key" | "environment" | "none";
@@ -111,6 +112,7 @@ export function SignInView() {
             the app never stores plan tokens.
           </p>
         </section>
+        {source === "claude_plan" ? <PlanLimitSection /> : null}
         <section class="card settings-card stack" aria-label="API key">
           <h2>API key</h2>
           <p class="small muted">

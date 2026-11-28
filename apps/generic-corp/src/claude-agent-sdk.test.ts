@@ -297,6 +297,45 @@ describe("one-shot calls on the Claude plan", () => {
     expect(fellBack).toBe(0);
   }, 60_000);
 
+  it("reports the plan's usage windows, and a reached limit in the hold's form", async () => {
+    const seen: unknown[] = [];
+    const query = () => {
+      const messages = [
+        {
+          type: "rate_limit_event",
+          rate_limit_info: {
+            status: "rejected",
+            resetsAt: 1_800_000_000,
+            rateLimitType: "five_hour",
+            utilization: 1,
+          },
+        },
+        { type: "result", subtype: "error_during_execution", is_error: true, errors: ["429"] },
+      ];
+      return Object.assign(
+        (async function* () {
+          yield* messages;
+        })(),
+        { interrupt: async () => undefined },
+      );
+    };
+    const completeOnPlan = createClaudePlanCompletion({
+      active: () => true,
+      token: () => "t",
+      configDir: "/nonexistent",
+      query,
+      onRateLimit: (info) => seen.push(info),
+    });
+    const reply = await completeOnPlan(resolveModel("anthropic/claude-sonnet-4-6"), {
+      messages: [{ role: "user", content: "Grade this.", timestamp: Date.now() }],
+    });
+    expect(seen).toEqual([
+      { status: "rejected", resetsAt: 1_800_000_000, rateLimitType: "five_hour", utilization: 1 },
+    ]);
+    expect(reply.stopReason).toBe("error");
+    expect(readPlanLimitError(reply.errorMessage)?.getTime()).toBe(1_800_000_000_000);
+  });
+
   it("leaves other models, and calls while the plan is off, to the fallback", async () => {
     const calls: string[] = [];
     const fallback = async (model: { id: string }) => {

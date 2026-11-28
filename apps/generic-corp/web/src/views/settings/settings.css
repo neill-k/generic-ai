@@ -144,3 +144,9 @@ button.small {
   padding: 0.6rem 0.75rem;
   overflow-x: auto;
 }
+
+.plan-usage {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

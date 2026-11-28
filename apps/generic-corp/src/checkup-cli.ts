@@ -14,6 +14,7 @@ import {
   renderBaselineMarkdown,
   runBaseline,
 } from "./baseline.js";
+import { CLAUDE_PLAN_TOKEN_ENV, createClaudePlanCompletion } from "./claude-agent-sdk.js";
 import { EXIT_LIVE_IN_CI, EXIT_MISSING_KEY } from "./evals-cli.js";
 import { createCompanyModelAuth, resolveProviderKeyFromEnv } from "./model-auth.js";
 import { createSpendCap } from "./spend.js";
@@ -97,14 +98,16 @@ export async function main(
   const dataDir = path.resolve(
     values["data-dir"] ?? env["GENERIC_CORP_DATA_DIR"] ?? path.join(homedir(), ".generic-corp"),
   );
+  const claudePlanToken = () => env[CLAUDE_PLAN_TOKEN_ENV]?.trim() || undefined;
   const modelAuth = createCompanyModelAuth({
     path: path.join(dataDir, "model-auth.json"),
     fallback: (provider) => resolveProviderKeyFromEnv(provider, env),
+    claudePlanToken,
   });
   const auth = await modelAuth.status();
   if (auth.source === "none") {
     console.error(
-      `No saved API key in ${dataDir} and no ANTHROPIC_API_KEY. Add a key in the app, or pass --data-dir. Nothing was run.`,
+      `No ${CLAUDE_PLAN_TOKEN_ENV} (from \`claude setup-token\`), no saved API key in ${dataDir} and no ANTHROPIC_API_KEY. Set one of them, or pass --data-dir. Nothing was run.`,
     );
     return EXIT_MISSING_KEY;
   }
@@ -126,6 +129,12 @@ export async function main(
     plan,
     env,
     modelAuth,
+    // Agent turns follow the environment (the plan when its token is set); so does the judge.
+    complete: createClaudePlanCompletion({
+      token: claudePlanToken,
+      active: () => claudePlanToken() !== undefined,
+      configDir: path.join(dataDir, "claude-agent-sdk"),
+    }),
     spendCap: createSpendCap({ maxTokens }),
     log: (message) => console.error(message),
   });
@@ -141,6 +150,8 @@ export async function main(
 
 function describeSource(source: string): string {
   switch (source) {
+    case "claude_plan":
+      return `your Claude plan (${CLAUDE_PLAN_TOKEN_ENV}, through the Claude Agent SDK)`;
     case "api_key":
       return "the saved Anthropic API key";
     default:

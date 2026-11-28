@@ -82,6 +82,7 @@ export interface ClaudeAgentMessage {
     readonly status?: string;
     readonly resetsAt?: number;
     readonly rateLimitType?: string;
+    readonly utilization?: number;
   };
 }
 
@@ -109,6 +110,8 @@ export interface ClaudeAgentSdkBackendOptions {
   readonly query?: ClaudeAgentQuery;
   /** Extra environment for the SDK's process, such as a test model's base URL. */
   readonly env?: Readonly<Record<string, string>>;
+  /** Every rate-limit report the SDK makes: how much of each plan window is used, and resets. */
+  readonly onRateLimit?: (info: NonNullable<ClaudeAgentMessage["rate_limit_info"]>) => void;
 }
 
 /** The model id the SDK takes, from our `anthropic/<id>` reference. */
@@ -492,6 +495,7 @@ async function runSdkSession(
         }
       } else if (message.type === "rate_limit_event") {
         const info = message.rate_limit_info;
+        if (info !== undefined) options.onRateLimit?.(info);
         if (info?.status === "rejected") {
           planLimit = planLimitFailure(info.resetsAt, info.rateLimitType);
         }
@@ -550,6 +554,7 @@ export interface ClaudePlanCompletionOptions {
   readonly active: () => boolean | Promise<boolean>;
   readonly query?: ClaudeAgentQuery;
   readonly env?: Readonly<Record<string, string>>;
+  readonly onRateLimit?: ClaudeAgentSdkBackendOptions["onRateLimit"];
   /** Used for other models and while the plan is off. Defaults to `complete`. */
   readonly fallback?: CompleteFn;
 }
@@ -625,6 +630,7 @@ export function createClaudePlanCompletion(options: ClaudePlanCompletionOptions)
           if (message.error === "rate_limit") planLimit ??= planLimitFailure(undefined, undefined);
         } else if (message.type === "rate_limit_event") {
           const info = message.rate_limit_info;
+          if (info !== undefined) options.onRateLimit?.(info);
           if (info?.status === "rejected") {
             planLimit = planLimitFailure(info.resetsAt, info.rateLimitType);
           }

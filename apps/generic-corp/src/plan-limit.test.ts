@@ -242,3 +242,41 @@ describe("plan limit in the server", () => {
     expect(auths).toEqual([undefined]);
   });
 });
+
+describe("plan usage from the Claude Agent SDK", () => {
+  it("keeps the latest report per window, soonest reset first, and drops passed windows", async () => {
+    let clock = new Date("2026-11-28T10:00:00Z");
+    const plan = await createPlanLimit({
+      kv: kv(),
+      source: async () => "claude_plan",
+      apiKey: async () => undefined,
+      now: () => clock,
+    });
+    const at = (iso: string) => Date.parse(iso) / 1000;
+    await plan.recordUsage({
+      status: "allowed",
+      rateLimitType: "seven_day",
+      utilization: 0.2,
+      resetsAt: at("2026-12-01T00:00:00Z"),
+    });
+    await plan.recordUsage({
+      status: "allowed",
+      rateLimitType: "five_hour",
+      utilization: 0.3,
+      resetsAt: at("2026-11-28T12:00:00Z"),
+    });
+    await plan.recordUsage({
+      status: "allowed_warning",
+      rateLimitType: "five_hour",
+      utilization: 0.81,
+      resetsAt: at("2026-11-28T12:00:00Z"),
+    });
+    const usage = (await plan.status()).usage ?? [];
+    expect(usage.map((entry) => [entry.window, entry.utilization, entry.status])).toEqual([
+      ["five_hour", 0.81, "allowed_warning"],
+      ["seven_day", 0.2, "allowed"],
+    ]);
+    clock = new Date("2026-11-28T13:00:00Z");
+    expect(((await plan.status()).usage ?? []).map((entry) => entry.window)).toEqual(["seven_day"]);
+  });
+});
